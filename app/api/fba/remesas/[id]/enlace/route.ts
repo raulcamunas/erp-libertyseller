@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
 import { FaltaLaMigracion, enlaceActivoDe, enlaceParaCopiar, revocarEnlace, rutaDelEnlace, type EnlaceDeEncaje } from '@/lib/fba/encaje-enlace'
+import { registrarEnHistorial } from '@/lib/fba/historial'
+import { enviarPropuesta, rutaDelPortal } from '@/lib/fba/portal'
 import type { EstadoRemesa } from '@/lib/fba/flujo'
 import { createServiceClient } from '@/lib/supabase/service'
 import { urlBaseApp } from '@/lib/url-app'
@@ -10,7 +12,10 @@ import { urlBaseApp } from '@/lib/url-app'
  * EL ENLACE PARA QUE EL CLIENTE ENCAJE SIN ENTRAR AL ERP: COPIARLO, VERLO Y DESACTIVARLO.
  *
  * GET     el enlace vivo de este envío, con cuántas veces se ha abierto y cuándo se tocó por última vez.
- * POST    el enlace para copiar: el que ya hay o, si no hay, uno nuevo. Solo en «Encajando».
+ * POST    el enlace para copiar: el que ya hay o, si no hay, uno nuevo. Desde la 309, en CUALQUIER paso
+ *         menos «Cerrada»: es el portal del cliente (/envio/<token>), con la propuesta, las etiquetas, las
+ *         cajas y el envío. El de siempre (/encajar/<token>) sigue funcionando con el mismo token. Si se
+ *         copia en borrador y la propuesta no se le había mandado, se toma la FOTO de lo propuesto.
  * DELETE  lo desactiva: quien lo tuviera deja de poder entrar.
  *
  * LAS TRES EXIGEN PODER EDITAR, también la de leer. El enlace es una credencial de ESCRITURA —con él
@@ -39,7 +44,8 @@ async function remesaYAcceso(id: string) {
 
 function aInfo(e: EnlaceDeEncaje) {
   return {
-    url: `${urlBaseApp()}${rutaDelEnlace(e.token)}`,
+    url: `${urlBaseApp()}${rutaDelPortal(e.token)}`,
+    urlEncaje: `${urlBaseApp()}${rutaDelEnlace(e.token)}`,
     creadoAt: e.creadoAt,
     caducaAt: e.caducaAt,
     abiertoVeces: e.abiertoVeces,
@@ -70,12 +76,21 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
   try {
     const r = await remesaYAcceso(params.id)
     if (r.error) return r.error
-    if (r.remesa!.estado !== 'encajando') {
-      return fail(409, 'El enlace para el cliente se genera cuando el envío está en «Encajando», que es cuando le toca a él.')
+    if (r.remesa!.estado === 'cerrada') {
+      return fail(409, 'Este envío ya está cerrado: el cliente no tiene nada que hacer en él.')
     }
     try {
+      const habia = await enlaceActivoDe(params.id)
       const e = await enlaceParaCopiar(params.id, r.sesion!.userId)
-      return NextResponse.json({ enlace: aInfo(e) }, { headers: { 'Cache-Control': 'no-store' } })
+      if (!habia) {
+        await registrarEnHistorial({ remesaId: params.id, actor: r.sesion!.actor, userId: r.sesion!.userId, enlaceId: e.id, accion: 'enlace_creado' })
+      }
+      // En borrador, copiar el enlace ES mandarle la propuesta: se toma la foto si no se había tomado
+      let propuesta: Awaited<ReturnType<typeof enviarPropuesta>> | null = null
+      if (r.remesa!.estado === 'borrador') {
+        propuesta = await enviarPropuesta(params.id, r.sesion!.userId, r.sesion!.actor, { soloSiNoSeEnvio: true })
+      }
+      return NextResponse.json({ enlace: aInfo(e), propuesta }, { headers: { 'Cache-Control': 'no-store' } })
     } catch (error) {
       if (error instanceof FaltaLaMigracion) return fail(503, error.message)
       throw error
@@ -91,6 +106,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     if (r.error) return r.error
     try {
       const habia = await revocarEnlace(params.id)
+      if (habia) await registrarEnHistorial({ remesaId: params.id, actor: r.sesion!.actor, userId: r.sesion!.userId, accion: 'enlace_revocado' })
       return NextResponse.json({ ok: true, habia }, { headers: { 'Cache-Control': 'no-store' } })
     } catch (error) {
       if (error instanceof FaltaLaMigracion) return fail(503, error.message)

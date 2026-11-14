@@ -1,31 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
-import { FORMATOS, hojaDeEtiquetas, type EtiquetaProducto } from '@/lib/fba/etiquetas'
-import { leerFnskusDeAmazon } from '@/lib/fba/fnsku-amazon'
-import { puedeImprimirEtiquetas, type EstadoRemesa } from '@/lib/fba/flujo'
+import { generarEtiquetasDeRemesa, registrarImpresion, respuestaPdf } from '@/lib/fba/etiquetas-remesa'
+import { registrarEnHistorial } from '@/lib/fba/historial'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
- * EL PDF DE ETIQUETAS DE PRODUCTO DE UNA REMESA.
+ * EL PDF DE ETIQUETAS DE PRODUCTO DE UNA REMESA, DESDE EL ERP.
  *
- * Una etiqueta por unidad: si van ocho pares de la talla 43, salen ocho
- * pegatinas iguales. Es lo que se pega, una por caja de producto.
- *
- *
- * ============ NO ANTES DE QUE EL CLIENTE APRUEBE ============
- *
- * En borrador todavía puede cambiar qué se manda, y una etiqueta pegada en un
- * producto que al final no va cuesta más de despegar que de imprimir. El estado
- * se comprueba aquí y no solo en pantalla.
- *
- *
- * ============ DE DÓNDE SALE EL FNSKU ============
- *
- * Primero de la línea de la remesa —las que vinieron del Excel lo traen— y si
- * no, del espejo del catálogo, que lo rellena la pasada nocturna desde el libro
- * mayor. Si no está en ninguno de los dos, esa referencia NO se imprime y se
- * dice cuál: una etiqueta a medias es peor que ninguna.
+ * Una etiqueta por unidad. No antes de que se apruebe el envío. El FNSKU de la línea, del espejo del
+ * catálogo o leído de Amazon en el momento. Todo eso vive en lib/fba/etiquetas-remesa.ts, que comparte con
+ * el enlace del cliente (/api/publico/envio/[token]/etiquetas): aquí solo se comprueba la sesión y el
+ * acceso al cliente, y se apunta la tirada (fba_impresiones + historial).
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -38,240 +24,25 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     if (sesion instanceof NextResponse) return sesion
 
     const service = createServiceClient()
-    const { data: cabecera } = await service
-      .from('fba_remesas')
-      // `version` NO va en este select, y es a propósito: la migración 215 se
-      // lanza a mano y el código llega antes. Un select que la nombra devuelve
-      // 42703 y deja SIN ETIQUETAS a quien tiene la mercancía delante, por un
-      // contador que solo sirve para un aviso. Se pide aparte, más abajo.
-      .select('id, nombre, client_id, connection_id, marketplace_id, estado')
-      .eq('id', params.id)
-      .maybeSingle()
-    if (!cabecera) return fail(404, 'Esa remesa ya no existe')
-
-    const remesa = cabecera as {
-      id: string
-      nombre: string | null
-      client_id: string
-      connection_id: string | null
-      marketplace_id: string
-      estado: EstadoRemesa
-    }
-    if (sesion.clientesPermitidos && !sesion.clientesPermitidos.includes(remesa.client_id)) {
+    const { data: cabecera } = await service.from('fba_remesas').select('client_id').eq('id', params.id).maybeSingle()
+    const clienteId = (cabecera as { client_id: string } | null)?.client_id
+    // El mismo 404 que si no existiera: a quien no tiene acceso no se le confirma ni que exista
+    if (!clienteId || (sesion.clientesPermitidos && !sesion.clientesPermitidos.includes(clienteId))) {
       return fail(404, 'Esa remesa ya no existe')
     }
 
-    if (!puedeImprimirEtiquetas(remesa.estado)) {
-      return fail(
-        409,
-        'Todavía no. Las etiquetas se imprimen cuando el cliente ha aprobado el envío: en borrador ' +
-          'aún puede cambiar qué se manda.'
-      )
-    }
-
     const formato = request.nextUrl.searchParams.get('formato') ?? 'a4-21'
-    if (!FORMATOS.some((f) => f.id === formato)) return fail(400, 'Ese formato de hoja no existe')
+    const r = await generarEtiquetasDeRemesa(params.id, formato, service)
+    if (!r.ok) return fail(r.estado, r.error)
 
-    const { data: lineas } = await service
-      .from('fba_remesa_lineas')
-      .select('sku, unidades, fnsku, nombre, variante')
-      .eq('remesa_id', params.id)
-      .order('sku', { ascending: true })
+    // Se apunta sin hacer esperar a la descarga: quedarse sin etiquetas por el apunte sería peor
+    void registrarImpresion(r, { userId: sesion.userId, origen: 'erp' }, service)
+    void registrarEnHistorial(
+      { remesaId: params.id, actor: sesion.actor, userId: sesion.userId, accion: 'etiquetas', detalle: { etiquetas: r.impresas, formato, descartadas: r.descartadas.length } },
+      service
+    )
 
-    const filas = (lineas ?? []) as Array<{
-      sku: string
-      unidades: number
-      fnsku: string | null
-      nombre: string | null
-      variante: string | null
-    }>
-    if (filas.length === 0) return fail(400, 'Esta remesa no tiene ninguna referencia')
-
-    // El espejo completa lo que falte: FNSKU de las referencias que no lo
-    // traían, y el título real de Amazon, que es el que reconoce el almacén.
-    const catalogo = new Map<
-      string,
-      { fnsku: string | null; title: string | null; asin: string | null }
-    >()
-    if (remesa.connection_id) {
-      /**
-       * POR TRAMOS, Y MIRANDO EL ERROR.
-       *
-       * Estaba con un solo `.in()` de todos los SKU y con el error ignorado
-       * (`const { data: espejo }` a secas). PostgREST mete los valores del `in`
-       * EN LA URL, así que por encima de unos quinientos SKU la petición se pasa
-       * de largo y falla — y al tirar el error, `catalogo` se quedaba vacío y
-       * TODAS las etiquetas salían sin FNSKU y sin el título de Amazon. Un
-       * cliente con una remesa grande se encontraba un PDF en blanco sin que
-       * nada dijera por qué.
-       *
-       * Ahora va en tramos de 200 y si alguno falla se corta con un mensaje. No
-       * se imprime media hoja: con mercancía delante, media hoja de etiquetas es
-       * peor que ninguna.
-       */
-      const TRAMO = 200
-      const skus = filas.map((l) => l.sku)
-      for (let i = 0; i < skus.length; i += TRAMO) {
-        const { data: espejo, error } = await service
-          .from('amazon_listings')
-          .select('sku, fnsku, title, asin')
-          .eq('connection_id', remesa.connection_id)
-          .eq('marketplace_id', remesa.marketplace_id)
-          .in('sku', skus.slice(i, i + TRAMO))
-        if (error) {
-          return fail(
-            502,
-            'No se ha podido leer el catálogo para completar los FNSKU, así que las etiquetas ' +
-              `saldrían incompletas y no se imprimen. Vuelve a intentarlo. (${error.message})`
-          )
-        }
-        for (const l of (espejo ?? []) as Array<{
-          sku: string
-          fnsku: string | null
-          title: string | null
-          asin: string | null
-        }>) {
-          catalogo.set(l.sku, { fnsku: l.fnsku, title: l.title, asin: l.asin })
-        }
-      }
-    }
-
-    /**
-     * SI FALTA EL FNSKU, SE LE PREGUNTA A AMAZON AHORA.
-     *
-     * El espejo del catálogo solo se rellena con el refresco y con el libro de la noche: la primera remesa
-     * de un cliente —referencias que aún no han movido stock— salía con todas las etiquetas descartadas
-     * hasta el día siguiente. Para las referencias sin FNSKU (o con el ASIN en su lugar, por si Amazon ya
-     * les ha dado el de verdad) se lee en el momento. Si Amazon no contesta, se sigue con lo que hay: el
-     * motivo de cada descartada ya lo dice la propia respuesta.
-     */
-    if (remesa.connection_id) {
-      const esAsin = (f: string, a: string | null) => !!a && f.trim().toUpperCase() === a.trim().toUpperCase()
-      const faltan = filas
-        .filter((l) => {
-          const c = catalogo.get(l.sku)
-          const f = l.fnsku ?? c?.fnsku ?? null
-          return !f || esAsin(f, c?.asin ?? null)
-        })
-        .map((l) => l.sku)
-      if (faltan.length > 0) {
-        const { leidos } = await leerFnskusDeAmazon(service, remesa.connection_id, remesa.marketplace_id, faltan)
-        for (const x of leidos) {
-          if (!x.fnsku) continue
-          const previo = catalogo.get(x.sku)
-          catalogo.set(x.sku, { fnsku: x.fnsku, title: previo?.title ?? null, asin: previo?.asin ?? null })
-        }
-      }
-    }
-
-    const etiquetas: EtiquetaProducto[] = filas.map((l) => {
-      const delEspejo = catalogo.get(l.sku)
-      // El título de Amazon manda sobre el nuestro: quien pega la etiqueta y
-      // quien la recibe en el almacén ven el mismo texto que en Seller Central.
-      const titulo =
-        delEspejo?.title ??
-        [l.nombre, l.variante].filter(Boolean).join(' · ') ??
-        l.sku
-      return {
-        fnsku: l.fnsku ?? delEspejo?.fnsku ?? '',
-        titulo: titulo || l.sku,
-        // Nuestro SKU, tal cual está en la remesa. NO el del espejo: si algún día
-        // no coincidieran, el que manda es el de la línea que se va a enviar, que
-        // es lo que el almacén tiene delante.
-        sku: l.sku,
-        // Para poder descartar las que van con el código del fabricante: ahí
-        // Amazon devuelve el ASIN en el campo del FNSKU. Ver lib/fba/etiquetas.ts.
-        asin: delEspejo?.asin ?? null,
-        unidades: l.unidades,
-      }
-    })
-
-    const { pdf, etiquetas: impresas, paginas, descartadas, avisos } = hojaDeEtiquetas(etiquetas, formato)
-
-    /**
-     * NI UNA ETIQUETA IMPRIMIBLE NO ES UN PDF EN BLANCO.
-     *
-     * Antes salía un A4 vacío con el aviso «0 etiquetas en 0 páginas» metido en
-     * una cabecera que no lee nadie, y el caso NO es raro: hoy Cobo Family tiene
-     * 1.610 de sus 2.126 referencias sin FNSKU, así que una remesa suya puede
-     * descartarse entera. Un folio en blanco con la mercancía delante se lee
-     * como «la impresora ha fallado», y se pierde media mañana buscando dónde.
-     */
-    if (impresas === 0) {
-      const motivos = descartadas.slice(0, 8).map((d) => d.motivo)
-      return fail(
-        400,
-        `No se puede imprimir ni una etiqueta de esta remesa (${descartadas.length} descartadas). ` +
-          motivos.join(' · ') +
-          (descartadas.length > motivos.length ? ` …y ${descartadas.length - motivos.length} más.` : '')
-      )
-    }
-
-    /**
-     * QUEDA REGISTRADO QUE SE HA IMPRIMIDO, Y CON QUÉ VERSIÓN DEL BOCETO.
-     *
-     * Es lo que convierte reabrir un envío cerrado en una decisión informada en
-     * vez de a ciegas: estas pegatinas se pegan en mercancía de verdad, y si
-     * luego se quita una referencia hay que saber que había cuatrocientas
-     * puestas de una versión anterior.
-     *
-     * NO SE ESPERA NI SE DEJA FALLAR LA DESCARGA POR ESTO. Si el registro no se
-     * puede escribir, el PDF sale igual: quedarse sin etiquetas con la mercancía
-     * delante es peor que quedarse sin el apunte. Se avisa en el log.
-     */
-    void service
-      .from('fba_remesas')
-      .select('version')
-      .eq('id', remesa.id)
-      .maybeSingle()
-      .then(({ data: v }) => service.from('fba_impresiones').insert({
-        remesa_id: remesa.id,
-        version: (v as { version?: number } | null)?.version ?? 1,
-        etiquetas: impresas,
-        formato,
-        descartadas: descartadas.length,
-        impreso_por: sesion.userId,
-      }))
-      .then(({ error }) => {
-        if (error) {
-          console.error('[fba] no se ha podido registrar la impresión de etiquetas:', error.message)
-        }
-      })
-
-    /**
-     * EL NOMBRE DEL FICHERO, EN ASCII Y A LA FUERZA.
-     *
-     * Una cabecera HTTP solo admite bytes 0-255, y esta limpieza conservaba las
-     * letras de CUALQUIER alfabeto: una remesa llamada «Envío 日本» —o «Łódź», o un
-     * nombre pegado desde un documento con letras estilizadas— hacía reventar la
-     * construcción de la respuesta con «Cannot convert argument to a ByteString»
-     * y devolvía 500. Sin PDF, y con un error que no dice nada de un nombre.
-     *
-     * Se quitan los acentos primero (NFD + fuera los diacríticos, así «Envío»
-     * queda «envio» y no «env o») y después se tira todo lo que no sea ASCII.
-     * Si no queda nada —un nombre entero en japonés—, se usa el id.
-     */
-    const nombre =
-      (remesa.nombre ?? '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9\s-]/g, '')
-        .trim()
-        .replace(/\s+/g, '-')
-        .toLowerCase() || `remesa-${params.id.slice(0, 8)}`
-
-    return new NextResponse(Buffer.from(pdf), {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="etiquetas-${nombre}.pdf"`,
-        // Para que la pantalla pueda avisar sin abrir el PDF
-        'X-Etiquetas': String(impresas),
-        'X-Paginas': String(paginas),
-        'X-Descartadas': String(descartadas.length),
-        'X-Motivos': encodeURIComponent(descartadas.map((d) => d.motivo).join(' | ').slice(0, 900)),
-        'X-Avisos': encodeURIComponent(avisos.join(' | ').slice(0, 600)),
-      },
-    })
+    return respuestaPdf(r) as NextResponse
   } catch (error) {
     return errorResponse(error, 'No se han podido generar las etiquetas')
   }

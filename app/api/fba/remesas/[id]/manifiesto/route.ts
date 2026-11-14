@@ -4,6 +4,7 @@ import { requireFbaAccess } from '@/lib/fba/acceso'
 import { LibroError } from '@/lib/fba/libro'
 import { manifiestoListo, rellenarManifiesto, type LineaManifiesto } from '@/lib/fba/manifiesto'
 import { puedeImprimirEtiquetas, type EstadoRemesa } from '@/lib/fba/flujo'
+import { registrarEnHistorial } from '@/lib/fba/historial'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -123,6 +124,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         .replace(/\s+/g, '-')
         .toLowerCase() ||
       (remesa.fecha_envio && /^\d{4}-\d{2}-\d{2}$/.test(remesa.fecha_envio) ? remesa.fecha_envio : `remesa-${params.id.slice(0, 8)}`)
+
+    void registrarEnHistorial({ remesaId: params.id, actor: sesion.actor, userId: sesion.userId, accion: 'manifiesto', agruparMinutos: 30 }, service)
 
     return new NextResponse(Buffer.from(r.xlsx), {
       headers: {

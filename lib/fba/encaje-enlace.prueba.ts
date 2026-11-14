@@ -46,6 +46,10 @@ class BaseFalsa {
   from(nombre: string) {
     return new Consulta(this, nombre)
   }
+  /** Las funciones de la base (migración 309) no existen aquí: se prueba el camino de antes, como sin lanzarla */
+  rpc(_nombre: string, _args?: unknown) {
+    return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } })
+  }
   /** Los índices únicos de verdad: devuelven el error de Postgres si el alta los rompe */
   restriccion(nombre: string, nueva: Fila, filas: Fila[]): { code: string; message: string } | null {
     const choca = (cond: (f: Fila) => boolean) => filas.some(cond)
@@ -91,6 +95,10 @@ class Consulta {
     this.filtros.push((f) => f[c] === v)
     return this
   }
+  gte(c: string, v: unknown) {
+    this.filtros.push((f) => f[c] >= (v as never))
+    return this
+  }
   in(c: string, v: unknown[]) {
     this.filtros.push((f) => v.includes(f[c]))
     return this
@@ -105,6 +113,12 @@ class Consulta {
   }
   limit(n: number) {
     this.tope = n
+    return this
+  }
+  private desde = 0
+  range(a: number, b: number) {
+    this.desde = a
+    this.tope = b - a + 1
     return this
   }
   single() {
@@ -129,7 +143,7 @@ class Consulta {
     if (this.accion === 'select') {
       resultado = filas.filter(coincide)
       for (const o of [...this.ordenes].reverse()) resultado.sort((a, b) => (a[o.col] < b[o.col] ? -1 : a[o.col] > b[o.col] ? 1 : 0) * (o.asc ? 1 : -1))
-      if (this.tope !== null) resultado = resultado.slice(0, this.tope)
+      if (this.tope !== null) resultado = resultado.slice(this.desde, this.desde + this.tope)
     } else if (this.accion === 'insert') {
       // Como Postgres: lo que no se da se rellena con el valor por defecto de la columna (NULL, o el número que toque)
       const porDefecto: Fila = this.nombre === 'fba_enlaces_encaje' ? { revocado_at: null, abierto_veces: 0, ultimo_uso_at: null, ultima_edicion_at: null, terminado_at: null, creado_por: null } : {}
