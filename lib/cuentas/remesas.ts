@@ -15,6 +15,7 @@
  */
 import { createServiceClient } from '@/lib/supabase/service'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
+import { leerTodo } from '@/lib/fba/paginar'
 
 import { FASES_ABIERTAS, type AlertaFbaResumida, type FaseAbierta, type RemesaAbierta, type ResumenRemesas, type SeveridadFba, type StockFba } from './remesas-tipos'
 
@@ -25,6 +26,19 @@ const n = (v: unknown) => Number(v ?? 0) || 0
 const sinTabla = (e: { code?: string } | null | undefined) => e?.code === '42P01' || e?.code === '42703' || e?.code === 'PGRST204' || e?.code === 'PGRST205'
 const vacio = (): Record<FaseAbierta, number> => ({ borrador: 0, aprobada: 0, encajando: 0, lista: 0, enviada: 0 })
 const sinAlertas = (): Record<SeveridadFba, number> => ({ critica: 0, alta: 0, media: 0, info: 0 })
+
+/**
+ * Supabase corta cada consulta a 1.000 filas SIN dar error (lib/fba/paginar.ts): con todos los clientes juntos las remesas, las líneas, las
+ * alertas o el catálogo pasan de mil y las cifras saldrían de menos. Se lee de mil en mil, ordenado por una columna única, y el error se
+ * devuelve con la misma forma que una consulta normal para que quien llama siga distinguiendo «falta la migración» de «ha fallado».
+ */
+async function todo<T>(construir: (desde: number, hasta: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<{ data: T[]; error: { code?: string; message?: string } | null }> {
+  try {
+    return { data: await leerTodo<T>(construir), error: null }
+  } catch (e) {
+    return { data: [], error: (e ?? { message: 'Error desconocido' }) as { code?: string; message?: string } }
+  }
+}
 
 export const SIN_ACCESO: ResumenRemesas = { acceso: false, porFase: vacio(), abiertas: 0, ultimoEnvio: null, totalRemesas: 0, alertas: sinAlertas(), faltaAlertas: false, error: null }
 
@@ -44,12 +58,12 @@ export async function remesasDeLista(ids: readonly string[], permitidos: Set<str
   if (visibles.length === 0) return salida
   const s = createServiceClient()
   const [remesas, alertas] = await Promise.all([
-    s.from('fba_remesas').select('client_id, estado, fecha_envio').in('client_id', visibles).limit(20000),
-    s.from('fba_alertas').select('client_id, severidad').in('client_id', visibles).eq('estado', 'abierta').limit(20000),
+    todo<{ client_id: string; estado: string | null; fecha_envio: string }>((a, b) => s.from('fba_remesas').select('id, client_id, estado, fecha_envio').in('client_id', visibles).order('id').range(a, b)),
+    todo<{ client_id: string; severidad: SeveridadFba }>((a, b) => s.from('fba_alertas').select('id, client_id, severidad').in('client_id', visibles).eq('estado', 'abierta').order('id').range(a, b)),
   ])
   const faltaAlertas = sinTabla(alertas.error)
   for (const id of visibles) salida.set(id, { acceso: true, porFase: vacio(), abiertas: 0, ultimoEnvio: null, totalRemesas: 0, alertas: sinAlertas(), faltaAlertas, error: remesas.error ? 'No se han podido leer los envíos.' : null })
-  for (const r of (remesas.data ?? []) as Array<{ client_id: string; estado: string | null; fecha_envio: string }>) {
+  for (const r of remesas.data) {
     const x = salida.get(r.client_id)
     if (!x) continue
     x.totalRemesas++
@@ -62,7 +76,7 @@ export async function remesasDeLista(ids: readonly string[], permitidos: Set<str
     if ((estado === 'enviada' || estado === 'cerrada') && (!x.ultimoEnvio || r.fecha_envio > x.ultimoEnvio)) x.ultimoEnvio = r.fecha_envio
   }
   if (!alertas.error) {
-    for (const a of (alertas.data ?? []) as Array<{ client_id: string; severidad: SeveridadFba }>) {
+    for (const a of alertas.data) {
       const x = salida.get(a.client_id)
       if (x && a.severidad in x.alertas) x.alertas[a.severidad]++
     }
@@ -87,8 +101,8 @@ export async function remesasDeCliente(amazonClientId: string, permitidos: Set<s
         .order('fecha_envio', { ascending: false })
         .limit(40),
       base.faltaAlertas
-        ? Promise.resolve({ data: [], error: null })
-        : s.from('fba_alertas').select('id, tipo, severidad, titulo, detalle, sku, impacto, primera_vez_at').eq('client_id', amazonClientId).eq('estado', 'abierta').limit(200),
+        ? Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null })
+        : todo<Record<string, unknown>>((a, b) => s.from('fba_alertas').select('id, tipo, severidad, titulo, detalle, sku, impacto, primera_vez_at').eq('client_id', amazonClientId).eq('estado', 'abierta').order('id').range(a, b)),
       stockDeCliente(amazonClientId).catch(() => null),
     ])
 
@@ -97,8 +111,10 @@ export async function remesasDeCliente(amazonClientId: string, permitidos: Set<s
       const filas = (abiertas.data ?? []) as Array<Record<string, unknown>>
       const unidades = new Map<string, number>()
       if (filas.length) {
-        const { data: lineas } = await s.from('fba_remesa_lineas').select('remesa_id, unidades').in('remesa_id', filas.map((f) => String(f.id))).limit(20000)
-        for (const l of (lineas ?? []) as Array<{ remesa_id: string; unidades: number }>) unidades.set(l.remesa_id, (unidades.get(l.remesa_id) ?? 0) + n(l.unidades))
+        const { data: lineas } = await todo<{ remesa_id: string; unidades: number }>((a, b) =>
+          s.from('fba_remesa_lineas').select('id, remesa_id, unidades').in('remesa_id', filas.map((f) => String(f.id))).order('id').range(a, b),
+        )
+        for (const l of lineas) unidades.set(l.remesa_id, (unidades.get(l.remesa_id) ?? 0) + n(l.unidades))
       }
       remesas = filas.map((f) => ({
         id: String(f.id),
@@ -144,7 +160,7 @@ async function stockDeCliente(amazonClientId: string): Promise<StockFba | null> 
   const s = createServiceClient()
   const ids = conexiones.map((c) => c.id)
   const leer = (columnas: string) =>
-    s.from('amazon_listings').select(columnas).in('connection_id', ids).or('fba_quantity.gt.0,fba_fulfillable_quantity.gt.0').limit(10000)
+    todo<Record<string, unknown>>((a, b) => s.from('amazon_listings').select(`id, ${columnas}`).in('connection_id', ids).or('fba_quantity.gt.0,fba_fulfillable_quantity.gt.0').order('id').range(a, b))
   let r = await leer('marketplace_id, fba_quantity, fba_fulfillable_quantity, fba_inbound_quantity, fba_reserved_quantity, fba_unfulfillable_quantity')
   let conDesglose = true
   if (r.error && sinTabla(r.error)) {
@@ -154,7 +170,7 @@ async function stockDeCliente(amazonClientId: string): Promise<StockFba | null> 
   }
   if (r.error) throw r.error
   const porPais = new Map<string, StockFba>()
-  for (const f of (r.data ?? []) as unknown as Array<Record<string, unknown>>) {
+  for (const f of r.data) {
     const m = String(f.marketplace_id ?? '')
     const x = porPais.get(m) ?? { marketplaceId: m, mercados: 0, referencias: 0, disponible: 0, total: 0, deCamino: conDesglose ? 0 : null, reservado: conDesglose ? 0 : null, noApto: conDesglose ? 0 : null }
     x.referencias++
