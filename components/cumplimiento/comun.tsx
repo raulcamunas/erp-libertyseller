@@ -37,3 +37,18 @@ export function textoPlazo(plazo: string, hoy = new Date()): { texto: string; co
   if (dias <= 30) return { texto: `Plazo: ${fecha} (${dias === 0 ? 'hoy' : dias === 1 ? 'mañana' : `en ${dias} días`})`, color: COLOR_ESTADO.ambar }
   return { texto: `Plazo: ${fecha}`, color: 'var(--ls-t3)' }
 }
+
+/**
+ * El plazo de Amazon como cuenta atrás, para el chip de la tarjeta: «Vence en 12 días», «Vence mañana», «Vencido hace 3
+ * días». Rojo si ya ha vencido o quedan 7 días o menos; ámbar hasta 30; gris más lejos. `hoy` llega de fuera para probarlo.
+ */
+export function cuentaAtras(plazo: string, hoy = new Date()): { dias: number; texto: string; tono: 'rojo' | 'ambar' | 'gris' } {
+  const t = Date.parse(`${plazo}T00:00:00Z`)
+  const inicioHoy = Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate())
+  const dias = Math.round((t - inicioHoy) / 86_400_000)
+  if (!Number.isFinite(dias)) return { dias: 0, texto: 'Plazo de Amazon', tono: 'gris' }
+  if (dias < 0) return { dias, texto: dias === -1 ? 'Vencido ayer' : `Vencido hace ${-dias} días`, tono: 'rojo' }
+  if (dias === 0) return { dias, texto: 'Vence hoy', tono: 'rojo' }
+  if (dias === 1) return { dias, texto: 'Vence mañana', tono: 'rojo' }
+  return { dias, texto: `Vence en ${dias} días`, tono: dias <= 7 ? 'rojo' : dias <= 30 ? 'ambar' : 'gris' }
+}
