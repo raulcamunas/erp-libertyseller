@@ -1,0 +1,76 @@
+import { colorDeAcento, comparar, haceCuanto, iniciales, leerVariacion, ordenarFilas, paginar, palabraCoincide, porcentajeCorto, proporcionSegura, tonoEstable } from '@/components/ui-ls/utilidades'
+
+let fallos = 0
+const ok = (n: string, bien: boolean, d = '') => {
+  if (!bien) fallos++
+  console.log(`  ${bien ? 'OK   ' : 'FALLA'} ${n}${bien || !d ? '' : ` -> ${d}`}`)
+}
+
+console.log('\n=== acentos ===')
+ok('módulo → variable', colorDeAcento('seo') === 'var(--ls-mod-seo)')
+ok('color suelto pasa tal cual', colorDeAcento('#123456') === '#123456')
+ok('sin acento → marca', colorDeAcento(undefined) === 'var(--ls-acc-graf)')
+
+console.log('\n=== leerVariacion ===')
+const v1 = leerVariacion(120, 100, 'sube')
+ok('ventas suben = verde', v1.direccion === 'sube' && v1.buena === true && v1.tono === 'verde' && Math.abs((v1.proporcion ?? 0) - 0.2) < 1e-9)
+const v2 = leerVariacion(30, 25, 'baja')
+ok('ACoS sube = rojo', v2.direccion === 'sube' && v2.buena === false && v2.tono === 'rojo')
+ok('neutro = azul sin juicio', leerVariacion(80, 100, 'neutro').tono === 'azul' && leerVariacion(80, 100, 'neutro').buena === null)
+ok('anterior 0 = sin comparar', leerVariacion(5, 0).proporcion === null)
+ok('sin anterior = sin comparar', leerVariacion(5, null).proporcion === null && leerVariacion(null, 5).tono === 'gris')
+ok('igual = gris', leerVariacion(100, 100).direccion === 'igual' && leerVariacion(100, 100).tono === 'gris')
+ok('anterior negativo: mejora se lee como sube', leerVariacion(-50, -100).direccion === 'sube')
+ok('porcentaje corto', porcentajeCorto(0.123) === '12 %' && porcentajeCorto(-0.054) === '5,4 %', `${porcentajeCorto(0.123)} | ${porcentajeCorto(-0.054)}`)
+
+console.log('\n=== avatar ===')
+ok('dos palabras', iniciales('Raúl Camuñas') === 'RC')
+ok('partícula', iniciales('María de la Fuente') === 'MF')
+ok('una palabra', iniciales('ana') === 'AN')
+ok('correo', iniciales('jhanna.perez@x.com') === 'JP', iniciales('jhanna.perez@x.com'))
+ok('vacío', iniciales('') === '?' && iniciales(null) === '?')
+ok('tono estable', tonoEstable('Raúl') === tonoEstable('  raúl ') && typeof tonoEstable('x') === 'string')
+const tonos = new Set(['Ana', 'Luis', 'Marta', 'Pedro', 'Jhanna', 'Daniela', 'Alejandro', 'Raúl', 'Sofía', 'Lucía'].map(tonoEstable))
+ok('reparte colores', tonos.size >= 4, String(tonos.size))
+
+console.log('\n=== ordenar ===')
+ok('números', comparar(2, 10) < 0 && comparar(2, 10, 'desc') > 0)
+ok('texto con tildes', comparar('Ávila', 'Badajoz') < 0)
+ok('texto con números', comparar('envío 2', 'envío 10') < 0)
+ok('vacíos al final en asc y desc', comparar(null, 1) > 0 && comparar(null, 1, 'desc') > 0 && comparar(1, '', 'desc') < 0)
+ok('fechas', comparar(new Date('2026-01-02'), new Date('2026-01-01')) > 0)
+const filas = [{ n: 'b', v: 2 }, { n: 'a', v: 1 }, { n: 'c', v: 2 }, { n: 'd', v: null }]
+const asc = ordenarFilas(filas, (f) => f.v, 'asc').map((f) => f.n).join('')
+ok('ordenar estable asc', asc === 'abcd', asc)
+const desc = ordenarFilas(filas, (f) => f.v, 'desc').map((f) => f.n).join('')
+ok('ordenar estable desc, vacío al final', desc === 'bcad', desc)
+ok('no muta', filas[0].n === 'b')
+ok('sin criterio = copia', ordenarFilas(filas, undefined, 'asc').length === 4)
+
+console.log('\n=== paginar ===')
+const cien = Array.from({ length: 103 }, (_, i) => i)
+const p1 = paginar(cien, 1, 25)
+ok('primera página', p1.filas.length === 25 && p1.desde === 1 && p1.hasta === 25 && p1.paginas === 5)
+const p5 = paginar(cien, 5, 25)
+ok('última página corta', p5.filas.length === 3 && p5.desde === 101 && p5.hasta === 103)
+ok('página de más se queda en la última', paginar(cien, 99, 25).pagina === 5)
+ok('página 0 o NaN → 1', paginar(cien, 0, 25).pagina === 1 && paginar(cien, Number.NaN, 25).pagina === 1)
+const vacia = paginar([], 3, 25)
+ok('sin filas', vacia.total === 0 && vacia.desde === 0 && vacia.paginas === 1 && vacia.pagina === 1)
+
+console.log('\n=== tiempo y texto ===')
+const ahora = Date.parse('2026-11-14T12:00:00Z')
+ok('ahora mismo', haceCuanto(ahora - 10_000, ahora) === 'ahora mismo')
+ok('minutos', haceCuanto(ahora - 5 * 60_000, ahora) === 'hace 5 min')
+ok('horas', haceCuanto(ahora - 3 * 3_600_000, ahora) === 'hace 3 h')
+ok('ayer', haceCuanto(ahora - 26 * 3_600_000, ahora) === 'ayer')
+ok('días', haceCuanto(ahora - 4 * 86_400_000, ahora) === 'hace 4 días')
+ok('fecha inválida', haceCuanto('no', ahora) === '—')
+ok('palabra exacta', palabraCoincide('BORRAR', 'BORRAR'))
+ok('palabra sin mayúsculas ni tildes', palabraCoincide('  eliminacion ', 'ELIMINACIÓN'))
+ok('palabra distinta', !palabraCoincide('BORRA', 'BORRAR'))
+ok('palabra vacía nunca vale', !palabraCoincide('', ''))
+ok('proporción', proporcionSegura(50, 200) === 0.25 && proporcionSegura(5, 0) === 0 && proporcionSegura(300, 200) === 1 && proporcionSegura(Number.NaN) === 0)
+
+console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
+if (fallos > 0) process.exit(1)
