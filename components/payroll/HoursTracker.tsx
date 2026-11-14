@@ -34,6 +34,7 @@ import { CalendarPerson, colorForAgent } from '@/lib/types/appointments'
 import { UserProfile } from '@/lib/supabase/get-user-profile'
 import { toMadrid } from '@/lib/timezone'
 import { RateSettings } from './RateSettings'
+import { decidirGuardado, horasValidas, sumarHoras, formatoHoras } from '@/lib/payroll/horas'
 
 const MESES_CORTOS = [
   'ene', 'feb', 'mar', 'abr', 'may', 'jun',
@@ -561,10 +562,40 @@ export function HoursTracker({
     if (soloMirando) return
     setSelectedDay(key)
     const current = hoursByDay.get(key)
-    setDraft(current ? String(Number(current.hours)) : '')
+    setDraft(current ? formatoHoras(Number(current.hours)) : '')
+  }
+
+  /** − / + de media hora. Si lo escrito no se entiende, sigue desde lo guardado y avisa (antes partía de 0). */
+  function pasoDelDraft(delta: number) {
+    const guardado = selectedDay ? Number(hoursByDay.get(selectedDay)?.hours ?? 0) : 0
+    const r = sumarHoras(draft, delta, guardado)
+    if (r.aviso) toast.warning(r.aviso)
+    setDraft(r.texto)
+  }
+
+  /**
+   * «7,5» CON COMA BORRABA EL DÍA. `Number('7,5') || 0` daba 0 y guardar 0 borra
+   * la fila. Ahora la coma vale, y lo que no se entiende se AVISA y no se guarda.
+   */
+  function guardarDraft(key: string) {
+    const d = decidirGuardado(draft, hoursByDay.has(key))
+    if (d.accion === 'error') {
+      toast.error(`No se ha guardado: ${d.motivo}`)
+      return
+    }
+    if (d.accion === 'nada') {
+      setSelectedDay(null)
+      return
+    }
+    saveDay(key, d.accion === 'borrar' ? null : d.horas)
   }
 
   async function saveDay(key: string, value: number | null) {
+    // Cinturón: un NaN o un valor fuera de 0-24 no borra ni guarda nada
+    if (!horasValidas(value)) {
+      toast.error('Ese número de horas no es válido: no se ha guardado nada')
+      return
+    }
     setSaving(true)
     try {
       const existing = hoursByDay.get(key)
@@ -830,7 +861,7 @@ export function HoursTracker({
                     <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/25 p-1">
                       <button
                         onClick={() =>
-                          setDraft((d) => String(Math.max(0, (Number(d) || 0) - 0.5)))
+                          pasoDelDraft(-0.5)
                         }
                         className="h-7 w-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
                       >
@@ -840,7 +871,7 @@ export function HoursTracker({
                         value={draft}
                         onChange={(e) => setDraft(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveDay(selectedDay, Number(draft) || 0)
+                          if (e.key === 'Enter') guardarDraft(selectedDay)
                           if (e.key === 'Escape') setSelectedDay(null)
                         }}
                         autoFocus
@@ -850,7 +881,7 @@ export function HoursTracker({
                       />
                       <button
                         onClick={() =>
-                          setDraft((d) => String(Math.min(24, (Number(d) || 0) + 0.5)))
+                          pasoDelDraft(0.5)
                         }
                         className="h-7 w-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
                       >
@@ -863,7 +894,7 @@ export function HoursTracker({
                         key={h}
                         onClick={() => setDraft(String(h))}
                         className={`h-7 min-w-[32px] px-2 rounded-md text-[11px] font-semibold transition-colors ${
-                          Number(draft) === h
+                          decidirGuardado(draft, true).accion === 'guardar' && (decidirGuardado(draft, true) as { horas: number }).horas === h
                             ? 'bg-[#FF6600] text-white'
                             : 'bg-white/[0.06] text-white/55 hover:bg-white/[0.12] hover:text-white'
                         }`}
@@ -885,7 +916,7 @@ export function HoursTracker({
                       </button>
                     )}
                     <button
-                      onClick={() => saveDay(selectedDay, Number(draft) || 0)}
+                      onClick={() => guardarDraft(selectedDay)}
                       disabled={saving}
                       className="h-8 px-4 rounded-lg bg-[#FF6600] text-[12px] font-semibold text-white disabled:opacity-40 transition-opacity"
                     >
