@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Database, Loader2, Save, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BOTON, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
@@ -108,6 +108,20 @@ export function EditorBoceto({
   const [estado, setEstado] = useState<EstadoEditor>({ sinTerminar: 0, fueraDeLaBase: 0 })
 
   /**
+   * «RECARGAR» TRAS UN 409 TRAE LO DE LA BASE AL EDITOR.
+   *
+   * `elegidos` se inicia una vez: sin esto, recargar dejaba en pantalla la lista vieja con la versión nueva
+   * y el siguiente «Guardar» pisaba sin aviso lo que el cliente había cambiado desde su enlace.
+   */
+  const recargando = useRef(false)
+  useEffect(() => {
+    if (!recargando.current) return
+    recargando.current = false
+    setElegidos(inicial)
+    setReinicio((n) => n + 1)
+  }, [inicial])
+
+  /**
    * ¿Hay algo distinto? Se compara SKU y unidades, que es lo único que se manda.
    *
    * Por contenido y no por un «se ha tocado»: quien sube una cantidad y la vuelve
@@ -169,7 +183,16 @@ export function EditorBoceto({
       const cuerpo = (await res.json().catch(() => null)) as { error?: string; conflicto?: boolean } | null
       // Alguien (el cliente desde su enlace, u otra persona de la agencia) guardó entre medias: no se pisa
       if (res.status === 409 && cuerpo?.conflicto) {
-        toast.error(cuerpo.error ?? 'Alguien ha cambiado esto. Recarga.', { action: { label: 'Recargar', onClick: () => onGuardado() }, duration: 10000 })
+        toast.error(cuerpo.error ?? 'Alguien ha cambiado esto. Recarga.', {
+          action: {
+            label: 'Recargar',
+            onClick: () => {
+              recargando.current = true
+              onGuardado()
+            },
+          },
+          duration: 10000,
+        })
         return
       }
       toast.error(cuerpo?.error ?? 'No se han podido guardar las referencias')

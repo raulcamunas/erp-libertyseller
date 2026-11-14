@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Box, Check, Loader2, Package, Plus, Trash2, TriangleAlert } from 'lucide-react'
@@ -64,6 +64,25 @@ export function EditorCajas({
   const [guardando, setGuardando] = useState(false)
   // La versión que tenemos: viaja al guardar y vuelve la nueva. Si el cliente guardó desde su enlace entre medias, 409
   const versionRef = useRef<number | null>(version)
+  /**
+   * AL RECARGAR TRAS UN 409, LO DE LA BASE ENTRA EN EL EDITOR.
+   *
+   * `cajas` y la versión se inician una vez: un router.refresh() trae props nuevas pero el estado se quedaba
+   * con lo viejo, así que «Recargar» no recargaba nada y cada guardado volvía a chocar. Cuando llega otra
+   * versión de la base y no hay cambios sin guardar (o se ha pedido recargar), se toma la de la base.
+   */
+  const recargando = useRef(false)
+  const versionVista = useRef<number | null>(version)
+  useEffect(() => {
+    if (version === versionVista.current) return
+    versionVista.current = version
+    if (!recargando.current && sucio) return
+    recargando.current = false
+    versionRef.current = version
+    setCajas(cajasIniciales.length > 0 ? cajasIniciales : [nuevaCaja(1)])
+    setSucio(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version])
 
   const declaradas = useMemo(() => {
     const m = new Map<string, number>()
@@ -122,7 +141,16 @@ export function EditorCajas({
       })
       const p = (await res.json().catch(() => null)) as { error?: string; conflicto?: boolean; version?: number | null } | null
       if (res.status === 409 && p?.conflicto) {
-        toast.error(p.error ?? 'Alguien ha cambiado las cajas. Recarga.', { action: { label: 'Recargar', onClick: () => router.refresh() }, duration: 10000 })
+        toast.error(p.error ?? 'Alguien ha cambiado las cajas. Recarga.', {
+          action: {
+            label: 'Recargar',
+            onClick: () => {
+              recargando.current = true
+              router.refresh()
+            },
+          },
+          duration: 10000,
+        })
         return
       }
       if (!res.ok) {
