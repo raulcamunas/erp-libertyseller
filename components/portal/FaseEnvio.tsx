@@ -4,23 +4,18 @@ import { motion } from 'framer-motion'
 import { CircleCheck, Package, Scale, Truck } from 'lucide-react'
 import type { DatosDelPortal } from '@/lib/fba/portal'
 import { FUENTE_TITULO, cx, n0, n1 } from '@/components/encaje/marca'
+import { TransporteCliente } from './TransporteCliente'
 
 /**
  * LA FASE «ENVÍO» DEL PORTAL: QUÉ PASA CON TUS CAJAS.
  *
- * Hoy dice en qué punto está (preparando el envío en Amazon, enviado con su nº FBA, recibido) y resume las
- * cajas. El envío a Amazon (reparto por centros, transporte, UPS) lo hace la agencia y NO se toca aquí.
- *
- * ============ EL HUECO PARA EL COSTE DEL TRANSPORTE ============
- *
- * `HuecoCosteTransporte` es donde otro trabajo añadirá la APROBACIÓN DEL COSTE DEL TRANSPORTE por el
- * cliente (cuando el ERP cree el envío en Amazon y tenga la tarifa del UPS asociado). Recibe el token y los
- * datos del portal; hoy no pinta nada. Para enchufarlo: implementa el componente aquí (o importa el suyo y
- * devuélvelo), con su ruta pública bajo /api/publico/envio/[token]/… pasando por `entrarConEnlace`, y
- * apunta en el historial con `registrarEnHistorial`.
+ * Dice en qué punto está (preparando el envío en Amazon, enviado con su nº FBA, recibido) y resume las
+ * cajas. Cuando la agencia crea el envío desde el ERP (modo «api»), aquí aparece además la COTIZACIÓN DEL
+ * TRANSPORTE (UPS de Amazon) con el botón «Acepto el coste del transporte» y, ya confirmado, las etiquetas de
+ * caja para imprimir (components/portal/TransporteCliente.tsx, rutas /api/publico/envio/[token]/transporte).
  */
-export function HuecoCosteTransporte(_props: { token: string; datos: DatosDelPortal }) {
-  return null
+export function HuecoCosteTransporte({ token }: { token: string; datos: DatosDelPortal }) {
+  return <TransporteCliente token={token} />
 }
 
 const PASOS = [
@@ -65,7 +60,7 @@ export function FaseEnvio({ token, datos }: { token: string; datos: DatosDelPort
         </div>
       )}
 
-      {/* Aquí irá la aprobación del coste del transporte (ver arriba) */}
+      {/* La cotización del transporte, el «Acepto» y las etiquetas de caja (solo con envío desde el ERP) */}
       <HuecoCosteTransporte token={token} datos={datos} />
     </div>
   )
