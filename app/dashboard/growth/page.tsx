@@ -20,7 +20,6 @@ import {
   InfoPreciosShoplamp,
   PanelPreciosShoplamp,
 } from '@/components/growth/paneles/PanelPreciosShoplamp'
-import { InfoCumplimiento, PanelCumplimiento } from '@/components/growth/paneles/PanelCumplimiento'
 import { InfoLimitesPrecio, PanelLimitesPrecio } from '@/components/growth/paneles/PanelLimitesPrecio'
 import { InfoAuditorStock, PanelAuditorStock } from '@/components/growth/paneles/PanelAuditorStock'
 import { InfoVerificacionStock, PanelVerificacionStock } from '@/components/growth/paneles/PanelVerificacionStock'
@@ -94,7 +93,6 @@ const PANELES: Record<
   'stock-sync': { Panel: PanelStockSync, Info: InfoStockSync },
   buybox: { Panel: PanelBuyBox, Info: InfoBuyBox },
   'fbm-fba': { Panel: PanelFbmFba, Info: InfoFbmFba },
-  cumplimiento: { Panel: PanelCumplimiento, Info: InfoCumplimiento },
   'limites-precio': { Panel: PanelLimitesPrecio, Info: InfoLimitesPrecio },
   'auditor-stock': { Panel: PanelAuditorStock, Info: InfoAuditorStock },
   'verificacion-stock': { Panel: PanelVerificacionStock, Info: InfoVerificacionStock },
@@ -136,6 +134,11 @@ export default async function GrowthPage({
 
   // El submódulo pedido, ACOTADO a lo que esta persona puede ver. Sin esto, un
   // enlace a ?m=buybox le abriría la Buy Box a quien solo tiene el stock.
+  // Cumplimiento salió de aquí y es una app propia: los enlaces viejos (?m=cumplimiento) van a ella con el mismo cliente
+  if (uno(searchParams[PARAM_MODULO]) === 'cumplimiento') {
+    const c = uno(searchParams[PARAM_CLIENTE])
+    redirect(c ? `/dashboard/cumplimiento?c=${encodeURIComponent(c)}` : '/dashboard/cumplimiento')
+  }
   const pedido = moduloDesdeUrl(uno(searchParams[PARAM_MODULO]))
   const conPermiso: ModuloId = permitidos.includes(pedido) ? pedido : permitidos[0]
 

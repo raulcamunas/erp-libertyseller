@@ -1,6 +1,12 @@
+import localFont from 'next/font/local'
 import { createServiceClient } from '@/lib/supabase/service'
 import { CommissionReportView } from '@/components/commissions/CommissionReportView'
+import { InformeCliente } from '@/components/commissions/InformeCliente'
+import { construirInforme } from '@/lib/comisiones-puente/informe-cliente'
 import { Logo } from '@/components/ui/Logo'
+
+/** Sora para los titulares del informe (Inter, el cuerpo, ya viene del layout) */
+const sora = localFont({ src: '../../../fonts/Sora-SemiBold.ttf', weight: '600', variable: '--font-sora', display: 'swap' })
 
 /**
  * EL DESGLOSE QUE SE LE PASA AL CLIENTE. SIGUE SIENDO PÚBLICO, SIN SESIÓN.
@@ -33,9 +39,11 @@ import { Logo } from '@/components/ui/Logo'
 export const dynamic = 'force-dynamic'
 
 export default async function PublicCommissionReportPage({
-  params
+  params,
+  searchParams
 }: {
   params: { slug: string }
+  searchParams?: { vista?: string }
 }) {
   const supabase = createServiceClient()
   
@@ -59,6 +67,23 @@ export default async function PublicCommissionReportPage({
         </div>
       </div>
     )
+  }
+
+  /**
+   * LA VISTA NUEVA ES LA DE SIEMPRE, y la antigua sigue ahí detrás de `?vista=clasica`: si algún informe raro se pintara mal,
+   * el enlace del cliente se puede abrir con la de antes mientras se arregla. Si construir la nueva falla, también se cae a ella.
+   */
+  if (searchParams?.vista !== 'clasica') {
+    try {
+      const informe = construirInforme({
+        cliente: report.clients?.name || 'Cliente',
+        periodo: report.period,
+        data: report.data,
+      })
+      return <InformeCliente informe={informe} tituloFuente={sora.variable} />
+    } catch (e) {
+      console.error('[comisiones] no se ha podido construir el informe nuevo, se enseña el clásico:', e)
+    }
   }
 
   return (

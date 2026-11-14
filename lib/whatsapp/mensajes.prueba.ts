@@ -10,6 +10,8 @@ import {
   cuerpoDelApunteDeWhatsapp,
   elegirMensaje,
   enlaceDeWhatsapp,
+  abreOtraPestana,
+  esViaDeWhatsapp,
   esSituacionDeWhatsapp,
   mensajesDeLaSituacion,
   nombreDePila,
@@ -52,6 +54,11 @@ console.log('\n=== el enlace ===')
   ok('la aplicación: wa.me con el número', app.startsWith('https://wa.me/34612345678?text='), app)
   ok('el texto viaja entero y sin romper el enlace (tildes, &, #, saltos de línea)', new URL(web).searchParams.get('text') === texto && new URL(app).searchParams.get('text') === texto)
   ok('y el enlace no lleva ni un salto de línea ni un espacio sueltos', !/[\s]/.test(web) && !/[\s]/.test(app))
+  const esc = enlaceDeWhatsapp({ numero: '34612345678', texto, via: 'escritorio' })
+  ok('la aplicación de escritorio: whatsapp://send con el número', esc.startsWith('whatsapp://send?phone=34612345678&text='), esc)
+  ok('a la aplicación de escritorio el texto también le llega entero', new URLSearchParams(esc.split('?')[1]).get('text') === texto && !/[\s]/.test(esc))
+  ok('la web y wa.me se abren en otra pestaña; la aplicación de escritorio no', abreOtraPestana(web) && abreOtraPestana(app) && !abreOtraPestana(esc))
+  ok('lo guardado de antes se sigue entendiendo, y lo nuevo también', esViaDeWhatsapp('web') && esViaDeWhatsapp('app') && esViaDeWhatsapp('escritorio') && !esViaDeWhatsapp('otra'))
 }
 
 console.log('\n=== qué mensaje ===')

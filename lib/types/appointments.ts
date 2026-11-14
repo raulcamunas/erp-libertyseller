@@ -6,6 +6,8 @@ export type AppointmentStatus =
   | 'rescheduled'
   | 'no_show'
   | 'qualified'
+  /** Encaja a medias: cobra la comisión de semi-cualificada, que se fija mes a mes en las tarifas de «Mis Horas». */
+  | 'semi_qualified'
   | 'not_qualified'
   /** La reunión no llegó a celebrarse: se anuló. Distinto de no cualificada. */
   | 'cancelled'
@@ -254,12 +256,23 @@ export interface AppointmentComment {
   author?: CommentAuthor | null
 }
 
+/** Cómo salió una cita: lo que marca dirección desde el CRM */
+export type ResultadoDeCita = 'qualified' | 'semi_qualified' | 'not_qualified' | 'no_show'
+
+export const AVISO_DE_RESULTADO: Record<ResultadoDeCita, string> = {
+  qualified: 'Cita cualificada',
+  semi_qualified: 'Cita semi-cualificada',
+  not_qualified: 'Cita marcada como no cualificada',
+  no_show: 'Cita marcada como «no asistió»',
+}
+
 export const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   scheduled: 'Agendada',
   confirmed: 'Confirmada',
   rescheduled: 'Re-agendada',
   no_show: 'No asistió',
   qualified: 'Cita Cualificada',
+  semi_qualified: 'Cita Semi-Cualificada',
   not_qualified: 'Cita No Cualificada',
   cancelled: 'Cancelada',
 }
@@ -270,6 +283,7 @@ export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, string> = {
   rescheduled: 'bg-sky-400/20 text-sky-300 border-sky-400/30',
   no_show: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
   qualified: 'bg-green-500/20 text-green-300 border-green-500/30',
+  semi_qualified: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
   not_qualified: 'bg-red-500/20 text-red-300 border-red-500/30',
   cancelled: 'bg-zinc-600/25 text-zinc-300 border-zinc-500/30',
 }

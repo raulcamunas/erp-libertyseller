@@ -1,11 +1,11 @@
-import { Ban, BadgeCheck, CalendarClock, CheckCircle2, RefreshCw, UserX, XCircle, type LucideIcon } from 'lucide-react'
+import { Ban, BadgeCheck, BadgeMinus, CalendarClock, CheckCircle2, RefreshCw, UserX, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppointmentStatus } from '@/lib/types/appointments'
 import type { TonoEstado } from '@/lib/estilo/denso'
 
 /**
  * EL ESTADO DE UNA CITA: glifo, palabra y DESPUÉS color (lib/estilo/denso.ts, ESTADO).
  *
- * Los siete estados salen de APPOINTMENT_STATUS_LABELS y no se inventa ninguno. Lo que cambia respecto a la agenda de antes es cómo se enseñan: antes eran siete cajitas
+ * Los ocho estados salen de APPOINTMENT_STATUS_LABELS y no se inventa ninguno. Lo que cambia respecto a la agenda de antes es cómo se enseñan: antes eran siete cajitas
  * de colores sueltos (azul, amarillo, cielo, gris, verde, rojo, zinc) que no se parecían a ningún otro estado del ERP; ahora usan la paleta única de estados, el mismo
  * verde que «Cita agendada» en Cold Calling, y llevan siempre un glifo: tapa el color con la mano y el estado se sigue leyendo.
  *
@@ -17,6 +17,7 @@ export const ESTADO_DE_CITA: Record<AppointmentStatus, { icono: LucideIcon; tono
   rescheduled: { icono: RefreshCw, tono: 'cian', corto: 'Reagendada', largo: 'Re-agendada' },
   no_show: { icono: UserX, tono: 'gris', corto: 'No asistió', largo: 'No asistió' },
   qualified: { icono: BadgeCheck, tono: 'verde', corto: 'Cualificada', largo: 'Cita Cualificada' },
+  semi_qualified: { icono: BadgeMinus, tono: 'violeta', corto: 'Semi-cualificada', largo: 'Cita Semi-Cualificada' },
   not_qualified: { icono: XCircle, tono: 'rojo', corto: 'No cualificada', largo: 'Cita No Cualificada' },
   cancelled: { icono: Ban, tono: 'gris', corto: 'Cancelada', largo: 'Cancelada' },
 }

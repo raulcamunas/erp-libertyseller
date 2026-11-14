@@ -2,7 +2,6 @@ import {
   Activity,
   ArrowRightLeft,
   Boxes,
-  ClipboardCheck,
   Crown,
   ShieldCheck,
   SlidersHorizontal,
@@ -41,7 +40,6 @@ export type ModuloId =
   | 'stock-sync'
   | 'buybox'
   | 'fbm-fba'
-  | 'cumplimiento'
   | 'precios-shoplamp'
   | 'limites-precio'
   | 'auditor-stock'
@@ -98,13 +96,7 @@ export const MODULOS: readonly Modulo[] = [
     pista: 'Qué referencias merecen pasar a logística de Amazon',
     necesita: 'amazon',
   },
-  {
-    id: 'cumplimiento',
-    nombre: 'Cumplimiento',
-    icono: ClipboardCheck,
-    pista: 'Los listings que Amazon marca con errores o tiene ocultos, y por qué',
-    necesita: 'amazon',
-  },
+
   {
     id: 'limites-precio',
     nombre: 'Sincronizar precio Min y Max',

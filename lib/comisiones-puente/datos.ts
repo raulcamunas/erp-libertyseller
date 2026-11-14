@@ -108,7 +108,12 @@ interface FilaFichero {
   nombre_original: string
   subido_at: string
   purgado_at: string | null
+  /** El hueco de la celda (migración 300). No viene antes de lanzarla: entonces todo es el de siempre */
+  ranura?: string | null
 }
+
+/** El segundo hueco de la celda (Shoplamp: el Sellerboard del envío). Todo lo demás es el de siempre */
+const esSegundo = (f: { ranura?: string | null }) => f.ranura === 'segundo'
 
 interface FilaMesTesoreria {
   id: string
@@ -173,6 +178,7 @@ export async function leerEstadoDelMes(
 
   let ficheroActual: FicheroDelMes | null = null
   let ficheroAnterior: FicheroDelMes | null = null
+  let ficheroEnvio: FicheroDelMes | null = null
   let faltaLa200Aqui = false
   let estaEnTaxReports = false
 
@@ -197,9 +203,10 @@ export async function leerEstadoDelMes(
       // Los dos de una vez: el del mes del informe y ese MISMO MES UN AÑO ANTES.
       // `informe.anio - 1` no es un mes anterior: los clientes de dos ficheros
       // comparan el excedente de este año contra el del pasado.
+      // `*`: la columna `ranura` no existe hasta la migración 300, y nombrarla daría un 42703
       const { data: ficheros, error: errorFicheros } = await service
         .from('tax_report_ficheros')
-        .select('id, anio, mes, nombre_original, subido_at, purgado_at')
+        .select('*')
         .eq('cliente_id', taxClienteId)
         .in('anio', [informe.anio, informe.anio - 1])
         .eq('mes', informe.mes)
@@ -215,7 +222,9 @@ export async function leerEstadoDelMes(
           subidoAt: raw.subido_at,
           purgado: raw.purgado_at != null,
         }
-        if (raw.anio === informe.anio) ficheroActual = fichero
+        if (esSegundo(raw)) {
+          if (raw.anio === informe.anio) ficheroEnvio = fichero
+        } else if (raw.anio === informe.anio) ficheroActual = fichero
         else ficheroAnterior = fichero
       }
     }
@@ -276,7 +285,25 @@ export async function leerEstadoDelMes(
     }
   }
 
-  const puedeCalcular = Boolean(ficheroActual && !ficheroActual.purgado)
+  /**
+   * SHOPLAMP SIN SU SELLERBOARD NO SE CALCULA. Sin él el cálculo no restaría el envío y saldría una comisión más alta de lo pactado,
+   * con el botón en verde. Se dice qué falta y dónde se cuelga.
+   */
+  let faltaEnvio = false
+  if (perfil.restaEnvio && estaEnTaxReports && ficheroActual && !ficheroActual.purgado) {
+    if (!ficheroEnvio) {
+      faltaEnvio = true
+      faltan.push(
+        `Falta el Sellerboard de ${mesEnLetra(informe.anio, informe.mes)} (el «Tablero de productos» en Excel), del que sale el envío que se ` +
+          'resta antes de los 3.500 €. Se cuelga en Tax Reports, en la misma casilla del mes, debajo del tax report.'
+      )
+    } else if (ficheroEnvio.purgado) {
+      faltaEnvio = true
+      faltan.push(`El Sellerboard de ${mesEnLetra(informe.anio, informe.mes)} ya se retiró. Hay que volver a subirlo a Tax Reports.`)
+    }
+  }
+
+  const puedeCalcular = Boolean(ficheroActual && !ficheroActual.purgado) && !faltaEnvio
 
   return {
     cliente: {
@@ -296,6 +323,7 @@ export async function leerEstadoDelMes(
     informe,
     ficheroActual,
     ficheroAnterior,
+    ficheroEnvio,
     faltan,
     aMano,
     puedeCalcular,
@@ -453,7 +481,7 @@ async function leerMesDeTesoreria(
   if (mesRes.error) throw mesRes.error
   if (facturaRes.error) throw facturaRes.error
 
-  const factura = facturaRes.data as { invoice_number: string } | null
+  const factura = facturaRes.data as { invoice_number: string; status: string | null } | null
 
   return {
     period,
@@ -461,6 +489,7 @@ async function leerMesDeTesoreria(
     commission: mesRes.data?.commission != null ? Number(mesRes.data.commission) : null,
     facturado: factura != null,
     numeroFactura: factura?.invoice_number ?? null,
+    estadoFactura: factura?.status ?? null,
   }
 }
 
@@ -518,6 +547,11 @@ export async function planDeCalculo(
 
   if (perfil.dosFicheros && estado.ficheroAnterior && !estado.ficheroAnterior.purgado) {
     descargas.push(await firmar(estado.ficheroAnterior, 'filePreviousYear'))
+  }
+
+  // Shoplamp: el Sellerboard del mismo mes, para restar el envío. `puedeCalcular` ya exige que esté
+  if (perfil.restaEnvio && estado.ficheroEnvio) {
+    descargas.push(await firmar(estado.ficheroEnvio, 'fileShipping'))
   }
 
   const extras: Record<string, string> = {}
@@ -595,6 +629,9 @@ export type ResultadoGuardado =
  *   3. NO ESCRIBE SI EL MES YA ESTÁ FACTURADO. La factura guarda sus propios
  *      importes, así que cambiar esto después no la cambia: solo consigue que el
  *      ERP y el PDF que tiene el cliente digan cosas distintas.
+ *      La única puerta es `corregir` (11 nov 2026, la comisión de Shoplamp de
+ *      noviembre salió sin restar el envío): una corrección pedida a propósito,
+ *      con la factura aún sin cobrar, que después se arregla en Facturación.
  *
  * Y una que sí hace: exigir que el cliente tenga pareja en Tesorería. Sin ella
  * no hay ninguna fila donde escribir, y adivinarla por parecido de nombre
@@ -605,7 +642,9 @@ export async function guardarComision(
   anio: number,
   mes: number,
   importe: number,
-  confirmar: boolean
+  confirmar: boolean,
+  /** «Corregir la comisión facturada»: se escribe aunque el mes tenga factura, si aún no está cobrada */
+  corregir = false
 ): Promise<ResultadoGuardado> {
   const service = createServiceClient()
   const period = periodoDe(anio, mes)
@@ -655,7 +694,18 @@ export async function guardarComision(
 
   const mesActual = await leerMesDeTesoreria(treasuryClientId, period)
 
-  if (mesActual.facturado) {
+  if (mesActual.facturado && corregir && mesActual.estadoFactura === 'paid') {
+    return {
+      ok: false,
+      estado: 409,
+      mensaje:
+        `${mesEnLetra(anio, mes)} de «${destino.name}» ya está facturado y COBRADO` +
+        (mesActual.numeroFactura ? ` (${mesActual.numeroFactura})` : '') +
+        '. Cambiar la comisión de una factura cobrada es un abono: se hace en Zoho.',
+    }
+  }
+
+  if (mesActual.facturado && !corregir) {
     return {
       ok: false,
       estado: 409,
@@ -663,8 +713,8 @@ export async function guardarComision(
         `${mesEnLetra(anio, mes)} de «${destino.name}» ya está facturado` +
         (mesActual.numeroFactura ? ` (${mesActual.numeroFactura})` : '') +
         '. La factura guarda sus propios importes, así que cambiar esto ahora no la cambiaría: solo ' +
-        'dejaría el ERP diciendo una cifra y el PDF del cliente otra. Si hay que rehacerla, primero ' +
-        'se anula la factura en Facturación.',
+        'dejaría el ERP diciendo una cifra y el PDF del cliente otra. Si la comisión estaba mal, ' +
+        'usa «Corregir la comisión facturada» y después corrige la factura en Facturación.',
     }
   }
 
@@ -887,7 +937,7 @@ export async function leerResumenDelMes(anio: number, mes: number): Promise<Resu
 
   /* Tax Reports: quién tiene el fichero del mes del informe (el anterior al de cobro) y ese mismo mes del año pasado */
   const taxDe = new Map<string, string>()
-  const ficherosPorTax = new Map<string, { actual?: FilaFichero; anterior?: FilaFichero }>()
+  const ficherosPorTax = new Map<string, { actual?: FilaFichero; anterior?: FilaFichero; envio?: FilaFichero }>()
   let faltaLa200Aqui = false
   try {
     const { data: tax, error: errorTax } = await service.from('tax_report_clientes').select('id, nombre, client_id')
@@ -896,13 +946,15 @@ export async function leerResumenDelMes(anio: number, mes: number): Promise<Resu
 
     const { data: ficheros, error: errorFicheros } = await service
       .from('tax_report_ficheros')
-      .select('id, cliente_id, anio, mes, nombre_original, subido_at, purgado_at')
+      .select('*')
       .in('anio', [informe.anio, informe.anio - 1])
       .eq('mes', informe.mes)
     if (errorFicheros) throw errorFicheros
     for (const f of (ficheros ?? []) as (FilaFichero & { cliente_id: string })[]) {
       const celda = ficherosPorTax.get(f.cliente_id) ?? {}
-      if (f.anio === informe.anio) celda.actual = f
+      if (esSegundo(f)) {
+        if (f.anio === informe.anio) celda.envio = f
+      } else if (f.anio === informe.anio) celda.actual = f
       else celda.anterior = f
       ficherosPorTax.set(f.cliente_id, celda)
     }
@@ -955,6 +1007,8 @@ export async function leerResumenDelMes(anio: number, mes: number): Promise<Resu
     else if (!celda?.actual) situacion = 'sin_informe'
     else if (celda.actual.purgado_at) situacion = 'purgado'
     else if (perfil.dosFicheros && (!celda.anterior || celda.anterior.purgado_at)) situacion = 'falta_anterior'
+    // Shoplamp sin su Sellerboard no se puede calcular: cuenta como que le falta el informe
+    else if (perfil.restaEnvio && (!celda.envio || celda.envio.purgado_at)) situacion = 'sin_informe'
     else situacion = 'listo'
 
     const tes = treasuryId ? mesTesoreria.get(treasuryId) : undefined
@@ -1062,7 +1116,7 @@ async function clientesSoloDeTesoreria(
   }
   const facturados = new Set(((facturasRes.data ?? []) as { treasury_client_id: string }[]).map((f) => f.treasury_client_id))
 
-  const sinPerfil = { dosFicheros: false, porMarca: false, admiteTasaManual: false, pideTramoBeneficio: false }
+  const sinPerfil = { dosFicheros: false, porMarca: false, admiteTasaManual: false, pideTramoBeneficio: false, restaEnvio: false }
   const salida: ResumenDeCliente[] = []
 
   for (const t of (clientesRes.data ?? []) as { id: string; name: string; is_active: boolean }[]) {

@@ -67,6 +67,7 @@ import {
 } from '../amazon/informes'
 import { InformeIlegible, leerInformeListings } from '../amazon/informe-listings'
 import { completarListings, skusSinTipoDeProducto, volcarCenso } from '../catalogo'
+import { createServiceClient } from '@/lib/supabase/service'
 import type { UnidadDeTrabajo } from '../datos'
 import type { ContextoTarea, Lote, ResultadoLote, Tarea } from '../motor'
 
@@ -547,13 +548,22 @@ async function faseVolcar(
   }
 
   if (lectura.filas.length === 0) {
+    // UN PAÍS DONDE LA CUENTA NO VENDE LLEGA VACÍO SIEMPRE, y eso es lo normal: no es un fallo ni merece sonar en la campana (el 8 nov 2026 quince países sin listings llenaron la campana de
+    // «Fallo en …»). Solo es un ERROR si en ese país la cuenta YA tenía referencias guardadas: entonces un censo vacío sí puede ser una lectura rota o un cambio en la cuenta.
+    // Sin referencias previas queda como AVISO (se ve en la cola de eventos, que es donde se mira, y no pasa por la campana: el disparador solo avisa de error o crítico).
+    const { count: yaTenia } = await createServiceClient()
+      .from('amazon_listings')
+      .select('sku', { count: 'exact', head: true })
+      .eq('connection_id', unidad.connectionId)
+      .eq('marketplace_id', unidad.marketplaceId)
+    const teniaReferencias = (yaTenia ?? 0) > 0
     await ctx.evento({
       tipo: 'informe_vacio',
-      severidad: 'error',
-      mensaje:
-        `El censo del catálogo de «${conexion.nombre}» ha llegado sin ninguna referencia. Amazon ha ` +
-        'dado el informe por bueno, así que o la cuenta no tiene listings en este país o la lectura ' +
-        'del fichero no está encontrando las filas.',
+      severidad: teniaReferencias ? 'error' : 'aviso',
+      mensaje: teniaReferencias
+        ? `El censo del catálogo de «${conexion.nombre}» ha llegado sin ninguna referencia, y en este país la cuenta tenía ${yaTenia}. Amazon ha dado el informe por bueno, así que o la cuenta ya no tiene ` +
+          'listings aquí o la lectura del fichero no está encontrando las filas.'
+        : `El censo del catálogo de «${conexion.nombre}» ha llegado sin ninguna referencia y en este país la cuenta no tenía ninguna: la cuenta no vende aquí. No hace falta hacer nada.`,
     })
     estado.fase = 'fin'
     estado.desenlace = 'ok'

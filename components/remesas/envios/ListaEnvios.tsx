@@ -176,10 +176,47 @@ export function ListaEnvios({
 }
 
 function TarjetaEnvio({ remesa, activa, cobertura, chispa, onClick }: { remesa: RemesaDePanel; activa: boolean; cobertura: number | null; chispa: number[]; onClick: () => void }) {
-  const base = Math.max(1, remesa.quedan + remesa.lineas.reduce((s, l) => s + l.consumidas, 0))
-  const vendidas = remesa.lineas.reduce((s, l) => s + l.consumidas, 0)
-  const agotado = remesa.quedan === 0
-  const faltan = remesa.unidadesQueNoLlegaron
+  return (
+    <TarjetaEnvioVista
+      datos={{
+        nombre: remesa.nombre,
+        fechaEnvio: remesa.fechaEnvio,
+        referenciaEnvio: remesa.referenciaEnvio,
+        estadoAmazon: remesa.estadoAmazon,
+        seguimientoError: remesa.seguimientoError,
+        quedan: remesa.quedan,
+        enviadas: remesa.enviadas,
+        vendidas: remesa.lineas.reduce((s, l) => s + l.consumidas, 0),
+        noLlegaron: remesa.unidadesQueNoLlegaron,
+        referencias: remesa.lineas.length,
+      }}
+      activa={activa}
+      cobertura={cobertura}
+      chispa={chispa}
+      onClick={onClick}
+    />
+  )
+}
+
+/** Lo que pinta una tarjeta de envío. La usan la lista de un cliente (con una remesa entera detrás) y el tablero de todos (que solo trae esto, ya resumido) */
+export interface DatosDeTarjeta {
+  nombre: string | null
+  fechaEnvio: string
+  referenciaEnvio: string | null
+  estadoAmazon: string | null
+  seguimientoError: string | null
+  quedan: number
+  enviadas: number
+  vendidas: number
+  noLlegaron: number
+  referencias: number
+}
+
+export function TarjetaEnvioVista({ datos, activa = false, cobertura, chispa, onClick }: { datos: DatosDeTarjeta; activa?: boolean; cobertura: number | null; chispa: number[]; onClick: () => void }) {
+  const base = Math.max(1, datos.quedan + datos.vendidas)
+  const vendidas = datos.vendidas
+  const agotado = datos.quedan === 0
+  const faltan = datos.noLlegaron
   const seAgota = cobertura !== null && cobertura < 7 && !agotado
 
   return (
@@ -195,22 +232,21 @@ function TarjetaEnvio({ remesa, activa, cobertura, chispa, onClick }: { remesa: 
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <InsigniaAmazon remesa={remesa} />
+        <InsigniaAmazon remesa={datos} />
         <div className="flex items-baseline gap-[4px]">
           <span className={cx('text-[16px] font-semibold leading-none tracking-[-0.02em]', agotado ? 'text-[var(--ls-t4)]' : 'text-[var(--ls-t1)]')}>
-            {remesa.quedan.toLocaleString('es-ES')}
+            {datos.quedan.toLocaleString('es-ES')}
           </span>
           <span className="text-[11px] text-[var(--ls-t4)]">quedan</span>
         </div>
       </div>
 
       <div className="mt-[7px] flex items-center justify-between gap-3">
-        <p className={cx(TIPO.l, 'min-w-0 truncate', agotado ? 'text-[var(--ls-t3)]' : 'text-[var(--ls-t1)]')}>{remesa.nombre ?? `Envío del ${fecha(remesa.fechaEnvio)}`}</p>
+        <p className={cx(TIPO.l, 'min-w-0 truncate', agotado ? 'text-[var(--ls-t3)]' : 'text-[var(--ls-t1)]')}>{datos.nombre ?? `Envío del ${fecha(datos.fechaEnvio)}`}</p>
         <Chispa valores={chispa} />
       </div>
       <p className="mt-[1px] truncate text-[11px] text-[var(--ls-t4)]">
-        <span className="font-mono">{remesa.referenciaEnvio ?? 'sin número'}</span> · {fecha(remesa.fechaEnvio)} · {remesa.lineas.length} ref ·{' '}
-        {remesa.enviadas} ud
+        <span className="font-mono">{datos.referenciaEnvio ?? 'sin número'}</span> · {fecha(datos.fechaEnvio)} · {datos.referencias} ref · {datos.enviadas} ud
       </p>
 
       <div className="mt-[8px] flex items-center gap-2">

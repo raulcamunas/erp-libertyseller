@@ -1,0 +1,357 @@
+'use client'
+
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowLeft, Hash, Headphones, LogOut, Lock, Megaphone, MessageCircle, Phone, Pin, Settings2, Sparkles, Video, Volume2, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { filasDeMensajes } from '@/lib/chat/agrupar'
+import { nombreVisible } from '@/lib/chat/canales'
+import type { Comando } from '@/lib/chat/comandos'
+import { textoPlano } from '@/lib/chat/mensajes'
+import { leerRecordatorio } from '@/lib/chat/comandos'
+import { describirInstante } from '@/lib/chat/tiempo'
+import type { CanalChat, MensajeChat } from '@/lib/chat/tipos'
+import { Avatar } from '@/components/tareas-clientes/AvatarTC'
+import { useChat } from './ChatProvider'
+import { pedir } from '@/components/tareas-clientes/api'
+import { DialogoMiembros } from './Dialogos'
+import { alternarMiembros, EVENTO_AJUSTES_DEL_CANAL } from '@/lib/chat/miembros-estado'
+import { DialogoDeEncuesta, HoraLocalDe, MenuDeAvisos } from './Extras'
+import { DialogoDeFijados, DialogoDeResumen, EmojiDeEstado } from './Paneles'
+import { AvisoDeSoltar, useZonaDeSoltar } from './ZonaDeSoltar'
+import { useJunta } from './JuntaProvider'
+import { SalaDeVozDelCanal } from './SalaDeVozDelCanal'
+import { MensajeVista } from './MensajeVista'
+import { Redactor } from './Redactor'
+
+/** Lo que cada cual ha empezado a escribir en cada canal, para que no se pierda al cambiar de uno a otro */
+const borradores = new Map<string, string>()
+
+export function VistaDeCanal() {
+  const { actual, cargando, error, recargar } = useChat()
+  if (error) {
+    return (
+      <section className="chat-vacio" role="alert">
+        <MessageCircle className="h-8 w-8 text-[var(--ls-t4)]" />
+        <p>{error}</p>
+        <button type="button" onClick={recargar} className="tc-boton-primario">Reintentar</button>
+      </section>
+    )
+  }
+  if (cargando) return <section className="chat-principal"><div className="tc-esqueleto m-6 h-24" role="status" aria-label="Cargando el chat" /></section>
+  if (!actual) {
+    return (
+      <section className="chat-vacio">
+        <MessageCircle className="h-8 w-8 text-[var(--ls-t4)]" />
+        <p>Elige un canal o abre una conversación.</p>
+      </section>
+    )
+  }
+  return <CuerpoDeCanal key={actual.id} canal={actual} />
+}
+
+function CuerpoDeCanal({ canal }: { canal: CanalChat }) {
+  const { yo, persona, personas, estado, marcaDeNuevos, cargarMas, enviar, abrirHilo, escribiendo, grabando, avisarQueEscribo, avisarQuePara, unirse, salir, nombreDe, conectados, seleccionar, irAMensaje, objetivo, limpiarObjetivo, irAlFinal, estadoDe, cambiarAvisos, ponerEstado } = useChat()
+  const { disponible: juntasDisponibles, activas, actual: juntaActual, entrar: entrarEnJunta } = useJunta()
+  const [miembrosAbierto, setMiembrosAbierto] = useState(false)
+  useEffect(() => {
+    const abrir = () => setMiembrosAbierto(true)
+    window.addEventListener(EVENTO_AJUSTES_DEL_CANAL, abrir)
+    return () => window.removeEventListener(EVENTO_AJUSTES_DEL_CANAL, abrir)
+  }, [])
+  const [pegado, setPegado] = useState(true)
+  const [citando, setCitando] = useState<MensajeChat | null>(null)
+  const [fijadosAbierto, setFijadosAbierto] = useState(false)
+  const [resumenAbierto, setResumenAbierto] = useState(false)
+  const [tiraOculta, setTiraOculta] = useState(false)
+  const [soltados, setSoltados] = useState<{ n: number; ficheros: File[] } | null>(null)
+  const [encuestaAbierta, setEncuestaAbierta] = useState(false)
+  // El id más alto que había al abrir el canal: lo que llega después entra con animación, el historial no
+  const maxInicial = useRef<number | null>(null)
+  const lista = useRef<HTMLDivElement>(null)
+  const pegadoRef = useRef(true)
+  const alturaPrevia = useRef(0)
+  const primerId = useRef<number | null>(null)
+  const posicionado = useRef(false)
+  const e = estado(canal.id)
+  const zona = useZonaDeSoltar({ alSoltar: (ficheros) => setSoltados({ n: Date.now(), ficheros }) })
+  const marca = marcaDeNuevos(canal.id)
+  const nombre = nombreVisible(canal, yo.id, persona)
+  const filas = useMemo(() => filasDeMensajes(e.mensajes, { yo: yo.id, ultimoLeidoEn: marca }), [e.mensajes, yo.id, marca])
+  if (e.cargado && maxInicial.current === null) maxInicial.current = e.mensajes.reduce((max, m) => Math.max(max, m.id), 0)
+  const quienesEscriben = escribiendo(canal.id).map((id) => nombreDe(id).split(' ')[0])
+  const quienesGrabAn = grabando(canal.id).map((id) => nombreDe(id).split(' ')[0])
+  const frase = (n: string[], uno: string, varios: string) => (n.length === 1 ? `${n[0]} ${uno}` : `${n.join(' y ')} ${varios}`)
+  const textoAvisos = [quienesEscriben.length > 0 ? frase(quienesEscriben, 'está escribiendo', 'están escribiendo') : '', quienesGrabAn.length > 0 ? frase(quienesGrabAn, 'está grabando un audio', 'están grabando un audio') : ''].filter(Boolean).join(' · ')
+  const otro = canal.tipo === 'directo' ? canal.miembros.find((m) => m !== yo.id) : undefined
+  const candidatos = canal.tipo === 'canal' ? personas.filter((p) => p.id !== yo.id) : personas.filter((p) => p.id !== yo.id && canal.miembros.includes(p.id))
+
+  useLayoutEffect(() => {
+    const el = lista.current
+    if (!el || !e.cargado) return
+    const primero = e.mensajes.find((m) => m.hilo_de === null)?.id ?? null
+    if (!posicionado.current) {
+      // La primera vez: en la marca «Nuevos» si hay, y si no, abajo del todo
+      posicionado.current = true
+      const marcaEl = el.querySelector('[data-marca-nuevos]')
+      if (marcaEl) marcaEl.scrollIntoView({ block: 'center' })
+      else el.scrollTop = el.scrollHeight
+    } else if (primerId.current !== null && primero !== null && primero < primerId.current) {
+      // Han llegado mensajes más viejos por arriba: que lo que se estaba leyendo no salte
+      el.scrollTop += el.scrollHeight - alturaPrevia.current
+    } else if (pegadoRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+    alturaPrevia.current = el.scrollHeight
+    primerId.current = primero
+  }, [e.mensajes, e.cargado])
+
+  // Las imágenes que cargan después empujan el contenido: si se estaba abajo, se sigue abajo
+  useEffect(() => {
+    const el = lista.current
+    if (!el) return
+    const alCargar = () => {
+      if (pegadoRef.current) el.scrollTop = el.scrollHeight
+    }
+    el.addEventListener('load', alCargar, true)
+    return () => el.removeEventListener('load', alCargar, true)
+  }, [])
+
+  const alDesplazar = () => {
+    const el = lista.current
+    if (!el) return
+    const abajo = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    pegadoRef.current = abajo
+    setPegado(abajo)
+    if (el.scrollTop < 140 && e.hayMas && !e.cargando) void cargarMas(canal.id)
+  }
+
+  const alIrAlFinal = () => {
+    const el = lista.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  /** Lleva al mensaje citado y lo resalta un momento; si no está cargado (queda muy atrás), el proveedor abre una ventana alrededor de él */
+  const irAlMensaje = async (id: number) => {
+    const el = lista.current?.querySelector(`[data-mensaje-id="${id}"]`)
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.setAttribute('data-resaltado', 'true')
+      setTimeout(() => el.removeAttribute('data-resaltado'), 1800)
+      return
+    }
+    await irAMensaje(canal.id, id)
+  }
+
+  // Al llegar desde una búsqueda, un guardado o una cita: cuando el mensaje ya está pintado, se le lleva allí y se resalta
+  useEffect(() => {
+    if (!objetivo || objetivo.canalId !== canal.id || !e.cargado) return
+    const el = lista.current?.querySelector(`[data-mensaje-id="${objetivo.id}"]`)
+    if (!el) return
+    const t = setTimeout(() => {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      el.setAttribute('data-resaltado', 'true')
+      setTimeout(() => el.removeAttribute('data-resaltado'), 1800)
+      limpiarObjetivo()
+    }, 60)
+    return () => clearTimeout(t)
+  }, [objetivo, e.cargado, e.mensajes, canal.id, limpiarObjetivo])
+
+  // Cuántos mensajes de otros hay sin leer desde que se abrió el canal: si son muchos, se ofrece el resumen
+  const nuevos = marca ? e.mensajes.filter((m) => m.autor_id !== yo.id && m.borrado_en === null && Date.parse(m.creado_en) > Date.parse(marca)).length : 0
+  const estadoDelOtro = otro ? estadoDe(otro) : null
+
+  /** Lo que hace cada comando con «/» de la caja de escribir */
+  const hacerComando = async (c: Comando) => {
+    switch (c.nombre) {
+      case 'junta':
+        if (!juntasDisponibles) throw new Error('Las juntas todavía no están configuradas en el servidor.')
+        await entrarEnJunta(canal.id)
+        return
+      case 'encuesta':
+        setEncuestaAbierta(true)
+        return
+      case 'silenciar':
+        await cambiarAvisos(canal.id, canal.avisos === 'nada' ? null : 'nada')
+        toast.success(canal.avisos === 'nada' ? 'Avisos activados' : 'Canal silenciado')
+        return
+      case 'estado':
+        if (!c.argumentos) throw new Error('Escribe tu estado: /estado En una reunión')
+        await ponerEstado('💬', c.argumentos, '1h')
+        toast.success('Estado puesto durante una hora')
+        return
+      case 'recordar': {
+        const r = leerRecordatorio(c.argumentos, Date.now())
+        if (!r.ok) throw new Error(r.motivo)
+        await pedir('/api/chat/recordatorios', { metodo: 'POST', cuerpo: { texto: r.texto, avisarEn: new Date(r.en).toISOString(), canalId: canal.id } })
+        toast.success(`Te lo recordaré ${describirInstante(r.en)}`)
+        return
+      }
+    }
+  }
+
+  const hacer = (f: () => Promise<unknown>) => void f().catch((err: Error) => toast.error(err.message))
+  const icono = canal.voz ? <Volume2 className="h-4 w-4" /> : canal.tipo === 'privado' ? <Lock className="h-4 w-4" /> : canal.tipo === 'directo' ? null : <Hash className="h-4 w-4" />
+
+  return (
+    <section className="chat-principal" aria-label={nombre} {...zona.props}>
+      {zona.encima && <AvisoDeSoltar donde={canal.tipo === 'directo' ? nombre : `${canal.tipo === 'privado' ? '🔒' : '#'}${nombre}`} permitido={canal.soy_miembro} />}
+      <header className="chat-cabecera">
+        <div className="chat-cabecera-titulo">
+          <button type="button" className="chat-icono chat-atras" onClick={() => seleccionar(null)} aria-label="Volver a la lista"><ArrowLeft className="h-4 w-4" /></button>
+          {icono}
+          <h1>{nombre}</h1>
+          {canal.anuncios && <span className="chat-etiqueta-anuncios" title="Solo publican quienes administran el canal"><Megaphone className="h-3 w-3" /> Anuncios</span>}
+          {otro && <EmojiDeEstado id={otro} />}
+          {otro && <HoraLocalDe id={otro} />}
+          {otro && <span className="chat-estado-persona" data-en-linea={conectados.has(otro) ? 'true' : undefined}>{estadoDelOtro?.texto || (conectados.has(otro) ? 'En línea' : 'Desconectado')}</span>}
+          {canal.descripcion && <span className="chat-descripcion" title={canal.descripcion}>{canal.descripcion}</span>}
+        </div>
+        <div className="chat-cabecera-acciones">
+          <button type="button" className="chat-icono chat-resumen-boton" onClick={() => setResumenAbierto(true)} aria-label="Ponme al día" title="Ponme al día: un resumen de lo que no has leído">
+            <Sparkles className="h-4 w-4" />
+          </button>
+          {(canal.fijados > 0 || canal.soy_miembro) && (
+            <button type="button" className="chat-icono" onClick={() => setFijadosAbierto(true)} aria-label={`Mensajes fijados${canal.fijados > 0 ? ` (${canal.fijados})` : ''}`} title="Mensajes fijados">
+              <Pin className="h-4 w-4" />{canal.fijados > 0 && <span className="text-[12px] font-bold">{canal.fijados}</span>}
+            </button>
+          )}
+          {canal.soy_miembro && juntasDisponibles && !canal.voz && !(juntaActual?.canalId === canal.id) && (
+            <button type="button" className="chat-icono chat-llamar" onClick={() => hacer(() => entrarEnJunta(canal.id))} aria-label={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta'} title={canal.tipo === 'directo' ? `Llamar a ${nombre}` : 'Iniciar una junta de voz y vídeo'}>
+              {canal.tipo === 'directo' ? <Phone className="h-4 w-4" /> : canal.voz ? <Volume2 className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+              <span>{canal.tipo === 'directo' ? 'Llamar' : canal.voz ? 'Unirme a la voz' : 'Junta'}</span>
+            </button>
+          )}
+          {canal.soy_miembro && <MenuDeAvisos canal={canal} />}
+          {canal.tipo !== 'directo' && (
+            <button type="button" className="chat-icono chat-miembros-boton" onClick={(ev) => {
+              // En un chat estrecho no cabe la barra de la derecha: se abre la ventana de miembros
+              const ancho = ev.currentTarget.closest<HTMLElement>('.chat-contenedor')?.clientWidth ?? 9999
+              if (ancho < 1060) setMiembrosAbierto(true)
+              else alternarMiembros()
+            }} aria-label="Mostrar u ocultar los miembros" title="Miembros del canal">
+              <span className="chat-pila">{canal.miembros.slice(0, 3).map((id) => <Avatar key={id} id={id} nombre={nombreDe(id)} tamano={20} />)}</span>
+              <span>{canal.miembros.length}</span>
+            </button>
+          )}
+          {canal.soy_miembro && canal.tipo !== 'directo' && !canal.auto_unirse && (
+            <button type="button" className="chat-icono" onClick={() => window.confirm(`¿Salir de ${nombre}?`) && hacer(() => salir(canal.id))} aria-label="Salir del canal" title="Salir del canal"><LogOut className="h-4 w-4" /></button>
+          )}
+        </div>
+      </header>
+
+      {/* Un canal de voz se ve como en Discord: arriba la sala (quién está dentro y los mandos) y debajo el chat del canal */}
+      {canal.voz && <SalaDeVozDelCanal canal={canal} />}
+
+      {canal.soy_miembro && !canal.voz && activas[canal.id] && juntaActual?.canalId !== canal.id && (
+        <div className="chat-junta-aviso" role="status">
+          <Headphones className="h-4 w-4 text-[var(--ls-e-verde)]" />
+          <span>
+            Junta en curso · <b>{activas[canal.id].personas.map((id) => nombreDe(id).split(' ')[0]).join(', ')}</b>
+          </span>
+          <button type="button" className="tc-boton-primario" onClick={() => hacer(() => entrarEnJunta(canal.id))}>Unirme</button>
+        </div>
+      )}
+
+      {nuevos >= 8 && !tiraOculta && (
+        <div className="chat-tira-resumen" role="status">
+          <Sparkles className="h-4 w-4 shrink-0" />
+          <span><b>{nuevos} mensajes nuevos</b> desde la última vez que estuviste</span>
+          <button type="button" className="tc-boton-primario" onClick={() => setResumenAbierto(true)}>Ponme al día</button>
+          <button type="button" className="chat-icono" onClick={() => setTiraOculta(true)} aria-label="Ocultar"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
+
+      <div className="chat-lista" ref={lista} onScroll={alDesplazar} role="log" aria-live="polite" aria-label={`Mensajes de ${nombre}`}>
+        {!e.hayMas && e.cargado && (
+          <div className="chat-inicio-canal">
+            {icono && <span className="chat-inicio-icono">{icono}</span>}
+            <h2>{canal.tipo === 'directo' ? `Tu conversación con ${nombre}` : `Este es el principio de ${canal.tipo === 'privado' ? '🔒 ' : '#'}${nombre}`}</h2>
+            {canal.descripcion && <p>{canal.descripcion}</p>}
+          </div>
+        )}
+        {!e.cargado && <div className="tc-esqueleto m-4 h-20" role="status" aria-label="Cargando mensajes" />}
+        {filas.map((f) =>
+          f.tipo === 'dia' ? (
+            <div key={f.clave} className="chat-dia"><span>{f.etiqueta}</span></div>
+          ) : f.tipo === 'nuevos' ? (
+            <div key={f.clave} className="chat-nuevos" data-marca-nuevos><span>Nuevos</span></div>
+          ) : (
+            <MensajeVista
+              key={f.clave}
+              m={f.mensaje}
+              continuacion={f.continuacion}
+              nuevo={maxInicial.current !== null && f.mensaje.id > maxInicial.current}
+              puedeBorrarAjeno={yo.esAdmin && canal.tipo === 'canal'}
+              alAbrirHilo={(m) => abrirHilo(canal.id, m.id)}
+              alCitar={canal.soy_miembro ? setCitando : undefined}
+              alIrALaCita={(id) => void irAlMensaje(id)}
+            />
+          )
+        )}
+        {e.cargado && e.mensajes.length === 0 && <p className="chat-sin-mensajes">Aún no hay mensajes. ¡Escribe el primero!</p>}
+      </div>
+
+      {e.conSalto && (
+        <button type="button" className="chat-ir-al-final" onClick={() => void irAlFinal(canal.id)} aria-label="Ir a lo más reciente">
+          <ArrowDown className="h-3.5 w-3.5" /> Volver a lo más reciente
+        </button>
+      )}
+      {!pegado && !e.conSalto && (
+        <button type="button" className="chat-ir-al-final" onClick={alIrAlFinal} aria-label="Ir al último mensaje">
+          <ArrowDown className="h-3.5 w-3.5" /> Ir al final
+        </button>
+      )}
+
+      <div className="chat-pie">
+        <p className="chat-escribiendo" aria-live="polite" data-activo={textoAvisos ? 'true' : undefined}>
+          {textoAvisos ? <><span className="chat-puntos" aria-hidden="true"><i /><i /><i /></span>{textoAvisos}</> : ' '}
+        </p>
+        {canal.soy_miembro && canal.anuncios && !canal.soy_admin ? (
+          <div className="chat-unirse chat-solo-anuncios">
+            <Megaphone className="h-4 w-4 shrink-0" />
+            <span>Este canal es de <b>anuncios</b>: solo lo publican quienes lo administran. Puedes <b>reaccionar</b> y <b>responder en un hilo</b>.</span>
+          </div>
+        ) : canal.soy_miembro ? (
+          <Redactor
+            candidatos={candidatos}
+            placeholder={canal.tipo === 'directo' ? `Escribe a ${nombre}` : `Escribe en ${canal.tipo === 'privado' ? '🔒 ' : '#'}${nombre}`}
+            borradorInicial={borradores.get(canal.id) ?? ''}
+            alCambiarBorrador={(t) => (t ? borradores.set(canal.id, t) : borradores.delete(canal.id))}
+            alEscribir={() => avisarQueEscribo(canal.id)}
+            alGrabar={() => avisarQueEscribo(canal.id, 'graba')}
+            alPararDeGrabar={() => avisarQuePara(canal.id)}
+            cita={citando ? { autor: citando.autor_id === yo.id ? 'Tú' : nombreDe(citando.autor_id), texto: textoPlano(citando.cuerpo, (id) => nombreDe(id).split(' ')[0], 90) || '📎 Archivo adjunto' } : null}
+            alQuitarCita={() => setCitando(null)}
+            ficherosSoltados={canal.soy_miembro ? soltados : null}
+            esAdmin={yo.esAdmin}
+            alComando={hacerComando}
+            permitirTodos={canal.tipo !== 'directo' && canal.miembros.length > 2}
+            alEncuesta={() => setEncuestaAbierta(true)}
+            alEnviar={async (cuerpo, adjuntos) => {
+              // Al instante: pegado abajo, sin la cita y sin el aviso de «está escribiendo»; si el envío falla, el redactor devuelve el texto
+              const respondeA = citando?.id
+              setCitando(null)
+              pegadoRef.current = true
+              avisarQuePara(canal.id)
+              await enviar(canal.id, cuerpo, { respondeA, adjuntos })
+            }}
+            alProgramar={async (cuerpo, adjuntos, enviarEn) => {
+              await pedir('/api/chat/programados', { metodo: 'POST', cuerpo: { canalId: canal.id, cuerpo, respondeA: citando?.id, adjuntos, enviarEn } })
+              setCitando(null)
+            }}
+            autoEnfocar
+          />
+        ) : (
+          <div className="chat-unirse">
+            <span>Estás viendo <b>#{nombre}</b>. Únete para escribir y recibir sus mensajes.</span>
+            <button type="button" className="tc-boton-primario" onClick={() => hacer(() => unirse(canal.id))}>Unirme al canal</button>
+          </div>
+        )}
+      </div>
+      {miembrosAbierto && <DialogoMiembros canal={canal} onCerrar={() => setMiembrosAbierto(false)} />}
+      {encuestaAbierta && <DialogoDeEncuesta onCerrar={() => setEncuestaAbierta(false)} alCrear={(enc) => enviar(canal.id, '', { encuesta: enc })} />}
+      {fijadosAbierto && <DialogoDeFijados canalId={canal.id} nombre={nombre} onCerrar={() => setFijadosAbierto(false)} />}
+      {resumenAbierto && <DialogoDeResumen canalId={canal.id} nombre={nombre} onCerrar={() => setResumenAbierto(false)} />}
+    </section>
+  )
+}

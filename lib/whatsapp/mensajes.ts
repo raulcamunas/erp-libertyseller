@@ -177,15 +177,29 @@ export function numerosDeWhatsapp(telefonos: readonly string[]): Array<{ telefon
   return salida
 }
 
-/** WhatsApp Web (el ordenador de siempre) o `wa.me` (el móvil y la aplicación de escritorio) */
-export type ViaDeWhatsapp = 'web' | 'app'
+/**
+ * Con qué se abre el chat:
+ *   · 'web': WhatsApp Web en una pestaña (lo de siempre en un ordenador). Cada vez carga WhatsApp entero: en un ordenador flojo, lento.
+ *   · 'escritorio': la aplicación de WhatsApp para Windows o Mac, con su enlace `whatsapp://`. La aplicación ya abierta salta al chat al momento, sin pestaña
+ *     y sin recargar nada. Necesita tenerla instalada: sin ella el clic no abre nada (la pantalla lo avisa al elegirla).
+ *   · 'app': `wa.me`, para el móvil (lo recoge la aplicación del teléfono).
+ */
+export type ViaDeWhatsapp = 'web' | 'escritorio' | 'app'
 
-export const esViaDeWhatsapp = (v: unknown): v is ViaDeWhatsapp => v === 'web' || v === 'app'
+export const esViaDeWhatsapp = (v: unknown): v is ViaDeWhatsapp => v === 'web' || v === 'escritorio' || v === 'app'
 
 export function enlaceDeWhatsapp(e: { numero: string; texto: string; via: ViaDeWhatsapp }): string {
   const texto = encodeURIComponent(e.texto)
-  return e.via === 'web' ? `https://web.whatsapp.com/send?phone=${e.numero}&text=${texto}` : `https://wa.me/${e.numero}?text=${texto}`
+  if (e.via === 'web') return `https://web.whatsapp.com/send?phone=${e.numero}&text=${texto}`
+  if (e.via === 'escritorio') return `whatsapp://send?phone=${e.numero}&text=${texto}`
+  return `https://wa.me/${e.numero}?text=${texto}`
 }
+
+/**
+ * ¿Se abre en otra pestaña? Solo los enlaces web. El de la aplicación (`whatsapp://`) se abre en la misma: el navegador se lo pasa a la aplicación y la página
+ * del ERP se queda donde estaba. Con `target="_blank"` dejaría una pestaña en blanco cada vez, que es justo lo que se quiere evitar.
+ */
+export const abreOtraPestana = (enlace: string): boolean => /^https?:/i.test(enlace)
 
 /* ------------------------------------------------------------------ */
 /* El apunte del historial                                             */
