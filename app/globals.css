@@ -5564,6 +5564,9 @@ html[data-junta-capsula] .pila-de-avisos { --avisos-min: 76px; }
 .menu-contextual button:disabled { opacity: .45; cursor: default; }
 .menu-contextual-raya { height: 1px; margin: 4px 6px; background: var(--ls-linea); }
 @media (prefers-reduced-motion: reduce) { .menu-contextual { animation: none; } }
+
+
+/* =====================================================================
    KIT VISUAL COMÚN (components/ui-ls) — tokens y utilidades
    =====================================================================
    Lo que usan las piezas de components/ui-ls para que todos los módulos
