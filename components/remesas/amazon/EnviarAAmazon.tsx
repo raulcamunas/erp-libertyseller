@@ -180,7 +180,7 @@ function CabeceraEnvio({ e, trabajando, bloqueado, onModo, onReintentar }: { e: 
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-[14px] font-semibold text-[var(--ls-t1)]">{e.texto}</p>
+                <p className="text-[14px] font-semibold text-[var(--ls-t1)]">{e.error ? `Se ha parado: ${e.texto.replace(/…$/, '').toLowerCase()}` : e.texto}</p>
                 {e.enCurso && (
                   <Insignia tono="cian" vivo>
                     Amazon trabajando
@@ -195,6 +195,7 @@ function CabeceraEnvio({ e, trabajando, bloqueado, onModo, onReintentar }: { e: 
               {e.error ? (
                 <p className="mt-1 text-[12.5px] leading-[1.5]" style={{ color: COLOR_ESTADO.rojo }}>
                   Amazon dice: {e.error}
+                  <span className="mt-1 block text-[12px] text-[var(--ls-t3)]">Corrige lo que diga y reintenta el paso, o cancela el plan en «Seguimiento».</span>
                 </p>
               ) : (
                 <p className="mt-1 text-[12px] text-[var(--ls-t3)]">
@@ -490,7 +491,11 @@ function FaseReparto({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; trab
     )
   }
   if (e.paso === 'reparto_generar' || e.paso === 'reparto_confirmar') {
-    return <EstadoVacio icono={Warehouse} titulo={e.texto} descripcion="Puede tardar unos minutos. Esta pantalla se actualiza sola." acento="remesas" />
+    return e.error ? (
+      <EstadoVacio icono={AlertTriangle} titulo="Amazon ha parado el reparto" descripcion="Arriba tienes lo que ha dicho y el botón para reintentar." acento={COLOR_ESTADO.rojo} />
+    ) : (
+      <EstadoVacio icono={Warehouse} titulo={e.texto} descripcion="Puede tardar unos minutos. Esta pantalla se actualiza sola." acento="remesas" />
+    )
   }
   if (!e.opcionesReparto.length) {
     return <EstadoVacio icono={Warehouse} titulo="Todavía no hay reparto" descripcion="Amazon reparte el envío por centros cuando tiene las cajas." acento="remesas" />
@@ -628,7 +633,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
         </Tarjeta>
       )}
 
-      {e.paso === 'transporte_generar' && <EstadoVacio icono={Truck} titulo="Pidiendo la cotización a Amazon…" descripcion="Se actualiza solo en cuanto Amazon conteste." acento="remesas" />}
+      {e.paso === 'transporte_generar' && !e.error && <EstadoVacio icono={Truck} titulo="Pidiendo la cotización a Amazon…" descripcion="Se actualiza solo en cuanto Amazon conteste." acento="remesas" />}
 
       {e.seleccion.length > 0 && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr]">
