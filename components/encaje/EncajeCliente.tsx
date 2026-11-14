@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Info, Loader2, Package, Plus, TriangleAlert } from 'lucide-react'
 import { sinRespuestaDe } from '@/components/remesas/comun/errores'
 import type { DatosDeEncaje } from '@/lib/fba/encaje-enlace'
@@ -25,7 +25,18 @@ import { useAutoguardado } from './useAutoguardado'
  * probado: aquí solo se enseña el resultado. Las operaciones no dejan nunca las cajas en un estado
  * que el servidor rechazaría, así que lo único que puede fallar al guardar es la conexión.
  */
-export function EncajeCliente({ token, inicial }: { token: string; inicial: DatosDeEncaje }) {
+export function EncajeCliente({
+  token,
+  inicial,
+  encima,
+  etiquetaCabecera,
+}: {
+  token: string
+  inicial: DatosDeEncaje
+  /** Lo que va justo debajo de la banda: en el portal del cliente (/envio), las fases del envío */
+  encima?: ReactNode
+  etiquetaCabecera?: string
+}) {
   const { lineas } = inicial
   const [cajas, setCajas] = useState<CajaEnEdicion[]>(inicial.cajas)
   const [activa, setActiva] = useState<number | null>(inicial.cajas[0]?.numero ?? null)
@@ -41,7 +52,7 @@ export function EncajeCliente({ token, inicial }: { token: string; inicial: Dato
   const yaTerminada = inicial.estado === 'lista' || terminada
   const editable = inicial.editable && !terminada
   const resumen = useMemo(() => resumirEncaje(lineas, cajas), [lineas, cajas])
-  const guardado = useAutoguardado(token, cajas, editable)
+  const guardado = useAutoguardado(token, cajas, editable, inicial.version)
   const totalUnidades = useMemo(() => lineas.reduce((s, l) => s + l.unidades, 0), [lineas])
 
   // La ayuda se pliega sola al empezar a trabajar: ya no hace falta y empuja las cajas hacia abajo
@@ -161,7 +172,19 @@ export function EncajeCliente({ token, inicial }: { token: string; inicial: Dato
   // parte— y empuja la caja fuera de la pantalla del móvil
   return (
     <div className="min-h-screen bg-[#F7F5F2] text-[#141414]" style={{ fontFamily: FUENTE_CUERPO }}>
-      <Cabecera titulo={inicial.titulo} cliente={inicial.cliente} referencias={lineas.length} unidades={totalUnidades} fechaEnvio={inicial.fechaEnvio} />
+      <Cabecera titulo={inicial.titulo} cliente={inicial.cliente} referencias={lineas.length} unidades={totalUnidades} fechaEnvio={inicial.fechaEnvio} etiqueta={etiquetaCabecera} />
+      {encima}
+      {guardado.conflicto && (
+        <div role="alert" className="mx-auto mt-4 flex max-w-[1180px] flex-wrap items-center justify-between gap-3 px-5 sm:px-8">
+          <p className="flex flex-1 items-start gap-2 rounded-2xl border border-[#C23B3B]/30 bg-[#FBE3E0] px-4 py-3 text-[14px] leading-snug text-[#7A2020]">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            Alguien ha cambiado las cajas mientras las editabas. Para no pisarlo, hemos dejado de guardar: recarga la página para ver lo último.
+            <button type="button" onClick={() => window.location.reload()} className="ml-auto min-h-[44px] shrink-0 rounded-xl bg-[#C23B3B] px-4 text-[13px] font-semibold text-[#FFFFFF]">
+              Recargar
+            </button>
+          </p>
+        </div>
+      )}
 
       {yaTerminada ? (
         <PantallaFinal recien={terminada} resumen={resumen} cajas={cajas} lineas={lineas} />

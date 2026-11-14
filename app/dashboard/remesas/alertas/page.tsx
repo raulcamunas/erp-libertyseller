@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
-import type { SesionFba } from '@/lib/fba/acceso'
+import { actorDeRol, type SesionFba } from '@/lib/fba/acceso'
 import { leerPanelDeAlertas } from '@/lib/fba/alertas-lectura'
 import { diaEnEspana } from '@/lib/fba/fechas'
 import { PanelAlertas } from '@/components/remesas/alertas/PanelAlertas'
@@ -37,7 +37,7 @@ export default async function AlertasFbaPage() {
     permitidos = ((data ?? []) as Array<{ client_id: string }>).map((a) => a.client_id)
     if (permitidos.length === 0) redirect('/dashboard/remesas')
   }
-  const sesion: SesionFba = { userId: user.id, role: profile.role, esAdmin, clientesPermitidos: permitidos, clientesEditables: permitidos }
+  const sesion: SesionFba = { userId: user.id, role: profile.role, esAdmin, actor: actorDeRol(profile.role), clientesPermitidos: permitidos, clientesEditables: permitidos }
 
   const panel = await leerPanelDeAlertas(sesion, diaEnEspana())
   return <PanelAlertas panel={panel} esAdmin={esAdmin} />

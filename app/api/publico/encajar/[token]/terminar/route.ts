@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { terminarEncaje } from '@/lib/fba/encaje-enlace'
 import { entrarConEnlace, respuestaDeFalloInterno } from '@/lib/fba/encaje-http'
+import { ipDe } from '@/lib/fba/limite-publico'
 
 /**
  * «HE TERMINADO DE ENCAJAR», DESDE LA PÁGINA PÚBLICA.
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     const r = await entrarConEnlace(request, params.token, 'terminar')
     if (r instanceof NextResponse) return r
 
-    const res = await terminarEncaje(r)
+    const res = await terminarEncaje(r, undefined, undefined, ipDe(request))
     if (!res.ok) {
       return res.motivos ? NextResponse.json({ error: res.error, motivos: res.motivos }, { status: res.estado }) : fail(res.estado, res.error)
     }

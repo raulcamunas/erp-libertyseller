@@ -29,8 +29,15 @@ export type EstadoDeGuardado = 'guardado' | 'pendiente' | 'guardando' | 'error'
 const ESPERA_TRAS_TOCAR_MS = 700
 const ESPERA_TRAS_FALLO_MS = 5000
 
-export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: boolean) {
+export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: boolean, versionInicial: number | null = null) {
   const [estado, setEstado] = useState<EstadoDeGuardado>('guardado')
+  /**
+   * LA VERSIÓN DE LAS CAJAS QUE TENEMOS (bloqueo optimista, migración 309). Viaja en cada guardado y vuelve
+   * la nueva. Si alguien de la agencia guarda desde el ERP entre medias, el servidor contesta 409 y aquí
+   * se deja de guardar hasta recargar: seguir mandando pisaría lo suyo.
+   */
+  const version = useRef<number | null>(versionInicial)
+  const [conflicto, setConflicto] = useState(false)
   const [motivo, setMotivo] = useState<string | null>(null)
   const [guardadoAt, setGuardadoAt] = useState<number | null>(null)
 
@@ -55,9 +62,10 @@ export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: b
         const res = await fetch(`/api/publico/encajar/${token}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cajas: ultimas.current }),
+          body: JSON.stringify({ cajas: ultimas.current, version: version.current }),
         })
-        const cuerpo = (await res.json().catch(() => null)) as { error?: string; guardadoAt?: string } | null
+        const cuerpo = (await res.json().catch(() => null)) as { error?: string; guardadoAt?: string; version?: number | null } | null
+        if (res.status === 409) setConflicto(true)
         if (!res.ok) {
           setMotivo(cuerpo?.error ?? `No se ha podido guardar (código ${res.status}).`)
           setEstado('error')
@@ -66,6 +74,7 @@ export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: b
           return false
         }
         enElServidor.current = firma
+        if (typeof cuerpo?.version === 'number') version.current = cuerpo.version
         setMotivo(null)
         setGuardadoAt(Date.now())
         return true
@@ -97,7 +106,7 @@ export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: b
 
   useEffect(() => {
     ultimas.current = cajas
-    if (!activo) return
+    if (!activo || conflicto) return
     if (JSON.stringify(cajas) === enElServidor.current) return
     setEstado((e) => (e === 'guardando' ? e : 'pendiente'))
     programar(ESPERA_TRAS_TOCAR_MS)
@@ -105,7 +114,7 @@ export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: b
       if (temporizador.current) clearTimeout(temporizador.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cajas, activo])
+  }, [cajas, activo, conflicto])
 
   // Si se cierra la pestaña con algo sin guardar, el navegador avisa
   useEffect(() => {
@@ -120,5 +129,5 @@ export function useAutoguardado(token: string, cajas: CajaEnEdicion[], activo: b
     return () => window.removeEventListener('beforeunload', aviso)
   }, [activo])
 
-  return { estado, motivo, guardadoAt, sincronizar }
+  return { estado, motivo, guardadoAt, sincronizar, conflicto }
 }

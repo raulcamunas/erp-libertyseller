@@ -79,7 +79,7 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
       const res = await fetch(`/api/fba/remesas/${remesa.id}/estado`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hasta: 'enviada' }),
+        body: JSON.stringify({ hasta: 'enviada', desde: remesa.estado }),
       })
       const p = (await res.json().catch(() => null)) as { error?: string; motivos?: string[] } | null
       if (!res.ok) {

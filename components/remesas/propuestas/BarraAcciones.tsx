@@ -63,9 +63,14 @@ export function BarraAcciones({
       const res = await fetch(`/api/fba/remesas/${remesa.id}/estado`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hasta }),
+        // El paso que se está viendo: si alguien lo movió entre medias, el servidor contesta 409 y no aplica nada
+        body: JSON.stringify({ hasta, desde: remesa.estado }),
       })
-      const p = (await res.json().catch(() => null)) as { error?: string; motivos?: string[] } | null
+      const p = (await res.json().catch(() => null)) as { error?: string; motivos?: string[]; conflicto?: boolean } | null
+      if (res.status === 409 && p?.conflicto) {
+        toast.error(p.error ?? 'Alguien ha cambiado esto. Recarga.', { action: { label: 'Recargar', onClick: () => router.refresh() } })
+        return
+      }
       if (!res.ok) {
         // Se enseñan TODOS los motivos, uno por línea: arreglar de uno en uno
         // obliga a reintentar tantas veces como cosas falten.

@@ -74,6 +74,7 @@ export function EspacioRemesas({
   cliente,
   panel,
   esAdmin,
+  esAgencia,
   remesaAbierta,
   alertas,
   vistaInicial,
@@ -83,6 +84,8 @@ export function EspacioRemesas({
   cliente: Cliente
   panel: PanelRemesas
   esAdmin: boolean
+  /** Admin o empleado: la agencia en el flujo (lib/fba/acceso.ts actorDeRol). Un empleado ya no cuenta como cliente */
+  esAgencia: boolean
   /** La remesa cuyas cajas ha traído el servidor. Viene de la URL */
   remesaAbierta: string | null
   nombreUsuario: string
@@ -94,7 +97,7 @@ export function EspacioRemesas({
   abrirIa?: boolean
 }) {
   const router = useRouter()
-  const verComo: Actor = esAdmin ? 'agencia' : 'cliente'
+  const verComo: Actor = esAgencia ? 'agencia' : 'cliente'
   const hoy = panel.hoy
   // Cada propuesta con IA es una llamada de pago sobre el inventario entero del cliente: la lanza
   // la agencia, igual que la ruta, que lo comprueba otra vez en el servidor
@@ -412,6 +415,7 @@ export function EspacioRemesas({
                     clienteId={cliente.id}
                     clienteNombre={cliente.nombre}
                     esAdmin={esAdmin}
+                    actor={verComo}
                     puedeEditar={cliente.puedeEditar}
                     puedeBorrar={esAdmin}
                     cajas={panel.cajasDe?.remesaId === propuesta.id ? panel.cajasDe.datos : null}

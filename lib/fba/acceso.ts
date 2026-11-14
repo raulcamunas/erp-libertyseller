@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { fail } from '@/lib/amazon/api'
+import type { Actor } from './flujo'
 
 /**
  * QUIÉN PUEDE VER Y TOCAR QUÉ EN REMESAS A FBA.
@@ -37,6 +38,14 @@ export interface SesionFba {
   userId: string
   role: string
   esAdmin: boolean
+  /**
+   * QUIÉN ES EN EL FLUJO: la agencia (admin o empleado) o el cliente.
+   *
+   * Antes se decidía con `esAdmin`, y un empleado de la agencia que no fuera admin contaba como CLIENTE:
+   * no podía marcar enviada ni volver a borrador, y lo que hacía quedaba como si lo hubiera hecho el
+   * cliente. Ahora decide el rol: admin y employee son agencia; el resto, cliente.
+   */
+  actor: Actor
   /** null = todos (admin). Lista = solo estos. Nunca vacía: eso ya es un 403 */
   clientesPermitidos: string[] | null
   /** De los permitidos, en cuáles puede crear y corregir */
@@ -73,6 +82,7 @@ export async function requireFbaAccess(
       userId: user.id,
       role,
       esAdmin: true,
+      actor: 'agencia',
       clientesPermitidos: null,
       clientesEditables: null,
     }
@@ -116,6 +126,7 @@ export async function requireFbaAccess(
     userId: user.id,
     role,
     esAdmin: false,
+    actor: actorDeRol(role),
     clientesPermitidos: permitidos,
     clientesEditables: editables,
   }
@@ -128,4 +139,11 @@ export function puedeVer(sesion: SesionFba, cliente: string): boolean {
 
 export function puedeEditar(sesion: SesionFba, cliente: string): boolean {
   return sesion.clientesEditables === null || sesion.clientesEditables.includes(cliente)
+}
+
+/** Los roles que son la agencia. El resto (cliente, socio…) cuenta como cliente */
+export const ROLES_DE_AGENCIA = ['admin', 'employee'] as const
+
+export function actorDeRol(role: string | null | undefined): Actor {
+  return (ROLES_DE_AGENCIA as readonly string[]).includes(role ?? '') ? 'agencia' : 'cliente'
 }

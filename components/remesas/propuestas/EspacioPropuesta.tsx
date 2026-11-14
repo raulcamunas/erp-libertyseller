@@ -41,6 +41,7 @@ export function EspacioPropuesta({
   clienteId,
   clienteNombre,
   esAdmin,
+  actor,
   puedeEditar,
   puedeBorrar,
   cajas,
@@ -51,6 +52,8 @@ export function EspacioPropuesta({
   clienteId: string
   clienteNombre: string
   esAdmin: boolean
+  /** Agencia (admin o empleado) o cliente: lo decide el rol, no esAdmin */
+  actor: Actor
   puedeEditar: boolean
   puedeBorrar: boolean
   cajas: CajasDeRemesa | null
@@ -58,7 +61,6 @@ export function EspacioPropuesta({
   onEnviada: (id: string) => void
 }) {
   const router = useRouter()
-  const actor: Actor = esAdmin ? 'agencia' : 'cliente'
   const turno = turnoDe(remesa.estado, remesa.lineas.length)
   const mio = leToca(turno, actor)
 

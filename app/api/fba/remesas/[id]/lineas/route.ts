@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
 import { puedeEditarLineas, type EstadoRemesa } from '@/lib/fba/flujo'
+import { faltaLaFuncion } from '@/lib/fba/cajas'
+import { registrarEnHistorial } from '@/lib/fba/historial'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -88,7 +90,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
-    const body = (await request.json().catch(() => null)) as { lineas?: unknown } | null
+    const body = (await request.json().catch(() => null)) as { lineas?: unknown; version?: unknown } | null
     if (!body || !Array.isArray(body.lineas)) {
       return fail(400, 'Falta la lista de referencias')
     }
@@ -169,10 +171,23 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
      * solo aquí: en borrador no se ha mandado nada, así que no puede haber nada
      * recibido.
      */
-    const { data: metidas, error } = await service.rpc('fba_guardar_lineas', {
-      p_remesa: params.id,
-      p_lineas: limpias,
-    })
+    /**
+     * PRIMERO LA DE LA 309: además comprueba la versión (bloqueo optimista: si el cliente tocó la propuesta
+     * desde su enlace o alguien de la agencia guardó entre medias, 409) y conserva por SKU la foto de lo
+     * propuesto, el origen, la marca «Nuevo» y el comentario del cliente, que la de la 215 tiraba. Si la 309
+     * no está lanzada, la de siempre.
+     */
+    const version = typeof body.version === 'number' && Number.isInteger(body.version) ? body.version : null
+    let nuevaVersion: number | null = null
+    let { data: metidas, error } = await service.rpc('fba_guardar_lineas_v2', { p_remesa: params.id, p_lineas: limpias, p_version: version })
+    if (!error) {
+      nuevaVersion = typeof metidas === 'number' ? metidas : Number(metidas)
+      metidas = limpias.length
+    } else if (error.code === '40001') {
+      return NextResponse.json({ error: error.message, conflicto: true }, { status: 409 })
+    } else if (faltaLaFuncion(error)) {
+      ;({ data: metidas, error } = await service.rpc('fba_guardar_lineas', { p_remesa: params.id, p_lineas: limpias }))
+    }
 
     if (error) {
       // 23514 es el CHECK con el que la función avisa de que el envío ha dejado
@@ -191,8 +206,19 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       throw error
     }
 
+    const unidadesTotales = limpias.reduce((s, l) => s + (l.unidades as number), 0)
+    await registrarEnHistorial({
+      remesaId: params.id,
+      actor: sesion.actor,
+      userId: sesion.userId,
+      accion: 'lineas',
+      detalle: { referencias: limpias.length, unidades: unidadesTotales },
+      agruparMinutos: 10,
+    })
+
     return NextResponse.json({
       ok: true,
+      version: nuevaVersion,
       lineas: Number(metidas ?? limpias.length),
       unidades: limpias.reduce((s, l) => s + (l.unidades as number), 0),
     })
