@@ -825,6 +825,8 @@ export interface ParametrosDeAccion {
   transportationOptionId?: string
   dia?: string
   contacto?: { nombre?: string; telefono?: string; email?: string }
+  /** La palabra escrita para confirmar (CANCELAR en una cancelación grave) */
+  palabra?: string
 }
 
 export async function cambiarModo(remesaId: string, modo: ModoEnvio, userId: string, service: ClienteDeBase = createServiceClient()): Promise<void> {
@@ -991,6 +993,9 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       return relanzar(ctx, paso)
     }
     case 'cancelar': {
+      // Si cancelar deshace envíos FBA reales, la palabra se exige AQUÍ, con el paso leído de la base: no vale
+      // fiarse de lo que diga la pantalla (que podía mandar grave: false y saltarse la confirmación)
+      if (cancelabilidad(paso, f.anulable_hasta).grave && (p.palabra ?? '').trim().toUpperCase() !== 'CANCELAR') throw new FalloDelEnvio('Para cancelar envíos FBA ya creados hay que escribir «CANCELAR»', 400)
       if (!f.inbound_plan_id) {
         await guardar(ctx, { envio_paso: 'cancelado', envio_error: null, envio_cajas_bloqueadas_at: null })
         await apuntar('cancelado', { sinPlan: true })

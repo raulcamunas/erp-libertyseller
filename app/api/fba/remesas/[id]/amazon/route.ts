@@ -58,6 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         placementOptionId: texto(body.placementOptionId),
         transportationOptionId: texto(body.transportationOptionId),
         dia: texto(body.dia, 10),
+        palabra: texto(body.palabra, 20),
         contacto: contacto ? { nombre: texto(contacto.nombre, 80), telefono: texto(contacto.telefono, 30), email: texto(contacto.email, 120) } : undefined,
       }
       await ejecutarAccion(params.id, accion, parametros, p.sesion.userId)

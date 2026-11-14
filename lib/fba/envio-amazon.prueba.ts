@@ -103,6 +103,7 @@ console.log('\n=== CANCELAR ===')
 ok('antes del reparto: gratis', cancelabilidad('reparto_elegir', null, AHORA), { puede: true, grave: false, motivo: 'Todavía no hay envíos reales: se cancela sin rastro' })
 ok('con el reparto confirmado: grave', cancelabilidad('transporte_datos', null, AHORA).grave, true)
 ok('con operación en curso: espera', cancelabilidad('cajas', null, AHORA).puede, false)
+ok('transporte confirmándose con error: cancelar es grave', cancelabilidad('transporte_confirmar', null, AHORA).grave, true)
 ok('cuánto queda: 22 h', cuantoQueda('2026-11-15T08:00:00Z', AHORA), '22 h 0 min')
 ok('cuánto queda: pasado', cuantoQueda('2026-11-14T08:00:00Z', AHORA), null)
 

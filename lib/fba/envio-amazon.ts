@@ -218,7 +218,7 @@ export interface Cancelabilidad {
  */
 export function cancelabilidad(paso: PasoEnvio, anulableHasta: string | null, ahora = new Date()): Cancelabilidad {
   if (paso === 'sin_empezar' || paso === 'cancelado' || paso === 'cancelando') return { puede: false, grave: false, motivo: 'No hay ningún plan activo que cancelar' }
-  if (pasoEnCurso(paso)) return { puede: false, grave: false, motivo: 'Espera a que termine la operación en curso' }
+  if (pasoEnCurso(paso)) return { puede: false, grave: repartoConfirmado(paso), motivo: 'Espera a que termine la operación en curso' }
   if (paso === 'etiquetas') {
     if (!anulableHasta) return { puede: false, grave: true, motivo: 'Amazon no ha dado plazo de anulación: cancélalo desde Seller Central si hace falta' }
     if (Date.parse(anulableHasta) <= ahora.getTime()) return { puede: false, grave: true, motivo: 'Se ha pasado el plazo de anulación sin coste del transporte' }
