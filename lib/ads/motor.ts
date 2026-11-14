@@ -674,23 +674,24 @@ async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: {
       throw new ObsoletaOLiberada('A la propuesta le faltan datos (¿falta la migración 298?).')
     }
     let heredada = false
+    let valorAhora: number | null = null
     try {
       const actual = p.tipo === 'puja' ? await leerPujaActual(cuenta, p.objetivoTipo, p.objetivoId as string) : { puja: await leerPresupuestoActual(cuenta, p.campaignId), heredada: false }
       heredada = Boolean(actual?.heredada)
-      const valorAhora = actual?.puja ?? null
-      if (!valorSigueIgual(p.valorActual, valorAhora)) {
-        const motivo = motivoDeObsoleta(p.tipo, p.valorActual, valorAhora)
-        await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'descartar', campo: 'propuesta obsoleta', valorAnterior: p.valorActual == null ? null : fmt(p.valorActual), valorNuevo: valorAhora == null ? null : fmt(valorAhora), motivo, entidadId })
-        await resolver(estadoObsoleta, { error: motivo }, 'Marcarla obsoleta')
-        throw new ObsoletaOLiberada(motivo)
-      }
+      valorAhora = actual?.puja ?? null
     } catch (e) {
-      if (e instanceof ObsoletaOLiberada) throw e
       // No se ha podido LEER: no se ha escrito nada, así que se libera tal como estaba
       const detalle = `No se ha podido leer el valor actual en Amazon: ${e instanceof Error ? e.message : String(e)}`
       if (!q.ensayo) await liberar(cuenta.id, id, q.estadoAntes, detalle.slice(0, 500))
       await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, ok: false, error: detalle, motivo: p.motivo, entidadId })
       throw new ObsoletaOLiberada(detalle)
+    }
+    // Fuera del try de la lectura: si falla GUARDAR la obsoleta (guardarResultado), no se confunde con un fallo al leer ni se libera la propuesta
+    if (!valorSigueIgual(p.valorActual, valorAhora)) {
+      const motivo = motivoDeObsoleta(p.tipo, p.valorActual, valorAhora)
+      await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'descartar', campo: 'propuesta obsoleta', valorAnterior: p.valorActual == null ? null : fmt(p.valorActual), valorNuevo: valorAhora == null ? null : fmt(valorAhora), motivo, entidadId })
+      await resolver(estadoObsoleta, { error: motivo }, 'Marcarla obsoleta')
+      throw new ObsoletaOLiberada(motivo)
     }
     try {
       if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, p.valorNuevo)
@@ -701,7 +702,7 @@ async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: {
       await marcarError(detalle)
       throw new Error(detalle)
     }
-    await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, valorAnterior: p.valorActual == null ? null : fmt(p.valorActual) + (heredada ? ' (heredada del grupo)' : ''), valorNuevo: fmt(p.valorNuevo), motivo: p.motivo, entidadId })
+    await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, valorAnterior: p.valorActual == null ? null : fmt(p.valorActual), valorNuevo: fmt(p.valorNuevo), motivo: p.motivo + (heredada ? ' · la puja de antes era la heredada del grupo' : ''), entidadId })
     await resolver('aplicada', { aplicada: { valorAnterior: p.valorActual, heredada }, error: null }, p.tipo === 'puja' ? 'La puja' : 'El presupuesto')
     return
   }
