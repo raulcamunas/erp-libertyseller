@@ -1,3 +1,4 @@
+import { headers } from 'next/headers'
 import { EncajeCliente } from '@/components/encaje/EncajeCliente'
 import { EnlaceNoValido } from '@/components/encaje/EnlaceNoValido'
 import { TEXTO_DE_ENLACE_NO_VALIDO, anotarApertura, datosParaEncajar, resolverEnlace } from '@/lib/fba/encaje-enlace'
@@ -18,7 +19,9 @@ export default async function PaginaDeEncaje({ params }: { params: { token: stri
   const r = await resolverEnlace(params.token)
   if (!r.ok) return <EnlaceNoValido texto={TEXTO_DE_ENLACE_NO_VALIDO[r.motivo]} />
 
-  await anotarApertura(r.enlace)
+  const h = headers()
+  const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip')?.trim() || null
+  await anotarApertura(r.enlace, undefined, undefined, ip)
   const datos = await datosParaEncajar(r)
   return <EncajeCliente token={params.token} inicial={datos} />
 }
