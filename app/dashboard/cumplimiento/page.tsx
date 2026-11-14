@@ -11,7 +11,8 @@ import { CumplimientoApp, TODOS } from '@/components/cumplimiento/CumplimientoAp
 /**
  * /dashboard/cumplimiento — CUMPLIMIENTO (antes, un submódulo de Growth Partner). SOLO ADMIN (un CEO, solo con la casilla).
  *
- * Lo que Amazon dice de cada listing de un cliente (errores, ocultos, avisos de GPSR y RAP…), con un panel por cliente y país. Solo LEE de Amazon. Ninguna vista junta ni compara clientes.
+ * Lo que Amazon dice de cada listing de un cliente (errores, ocultos, avisos de GPSR y RAP…), con un panel por cliente y país. Lee de Amazon; solo ESCRIBE desde el panel «Corregir» de una incidencia (validar primero, con
+ * confirmación y registro: lib/cumplimiento/correccion-servidor.ts). Ninguna vista junta ni compara clientes.
  */
 export const dynamic = 'force-dynamic'
 
