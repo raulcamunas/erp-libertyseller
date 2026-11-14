@@ -10,13 +10,14 @@ import {
   PayrollPeriod,
   DEFAULT_HOURLY_RATE,
   DEFAULT_COMMISSION,
+  DEFAULT_SEMI_COMMISSION,
 } from '@/lib/types/payroll'
 
 /**
  * LAS TARIFAS DEL AÑO, LOS DOCE MESES A LA VEZ
  * ============================================
  *
- * Qué se paga por hora y qué se paga por cita, mes a mes. Todo el equipo cobra
+ * Qué se paga por hora, por cita y por cita semi-cualificada, mes a mes. Todo el equipo cobra
  * lo mismo: no hay tarifas por persona.
  *
  *
@@ -59,7 +60,7 @@ const MESES = [
 const campo =
   'w-full rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-right text-[13px] tabular-nums text-white outline-none transition-colors focus:border-[#FF6600]'
 
-/** Una fila del año: un mes, su precio/hora y su comisión por cita */
+/** Una fila del año: un mes, su precio/hora, su comisión por cita y la de la semi-cualificada */
 function FilaMes({
   mesKey,
   nombre,
@@ -80,27 +81,30 @@ function FilaMes({
   const supabase = createClient()
   const [hora, setHora] = useState(String(fila?.hourly_rate ?? ''))
   const [cita, setCita] = useState(String(fila?.commission_per_appointment ?? ''))
+  const [semi, setSemi] = useState(String(fila?.commission_per_semi_qualified ?? ''))
   const [guardando, setGuardando] = useState(false)
 
   // Si la fila cambia desde fuera —otro guardado, una recarga— el campo la sigue.
   useEffect(() => {
     setHora(String(fila?.hourly_rate ?? ''))
     setCita(String(fila?.commission_per_appointment ?? ''))
+    setSemi(String(fila?.commission_per_semi_qualified ?? ''))
   }, [fila])
 
   const sinTarifa = !fila
 
-  async function guardar(campoTocado: 'hora' | 'cita', valor: string) {
-    const texto = valor.trim()
+  async function guardar(campoTocado: 'hora' | 'cita' | 'semi', valor: string) {
+    const horaTexto = (campoTocado === 'hora' ? valor : hora).trim()
+    const citaTexto = (campoTocado === 'cita' ? valor : cita).trim()
+    const semiTexto = (campoTocado === 'semi' ? valor : semi).trim()
 
     /**
-     * VACIAR LOS DOS CAMPOS BORRA LA TARIFA DEL MES.
+     * VACIAR LOS TRES CAMPOS BORRA LA TARIFA DEL MES.
      *
      * Es la única forma de decir «este mes no tiene tarifa propia». Sin esto,
      * una tarifa puesta por error no se puede quitar: solo cambiar por otra.
      */
-    const otro = campoTocado === 'hora' ? cita.trim() : hora.trim()
-    if (texto === '' && otro === '') {
+    if (horaTexto === '' && citaTexto === '' && semiTexto === '') {
       if (!fila) return
       setGuardando(true)
       const { error } = await supabase.from('payroll_rates').delete().eq('id', fila.id)
@@ -114,9 +118,17 @@ function FilaMes({
       return
     }
 
-    const h = Number((campoTocado === 'hora' ? texto : hora).replace(',', '.'))
-    const c = Number((campoTocado === 'cita' ? texto : cita).replace(',', '.'))
-    if (!Number.isFinite(h) || !Number.isFinite(c)) {
+    /**
+     * UNA CASILLA VACÍA NO ES UN CERO.
+     *
+     * Poner solo el precio de la semi-cualificada en un mes sin tarifa guardaba la hora y la cita a 0 $, y el mes dejaba de pagar
+     * nada. Lo vacío se queda como estaba o, si no había nada, con la de por defecto. La semi vacía sí es «sin decidir»: no cobra.
+     */
+    const aNumero = (texto: string) => Number(texto.replace(',', '.'))
+    const h = horaTexto === '' ? Number(fila?.hourly_rate ?? DEFAULT_HOURLY_RATE) : aNumero(horaTexto)
+    const c = citaTexto === '' ? Number(fila?.commission_per_appointment ?? DEFAULT_COMMISSION) : aNumero(citaTexto)
+    const s = semiTexto === '' ? null : aNumero(semiTexto)
+    if (!Number.isFinite(h) || !Number.isFinite(c) || (s !== null && !Number.isFinite(s))) {
       toast.error('Los importes tienen que ser números')
       return
     }
@@ -124,8 +136,12 @@ function FilaMes({
     if (
       fila &&
       Math.abs(Number(fila.hourly_rate) - h) < 0.0001 &&
-      Math.abs(Number(fila.commission_per_appointment) - c) < 0.0001
+      Math.abs(Number(fila.commission_per_appointment) - c) < 0.0001 &&
+      (fila.commission_per_semi_qualified == null ? s === null : s !== null && Math.abs(Number(fila.commission_per_semi_qualified) - s) < 0.0001)
     ) {
+      // Una casilla que se vació sin cambiar nada vuelve a enseñar lo que hay guardado
+      setHora(String(h))
+      setCita(String(c))
       return
     }
 
@@ -134,7 +150,7 @@ function FilaMes({
       if (fila) {
         const { data, error } = await supabase
           .from('payroll_rates')
-          .update({ hourly_rate: h, commission_per_appointment: c })
+          .update({ hourly_rate: h, commission_per_appointment: c, commission_per_semi_qualified: s })
           .eq('id', fila.id)
           .select('*')
           .single()
@@ -149,6 +165,7 @@ function FilaMes({
             user_id: null,
             hourly_rate: h,
             commission_per_appointment: c,
+            commission_per_semi_qualified: s,
           })
           .select('*')
           .single()
@@ -165,7 +182,7 @@ function FilaMes({
 
   return (
     <div
-      className={`grid grid-cols-[1fr_84px_84px] items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+      className={`grid grid-cols-[1fr_72px_72px_72px] items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
         esteMes
           ? 'border-[#FF6600]/40 bg-[#FF6600]/[0.06]'
           : sinTarifa
@@ -209,6 +226,18 @@ function FilaMes({
         inputMode="decimal"
         placeholder={String(DEFAULT_COMMISSION)}
         aria-label={`Comisión por cita de ${nombre}`}
+        className={campo}
+      />
+      <input
+        value={semi}
+        onChange={(e) => setSemi(e.target.value)}
+        onBlur={(e) => void guardar('semi', e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        }}
+        inputMode="decimal"
+        placeholder={String(DEFAULT_SEMI_COMMISSION)}
+        aria-label={`Comisión por cita semi-cualificada de ${nombre}`}
         className={campo}
       />
     </div>
@@ -273,8 +302,8 @@ export function RateSettings({
         </div>
 
         <p className="mb-3 text-[11px] leading-relaxed text-white/40">
-          Lo que cobra <strong className="text-white/60">todo el equipo</strong> por hora y por cita
-          cualificada. Cada mes lleva la suya y solo la suya: tocar uno no cambia ninguno de los
+          Lo que cobra <strong className="text-white/60">todo el equipo</strong> por hora, por cita
+          cualificada y por cita semi-cualificada. Cada mes lleva la suya y solo la suya: tocar uno no cambia ninguno de los
           otros. Se guarda al salir de la casilla.
         </p>
 
@@ -301,10 +330,11 @@ export function RateSettings({
           </button>
         </div>
 
-        <div className="mb-1 grid grid-cols-[1fr_84px_84px] gap-2 px-2.5 text-[9.5px] font-semibold uppercase tracking-wider text-white/35">
+        <div className="mb-1 grid grid-cols-[1fr_72px_72px_72px] gap-2 px-2.5 text-[9.5px] font-semibold uppercase tracking-wider text-white/35">
           <span>Mes</span>
           <span className="text-right">$/hora</span>
           <span className="text-right">$/cita</span>
+          <span className="text-right">$/semi</span>
         </div>
 
         <div className="space-y-1">
@@ -323,7 +353,8 @@ export function RateSettings({
 
         <p className="mt-3 text-[10.5px] leading-relaxed text-white/30">
           {conTarifa} de 12 meses tienen tarifa propia en {anio}. Los demás cobran la de por
-          defecto. Para quitarle la tarifa a un mes, vacía sus dos casillas.
+          defecto. Una semi-cualificada no cobra hasta que su mes tenga precio. Para quitarle la tarifa a un
+          mes, vacía sus tres casillas.
         </p>
       </motion.div>
     </div>

@@ -126,6 +126,8 @@ console.log('\n=== Cita agendada: cómo salió la cita ===')
   ok('una que está en curso (empezó hace media hora) sigue por celebrar', situacionDeLaCita(cliente('nuevo', { cita: enCurso }), AHORA) === 'por_celebrar')
   ok('una agendada que ya pasó y nadie ha marcado: sin resultado', situacionDeLaCita(cliente('nuevo', { cita: pasada }), AHORA) === 'sin_resultado' && situacionDeLaCita(cliente('nuevo', { cita: { status: 'rescheduled', inicio: AHORA - 5 * HORA } }), AHORA) === 'sin_resultado')
   ok('cualificada, no cualificada, no asistió y cancelada', situacionDeLaCita(cliente('nuevo', { cita: { status: 'qualified', inicio: AHORA - DIA } }), AHORA) === 'cualificada' && situacionDeLaCita(cliente('nuevo', { cita: { status: 'not_qualified', inicio: AHORA - DIA } }), AHORA) === 'no_cualificada' && situacionDeLaCita(cliente('nuevo', { cita: { status: 'no_show', inicio: AHORA - DIA } }), AHORA) === 'no_asistio' && situacionDeLaCita(cliente('nuevo', { cita: { status: 'cancelled', inicio: AHORA - DIA } }), AHORA) === 'cancelada')
+  ok('semi-cualificada es su propia situación, no «sin resultado»', situacionDeLaCita(cliente('nuevo', { cita: { status: 'semi_qualified', inicio: AHORA - DIA } }), AHORA) === 'semi_cualificada')
+  ok('una semi-cualificada no sugiere ni seguir ni descartar: lo decide la persona', sugerenciaDeLaCita('semi_cualificada') === null)
   ok('un alta manual no tiene cita', situacionDeLaCita(cliente('nuevo'), AHORA) === 'sin_cita')
   const rara = cliente('nuevo', { cita: { status: 'scheduled', inicio: AHORA } })
   ;(rara.appointment as { start_time: string }).start_time = 'no es una fecha'
@@ -146,7 +148,7 @@ console.log('\n=== Cita agendada: cómo salió la cita ===')
   ]
   const cuenta = cuentaDeCitas(lote, AHORA)
   ok('cuenta cada situación, solo de los que están en Cita agendada', cuenta.todas === 7 && cuenta.por_celebrar === 1 && cuenta.sin_resultado === 1 && cuenta.cualificada === 2 && cuenta.no_cualificada === 1 && cuenta.no_asistio === 1 && cuenta.sin_cita === 1 && cuenta.otras === 1, JSON.stringify(cuenta))
-  ok('los chips son los de la pestaña, en orden, y «Otras» agrupa cancelada y sin cita', FILTROS_DE_CITA.map((f) => f.id).join() === 'todas,por_celebrar,sin_resultado,cualificada,no_cualificada,no_asistio,otras')
+  ok('los chips son los de la pestaña, en orden, y «Otras» agrupa cancelada y sin cita', FILTROS_DE_CITA.map((f) => f.id).join() === 'todas,por_celebrar,sin_resultado,cualificada,semi_cualificada,no_cualificada,no_asistio,otras')
   ok('cada chip filtra lo suyo', lote.filter((c) => coincideConElFiltroDeCita(c, 'cualificada', AHORA)).length === 3 /* incluye el que ya está en seguimiento: el filtro solo mira la cita */ && lote.filter((c) => coincideConElFiltroDeCita(c, 'otras', AHORA)).length === 1 && lote.every((c) => coincideConElFiltroDeCita(c, 'todas', AHORA)))
 
   const orden = ordenarCitas(lote.filter((c) => c.stage === 'nuevo'), AHORA).map((c) => situacionDeLaCita(c, AHORA))

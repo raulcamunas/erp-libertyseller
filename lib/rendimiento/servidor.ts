@@ -259,6 +259,10 @@ export async function leerCuentaDe(service: Servicio, userId: string, opciones: 
       }
     }
 
+    // El corte «esta cuenta empieza aquí» (migración 288). Sin la migración la columna no existe: se lee sin corte, como siempre
+    const corte = await service.from('rinkel_vinculos').select('solo_desde').eq('user_id', userId).maybeSingle()
+    const soloDesde = corte.error ? null : ((corte.data as { solo_desde: string | null } | null)?.solo_desde ?? null)
+
     // Los leads de la persona se leen una sola vez por pasada y se reparten entre el casamiento al importar y el repaso
     const lectura: { leads: LeadParaVincular[] | null } = { leads: null }
     const leadsDe = async () => (lectura.leads ??= await leerLeadsParaVincular(service, userId))
@@ -271,7 +275,7 @@ export async function leerCuentaDe(service: Servicio, userId: string, opciones: 
         leadsPorTelefono: async () => mapaDeLeadsDe(indiceDeTelefonos(await leadsDe()), userId),
         ahora: () => Date.now(),
       },
-      { usuario: userId, presupuestoMs: opciones.presupuestoMs, solapeDias: opciones.solapeDias }
+      { usuario: userId, presupuestoMs: opciones.presupuestoMs, solapeDias: opciones.solapeDias, soloDesde }
     )
 
     const error = resultado.error

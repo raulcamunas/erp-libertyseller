@@ -110,7 +110,13 @@ export async function POST(request: NextRequest) {
     const cliente = await leerCliente(clienteId)
     if (!cliente) return fail(404, 'Ese cliente ya no esta en la rejilla. Recarga la pantalla.')
 
-    await guardarInforme({ clienteId, anio, mes, fichero, userId: sesion.userId })
+    // El segundo hueco de la celda (Shoplamp: el Sellerboard del envío), solo en los clientes que lo tienen abierto (migración 300)
+    const ranura = form.get('ranura') === 'segundo' ? 'segundo' : 'principal'
+    if (ranura === 'segundo' && !cliente.segundoFichero) {
+      return fail(400, `«${cliente.nombre}» no tiene segundo fichero por mes. Si deberia tenerlo, falta lanzar la migracion 300.`)
+    }
+
+    await guardarInforme({ clienteId, anio, mes, fichero, userId: sesion.userId, ranura })
 
     return NextResponse.json(await leerVista(anio))
   } catch (error) {

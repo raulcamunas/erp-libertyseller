@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import {
   WorkHourEntry,
+  comisionDeCita,
+  ESTADOS_QUE_COBRAN,
   PayrollRate,
   ManualAppointment,
   payrollPeriod,
@@ -43,10 +45,11 @@ function nombreCortoDeMes(mes: string): string {
   return MESES_CORTOS[Number(mes.slice(5, 7)) - 1] ?? mes
 }
 
-/** Cita cualificada, con lo mínimo para contarla y listarla */
+/** Cita que cobra (cualificada o semi-cualificada), con lo mínimo para contarla y listarla */
 export interface QualifiedAppointment {
   id: string
   comercial_id: string | null
+  status: string
   start_time: string
   lead_name: string
   lead_company: string | null
@@ -263,8 +266,8 @@ export function HoursTracker({
             const filas = await fetchAll<QualifiedAppointment>((desde, hasta) =>
               supabase
                 .from('appointments')
-                .select('id, comercial_id, start_time, lead_name, lead_company')
-                .eq('status', 'qualified')
+                .select('id, comercial_id, status, start_time, lead_name, lead_company')
+                .in('status', [...ESTADOS_QUE_COBRAN])
                 .eq('is_external', false)
                 // Orden por columna única: paginar sin él repite unas filas y se
                 // salta otras. No cambia nada de lo que se pinta, porque esta
@@ -364,7 +367,8 @@ export function HoursTracker({
         company: a.lead_company,
         at: new Date(a.start_time),
         // La de SU día, no la del final del ciclo. Ver la nota de `rate`.
-        commission: resolveRate(rates, diaEnEspana(a.start_time)).commission,
+        commission: comisionDeCita(a.status, rates, diaEnEspana(a.start_time)),
+        semi: a.status === 'semi_qualified',
         fijo: false,
         manual: false,
       }))
@@ -387,6 +391,7 @@ export function HoursTracker({
           m.commission != null
             ? Number(m.commission)
             : resolveRate(rates, m.appointment_date).commission,
+        semi: false,
         fijo: m.commission != null,
         manual: true,
       }))
@@ -419,7 +424,8 @@ export function HoursTracker({
     const meses = [...new Set(days.map((d) => d.slice(0, 7)))].sort()
     const vistas = meses.map((mes) => {
       const r = resolveRate(rates, `${mes}-01`)
-      return { mes, texto: `${formatDollars(r.hourly)}/h · ${formatDollars(r.commission)}/cita` }
+      const semi = r.commissionSemi > 0 ? ` · ${formatDollars(r.commissionSemi)}/semi` : ''
+      return { mes, texto: `${formatDollars(r.hourly)}/h · ${formatDollars(r.commission)}/cita${semi}` }
     })
     // Si las dos mitades del ciclo cobran lo mismo, una línea basta.
     if (vistas.length > 1 && vistas.every((v) => v.texto === vistas[0].texto)) {
@@ -476,6 +482,7 @@ export function HoursTracker({
       .join(' · ')
   }, [periodQualified])
   const commissions = periodQualified.reduce((sum, a) => sum + a.commission, 0)
+  const semiDelPeriodo = periodQualified.filter((a) => a.semi).length
   const total = salary + commissions
 
   const animatedTotal = useCountUp(total)
@@ -988,7 +995,7 @@ export function HoursTracker({
                   : [
                       {
                         label: 'Citas cualificadas',
-                        value: String(periodQualified.length),
+                        value: semiDelPeriodo > 0 ? `${periodQualified.length - semiDelPeriodo} + ${semiDelPeriodo} semi` : String(periodQualified.length),
                       },
                       { label: 'Tarifa aplicada', value: tarifasDelCiclo },
                     ]),
@@ -1142,6 +1149,19 @@ export function HoursTracker({
                         {a.manual && (
                           <span className="flex-shrink-0 rounded border border-white/15 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-white/30">
                             manual
+                          </span>
+                        )}
+                        {a.semi && (
+                          <span className="flex-shrink-0 rounded border border-violet-400/25 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-violet-300/80">
+                            semi
+                          </span>
+                        )}
+                        {a.semi && a.commission === 0 && (
+                          <span
+                            className="flex-shrink-0 rounded border border-yellow-400/25 px-1 text-[8px] uppercase leading-[14px] tracking-wider text-yellow-300/70"
+                            title="Ese mes no tiene precio de semi-cualificada: se pone en las tarifas del año."
+                          >
+                            sin precio
                           </span>
                         )}
                         {/* POR QUÉ ESTA COBRA OTRA COSA.

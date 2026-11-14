@@ -185,7 +185,8 @@ export function AppointmentsBreakdown({
     const total = filtered.length
     const upcoming = filtered.filter((a) => isFuture(new Date(a.start_time))).length
     const qualified = filtered.filter((a) => a.status === 'qualified').length
-    return { total, upcoming, qualified }
+    const semi = filtered.filter((a) => a.status === 'semi_qualified').length
+    return { total, upcoming, qualified, semi }
   }, [filtered])
 
   return (
@@ -295,6 +296,7 @@ export function AppointmentsBreakdown({
           const color = colorForAgent(person.id, person.calendar_color)
           const upcoming = items.filter((a) => isFuture(new Date(a.start_time))).length
           const qualified = items.filter((a) => a.status === 'qualified').length
+          const semi = items.filter((a) => a.status === 'semi_qualified').length
 
           return (
             <motion.div
@@ -328,6 +330,11 @@ export function AppointmentsBreakdown({
                   <span>
                     <b className="text-green-300">{qualified}</b> cualificadas
                   </span>
+                  {semi > 0 && (
+                    <span>
+                      <b className="text-violet-300">{semi}</b> semi
+                    </span>
+                  )}
                 </div>
               </div>
 

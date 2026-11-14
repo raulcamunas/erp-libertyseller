@@ -213,7 +213,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const navegacion = useMemo(() => (vista === 'rellamadas' ? [...rell.atrasadas, ...rell.delDia] : pan.visibles), [vista, rell, pan.visibles])
 
   /** Cambia cuando cambia lo que se está mirando: la lista vuelve arriba y las primeras filas vuelven a entrar */
-  const generacion = `${vista}|${ocultarFestivos ? 'sin-festivos' : ''}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
+  const generacion = `${vista}|${ocultarFestivos ? 'sin-festivos' : ''}|${propietario}|${filtrosEfectivos.estado}|${filtrosEfectivos.lista}|${filtrosEfectivos.nivel}|${filtrosEfectivos.prioridad}|${filtrosEfectivos.mencionaAmazon}|${filtrosEfectivos.conInforme}|${filtrosEfectivos.minRev}|${filtrosEfectivos.maxRev}|${filtrosEfectivos.orden}|${filtrosEfectivos.busqueda}`
 
   const leadSeleccionado = useMemo(() => (seleccionado ? (leads.find((l) => l.id === seleccionado) ?? null) : null), [leads, seleccionado])
   const indiceSeleccionado = useMemo(() => (seleccionado ? navegacion.findIndex((l) => l.id === seleccionado) : -1), [navegacion, seleccionado])
@@ -331,7 +331,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     </label>
   )
 
-  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.prioridad !== 'all' || filtrosEfectivos.mencionaAmazon || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
+  const hayFiltrosPuestos = filtrosEfectivos.estado !== 'all' || filtrosEfectivos.lista !== 'all' || filtrosEfectivos.nivel !== 'all' || filtrosEfectivos.prioridad !== 'all' || filtrosEfectivos.mencionaAmazon || filtrosEfectivos.conInforme || filtrosEfectivos.minRev !== '' || filtrosEfectivos.maxRev !== '' || filtrosEfectivos.busqueda.trim() !== ''
 
   const vacio =
     leads.length === 0 && !cargando ? (
@@ -353,9 +353,13 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     )
 
   const puedeEditar = (l: ColdLead) => puedeVerTodos || l.assigned_to === currentUser.id
+  // EN EL MÓVIL, CON UN LEAD ABIERTO, LA FICHA OCUPA TODA LA PANTALLA: las cifras de la cartera, las vistas y los filtros se comían más de media pantalla y la ficha
+  // quedaba en una tira de abajo sin poder bajar. Vuelven al pulsar «‹» (volver a la lista)
+  const fichaAPantallaCompleta = esMovil && Boolean(seleccionado) && vista !== 'tabla' && vista !== 'listas'
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
+      {!fichaAPantallaCompleta && (
       <BarraDeCartera
         resumen={resumen}
         vista={vista}
@@ -368,6 +372,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         onTelefonos={() => setComprobando(true)}
         puedeGestionarListas={puedeGestionarListas}
       />
+      )}
 
       {incompleta && !cargando && vista !== 'listas' && (
         <div className={`${AVISO.base} ${AVISO.conTono} items-center`} style={{ borderLeftColor: COLOR_ESTADO.ambar }} role="alert">
@@ -382,9 +387,9 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
       )}
 
       {/* Hoy es festivo en la comunidad de algunos leads de esta cartera (o lo será en los próximos días): se dice arriba, con los que afecta y el botón de ocultarlos por hoy */}
-      {vista !== 'listas' && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
+      {!fichaAPantallaCompleta && vista !== 'listas' && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
 
-      {vista === 'listas' ? null : vista === 'rellamadas' ? (
+      {vista === 'listas' || fichaAPantallaCompleta ? null : vista === 'rellamadas' ? (
         <NavegadorDeDias dia={diaRellamadas} hoy={hoy} onDia={(d) => setDiaElegido(d === hoy ? null : d)} delDia={rell.delDia.length} atrasadas={rell.atrasadas.length} />
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -403,6 +408,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
               hayPartners={hayPartners}
               soloPartners={soloPartners}
               mencionanAmazon={pan.mencionanAmazon}
+              conInforme={pan.conInforme}
               coinciden={pan.visibles.length}
             />
           </div>

@@ -79,6 +79,15 @@ RUN { \
       echo "* * * * * /app/scripts/ubicacion-leads.sh"; \
       echo "* * * * * /app/scripts/ciclo-leads.sh"; \
       echo "* * * * * /app/scripts/fba-alertas.sh"; \
+      echo "* * * * * /app/scripts/ads-rendimiento.sh"; \
+      echo "* * * * * /app/scripts/seo-lecturas.sh"; \
+      echo "* * * * * /app/scripts/tareas-notion.sh"; \
+      echo "* * * * * /app/scripts/tareas-reuniones.sh"; \
+      echo "* * * * * /app/scripts/push-avisos.sh"; \
+      echo "* * * * * /app/scripts/chat-avisos.sh"; \
+      echo "* * * * * /app/scripts/facturas-impagadas.sh"; \
+      echo "* * * * * /app/scripts/analisis-keepa.sh"; \
+      echo "* * * * * /app/scripts/cuentas-avisos.sh"; \
     } > /etc/crontabs/root
 
 # Exponer el puerto

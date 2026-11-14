@@ -1,4 +1,4 @@
-import { MAXIMO_HISTORICO_DIAS, desdeCuandoLeer, desdeParaLeerAhora } from '@/lib/fba/ventana-lectura'
+import { MAXIMO_HISTORICO_DIAS, desdeCuandoLeer, desdeParaLeerAhora, fechasPorCubrir } from '@/lib/fba/ventana-lectura'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -55,6 +55,20 @@ console.log('\n=== lo nuevo: la lectura a mano de un envío ===')
 
   const primeraSinRemesas = desdeParaLeerAhora(null, hoy, null, [])
   ok('primera lectura de una cuenta sin remesas: el trimestre de siempre', dia(primeraSinRemesas) === '2026-07-22', dia(primeraSinRemesas))
+}
+
+console.log('\n=== qué envíos obligan a ir más atrás (la pasada de la noche) ===')
+{
+  // Cobo Family: ocho envíos sin llegada desde noviembre de 2025 y el libro empezando el 2 de julio
+  const cobo = fechasPorCubrir(['2025-11-05', '2025-11-28', '2026-05-07', '2026-09-28'], '2026-07-02')
+  ok('los anteriores al libro obligan a leer; el de septiembre (ya dentro) no', cobo.join() === '2025-11-05,2025-11-28,2026-05-07', cobo.join())
+  const desde = desdeParaLeerAhora('2026-10-19', hoy, '2025-11-05', cobo)
+  ok('y la ventana llega hasta el más antiguo con su colchón de 7 días', dia(desde) === '2025-10-29', dia(desde))
+  ok('un envío sin llegada pero DENTRO de lo leído (ShoesF) no obliga a releer meses', fechasPorCubrir(['2026-08-06'], '2026-05-03').length === 0)
+  ok('el colchón cuenta: un envío 3 días después del primer día leído aún se cubre con su colchón', fechasPorCubrir(['2026-07-05'], '2026-07-02').length === 1)
+  ok('uno 8 días después ya está dentro', fechasPorCubrir(['2026-07-10'], '2026-07-02').length === 0)
+  ok('sin nada leído, todas cuentan', fechasPorCubrir(['2026-07-10', '2026-08-01'], null).length === 2)
+  ok('una fecha ilegible se ignora', fechasPorCubrir(['no es una fecha'], '2026-07-02').length === 0)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

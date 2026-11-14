@@ -5,7 +5,7 @@
  * navegador. Al final del fichero está la instancia de verdad, que usan AvisosEnVivo y la campana.
  *
  * QUÉ SUENA. Un «din-don» corto y bajo (dos notas, poco más de un segundo en total, con un volumen que se oye sin sobresaltar), sintetizado en el momento con la API de
- * audio del navegador: no hay ningún fichero de sonido que descargar. Suena UNA vez por correo, aunque lleguen varios a la vez o el mismo lo anuncien dos caminos
+ * audio del navegador. Si existe `public/sonidos/correo.mp3` suena ese en su lugar (el sintetizado queda de reserva). Suena UNA vez por correo, aunque lleguen varios a la vez o el mismo lo anuncien dos caminos
  * (el aviso en vivo y la campana): se recuerda el id de cada correo y, además, nunca suena dos veces en menos de doce segundos.
  *
  * QUÉ NO. No suena con un rebote ni con una noticia del equipo: es para lo que hay que contestar. Y se puede apagar (campana → «Sonido al llegar un correo»);
@@ -15,6 +15,9 @@
  * clic, toque o tecla de la sesión; a partir de ahí suena también con la pestaña oculta o detrás de otra ventana, que es para lo que sirve. Si el navegador lo sigue
  * bloqueando (nadie ha tocado la página desde que se abrió), no suena y se dice «bloqueado»: no hay forma de saltárselo ni se debe intentar.
  */
+
+import { SIN_SONIDO, interaccionDe, sonidoElegidoPara } from '@/lib/sonidos/biblioteca'
+import { eleccionGuardada, reproducirSonido } from '@/lib/sonidos/reproductor'
 
 export interface NodoDeAudio {
   connect(destino: unknown): unknown
@@ -56,6 +59,11 @@ export interface DepsDeSonido {
   yaHuboGesto(): boolean
   /** Para estar atento al primer gesto: devuelve cómo dejar de estarlo */
   alPrimerGesto(manejador: () => void): () => void
+  /**
+   * El sonido propio de la aplicación, si lo hay (`public/sonidos/correo.mp3`): lo reproduce y dice `sono`; `bloqueado` si el navegador no deja sonar todavía; `null` si
+   * no hay fichero o no se puede reproducir, y entonces suena el «din-don» sintetizado de siempre. Sin esta función solo suena el sintetizado.
+   */
+  ficheroPropio?(): Promise<'sono' | 'bloqueado' | null>
   /** La preferencia guardada: true = suena (por defecto) */
   leerPreferencia(): boolean
   guardarPreferencia(suena: boolean): void
@@ -143,6 +151,14 @@ export function crearSonido(deps: DepsDeSonido) {
 
   /** Reproduce el aviso ahora mismo (lo usa «Probar» y lo que viene detrás de las comprobaciones). Devuelve si ha podido sonar */
   async function reproducir(): Promise<'sono' | 'bloqueado' | 'sin_audio'> {
+    if (deps.ficheroPropio) {
+      const r = await deps.ficheroPropio()
+      if (r === 'sono') {
+        ultimoSonido = deps.ahora()
+        return 'sono'
+      }
+      if (r === 'bloqueado') return 'bloqueado'
+    }
     const c = obtenerContexto()
     if (!c) return 'sin_audio'
     if (c.state !== 'running') {
@@ -233,6 +249,24 @@ const sonido = hayNavegador
         for (const e of eventos) window.addEventListener(e, una, { capture: true, passive: true, once: true })
         return () => {
           for (const e of eventos) window.removeEventListener(e, una, { capture: true })
+        }
+      },
+      async ficheroPropio() {
+        // Lo que la persona ha elegido en la biblioteca de sonidos (selector «Sonidos»): el silencio no suena nada; otro sonido, ese; el de fábrica, el de siempre
+        const elegido = sonidoElegidoPara(eleccionGuardada(), 'correo')
+        if (elegido === SIN_SONIDO) return 'sono'
+        if (elegido !== interaccionDe('correo')?.defecto) {
+          const r = await reproducirSonido(elegido)
+          return r === 'sono' ? 'sono' : r === 'bloqueado' ? 'bloqueado' : null
+        }
+        // Si no existe el fichero, `play()` falla con otro error y se sigue con el sintetizado
+        try {
+          const a = new Audio('/sonidos/correo.mp3')
+          a.volume = 0.7
+          await a.play()
+          return 'sono'
+        } catch (e) {
+          return (e as { name?: string })?.name === 'NotAllowedError' ? 'bloqueado' : null
         }
       },
       leerPreferencia() {

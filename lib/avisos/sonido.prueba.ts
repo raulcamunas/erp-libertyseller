@@ -102,6 +102,24 @@ async function main() {
     ok('sin id solo vale la regla de los doce segundos', (m.avanzar(2), await m.sonido.sonarCorreo()) === 'repetido' && (m.avanzar(20), await m.sonido.sonarCorreo()) === 'sono')
   }
 
+  console.log('\n=== con un fichero propio ===')
+  {
+    const m = mundo({ yaHuboGesto: true })
+    let reproducidos = 0
+    const conFichero = crearSonido({ ...m.deps, ficheroPropio: async () => (reproducidos++, 'sono' as const) })
+    conFichero.preparar()
+    ok('si hay fichero suena el fichero y no el sintetizado', (await conFichero.sonarCorreo('a')) === 'sono' && reproducidos === 1 && m.reg.osciladores.length === 0)
+    ok('y cuenta como haber sonado: las reglas de repetición siguen valiendo', (await conFichero.sonarCorreo('b')) === 'repetido' && reproducidos === 1)
+    const sin = mundo({ yaHuboGesto: true })
+    const sinFichero = crearSonido({ ...sin.deps, ficheroPropio: async () => null })
+    sinFichero.preparar()
+    ok('si no hay fichero, suena el sintetizado de siempre', (await sinFichero.sonarCorreo('a')) === 'sono' && sin.reg.osciladores.length === 4)
+    const bloq = mundo({ yaHuboGesto: true })
+    const bloqueado = crearSonido({ ...bloq.deps, ficheroPropio: async () => 'bloqueado' as const })
+    bloqueado.preparar()
+    ok('si el navegador lo bloquea, bloqueado y sin sintetizar encima', (await bloqueado.sonarCorreo('a')) === 'bloqueado' && bloq.reg.osciladores.length === 0)
+  }
+
   console.log('\n=== apagado ===')
   {
     const m = mundo({ yaHuboGesto: true, preferencia: false })

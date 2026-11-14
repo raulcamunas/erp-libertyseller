@@ -37,6 +37,7 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { textoDeError } from './error-texto'
 import { TIEMPO_MAXIMO_DE_MUESTRA_MS, anotarMuestra, decidirPorPresion, estadoDeLaPresion, otraPesadaEnMarcha, type EstadoDePresion, type PrioridadDeTarea } from './presion'
 
 /** Los procesos que corren solos. El id es el que se guarda en la tabla */
@@ -175,6 +176,37 @@ export const TAREAS_CRON = [
       'Revisa cada cliente con Amazon conectado y avisa de lo que va mal en su logística FBA: productos que se quedan sin stock antes de ' +
       'que llegue una reposición, envíos parados o recibidos de menos, descuadres con Amazon y stock parado o demasiado antiguo. Los lunes ' +
       'manda el resumen semanal. Solo lee de la base del ERP.',
+  },
+  {
+    /**
+     * CADA 2 MINUTOS RECOGE; CADA 3 HORAS EMPIEZA UNA LECTURA NUEVA POR CUENTA.
+     *
+     * Trae de Amazon Ads el informe diario de campañas de cada cuenta de anunciante en uso y asignada y lo guarda (ads_rendimiento_diario), para que Marketing Test se abra al instante en vez de esperar
+     * uno o dos minutos a Amazon. El informe tarda en estar listo, así que la pasada NO espera: pide, apunta los identificadores y los recoge en la pasada siguiente (lib/ads/sincronizar.ts). Solo LEE
+     * de Amazon; no escribe nada en la cuenta del cliente.
+     */
+    id: 'ads-rendimiento',
+    nombre: 'Rendimiento de Amazon Ads',
+    ruta: '/api/ads/cron-rendimiento',
+    cadaMinutos: 2,
+    que:
+      'Cada 3 horas trae de Amazon Ads el gasto, las ventas y los clics por día y campaña de cada cuenta de anunciante en uso, y los guarda para que Marketing Test se abra al instante. ' +
+      'Vuelve a leer los últimos 14 días cada vez porque Amazon corrige las ventas atribuidas. Solo lee: no toca nada en la cuenta del cliente.',
+  },
+  {
+    /**
+     * CADA 3 MINUTOS MIRA; CADA DÍA LEE LAS FICHAS Y CADA SEMANA Y CADA MES, EL INFORME DE BRAND ANALYTICS.
+     *
+     * Para los productos que se siguen en SEO Test: el texto de su ficha y las búsquedas de Amazon donde aparecen (Search Query Performance), con la parte de impresiones, clics y compras que se
+     * llevan. Pide el informe y lo recoge en la pasada siguiente (lib/seo/lectura.ts): nunca espera a Amazon. Solo LEE.
+     */
+    id: 'seo-lecturas',
+    nombre: 'SEO de los productos',
+    ruta: '/api/seo/cron',
+    cadaMinutos: 3,
+    que:
+      'Para los productos seguidos en SEO Test, lee una vez al día el texto de su ficha y, cada semana y cada mes, el informe de Brand Analytics con las búsquedas de Amazon donde aparecen y la parte de ' +
+      'impresiones, clics y compras que se llevan. Solo lee: no toca nada en la cuenta del cliente.',
   },
   {
     id: 'stock-verificacion',
@@ -351,6 +383,104 @@ export const TAREAS_CRON = [
       'devuelve a Fase 1 a los de «No responde» a los 60 días. Solo escribe en el lead; no lee secuencias ni llamadas.',
   },
   {
+    /**
+     * CADA DOS MINUTOS. LA RED DE SEGURIDAD DEL WEBHOOK DE NOTION.
+     *
+     * El webhook de Notion llevaba activo sin recibir un solo evento (8 nov 2026), así que lo que se edita en Notion llega al ERP por esta pasada: manda lo pendiente del ERP, trae lo que cambió en
+     * Notion desde la última vez y crea las tareas que se repiten. Una pasada que encuentra otra en marcha se salta sola (el turno de notion/sync.ts). Ligera: pregunta a Notion solo por lo editado
+     * desde la última lectura de cada cliente.
+     */
+    id: 'tareas-notion',
+    nombre: 'Tareas de clientes con Notion',
+    ruta: '/api/tareas-clientes/notion/cron',
+    cadaMinutos: 2,
+    que:
+      'Envía a Notion lo que se ha cambiado en el ERP, trae lo que se ha editado en Notion y crea las tareas que se repiten (plantillas recurrentes), sin que nadie tenga el ERP abierto.',
+  },
+  {
+    /**
+     * CADA DIEZ MINUTOS. LAS TAREAS QUE PROPONE LA IA TRAS UNA REUNIÓN CON UN CLIENTE.
+     *
+     * Parte de las notas de Gemini que el CRM dejó como «ignoradas» (reuniones que no son de venta) y cuyo título lleva el nombre de un cliente de tareas («Seguimiento Semanal | Solter»): abre
+     * SOLO esas (correo y documento), le pide a la IA las tareas con las reglas de siempre (En progreso lo nuestro, Backlog lo del cliente) y las guarda como PROPUESTAS que el equipo acepta o
+     * descarta en la página del cliente. Tres reuniones como mucho por pasada; sin nada que hacer es una consulta pequeña. Nada se crea solo. Solo LEE de Google.
+     */
+    id: 'tareas-reuniones',
+    nombre: 'Tareas propuestas desde reuniones',
+    ruta: '/api/tareas-clientes/reuniones/cron',
+    cadaMinutos: 10,
+    que:
+      'Lee las notas de Gemini de las reuniones de seguimiento con clientes y propone a la IA las tareas que salen de ellas, para que el equipo elija las buenas en la página del cliente. No crea nada solo.',
+  },
+  {
+    /**
+     * CADA MINUTO, Y SIN NADA QUE HACER ES UNA CONSULTA PEQUEÑA.
+     *
+     * Manda como notificación al móvil o al ordenador los avisos NUEVOS de la campana (de los últimos diez minutos, sin leer) a quien haya activado los avisos push, según lo que haya
+     * elegido recibir (solo tareas o todo). Solo escribe en `push_enviados` y en `push_suscripciones`; no toca los avisos.
+     */
+    id: 'push-avisos',
+    nombre: 'Avisos push al móvil',
+    ruta: '/api/push/cron',
+    cadaMinutos: 1,
+    que: 'Manda a los móviles y ordenadores con los avisos activados las notificaciones nuevas de la campana, aunque la app esté cerrada.',
+  },
+  {
+    /**
+     * CADA MINUTO, Y SIN NADA PENDIENTE ES UNA CONSULTA PEQUEÑA.
+     *
+     * Avisa por la campana (y el móvil) de los recordatorios del chat cuya hora ha llegado y envía los mensajes programados que ya tocan, como si su autor los escribiera entonces.
+     * Cada uno se «reclama» antes de hacerlo (marcándolo como enviado), así que dos pasadas que se solapen no lo repiten.
+     */
+    id: 'chat-avisos',
+    nombre: 'Chat: recordatorios y mensajes programados',
+    ruta: '/api/chat/cron',
+    cadaMinutos: 1,
+    que: 'Avisa de los recordatorios del chat cuando llega su hora y envía los mensajes programados.',
+  },
+  {
+    /**
+     * UNA VEZ AL DÍA, EN HORARIO DE OFICINA DE UN DÍA LABORABLE.
+     *
+     * Lee de Zoho las facturas por cobrar y avisa en la campana de los administradores de las que llevan 3 días laborables o más vencidas
+     * sin recordatorio (una vez por factura). No manda nada al cliente: el recordatorio se manda a mano desde Facturación → Cobros.
+     */
+    id: 'facturas-impagadas',
+    nombre: 'Facturas sin pagar',
+    ruta: '/api/facturacion/cron-impagadas',
+    cadaMinutos: 1440,
+    que:
+      'Una vez al día, en horario de oficina, mira en Zoho las facturas vencidas y avisa en la campana de las que llevan 3 días laborables o más sin pagar y sin recordatorio. ' +
+      'No manda nada al cliente.',
+  },
+  {
+    /**
+     * CADA MINUTO, Y SIN SALDO EN KEEPA CONTESTA AL MOMENTO.
+     *
+     * Analiza con Keepa la siguiente tienda de la cola (bucket `analisis-keepa` de Storage) cuando hay saldo para una entera (~150 tokens; el
+     * plan da 21 por minuto, así que una cada 6-7 minutos) y deja su informe en `analisis_amazon` con el lead marcado «Con informe».
+     * Solo LEE de Keepa. lib/analisis-amazon/recogida.ts
+     */
+    id: 'analisis-keepa',
+    nombre: 'Análisis de Amazon (Keepa)',
+    ruta: '/api/analisis/cron',
+    cadaMinutos: 1,
+    que: 'Analiza con Keepa la siguiente tienda de las listas de vendedores de Amazon y deja su informe en la ficha del lead (casilla «Con informe»).',
+  },
+  {
+    /**
+     * UNA VEZ AL DÍA, LOS LUNES Y LOS JUEVES EN HORARIO DE OFICINA.
+     *
+     * Avisa en la campana al responsable de cada cuenta de cliente: el lunes, qué toca esa semana del ciclo S1–S4 y lo que ya espera (propuestas
+     * de PPC, fichas con stock con problemas); el jueves, solo lo que le falta. Solo escribe en la campana. lib/cuentas/avisos.ts
+     */
+    id: 'cuentas-avisos',
+    nombre: 'Avisos de las cuentas de clientes',
+    ruta: '/api/cuentas/cron',
+    cadaMinutos: 1440,
+    que: 'Los lunes y los jueves avisa al responsable de cada cuenta de cliente de qué toca esa semana y de lo que le falta. Solo escribe en la campana.',
+  },
+  {
     id: 'calendario',
     nombre: 'Agenda con Google',
     ruta: '/api/appointments/cron-sync',
@@ -388,6 +518,8 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
+  'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
+  'seo-lecturas': { prioridad: 'baja', ayunoMaxMin: 12 * 60 },
   'stock-verificacion': { prioridad: 'normal' },
   cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
   'rinkel-llamadas': { prioridad: 'esencial' },
@@ -398,6 +530,14 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'ubicacion-leads': { prioridad: 'baja', ayunoMaxMin: 60 },
   'ciclo-leads': { prioridad: 'normal' },
   calendario: { prioridad: 'esencial' },
+  'tareas-notion': { prioridad: 'normal' },
+  'tareas-reuniones': { prioridad: 'normal' },
+  'push-avisos': { prioridad: 'normal' },
+  'chat-avisos': { prioridad: 'normal' },
+  'facturas-impagadas': { prioridad: 'normal' },
+  'cuentas-avisos': { prioridad: 'normal' },
+  // Casi todo es esperar a Keepa; en la base, unas pocas consultas por tienda
+  'analisis-keepa': { prioridad: 'baja', ayunoMaxMin: 30 },
 }
 
 const esPesada = (tarea: string): boolean => POLITICA_DE_CARGA[tarea as TareaCron]?.pesada === true
@@ -737,7 +877,7 @@ export async function conRegistro<T>(
   } catch (error) {
     await cerrar(registro, {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: textoDeError(error),
       duracionMs: Date.now() - arranque,
     })
     throw error

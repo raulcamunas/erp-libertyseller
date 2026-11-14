@@ -32,7 +32,8 @@ import {
   type TonoEstado,
 } from '@/lib/estilo/denso'
 import { Barra, Vacio, cifra, hace, nombreMarketplace } from '@/components/plataforma/comun'
-import { estaExenta, ocultaAhora } from '@/lib/cumplimiento/incidencias'
+import { clasificarTema, estaExenta, ocultaAhora } from '@/lib/cumplimiento/incidencias'
+import { ACCIONES, ayudaDe, clasificar } from '@/lib/cumplimiento/acciones'
 import { urlInventario, urlProducto } from '@/lib/cumplimiento/enlaces'
 import {
   ACCION_ES,
@@ -72,24 +73,34 @@ type Ultimo = {
 interface Props {
   slug: string
   nombre: string
-  resumenInicial: RespuestaResumen
-  paginaInicial: PaginaCumplimiento
-  enCursoInicial: boolean
+  /** Sin ellos (la app Cumplimiento), la pantalla los pide al montarse */
+  resumenInicial?: RespuestaResumen
+  paginaInicial?: PaginaCumplimiento
+  enCursoInicial?: boolean
+  /** El país elegido en la barra lateral de la app: fija el filtro y esconde el desplegable */
+  mercadoFijo?: string
+  /** Filtros con los que abrir (p. ej. el código de una incidencia desde la pestaña «Incidencias») */
+  filtrosIniciales?: Partial<FiltrosCumplimiento>
 }
 
 const claveFila = (f: Pick<FilaCumplimiento, 'marketplace_id' | 'sku'>) => `${f.marketplace_id}|${f.sku}`
 
 const GRAVEDADES: Array<{ id: FiltroGravedad; rotulo: string; ayuda: string }> = [
   { id: 'atencion', rotulo: 'Necesitan atención', ayuda: 'Con errores, o que Amazon tiene ocultos' },
-  { id: 'avisos', rotulo: 'Solo avisos', ayuda: 'Con recomendaciones de Amazon pero sin errores ni ocultación' },
-  { id: 'todo', rotulo: 'Todo', ayuda: 'Cualquier listing con alguna incidencia' },
+  { id: 'avisos', rotulo: 'Solo avisos', ayuda: 'Avisos que importan (casi siempre normativa con plazo) pero sin errores ni ocultación' },
+  { id: 'todo', rotulo: 'Todo lo importante', ayuda: 'Cualquier listing con algo que importe: oculto, con errores o con avisos' },
+  {
+    id: 'menores',
+    rotulo: 'Solo avisos menores',
+    ayuda: 'Listings que solo tienen avisos que no cambian nada en la venta: recomendaciones de Amazon, cambios rechazados que dejan la ficha como estaba, errores internos',
+  },
 ]
 
-export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicial, enCursoInicial }: Props) {
-  const [resumen, setResumen] = useState<RespuestaResumen>(resumenInicial)
-  const [filtros, setFiltros] = useState<FiltrosCumplimiento>(FILTROS_POR_DEFECTO)
-  const [filas, setFilas] = useState<FilaCumplimiento[]>(paginaInicial.filas)
-  const [hayMas, setHayMas] = useState(paginaInicial.hayMas)
+export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicial, enCursoInicial = false, mercadoFijo, filtrosIniciales }: Props) {
+  const [resumen, setResumen] = useState<RespuestaResumen | null>(resumenInicial ?? null)
+  const [filtros, setFiltros] = useState<FiltrosCumplimiento>({ ...FILTROS_POR_DEFECTO, ...filtrosIniciales, ...(mercadoFijo ? { mercado: mercadoFijo } : {}) })
+  const [filas, setFilas] = useState<FilaCumplimiento[]>(paginaInicial?.filas ?? [])
+  const [hayMas, setHayMas] = useState(paginaInicial?.hayMas ?? false)
   const [pagina, setPagina] = useState(0)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,7 +112,8 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
   const [nota, setNota] = useState<string | null>(null)
 
   const peticion = useRef(0)
-  const primera = useRef(true)
+  // Sin datos del servidor, la primera carga la hace el efecto de los filtros
+  const primera = useRef(!!paginaInicial)
   const lanzadaAt = useRef(0)
   const filtrosRef = useRef(filtros)
   filtrosRef.current = filtros
@@ -160,6 +172,13 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     [llamar]
   )
 
+  /* ---------------- Sin datos del servidor: se piden al montarse ---------------- */
+  useEffect(() => {
+    if (!resumenInicial) void refrescarResumen(filtrosRef.current.mercado)
+    // solo al montarse
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   /* ---------------- Al cambiar los filtros ---------------- */
   useEffect(() => {
     if (primera.current) {
@@ -182,6 +201,8 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
   useEffect(() => {
     const cada = enCurso || lanzada ? 3_000 : 120_000
     const t = setInterval(async () => {
+      // Con la pestaña del navegador escondida no se pregunta nada, salvo si hay una revisión lanzada desde aquí
+      if (document.visibilityState !== 'visible' && !lanzada && !enCurso) return
       const r = await refrescarResumen(filtrosRef.current.mercado)
       if (!r) return
       if (lanzada) {
@@ -249,10 +270,19 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     const p = new URLSearchParams({ cliente: slug, mercado: filtros.mercado, gravedad: filtros.gravedad, tema: filtros.tema })
     if (filtros.soloStock) p.set('stock', '1')
     if (filtros.busca.trim()) p.set('q', filtros.busca.trim())
+    if (filtros.codigo) p.set('codigo', filtros.codigo)
+    if (filtros.codigos?.length) p.set('codigos', filtros.codigos.join(','))
     return `/api/cumplimiento/exportar?${p.toString()}`
   }, [slug, filtros])
 
   /* ---------------- Sin tabla, o con un fallo ---------------- */
+  if (!resumen) {
+    return (
+      <div className={`flex items-center gap-2 py-6 ${TIPO.s} ${TEXTO.t3}`}>
+        <Loader2 className="h-3 w-3 animate-spin" /> Cargando los listings…
+      </div>
+    )
+  }
   if (!resumen.ok && resumen.faltaMigracion) {
     return (
       <div className={`${AVISO.base} ${AVISO.conTono}`} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
@@ -411,7 +441,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
 
             {/* Los `!` no son un adorno: CAMPO.input trae `w-full` y Tailwind ordena `w-[…]` de forma
                 que a veces queda ANTES y pierde. Mismo motivo que en BOTON.chipEncendido. */}
-            <select
+            {!mercadoFijo && <select
               value={filtros.mercado}
               onChange={(e) => setFiltros((f) => ({ ...f, mercado: e.target.value }))}
               className={`${CAMPO.input} !w-[176px]`}
@@ -423,7 +453,18 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
                   {m.nombre} · {cifra(m.revisados)}/{cifra(m.total)}
                 </option>
               ))}
-            </select>
+            </select>}
+
+            {(filtros.codigo || (filtros.codigos?.length ?? 0) > 0) && (
+              <button
+                type="button"
+                className={`${BOTON.chip} ${BOTON.chipEncendido} max-w-[320px]`}
+                title={`Solo los listings con ${filtros.codigos?.length ? `estas incidencias de Amazon (${filtros.codigos.join(', ')})` : 'esta incidencia de Amazon'}, de cualquier gravedad. Pulsa para quitar el filtro.`}
+                onClick={() => setFiltros((f) => ({ ...f, codigo: '', codigos: [], rotuloCodigos: undefined, gravedad: f.gravedad === 'cualquiera' ? 'atencion' : f.gravedad }))}
+              >
+                <span className="truncate">{filtros.rotuloCodigos ?? `Incidencia ${filtros.codigo || filtros.codigos?.join(', ')}`}</span> <XCircle className="h-3 w-3 shrink-0" />
+              </button>
+            )}
 
             <select
               value={filtros.tema}
@@ -492,7 +533,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
       ) : filas.length === 0 && !cargando ? (
         <Vacio
           icono={<CheckCircle2 />}
-          titulo={filtros.gravedad === 'atencion' ? 'Nada que atender con estos filtros' : 'Ningún listing con estos filtros'}
+          titulo={filtros.gravedad === 'atencion' ? 'Nada que atender con estos filtros' : filtros.gravedad === 'menores' ? 'Ningún listing con solo avisos menores' : 'Ningún listing con estos filtros'}
         >
           {r.revisados < r.total
             ? 'Ojo: solo se ha revisado una parte del catálogo, así que esto no quiere decir que el resto esté bien.'
@@ -584,6 +625,12 @@ function FilaLista({
   const rotuloFicha = ficha === 'comprable' ? 'Comprable' : ficha === 'visible' ? 'Solo visible' : 'Oculto'
   const producto = urlProducto(f.marketplace_id, f.asin)
   const inventario = urlInventario(f.marketplace_id, f.sku)
+  // Los avisos menores (no cambian nada en la venta) van plegados al final: están, pero no tapan lo que importa
+  const [verMenores, setVerMenores] = useState(false)
+  // El tema se vuelve a sacar aquí: una fila guardada antes de un cambio de reglas lo lleva viejo hasta su próxima revisión
+  const clasificadas = f.incidencias.map((i) => ({ i, ...clasificar({ ...i, tema: clasificarTema(i) }, ahora) }))
+  const importantes = clasificadas.filter((x) => x.nivel !== 'menor')
+  const menores = clasificadas.filter((x) => x.nivel === 'menor')
 
   return (
     <>
@@ -682,11 +729,29 @@ function FilaLista({
             {f.incidencias.length === 0 ? (
               <p className={`${TIPO.s} ${TEXTO.t3}`}>Amazon no ha puesto ninguna incidencia a este listing.</p>
             ) : (
-              <ul className="flex max-w-[900px] flex-col gap-[9px]">
-                {f.incidencias.map((i, n) => (
-                  <LineaIncidencia key={`${i.codigo}-${n}`} i={i} ahora={ahora} />
-                ))}
-              </ul>
+              <>
+                {importantes.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>Solo tiene avisos menores: nada que cambie la venta.</p>}
+                <ul className="flex max-w-[900px] flex-col gap-[9px]">
+                  {importantes.map(({ i, accion }, n) => (
+                    <LineaIncidencia key={`${i.codigo}-${n}`} i={i} ahora={ahora} accion={accion} />
+                  ))}
+                </ul>
+                {menores.length > 0 && (
+                  <div className="mt-[8px]">
+                    <button type="button" className={`inline-flex items-center gap-[4px] ${TIPO.s} ${TEXTO.t3} hover:text-[var(--ls-t1)]`} onClick={() => setVerMenores((v) => !v)} aria-expanded={verMenores}>
+                      {verMenores ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      {menores.length} {menores.length === 1 ? 'aviso menor' : 'avisos menores'} (no cambian nada en la venta)
+                    </button>
+                    {verMenores && (
+                      <ul className="mt-[6px] flex max-w-[900px] flex-col gap-[9px] opacity-75">
+                        {menores.map(({ i, accion }, n) => (
+                          <LineaIncidencia key={`m-${i.codigo}-${n}`} i={i} ahora={ahora} accion={accion} menor />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </>
             )}
             <p className={`mt-[8px] ${TIPO.s} ${TEXTO.t4}`}>
               Revisado {hace(f.revisado_at)}
@@ -699,22 +764,36 @@ function FilaLista({
   )
 }
 
-function LineaIncidencia({ i, ahora }: { i: Incidencia; ahora: Date }) {
+function LineaIncidencia({ i, ahora, accion, menor = false }: { i: Incidencia; ahora: Date; accion: keyof typeof ACCIONES; menor?: boolean }) {
   const oculta = ocultaAhora(i, ahora)
+  const ayuda = ayudaDe(i.mensaje)
   const gracia = i.exencion !== null && estaExenta(i.exencion, ahora)
-  const Icono = oculta ? EyeOff : i.gravedad === 'error' ? XCircle : i.gravedad === 'aviso' ? AlertTriangle : Info
-  const tono: TonoEstado = oculta || i.gravedad === 'error' ? 'rojo' : i.gravedad === 'aviso' ? 'ambar' : 'gris'
+  // Un aviso menor no se pinta en rojo aunque Amazon lo llame «error»: no cambia nada en la venta
+  const Icono = oculta ? EyeOff : menor ? Info : i.gravedad === 'error' ? XCircle : i.gravedad === 'aviso' ? AlertTriangle : Info
+  const tono: TonoEstado = menor ? 'gris' : oculta || i.gravedad === 'error' ? 'rojo' : i.gravedad === 'aviso' ? 'ambar' : 'gris'
 
   return (
     <li className="flex gap-[8px]">
       <Icono className="mt-[3px] h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO[tono] }} />
       <div className="min-w-0">
-        <p className={`${TIPO.m} ${TEXTO.t1}`}>{i.mensaje || 'Amazon no ha dado ningún texto para esta incidencia.'}</p>
+        {/* Primero QUÉ HACER, en cristiano; debajo, lo que dice Amazon tal cual */}
+        <p className={`${TIPO.m} ${TEXTO.t1} font-semibold`} title={ACCIONES[accion].pasos.join('\n')}>
+          {ACCIONES[accion].titulo}
+        </p>
+        <p className={`${TIPO.m} ${TEXTO.t2}`}>{i.mensaje || 'Amazon no ha dado ningún texto para esta incidencia.'}</p>
         <p className={`${TIPO.s} ${TEXTO.t3}`}>
           {ROTULO_TEMA[i.tema].largo}
           {i.codigo && <> · código {i.codigo}</>}
           {i.atributos.length > 0 && <> · {i.atributos.join(', ')}</>}
           {' · '}abierta {hace(i.desde)}
+          {ayuda && (
+            <>
+              {' · '}
+              <a href={ayuda} target="_blank" rel="noreferrer" className="underline decoration-dotted underline-offset-2 hover:text-[var(--ls-t1)]">
+                ayuda de Amazon
+              </a>
+            </>
+          )}
         </p>
         {(i.acciones.length > 0 || i.exencion?.estado === 'EXEMPT_UNTIL_EXPIRY_DATE') && (
           <p className={`${TIPO.s} ${TEXTO.t2}`}>

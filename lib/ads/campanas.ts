@@ -47,6 +47,8 @@ export interface Campana {
   topDeBusquedas: number | null
   inicio: string | null
   fin: string | null
+  /** CAMPAIGN_OUT_OF_BUDGET, ADVERTISER_PAYMENT_FAILURE, CAMPAIGN_INCOMPLETE… (extendedData.servingStatus). null si Amazon no lo manda */
+  servicio: string | null
   /** Lo que trae Amazon sin tocar, para lo que todavía no se sabe que hará falta */
   crudo: Record<string, unknown>
 }
@@ -82,6 +84,8 @@ export async function campanasDe(
       cabeceras: { Accept: TIPO_CAMPANA, 'Content-Type': TIPO_CAMPANA },
       cuerpo: {
         maxResults: POR_PAGINA,
+        // Para el «estado de servicio»: si se ha quedado sin presupuesto, si hay un fallo de pago… (los avisos de Marketing Test)
+        includeExtendedDataFields: true,
         ...(token ? { nextToken: token } : {}),
       },
     })
@@ -135,6 +139,7 @@ function interpretar(c: Record<string, unknown>): Campana {
     topDeBusquedas: typeof top?.percentage === 'number' ? top.percentage : null,
     inicio: (c.startDate as string) ?? null,
     fin: (c.endDate as string) ?? null,
+    servicio: ((c.extendedData as { servingStatus?: string } | undefined)?.servingStatus ?? null) as string | null,
     crudo: c,
   }
 }

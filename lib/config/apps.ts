@@ -1,4 +1,5 @@
 import {
+  MessagesSquare,
   Boxes,
   Home,
   Users,
@@ -27,10 +28,14 @@ import {
   Gauge,
   Mail,
   Eye,
-  Sunrise,
   Wrench,
   BookOpenText,
   Handshake,
+  KanbanSquare,
+  FlaskConical,
+  SearchCheck,
+  ClipboardCheck,
+  BriefcaseBusiness,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -54,19 +59,6 @@ export const apps: AppConfig[] = [
     icon: Home,
     route: '/dashboard',
     status: 'active',
-    category: 'core'
-  },
-  {
-    // El briefing de la mañana que publica la rutina «Briefing diario Liberty Seller» de Claude, como pantalla: qué revisar hoy, equipo comercial,
-    // cuentas, tareas de clientes y correo. Lo ve un administrador y quien tenga esta casilla en Gestión de Usuarios. Las tablas están cerradas al
-    // navegador (migración 254) y el conector con el que publica la rutina es solo de administradores. El id va LETRA POR LETRA igual que en
-    // middleware.ts, que en lib/briefing/tipos.ts (APP_BRIEFING) y que en el requireAppAccess('briefing') de /api/briefing/marcar.
-    id: 'briefing',
-    name: 'Briefing',
-    description: 'El resumen de la mañana: qué revisar hoy, equipo, tareas y correo',
-    icon: Sunrise,
-    route: '/dashboard/briefing',
-    status: 'new',
     category: 'core'
   },
   {
@@ -107,6 +99,31 @@ export const apps: AppConfig[] = [
     description: 'Cada cliente en un solo sitio: su fase, lo hablado en la reunión, la propuesta y los documentos',
     icon: Handshake,
     route: '/dashboard/crm',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // LAS TAREAS DE CADA CLIENTE, en tablero, tabla, cronograma y calendario, conectadas en los dos sentidos con el Notion «Tareas Clientes». Lo ve un administrador y
+    // quien tenga esta casilla en Gestión de Usuarios; un `partner` NO entra por serlo. El filtro de verdad son las políticas RLS de las tablas tc_* (migración 275) y
+    // exigirTareas() en las rutas de /api/tareas-clientes. El id va LETRA POR LETRA igual que en la función SQL `puede_ver_tareas_clientes`, en lib/tareas-clientes/acceso.ts
+    // y en lib/usuarios/puestos.ts.
+    id: 'tareas-clientes',
+    name: 'Tareas de clientes',
+    description: 'El tablero de tareas de cada cliente, conectado con Notion: arrastrar, comentar y asignar',
+    icon: KanbanSquare,
+    route: '/dashboard/tareas-clientes',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // EL CHAT DEL EQUIPO: canales, chats privados y mensajes directos dentro del ERP (y, después, juntas con pantalla compartida). Lo ve un administrador y quien tenga esta casilla en
+    // Gestión de Usuarios. Las tablas chat_* están cerradas al navegador: todo pasa por /api/chat, que comprueba quién es miembro de qué (migración 284). El id va LETRA POR LETRA
+    // igual que en la función SQL `puede_ver_chat` y en lib/chat/acceso.ts.
+    id: 'chat',
+    name: 'Chat',
+    description: 'Canales, chats privados y mensajes directos del equipo, sin salir del ERP',
+    icon: MessagesSquare,
+    route: '/dashboard/chat',
     status: 'new',
     category: 'core'
   },
@@ -190,7 +207,7 @@ export const apps: AppConfig[] = [
     // salen de allí y la casilla «Enviado» se marca sola desde aquí.
     id: 'facturacion',
     name: 'Facturación',
-    description: 'Emite y manda la factura de cada cliente, con el desglose y el PDF dentro',
+    description: 'Crea y envía las facturas en Zoho con su plantilla, y registra cobros y gastos',
     icon: Receipt,
     route: '/dashboard/facturacion',
     status: 'new',
@@ -288,6 +305,60 @@ export const apps: AppConfig[] = [
     description: 'Los informes de Amazon Ads de un cliente, en Excel',
     icon: Megaphone,
     route: '/dashboard/marketing-ads',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // CUENTAS DE CLIENTES — el panel desde el que un administrativo lleva una cuenta entera (14 nov 2026: Raúl quita a la persona de marketing y las
+    // cuentas pasan a los administrativos). Por cliente: su responsable, la semana del ciclo S1–S4 y lo que toca, las cifras de PPC, las tareas de SEO
+    // y de cumplimiento y los avisos, con un botón a cada herramienta. Se concede persona a persona con la casilla; un partner o un cliente no entran
+    // nunca (lib/cuentas/acceso.ts). El id va letra por letra igual que en middleware.ts y en APP_CUENTAS.
+    id: 'cuentas',
+    name: 'Cuentas de clientes',
+    description: 'Cada cliente que llevas: qué toca esta semana, sus cifras, sus tareas y sus avisos',
+    icon: BriefcaseBusiness,
+    route: '/dashboard/cuentas',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // MARKETING TEST — la ficha de cuenta de Amazon Ads, los productos con su coste, el botón que crea
+    // la estructura de 4 campañas y el log de lo que se cambia. Funciona como un submódulo de Growth
+    // Partner (el cliente se elige arriba y todo cuelga de él) pero es una app aparte, y lo es a
+    // propósito: ESCRIBE en las cuentas de publicidad de los clientes y está en pruebas.
+    //
+    // Se gasta el dinero de un cliente. Fue SOLO ADMIN hasta el 14 nov 2026; desde entonces la usan también
+    // los administrativos que llevan cuentas, con su casilla y con libertad total (decisión de Raúl). Cerrada a
+    // partners y clientes en lib/cuentas/acceso.ts, middleware.ts y cada ruta de /api/ads/cuenta.
+    id: 'marketing-test',
+    name: 'PPC · Amazon Ads',
+    description: 'Propuestas del motor, campañas, ficha de cuenta, productos, crear campañas y log de cambios',
+    icon: FlaskConical,
+    route: '/dashboard/marketing-test',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // SEO TEST — el posicionamiento de los productos con datos GRATIS de Amazon: las búsquedas de Brand Analytics (dónde aparece cada producto y qué parte de las compras se lleva) y el texto de su
+    // ficha (qué búsquedas que venden faltan en el título, los bullets o el backend). Misma forma que Marketing Test (clientes y países a la izquierda). Solo LEE de Amazon.
+    // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); nunca un partner o un cliente. Fue SOLO ADMIN hasta el 14 nov 2026.
+    id: 'seo-test',
+    name: 'SEO de fichas',
+    description: 'Búsquedas de Brand Analytics, posicionamiento y keywords que faltan en la ficha de cada producto',
+    icon: SearchCheck,
+    route: '/dashboard/seo-test',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // CUMPLIMIENTO — antes un submódulo de Growth Partner: lo que Amazon dice de cada listing de un cliente (errores, ocultos, avisos de GPSR y RAP), con un panel por cliente y país, las
+    // incidencias agrupadas por lo que dice Amazon y la lista de listings. Solo LEE de Amazon. Ninguna vista junta ni compara clientes.
+    // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); nunca un partner o un cliente. Fue SOLO ADMIN hasta el 14 nov 2026.
+    id: 'cumplimiento',
+    name: 'Cumplimiento',
+    description: 'Salud de los listings ante Amazon por cliente y país: errores, ocultos, normativa (GPSR, RAP) y su evolución',
+    icon: ClipboardCheck,
+    route: '/dashboard/cumplimiento',
     status: 'new',
     category: 'core'
   },
@@ -528,6 +599,8 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'entrais-test',
   'entrais-pccomponentes',
   'limpieza-ofertas',
+  // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
+  // de los clientes las llevan los administrativos, persona a persona con la casilla (lib/cuentas/acceso.ts).
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
   // de llevar datos de compradores —los lleva—, sino porque el trabajo del día 3
   // lo hace un empleado y con la app cerrada a admin acababa usando la sesión de
@@ -573,17 +646,19 @@ export const APPS_OCULTAS_A_ADMIN: ReadonlySet<string> = new Set([
   'limpieza-ofertas',
   'disenos',
   // Quitadas del menú de Raúl el 15 oct 2026: no las usa. Siguen existiendo y sus
-  // rutas, datos y permisos no se tocan (Facturación guarda las facturas ya
-  // emitidas); quien tenga el permiso las sigue viendo, y para devolverlas basta
-  // con quitar el id de esta lista.
+  // rutas, datos y permisos no se tocan; quien tenga el permiso las sigue viendo,
+  // y para devolverlas basta con quitar el id de esta lista.
   'linkedin',
-  'facturacion',
   'tracker',
   'usos-horarios',
 ])
 
 export const APP_GROWTH = 'growth'
 export const PERMISO_STOCK_SYNC = 'stock-sync'
+/** El id de Tareas de clientes, escrito UNA vez: lo usan la entrada de `apps`, las rutas y la página */
+export const APP_TAREAS_CLIENTES = 'tareas-clientes'
+/** El id del Chat del equipo, escrito UNA vez: lo usan la entrada de `apps`, el grupo del menú, el acceso (lib/chat/acceso.ts) y la función SQL `puede_ver_chat` (migración 284) */
+export const APP_CHAT = 'chat'
 /** El id del CRM de clientes, escrito UNA vez: lo usan la entrada de `apps`, el filtro del menú, el de la rejilla de Inicio y APPS_SIN_EFECTO */
 export const APP_CRM = 'crm'
 
@@ -820,9 +895,9 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'contabilidad',
     name: 'Contabilidad',
-    description: 'Tesorería, control de empleados, comisiones y Tax Reports',
+    description: 'Tesorería, facturación, control de empleados, comisiones y Tax Reports',
     icon: BookOpenText,
-    apps: ['tesoreria', 'empleados', 'commissions', 'tax-reports'],
+    apps: ['tesoreria', 'facturacion', 'empleados', 'commissions', 'tax-reports'],
     despuesDe: 'correo',
   },
   {
@@ -831,6 +906,15 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
     icon: Wrench,
     apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
+    despuesDe: 'correo',
+  },
+  {
+    // Lo que usa quien lleva las cuentas de los clientes (lib/cuentas/acceso.ts). Va antes que el resto de herramientas: es su trabajo diario
+    id: 'gestion-de-cuentas',
+    name: 'Gestión de cuentas',
+    description: 'Cuentas de clientes, PPC, SEO de fichas y Cumplimiento',
+    icon: BriefcaseBusiness,
+    apps: ['cuentas', 'marketing-test', 'seo-test', 'cumplimiento'],
     despuesDe: 'correo',
   },
   {
@@ -852,6 +936,13 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
  *     pantalla trae un botón para volver. Mientras se mira, el menú enciende Mi rendimiento (lib/layout/menu.ts: PANTALLAS_QUE_CUELGAN_DE).
  */
 export const APPS_FUERA_DEL_MENU: ReadonlySet<string> = new Set(['actividad'])
+
+/**
+ * APLICACIONES QUE VAN EN EL PIE DE LA BARRA LATERAL (entre tu nombre y los avisos) y no en la lista de arriba. Siguen en la rejilla del Inicio.
+ *
+ *   · 'tareas-clientes' («Tareas Clientes») y 'chat» («Chat»): se abren a pantalla completa, como otra aplicación (lib/layout/inmersivo.ts), con la barra del ERP a la vista como un carril fino.
+ */
+export const APPS_EN_EL_PIE: ReadonlySet<string> = new Set(['tareas-clientes', 'chat'])
 
 export const getAppById = (id: string): AppConfig | undefined => {
   return apps.find(app => app.id === id)

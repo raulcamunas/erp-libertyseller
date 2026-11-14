@@ -2,9 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { requireFbaAccess } from '@/lib/fba/acceso'
-import { estadoDeEnvios, lineasDeEnvio } from '@/lib/fba/inbound'
+import { estadoDeEnvios } from '@/lib/fba/inbound'
+import { crearRemesaDeEnvio, lineasConNombre } from '@/lib/fba/importar-envio'
 import { mercadoDeEnvio, mercadosQueVendeLaCuenta, participaEn, type ConexionParaMercado } from '@/lib/fba/mercados'
-import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -119,33 +119,8 @@ export async function POST(request: NextRequest) {
           '(Cadena de suministro → Gestionar envíos) y que el país es el del envío.'
       )
     }
-    const lineasAmazon = await lineasDeEnvio(credentials, mercado, shipmentId)
-    if (lineasAmazon.length === 0) return fail(404, 'Amazon reconoce el envío pero no devuelve ninguna referencia.')
-
-    // Nombre, ASIN y título de cada SKU, del catálogo que ya tenemos
-    const skus = lineasAmazon.map((l) => l.sku)
-    const descripcion = new Map<string, { asin: string | null; title: string | null }>()
-    for (let i = 0; i < skus.length; i += 200) {
-      const { data } = await service
-        .from('amazon_listings')
-        .select('sku, asin, title')
-        .eq('connection_id', connectionId)
-        .eq('marketplace_id', mercado)
-        .in('sku', skus.slice(i, i + 200))
-      for (const d of (data ?? []) as Array<{ sku: string; asin: string | null; title: string | null }>) {
-        descripcion.set(d.sku, { asin: d.asin, title: d.title })
-      }
-    }
-
-    const lineas = lineasAmazon
-      .filter((l) => l.enviadas > 0)
-      .map((l) => ({
-        sku: l.sku,
-        enviadas: l.enviadas,
-        recibidas: l.recibidas,
-        asin: descripcion.get(l.sku)?.asin ?? null,
-        nombre: descripcion.get(l.sku)?.title ?? null,
-      }))
+    const { crudas, lineas } = await lineasConNombre(service, credentials, connectionId, mercado, shipmentId)
+    if (crudas === 0) return fail(404, 'Amazon reconoce el envío pero no devuelve ninguna referencia.')
 
     if (body.accion !== 'crear') {
       return NextResponse.json({
@@ -165,47 +140,17 @@ export async function POST(request: NextRequest) {
     const fecha = (body.fechaEnvio ?? '').trim()
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return fail(400, 'La fecha tiene que ser un día, con el formato 2026-09-30')
 
-    const estadoRemesa = info.estado === 'CLOSED' ? 'cerrada' : 'enviada'
-    const { data: creada, error: errAlta } = await service
-      .from('fba_remesas')
-      .insert({
-        client_id: clienteId,
-        connection_id: connectionId,
-        marketplace_id: mercado,
-        nombre: (body.nombre ?? '').trim().slice(0, 120) || info.nombre,
-        fecha_envio: fecha,
-        referencia_envio: shipmentId,
-        estado: estadoRemesa,
-        estado_amazon: info.estado,
-        seguimiento_at: new Date().toISOString(),
-        created_by: sesion.userId,
-      })
-      .select('id')
-      .single()
-    if (errAlta) throw errAlta
-    const remesaId = (creada as { id: string }).id
-
-    const { error: errLineas } = await service.from('fba_remesa_lineas').insert(
-      lineas.map((l) => ({
-        remesa_id: remesaId,
-        sku: l.sku,
-        unidades: l.enviadas,
-        unidades_recibidas: l.recibidas,
-        asin: l.asin,
-        nombre: l.nombre,
-      }))
-    )
-    if (errLineas) {
-      // Una cabecera sin líneas se pinta como un envío que no vendió nada
-      await service.from('fba_remesas').delete().eq('id', remesaId)
-      throw errLineas
-    }
-
-    await anotarSeguimiento(service, remesaId, {
-      estado: info.estado,
-      enviadas: lineas.reduce((s, l) => s + l.enviadas, 0),
-      recibidas: lineas.reduce((s, l) => s + l.recibidas, 0),
-    }).catch(() => undefined)
+    const remesaId = await crearRemesaDeEnvio(service, {
+      clienteId,
+      connectionId,
+      mercado,
+      shipmentId,
+      nombre: (body.nombre ?? '').trim() || info.nombre,
+      fecha,
+      estadoAmazon: info.estado,
+      lineas,
+      userId: sesion.userId,
+    })
 
     return NextResponse.json({ ok: true, id: remesaId, lineas: lineas.length })
   } catch (error) {

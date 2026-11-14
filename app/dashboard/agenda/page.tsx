@@ -29,8 +29,8 @@ export default async function AgendaPage() {
 
   const [profile, equipo, franjas, citas] = await Promise.all([
     getUserProfile(),
-    // Comerciales para la leyenda y la asignación
-    supabase.from('profiles').select('id, full_name, email, role, calendar_color').eq('is_comercial', true).order('full_name', { ascending: true }),
+    // Comerciales para la leyenda y la asignación. Los comerciales autónomos (Naomi, Yarima) también agendan citas: salen aunque no sean `is_comercial`, que es lo que las metería en el reparto de leads y en las comisiones por cita
+    supabase.from('profiles').select('id, full_name, email, role, calendar_color').or('is_comercial.eq.true,puesto.eq.comercial_autonomo').order('full_name', { ascending: true }),
     supabase.from('availability_windows').select('*'),
     citasEntre(supabase, desde, hasta),
   ])

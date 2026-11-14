@@ -1,4 +1,4 @@
-import type { Puesto } from '@/lib/usuarios/puestos'
+import type { Puesto, PuestoGuardado } from '@/lib/usuarios/puestos'
 
 /**
  * Los cuatro roles del ERP.
@@ -13,7 +13,7 @@ export type RolUsuario = 'admin' | 'employee' | 'partner' | 'cliente'
  * El puesto de un empleado: Comercial, Manager Comercial o Gestión Administrativa (lib/usuarios/puestos.ts). NO es un rol: el rol sigue siendo uno de los cuatro de
  * arriba y el puesto solo nombra a la persona y pre-marca sus casillas. null = sin puesto (o todavía sin lanzar la migración 257).
  */
-export type { Puesto }
+export type { Puesto, PuestoGuardado }
 
 export interface UserAppPermission {
   id: string
@@ -30,7 +30,7 @@ export interface ManagedUser {
   full_name: string | null
   role: RolUsuario
   /** El puesto (migración 257). Undefined antes de lanzarla */
-  puesto?: Puesto | null
+  puesto?: PuestoGuardado | null
   /** Sale en el equipo que llama (Cold Calling y Agenda) */
   is_comercial?: boolean
   created_at: string
@@ -43,7 +43,7 @@ export interface CreateUserData {
   full_name: string
   role?: RolUsuario
   /** Solo para un empleado: Comercial, Manager Comercial o Gestión Administrativa */
-  puesto?: Puesto | null
+  puesto?: PuestoGuardado | null
   /** Si llama (sale en el equipo de Cold Calling y en la Agenda). Un Comercial siempre; un Manager, lo que se marque */
   is_comercial?: boolean
   /** Al darlo de alta, crearle su lista de leads («Ana V1») y asignársela */

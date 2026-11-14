@@ -125,6 +125,7 @@ const ETIQUETA_DE_ESTADO_DE_CITA: Record<string, string> = {
   confirmed: 'Confirmada',
   completed: 'Realizada',
   qualified: 'Cualificada',
+  semi_qualified: 'Semi-cualificada',
   not_qualified: 'No cualificada',
   rescheduled: 'Re-agendada',
   cancelled: 'Cancelada',

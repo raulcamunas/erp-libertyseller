@@ -55,10 +55,11 @@ export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-[5px]">
-              {/* Los tres desenlaces solo se pintan como botón para dirección: cualificar es lo que genera la comisión del comercial */}
+              {/* Los desenlaces solo se pintan como botón para dirección: cualificar es lo que genera la comisión del comercial */}
               {puedeResultadoDeCita ? (
                 ([
                   { valor: 'qualified' as const, texto: 'Cita cualificada' },
+                  { valor: 'semi_qualified' as const, texto: 'Semi-cualificada' },
                   { valor: 'not_qualified' as const, texto: 'No cualificada' },
                   { valor: 'no_show' as const, texto: 'No asistió' },
                 ]).map((o) => {
@@ -80,10 +81,10 @@ export function PestanaDatos({ ctx }: { ctx: ContextoFicha }) {
               ) : (
                 <span className="text-[12px] text-[var(--ls-t2)]">{estadoCita ? APPOINTMENT_STATUS_LABELS[estadoCita] : '—'} · cambiarlo es de dirección</span>
               )}
-              {puedeResultadoDeCita && estadoCita && estadoCita !== 'qualified' && estadoCita !== 'not_qualified' && estadoCita !== 'no_show' && <span className="text-[11px] text-[var(--ls-t4)]">Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[estadoCita]}</span>}
+              {puedeResultadoDeCita && estadoCita && estadoCita !== 'qualified' && estadoCita !== 'semi_qualified' && estadoCita !== 'not_qualified' && estadoCita !== 'no_show' && <span className="text-[11px] text-[var(--ls-t4)]">Todavía sin decidir · {APPOINTMENT_STATUS_LABELS[estadoCita]}</span>}
             </div>
             <p className="mt-2 text-[11px] leading-[1.5] text-[var(--ls-t3)]">
-              Solo <strong className="font-semibold text-[var(--ls-t2)]">Cita cualificada</strong> genera la comisión del comercial que la agendó. Las otras dos no, y las tres se ven al momento en el calendario.
+              <strong className="font-semibold text-[var(--ls-t2)]">Cita cualificada</strong> y <strong className="font-semibold text-[var(--ls-t2)]">Semi-cualificada</strong> generan la comisión del comercial que la agendó, cada una a su precio. Las otras dos no, y todas se ven al momento en el calendario.
             </p>
           </>
         )}
