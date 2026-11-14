@@ -661,8 +661,10 @@ export function accionesPermitidas(p: { modo: ModoEnvio; paso: PasoEnvio; conErr
   if (hayQueMandarCajasOtraVez(paso)) out.push('reenviar_cajas')
   if (puedeReabrirCajas(paso)) out.push('reabrir_cajas')
   if (paso === 'reparto_elegir') out.push('confirmar_reparto')
-  if (paso === 'transporte_datos' || paso === 'transporte_elegir' || paso === 'transporte_cliente') out.push('generar_transporte')
-  if (paso === 'transporte_elegir' || paso === 'transporte_cliente') out.push('elegir_transporte')
+  // También con el cliente ya conforme (transporte_listo): si la cotización caduca antes de que la agencia
+  // confirme, hay que poder pedir otra (y el cliente vuelve a aceptarla). Sin esto solo quedaba cancelar el plan
+  if (paso === 'transporte_datos' || paso === 'transporte_elegir' || paso === 'transporte_cliente' || paso === 'transporte_listo') out.push('generar_transporte')
+  if (paso === 'transporte_elegir' || paso === 'transporte_cliente' || paso === 'transporte_listo') out.push('elegir_transporte')
   if (paso === 'transporte_listo' && p.clienteAcepto) out.push('confirmar_transporte')
   if (p.conError && pasoEnCurso(paso)) out.push('reintentar')
   if (cancelabilidad(paso, p.anulableHasta, p.ahora).puede || (p.conError && pasoEnCurso(paso) && paso !== 'cancelando')) out.push('cancelar')

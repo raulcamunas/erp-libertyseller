@@ -365,14 +365,16 @@ async function credencialesDe(f: FilaRemesa): Promise<AmazonCredentials> {
 }
 
 /** Cambia la fila SOLO si sigue en el paso esperado. Devuelve false si otro se adelantó */
-async function moverPaso(ctx: Ctx, desde: PasoEnvio | PasoEnvio[], cambios: Record<string, unknown>): Promise<boolean> {
+async function moverPaso(ctx: Ctx, desde: PasoEnvio | PasoEnvio[], cambios: Record<string, unknown>, ademas: Record<string, string> = {}): Promise<boolean> {
   const lista = Array.isArray(desde) ? desde : [desde]
-  const { data, error } = await ctx.service
+  let q = ctx.service
     .from('fba_remesas')
     .update({ ...cambios, envio_actualizado_at: new Date().toISOString() })
     .eq('id', ctx.fila.id)
     .in('envio_paso', lista)
-    .select('id')
+  // Condiciones extra: que lo que se leyó siga igual (p. ej. la misma aceptación del cliente)
+  for (const [col, val] of Object.entries(ademas)) q = q.eq(col, val)
+  const { data, error } = await q.select('id')
   if (error) throw error
   const ok = ((data as unknown[] | null) ?? []).length > 0
   if (ok) Object.assign(ctx.fila, cambios)
@@ -791,6 +793,12 @@ export async function avanzar(remesaId: string, userId: string | null, service: 
 
   const ctx: Ctx = { service, fila: f, creds, userId, actor: 'sistema' }
   const paso = esPasoEnvio(op.paso) ? op.paso : pasoDe(f)
+  // Una operación que ya no es la del paso actual (sobrante de una carrera) se cierra pero NO mueve el envío:
+  // seguirla haría saltar el paso hacia atrás o relanzar algo ya hecho
+  if (paso !== pasoDe(f)) {
+    console.error(`[envío] operación ${op.operation_id} del paso ${paso} acabada con el envío en ${pasoDe(f)}: no se sigue`)
+    return
+  }
   if (res.estado === 'fallo') {
     await guardar(ctx, { envio_error: res.texto })
     await registrarEnHistorial({ remesaId, actor: 'sistema', accion: 'envio_amazon', hasta: paso, detalle: { paso, error: res.texto } }, service)
@@ -879,9 +887,18 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
     }
     case 'reenviar_cajas': {
       if (f.estado !== 'lista') throw new FalloDelEnvio('Termina de encajar (remesa «Lista para enviar») antes de mandar las cajas otra vez')
+      // Se reclama el paso ANTES de llamar a Amazon: un doble clic o dos pantallas lanzaban dos
+      // setPackingInformation y la operación sobrante, al acabar, movía el envío hacia atrás.
       // Las opciones de reparto viejas dejan de valer: se regeneran tras mandar las cajas
-      await guardar(ctx, { placement_option_id: null, envio_datos: { ...(f.envio_datos ?? {}), opcionesReparto: [] } })
-      await lanzarCajas(ctx)
+      if (!(await moverPaso(ctx, ['cajas_reabiertas', 'cajas_conflicto'], { envio_paso: 'cajas', envio_error: null, placement_option_id: null, envio_datos: { ...(f.envio_datos ?? {}), opcionesReparto: [] } })))
+        throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      try {
+        await lanzarCajas(ctx)
+      } catch (e) {
+        // Una validación nuestra falla ANTES de llamar a Amazon: el paso vuelve a donde estaba
+        await guardar(ctx, { envio_paso: paso })
+        throw e
+      }
       await apuntar('cajas_reenviadas')
       return
     }
@@ -909,7 +926,7 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       const email = (p.contacto?.email ?? dir?.email ?? '').trim()
       if (!nombre || !telefono) throw new FalloDelEnvio('Falta el contacto de la recogida (nombre y teléfono)', 400)
       const recogida = { dia: p.dia as string, iso: fecha.iso, contacto: { nombre: nombre.slice(0, 80), telefono: telefono.slice(0, 30), email: email.slice(0, 120) || null } }
-      if (!(await moverPaso(ctx, ['transporte_datos', 'transporte_elegir', 'transporte_cliente'], { envio_paso: 'transporte_generar', envio_datos: { ...(f.envio_datos ?? {}), recogida } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, ['transporte_datos', 'transporte_elegir', 'transporte_cliente', 'transporte_listo'], { envio_paso: 'transporte_generar', envio_datos: { ...(f.envio_datos ?? {}), recogida } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await lanzarTransporte(ctx)
       await apuntar('transporte_cotizando', { recogida: p.dia })
       return
@@ -920,7 +937,7 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       const envios = (f.envio_datos?.envios ?? []).map((e) => e.shipmentId)
       const sin = envios.filter((sid) => !nuevas.some((s) => s.shipmentId === sid))
       const res = resumirSelecciones(nuevas, sin)
-      if (!(await moverPaso(ctx, ['transporte_elegir', 'transporte_cliente'], {
+      if (!(await moverPaso(ctx, ['transporte_elegir', 'transporte_cliente', 'transporte_listo'], {
         envio_paso: res.ok ? 'transporte_cliente' : 'transporte_elegir',
         transporte_seleccion: nuevas,
         coste_transporte: res.total,
@@ -943,7 +960,9 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       if (!cotizacionVigente(f.transporte_caduca_at)) throw new FalloDelEnvio('La cotización de Amazon ha caducado: vuelve a pedirla (y el cliente tendrá que aceptarla otra vez)')
       const sel = f.transporte_seleccion ?? []
       const conVentana = sel.filter((s) => s.necesitaVentana).map((s) => s.shipmentId)
-      if (!(await moverPaso(ctx, 'transporte_listo', { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      // Solo si sigue siendo la MISMA aceptación que se ha comprobado arriba: si entretanto otra pantalla pidió otra
+      // cotización y el cliente la aceptó de nuevo, la selección leída aquí ya no es la que aceptó
+      if (!(await moverPaso(ctx, 'transporte_listo', { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }, { transporte_aceptado_por_cliente_at: f.transporte_aceptado_por_cliente_at }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await apuntar('transporte_confirmando', { coste, moneda: f.moneda_envio })
       return conVentana.length ? lanzarVentana(ctx) : lanzarConfirmarTransporte(ctx)
     }
