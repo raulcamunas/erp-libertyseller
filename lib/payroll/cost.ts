@@ -3,6 +3,7 @@ import {
   WorkHourEntry,
   PayrollRate,
   ManualAppointment,
+  comisionDeCita,
   cycleKeyForDate,
   resolveRate,
 } from '@/lib/types/payroll'
@@ -35,9 +36,10 @@ import {
  * de agosto.
  */
 
-/** Lo mínimo de una cita cualificada para poder costearla */
+/** Lo mínimo de una cita que cobra (cualificada o semi-cualificada) para poder costearla */
 export interface CostAppointment {
   comercial_id: string | null
+  status: string
   /** timestamptz en ISO, tal y como viene de la base */
   start_time: string
 }
@@ -48,7 +50,7 @@ export interface CostTotals {
   /** horas × tarifa/hora */
   salary: number
   appointments: number
-  /** citas cualificadas × comisión */
+  /** citas que cobran × su comisión */
   commissions: number
   /** salary + commissions */
   total: number
@@ -141,7 +143,7 @@ export function monthCostForUser(userId: string, input: MonthCostInput): PersonC
     const day = madridDayKey(a.start_time)
     if (!day.startsWith(prefix)) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, day).commission
+    acc.commissions += comisionDeCita(a.status, rates, day)
   }
 
   for (const m of manual ?? []) {
@@ -244,7 +246,7 @@ export function monthCostTotal(input: MonthCostInput): CostTotals {
     const day = madridDayKey(a.start_time)
     if (!day.startsWith(prefix)) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, day).commission
+    acc.commissions += comisionDeCita(a.status, rates, day)
   }
 
   for (const m of manual ?? []) {
@@ -287,7 +289,7 @@ export function cycleCostForUser(
     const day = madridDayKey(a.start_time)
     if (cycleKeyForDate(day) !== periodKey) continue
     acc.appointments += 1
-    acc.commissions += resolveRate(rates, day).commission
+    acc.commissions += comisionDeCita(a.status, rates, day)
   }
 
   for (const m of manual ?? []) {

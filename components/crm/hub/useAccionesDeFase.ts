@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { avisoDeAccion, destinoDe, esAccionDeDescarte, notaDeDescarte, type AccionDeFase } from '@/lib/crm/pestanas'
 import { esTablaInexistente, FALTA_MIGRACION_258 } from '@/lib/crm/migracion'
 import { CRM_STAGE_LABELS, type CrmClientWithDetails } from '@/lib/types/crm'
+import { AVISO_DE_RESULTADO, type ResultadoDeCita } from '@/lib/types/appointments'
 
 /**
  * LO QUE SE HACE CON UN LEAD DESDE LA LISTA: SEGUIR, DESCARTAR, AVANZAR, CERRAR, PERDER, REABRIR — y, para dirección, el resultado de la cita.
@@ -109,7 +110,7 @@ export function useAccionesDeFase({ currentUserId, onPatched, onMotivo }: Opcion
    * que en la ficha: las citas se sincronizan con Google Calendar y esa ruta es la que lleva el `updated_source` y el `sync_status`.
    */
   const cambiarResultadoDeCita = useCallback(
-    async (c: CrmClientWithDetails, estado: 'qualified' | 'not_qualified' | 'no_show'): Promise<void> => {
+    async (c: CrmClientWithDetails, estado: ResultadoDeCita): Promise<void> => {
       const appt = c.appointment
       if (!appt || ocupados.has(c.id) || appt.status === estado) return
       marcar(c.id, true)
@@ -120,7 +121,7 @@ export function useAccionesDeFase({ currentUserId, onPatched, onMotivo }: Opcion
           return
         }
         onPatched(c.id, { appointment: { ...appt, status: estado } })
-        toast.success(estado === 'qualified' ? 'Cita cualificada' : estado === 'no_show' ? 'Cita marcada como «no asistió»' : 'Cita marcada como no cualificada')
+        toast.success(AVISO_DE_RESULTADO[estado])
       } finally {
         marcar(c.id, false)
       }

@@ -8,7 +8,7 @@ import { AlertTriangle, ExternalLink, Mail, Phone, Video } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { toMadrid } from '@/lib/timezone'
-import { colorForAgent, type CalendarPerson } from '@/lib/types/appointments'
+import { colorForAgent, type CalendarPerson, AVISO_DE_RESULTADO, type ResultadoDeCita } from '@/lib/types/appointments'
 import { CRM_STAGE_LABELS, crmContact, type CrmClientWithDetails, type CrmDocument, type CrmInteraction, type CrmStage } from '@/lib/types/crm'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import { avanceDeLaPropuesta, leerPlan } from '@/lib/crm/propuesta'
@@ -193,7 +193,7 @@ export function FichaHub({ client, team, currentUser, onPatched, alcance, histor
    * VA POR LA RUTA DE LA AGENDA Y NO POR UN UPDATE DIRECTO: las citas se sincronizan con Google Calendar y esa ruta es la que lleva el `updated_source` y el `sync_status`.
    * Y cualificar es pagar una comisión, así que solo lo hace dirección.
    */
-  async function cambiarEstadoCita(estado: 'qualified' | 'not_qualified' | 'no_show') {
+  async function cambiarEstadoCita(estado: ResultadoDeCita) {
     if (!appt || cambiandoCita || !alcance.puedeResultadoDeCita) return
     setCambiandoCita(true)
     const res = await fetch(`/api/appointments/${appt.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: estado }) })
@@ -203,7 +203,7 @@ export function FichaHub({ client, team, currentUser, onPatched, alcance, histor
       return
     }
     onPatched({ appointment: { ...appt, status: estado } })
-    toast.success(estado === 'qualified' ? 'Cita cualificada' : estado === 'no_show' ? 'Cita marcada como «no asistió»' : 'Cita marcada como no cualificada')
+    toast.success(AVISO_DE_RESULTADO[estado])
   }
 
   async function cambiarFase(etapa: CrmStage) {

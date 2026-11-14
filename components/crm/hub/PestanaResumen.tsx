@@ -178,7 +178,7 @@ export function PestanaResumen({ ctx, plan, avance, linea }: { ctx: ContextoFich
             <p className="text-[12px] text-[var(--ls-t3)]">Alta manual, sin cita en la agenda.</p>
           ) : (
             <div className="space-y-1.5">
-              <Insignia tono={appt.status === 'qualified' ? 'verde' : appt.status === 'not_qualified' ? 'rojo' : appt.status === 'no_show' ? 'ambar' : 'gris'}>{APPOINTMENT_STATUS_LABELS[appt.status]}</Insignia>
+              <Insignia tono={appt.status === 'qualified' ? 'verde' : appt.status === 'semi_qualified' ? 'violeta' : appt.status === 'not_qualified' ? 'rojo' : appt.status === 'no_show' ? 'ambar' : 'gris'}>{APPOINTMENT_STATUS_LABELS[appt.status]}</Insignia>
               {contacto.meetingAt && <p className="text-[12px] text-[var(--ls-t2)]">{fechaLarga(contacto.meetingAt)}</p>}
               {appt.google_meet_link && (
                 <a href={appt.google_meet_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12px] text-[var(--ls-t2)] hover:text-[var(--ls-acc)]">

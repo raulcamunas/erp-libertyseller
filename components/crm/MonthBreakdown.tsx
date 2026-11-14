@@ -22,6 +22,7 @@ import { CalendarPerson, colorForAgent } from '@/lib/types/appointments'
 export interface BreakdownAppointment {
   id: string
   comercial_id: string | null
+  status: string
   start_time: string
 }
 

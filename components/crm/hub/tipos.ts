@@ -1,6 +1,6 @@
 import type { EntradaDeFase } from '@/lib/crm/fases'
 import type { FilaDeNota } from '@/lib/crm/gemini/tipos'
-import type { CalendarPerson } from '@/lib/types/appointments'
+import { type CalendarPerson, type ResultadoDeCita } from '@/lib/types/appointments'
 import type { CrmClientWithDetails, CrmDocument, CrmInteraction, CrmStage } from '@/lib/types/crm'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 
@@ -38,8 +38,8 @@ export interface ContextoFicha {
   cambiarFase: (etapa: CrmStage) => Promise<void>
   /** Todos los clientes del CRM, en ligero, para asignar una nota de reunión a otro */
   clientes: ReadonlyArray<{ id: string; nombre: string; empresa: string | null }>
-  /** Cambia la cita de este cliente (cualificada, no cualificada, no asistió) por la ruta de la agenda */
-  cambiarEstadoCita: (estado: 'qualified' | 'not_qualified' | 'no_show') => Promise<void>
+  /** Cambia la cita de este cliente (cualificada, semi-cualificada, no cualificada, no asistió) por la ruta de la agenda */
+  cambiarEstadoCita: (estado: ResultadoDeCita) => Promise<void>
   cambiandoCita: boolean
   interacciones: CrmInteraction[]
   setInteracciones: (l: CrmInteraction[]) => void
