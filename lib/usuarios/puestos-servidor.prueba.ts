@@ -58,8 +58,12 @@ async function pruebas() {
     const nada = await guardarPuesto(n.service, ID, cambio({}))
     ok('si la petición no cambia nada, no escribe', nada.avisos.length === 0 && n.escrituras.length === 0)
     const a = falso()
+    // Desde la 290 (CEO = admin + puesto 'ceo') editar a un admin sin decir el puesto no se lo toca: podría ser un CEO. La pantalla siempre manda el puesto
     await guardarPuesto(a.service, ID, cambio({}, 'admin'))
-    ok('pasar a alguien a admin le quita el puesto que tuviera', JSON.stringify(a.escrituras[0].valores) === JSON.stringify({ puesto: null }))
+    ok('un admin sin decir el puesto: no se le toca', a.escrituras.length === 0)
+    const b2 = falso()
+    await guardarPuesto(b2.service, ID, cambio({ puesto: null }, 'admin'))
+    ok('pasar a alguien a admin pleno (puesto null): le quita el puesto', JSON.stringify(b2.escrituras[0]?.valores) === JSON.stringify({ puesto: null }))
   }
 
   console.log('\n=== sin la migración 257 (no existe la columna puesto) ===')
