@@ -3,6 +3,7 @@ import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
 import { cajasDeRemesa } from '@/lib/fba/cajas'
 import { puedeAvanzar, type EstadoRemesa } from '@/lib/fba/flujo'
+import { registrarEnHistorial } from '@/lib/fba/historial'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -33,8 +34,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     if (!UUID.test(params.id)) return fail(400, 'Esa remesa no existe')
 
-    const body = (await request.json().catch(() => ({}))) as { hasta?: unknown }
+    const body = (await request.json().catch(() => ({}))) as { hasta?: unknown; desde?: unknown }
     const hasta = typeof body.hasta === 'string' ? (body.hasta as EstadoRemesa) : null
+    // El paso desde el que lo ve quien pulsa. Si ya no es el de la base, alguien lo movió entre medias
+    const desdeVisto = typeof body.desde === 'string' ? (body.desde as EstadoRemesa) : null
     if (!hasta) return fail(400, 'Falta a qué paso se quiere mover')
 
     if (!DESTINOS_SIMPLES.includes(hasta)) return fail(400, 'Ese paso no existe')
@@ -62,12 +65,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
     if (!puedeEditar(sesion, remesa.client_id)) return fail(404, 'Esa remesa ya no existe')
 
-    const actor = sesion.esAdmin ? 'agencia' : 'cliente'
+    // BLOQUEO OPTIMISTA: quien pulsa vio la remesa en un paso; si ya está en otro, no se aplica nada
+    if (desdeVisto && desdeVisto !== remesa.estado) {
+      return NextResponse.json({ error: 'Alguien ha cambiado esta remesa mientras la mirabas (ahora está en otro paso). Recarga para ver lo último.', conflicto: true }, { status: 409 })
+    }
 
+    // Agencia = admin o empleado; cliente = el resto (lib/fba/acceso.ts). Antes un empleado contaba como cliente
+    const actor = sesion.actor
+
+    // Las líneas a 0 son las que el cliente ha dicho «esta no» desde su enlace: no cuentan como referencia
     const { count: lineas } = await service
       .from('fba_remesa_lineas')
       .select('id', { count: 'exact', head: true })
       .eq('remesa_id', params.id)
+      .gt('unidades', 0)
 
     // El cuadre solo se calcula si el paso lo exige: leer las cajas de una
     // remesa para aprobarla es trabajo que no cambia la respuesta.
@@ -133,8 +144,62 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
     }
 
-    const { error } = await service.from('fba_remesas').update(cambios).eq('id', params.id)
+    /**
+     * AL APROBAR UNA PROPUESTA SE QUITAN LAS LÍNEAS A 0.
+     *
+     * Son las que el cliente marcó como «esta no» desde su enlace (migración 309). Se guardaban para que la
+     * agencia viera qué se proponía; aprobada, ya no van en el envío y no deben llegar a etiquetas, cajas ni
+     * Excel. Antes de borrarlas se apunta en el historial qué se aprobó frente a lo propuesto.
+     */
+    let resumenAprobacion: Record<string, unknown> | undefined
+    if (remesa.estado === 'borrador' && hasta === 'aprobada') {
+      const { data: filas } = await service.from('fba_remesa_lineas').select('*').eq('remesa_id', params.id)
+      const ls = (filas ?? []) as Array<{ sku: string; unidades: number; unidades_propuestas?: number | null; anadida_por_cliente?: boolean }>
+      resumenAprobacion = {
+        referencias: ls.filter((l) => l.unidades > 0).length,
+        unidades: ls.reduce((s, l) => s + l.unidades, 0),
+        quitadas: ls.filter((l) => l.unidades === 0).map((l) => l.sku).slice(0, 50),
+        nuevas: ls.filter((l) => l.anadida_por_cliente).map((l) => l.sku).slice(0, 50),
+        cambiadas: ls.filter((l) => l.unidades_propuestas != null && l.unidades_propuestas !== l.unidades && l.unidades > 0).length,
+      }
+    }
+
+    // El cambio SOLO se aplica si la remesa SIGUE en el paso leído: dos personas que pulsan a la vez ya no
+    // aplican dos transiciones calculadas sobre el mismo punto de partida
+    const { data: movida, error } = await service
+      .from('fba_remesas')
+      .update(cambios)
+      .eq('id', params.id)
+      .eq('estado', remesa.estado)
+      .select('id')
     if (error) throw error
+    if (((movida as unknown[] | null) ?? []).length === 0) {
+      return NextResponse.json({ error: 'Alguien acaba de mover esta remesa de paso. Recarga para ver lo último.', conflicto: true }, { status: 409 })
+    }
+
+    if (resumenAprobacion) {
+      const { error: errCeros } = await service.from('fba_remesa_lineas').delete().eq('remesa_id', params.id).eq('unidades', 0)
+      if (errCeros) console.error('[fba] no se han podido quitar las líneas a 0 al aprobar:', errCeros.message)
+    }
+    // Volver a borrador deshace también el «Acepto» del cliente: lo que aceptó ya no es lo que hay. Aparte y
+    // sin romper: sin la 309 estas columnas no existen
+    if (hasta === 'borrador' && remesa.estado !== 'borrador') {
+      await service
+        .from('fba_remesas')
+        .update({ cliente_acepto_at: null, cliente_acepto_nombre: null, cliente_acepto_ip: null })
+        .eq('id', params.id)
+        .then(() => undefined, () => undefined)
+    }
+
+    await registrarEnHistorial({
+      remesaId: params.id,
+      actor,
+      userId: sesion.userId,
+      accion: 'estado',
+      desde: remesa.estado,
+      hasta,
+      detalle: resumenAprobacion ?? (typeof cambios.version === 'number' ? { version: cambios.version } : {}),
+    })
 
     return NextResponse.json({ ok: true, estado: hasta })
   } catch (error) {

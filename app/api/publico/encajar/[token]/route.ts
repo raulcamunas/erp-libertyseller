@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { MAX_BYTES_ENCAJE, datosParaEncajar, guardarEncaje } from '@/lib/fba/encaje-enlace'
 import { entrarConEnlace, respuestaDeFalloInterno } from '@/lib/fba/encaje-http'
+import { ipDe } from '@/lib/fba/limite-publico'
 import { leerCuerpoConTope } from '@/lib/subidas-limite'
 
 /**
@@ -46,9 +47,12 @@ export async function PUT(request: NextRequest, { params }: { params: { token: s
       return fail(400, 'No se ha entendido lo que se ha mandado')
     }
 
-    const res = await guardarEncaje(r, (json as { cajas?: unknown } | null)?.cajas)
+    const cuerpoJson = json as { cajas?: unknown; version?: unknown } | null
+    // La versión que tenía la página: si la agencia guardó desde el ERP entre medias, 409 y no se pisa
+    const version = typeof cuerpoJson?.version === 'number' && Number.isInteger(cuerpoJson.version) ? cuerpoJson.version : null
+    const res = await guardarEncaje(r, cuerpoJson?.cajas, undefined, undefined, { version, ip: ipDe(request) })
     if (!res.ok) return fail(res.estado, res.error)
-    return NextResponse.json({ ok: true, guardadoAt: res.guardadoAt, cajas: res.cajas, listo: res.listo }, { headers: SIN_CACHE })
+    return NextResponse.json({ ok: true, guardadoAt: res.guardadoAt, cajas: res.cajas, listo: res.listo, version: res.version }, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFalloInterno(error, 'Encaje público: no se han podido guardar las cajas')
   }

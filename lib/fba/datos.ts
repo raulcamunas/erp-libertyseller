@@ -102,6 +102,11 @@ export interface RemesaDePanel {
   ultimaImpresion: { version: number; etiquetas: number; impresoAt: string } | null
   /** Por qué la IA montó esta propuesta así. null = no viene de la IA, o falta la migración 230 */
   analisisIa: AnalisisIa | null
+  /**
+   * LA PROPUESTA POR ENLACE Y LAS VERSIONES (migración 309). null = la 309 no está lanzada, o es un envío
+   * ya hecho (no se piden para enviadas ni cerradas).
+   */
+  propuesta?: PropuestaDePanel | null
   /** Los envíos en que Amazon ha partido la remesa */
   envios: EnvioDeRemesa[]
   /** Enviadas menos recibidas, solo de las líneas que Amazon ya ha contestado.
@@ -124,6 +129,17 @@ export interface RemesaDePanel {
   /** 0-100. Lo que el Excel llamaba «% del pedido» */
   consumidoPct: number
   agotadaEl: string | null
+}
+
+export interface PropuestaDePanel {
+  lineasVersion: number
+  cajasVersion: number
+  enviadaAt: string | null
+  aceptoAt: string | null
+  aceptoNombre: string | null
+  comentarioCliente: string | null
+  /** Por SKU: la foto de lo propuesto, la marca «Nuevo» y el comentario del cliente */
+  lineas: Record<string, { propuestas: number | null; nueva: boolean; comentario: string | null }>
 }
 
 export interface SkuDePanel extends RepartoSku {
@@ -355,6 +371,44 @@ export async function panelDeCliente(
       .not('analisis_ia', 'is', null)
     for (const a of (filasAnalisis ?? []) as Array<{ id: string; analisis_ia: AnalisisIa | null }>) {
       if (a.analisis_ia) analisisPorRemesa.set(a.id, a.analisis_ia)
+    }
+  }
+
+  /**
+   * LA PROPUESTA POR ENLACE (309), APARTE Y CON PLAN B: sin la migración, null y la pantalla sigue como antes.
+   * Solo de las propuestas (no de los envíos ya hechos), que son pocas.
+   */
+  const propuestaPorRemesa = new Map<string, PropuestaDePanel>()
+  {
+    const idsPropuesta = filasRemesa.filter((r) => !['enviada', 'cerrada'].includes((r.estado ?? 'cerrada') as string)).map((r) => r.id)
+    if (idsPropuesta.length > 0) {
+      const { data: cab, error: errCab } = await service
+        .from('fba_remesas')
+        .select('id, lineas_version, cajas_version, propuesta_enviada_at, cliente_acepto_at, cliente_acepto_nombre, cliente_comentario')
+        .in('id', idsPropuesta)
+      if (!errCab) {
+        const { data: extra } = await service
+          .from('fba_remesa_lineas')
+          .select('remesa_id, sku, unidades_propuestas, anadida_por_cliente, comentario')
+          .in('remesa_id', idsPropuesta)
+        const porRemesa = new Map<string, PropuestaDePanel['lineas']>()
+        for (const l of (extra ?? []) as Array<{ remesa_id: string; sku: string; unidades_propuestas: number | null; anadida_por_cliente: boolean; comentario: string | null }>) {
+          const m = porRemesa.get(l.remesa_id) ?? {}
+          m[l.sku] = { propuestas: l.unidades_propuestas, nueva: l.anadida_por_cliente, comentario: l.comentario }
+          porRemesa.set(l.remesa_id, m)
+        }
+        for (const c of (cab ?? []) as Array<{ id: string; lineas_version: number; cajas_version: number; propuesta_enviada_at: string | null; cliente_acepto_at: string | null; cliente_acepto_nombre: string | null; cliente_comentario: string | null }>) {
+          propuestaPorRemesa.set(c.id, {
+            lineasVersion: c.lineas_version,
+            cajasVersion: c.cajas_version,
+            enviadaAt: c.propuesta_enviada_at,
+            aceptoAt: c.cliente_acepto_at,
+            aceptoNombre: c.cliente_acepto_nombre,
+            comentarioCliente: c.cliente_comentario,
+            lineas: porRemesa.get(c.id) ?? {},
+          })
+        }
+      }
     }
   }
 
@@ -621,6 +675,7 @@ export async function panelDeCliente(
       reabiertaAt: r.reabierta_at ?? null,
       ultimaImpresion: impresionPorRemesa.get(r.id) ?? null,
       analisisIa: analisisPorRemesa.get(r.id) ?? null,
+      propuesta: propuestaPorRemesa.get(r.id) ?? null,
       envios: enviosPorRemesa.get(r.id) ?? [],
       // Solo de las líneas que Amazon ya ha contestado: una línea sin respuesta
       // todavía no falta, simplemente no se sabe.

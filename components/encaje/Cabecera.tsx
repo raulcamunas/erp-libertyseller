@@ -15,12 +15,15 @@ export function Cabecera({
   referencias,
   unidades,
   fechaEnvio,
+  etiqueta = 'Encaje del envío',
 }: {
   titulo: string
   cliente: string
   referencias?: number
   unidades?: number
   fechaEnvio?: string
+  /** El rótulo naranja de arriba a la derecha */
+  etiqueta?: string
 }) {
   const datos = [
     referencias !== undefined ? `${n0(referencias)} referencia${referencias === 1 ? '' : 's'}` : null,
@@ -35,7 +38,7 @@ export function Cabecera({
         <div className="flex items-center justify-between gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logos/logo.png" alt="Liberty Seller" className="h-[26px] w-auto" />
-          <span className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-[#F26212]">Encaje del envío</span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-[#F26212]">{etiqueta}</span>
         </div>
         <h1 className="mt-7 text-[27px] leading-[1.15] text-[#FFFFFF] sm:text-[36px]" style={{ fontFamily: FUENTE_TITULO, fontWeight: 600 }}>
           {titulo}

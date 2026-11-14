@@ -45,6 +45,11 @@ export interface CajasDeRemesa {
   unidadesDeclaradas: number
   /** Los kilos de todo, para el transportista */
   pesoTotalKg: number
+  /**
+   * La versión de las cajas (fba_remesas.cajas_version, migración 309). Quien guarda la devuelve y, si
+   * alguien guardó entre medias, el guardado se rechaza con 409. null = la 309 no está lanzada.
+   */
+  version: number | null
 }
 
 interface FilaCaja {
@@ -168,8 +173,45 @@ export async function cajasDeRemesa(remesaId: string, service: ClienteDeBase = c
     unidadesEncajadas: cajas.reduce((s, c) => s + c.unidades, 0),
     unidadesDeclaradas: descuadres.reduce((s, d) => s + d.declaradas, 0),
     pesoTotalKg: Math.round(cajas.reduce((s, c) => s + (c.pesoKg ?? 0), 0) * 100) / 100,
+    version: await versionesDe(remesaId, service).then((v) => v.cajas),
   }
 }
+
+/**
+ * LAS VERSIONES DE LÍNEAS Y CAJAS (bloqueo optimista, migración 309).
+ *
+ * Aparte y sin lanzar: un `select` que nombra una columna que no existe revienta entero (42703), y la 309
+ * se lanza a mano después de desplegar. Sin ella, null: se guarda como antes, sin comprobar.
+ */
+export async function versionesDe(remesaId: string, service: ClienteDeBase = createServiceClient()): Promise<{ lineas: number | null; cajas: number | null }> {
+  try {
+    const { data, error } = await service.from('fba_remesas').select('lineas_version, cajas_version').eq('id', remesaId).maybeSingle()
+    if (error || !data) return { lineas: null, cajas: null }
+    const f = data as { lineas_version: number | null; cajas_version: number | null }
+    return { lineas: f.lineas_version ?? null, cajas: f.cajas_version ?? null }
+  } catch {
+    return { lineas: null, cajas: null }
+  }
+}
+
+/** Alguien guardó entre medias: la versión que mandó quien guarda ya no es la de la base */
+export class ConflictoDeVersion extends Error {
+  constructor(mensaje = 'Alguien ha cambiado esto mientras lo editabas. Recarga para ver lo último.') {
+    super(mensaje)
+    this.name = 'ConflictoDeVersion'
+  }
+}
+
+/** La remesa ha cambiado de paso entre la lectura y la escritura */
+export class EstadoCambiado extends Error {
+  constructor(mensaje: string) {
+    super(mensaje)
+    this.name = 'EstadoCambiado'
+  }
+}
+
+/** ¿La función de la base no existe? (la migración no está lanzada) */
+export const faltaLaFuncion = (e: { code?: string } | null): boolean => e?.code === 'PGRST202' || e?.code === '42883'
 
 export interface CajaEntrante {
   numero: number
@@ -192,7 +234,38 @@ export interface CajaEntrante {
  * Se borra y se reinserta en vez de comparar: son cajas de un envío, decenas
  * como mucho, y el código que compara es el que se equivoca.
  */
-export async function guardarCajas(remesaId: string, cajas: CajaEntrante[], service: ClienteDeBase = createServiceClient()): Promise<number> {
+export async function guardarCajas(
+  remesaId: string,
+  cajas: CajaEntrante[],
+  service: ClienteDeBase = createServiceClient(),
+  version: number | null = null
+): Promise<{ cajas: number; version: number | null }> {
+  /**
+   * EN UNA SOLA TRANSACCIÓN, CON EL ESTADO Y LA VERSIÓN COMPROBADOS DENTRO (migración 309).
+   *
+   * Antes eran tres viajes sin transacción —borrar, meter cajas, meter contenido— y un fallo a mitad
+   * dejaba el envío sin cajas. Y el estado se miraba antes de escribir, no a la vez: si la agencia pasaba
+   * la remesa a «Lista» entre medias, el autoguardado del cliente reescribía las cajas igual. La función
+   * bloquea la remesa con FOR UPDATE, comprueba que SIGUE en «Encajando» y que nadie ha guardado desde la
+   * versión que se tenía, y conserva box_id_amazon, seguimiento y envio_id por número de caja.
+   */
+  const { data, error } = await service.rpc('fba_guardar_cajas', {
+    p_remesa: remesaId,
+    p_cajas: cajas.map((c) => ({ ...c, contenido: c.contenido.filter((x) => x.unidades > 0) })),
+    p_version: version,
+  })
+  if (!error) return { cajas: cajas.length, version: typeof data === 'number' ? data : Number(data) }
+  if (error.code === '40001') throw new ConflictoDeVersion(error.message)
+  if (error.code === '23514') throw new EstadoCambiado(error.message)
+  if (!faltaLaFuncion(error)) throw error
+
+  // Sin la 309: como antes. Se avisa en el registro para que se note que falta lanzarla
+  console.warn('[fba] falta la migración 309: las cajas se guardan sin transacción')
+  return { cajas: await guardarCajasSinTransaccion(remesaId, cajas, service), version: null }
+}
+
+/** El guardado de antes de la 309: tres viajes. Solo se usa si la función de la base no existe todavía */
+async function guardarCajasSinTransaccion(remesaId: string, cajas: CajaEntrante[], service: ClienteDeBase): Promise<number> {
   // El contenido cae con las cajas (CASCADE), así que basta con borrar estas.
   const { error: errBorrar } = await service.from('fba_cajas').delete().eq('remesa_id', remesaId)
   if (errBorrar) throw errBorrar

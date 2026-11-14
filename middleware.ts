@@ -107,6 +107,9 @@ export async function middleware(request: NextRequest) {
                        pathname.startsWith('/tareas-cliente/') ||
                        // El informe de una cuenta para su CLIENTE (migración 307): el token de la dirección es la credencial y solo abre ESE informe
                        pathname.startsWith('/informe/') ||
+                       // El PORTAL del cliente para ese mismo envío (propuesta, etiquetas, cajas y envío), con el
+                       // MISMO token y las mismas comprobaciones en el servidor (lib/fba/portal.ts)
+                       pathname.startsWith('/envio/') ||
                        // OAuth de Amazon. Quien llega a estas dos direcciones es
                        // el CLIENTE desde su Seller Central, sin sesión en el
                        // ERP: mandarle al login rompe el flujo a mitad y él no

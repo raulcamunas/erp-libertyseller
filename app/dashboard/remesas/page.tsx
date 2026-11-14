@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
-import type { SesionFba } from '@/lib/fba/acceso'
+import { actorDeRol, type SesionFba } from '@/lib/fba/acceso'
 import { contarAlertasGraves } from '@/lib/fba/alertas-lectura'
 import { panelDeCliente } from '@/lib/fba/datos'
 import { diaEnEspana } from '@/lib/fba/fechas'
@@ -165,6 +165,7 @@ export default async function RemesasPage({
       userId: user.id,
       role: profile.role,
       esAdmin,
+      actor: actorDeRol(profile.role),
       clientesPermitidos: esAdmin ? null : clientes.map((c) => c.id),
       clientesEditables: esAdmin ? null : clientes.filter((c) => c.puedeEditar).map((c) => c.id),
     }
@@ -173,7 +174,7 @@ export default async function RemesasPage({
 
   // Enlaces desde las alertas: a una vista concreta del cliente, o directos a su propuesta con IA
   const vistaPedida = uno(searchParams.vista)
-  const vistaInicial = vistaPedida && ['envios', 'propuestas', 'inventario'].includes(vistaPedida) ? vistaPedida : null
+  const vistaInicial = vistaPedida && ['tablero', 'fases', 'envios', 'propuestas', 'inventario'].includes(vistaPedida) ? vistaPedida : null
 
   return (
     <EspacioRemesas
@@ -181,6 +182,7 @@ export default async function RemesasPage({
       cliente={cliente}
       panel={panel}
       esAdmin={esAdmin}
+      esAgencia={actorDeRol(profile.role) === 'agencia'}
       remesaAbierta={remesaAbierta}
       nombreUsuario={profile.full_name ?? profile.email ?? ''}
       alertas={alertas}

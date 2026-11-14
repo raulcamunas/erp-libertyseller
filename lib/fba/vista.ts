@@ -105,9 +105,16 @@ export interface Turno {
  *   encajando    el cliente mete la mercancía en cajas
  *   lista        la agencia crea el envío en Seller Central
  */
-export function turnoDe(estado: EstadoRemesa, lineas: number): Turno {
+export function turnoDe(estado: EstadoRemesa, lineas: number, propuesta?: { enviadaAt: string | null; aceptoAt: string | null } | null): Turno {
   switch (estado) {
     case 'borrador':
+      // La propuesta por enlace (migración 309): «Acepto» del cliente = revisión de la agencia
+      if (lineas > 0 && propuesta?.aceptoAt) {
+        return { quien: 'agencia', paraAgencia: 'El cliente ha aceptado: revisa sus cambios y aprueba', paraCliente: 'Has aceptado: Liberty Seller lo está revisando' }
+      }
+      if (lineas > 0 && propuesta?.enviadaAt) {
+        return { quien: 'cliente', paraAgencia: 'Con el cliente: la está revisando en su enlace', paraCliente: 'Te toca revisar la propuesta y aceptarla' }
+      }
       return lineas === 0
         ? { quien: 'agencia', paraAgencia: 'Hay que montar qué se manda', paraCliente: 'Liberty Seller está montando la propuesta' }
         : { quien: 'cliente', paraAgencia: 'Esperando el OK del cliente', paraCliente: 'Te toca aprobar la propuesta' }

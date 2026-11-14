@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
-import { cajasDeRemesa, guardarCajas } from '@/lib/fba/cajas'
+import { ConflictoDeVersion, EstadoCambiado, cajasDeRemesa, guardarCajas } from '@/lib/fba/cajas'
+import { registrarEnHistorial } from '@/lib/fba/historial'
 import { limpiarCajas } from '@/lib/fba/cajas-validacion'
 import { puedeEditarCajas, type EstadoRemesa } from '@/lib/fba/flujo'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -68,7 +69,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       )
     }
 
-    const body = (await request.json().catch(() => ({}))) as { cajas?: unknown }
+    const body = (await request.json().catch(() => ({}))) as { cajas?: unknown; version?: unknown }
+    // La versión que tenía cargada la pantalla. Sin ella (pantallas viejas en caché) se guarda sin comprobar
+    const version = typeof body.version === 'number' && Number.isInteger(body.version) ? body.version : null
 
     // Se valida TODO antes de tocar nada: se borra el conjunto entero para reescribirlo, así que
     // un fallo a mitad dejaría a la remesa sin cajas. Las reglas están en lib/fba/cajas-validacion.ts,
@@ -77,7 +80,24 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (!limpieza.ok) return fail(400, limpieza.error)
     const limpias = limpieza.cajas
 
-    await guardarCajas(params.id, limpias)
+    try {
+      await guardarCajas(params.id, limpias, undefined, version)
+    } catch (error) {
+      // 409 con una frase que se puede enseñar tal cual: alguien guardó entre medias, o la remesa cambió de paso
+      if (error instanceof ConflictoDeVersion || error instanceof EstadoCambiado) {
+        return NextResponse.json({ error: error.message, conflicto: error instanceof ConflictoDeVersion }, { status: 409 })
+      }
+      throw error
+    }
+
+    await registrarEnHistorial({
+      remesaId: params.id,
+      actor: r.sesion!.actor,
+      userId: r.sesion!.userId,
+      accion: 'cajas',
+      detalle: { cajas: limpias.length, unidades: limpias.reduce((s, c) => s + c.contenido.reduce((t, x) => t + x.unidades, 0), 0) },
+      agruparMinutos: 15,
+    })
 
     // Se devuelve el cuadre recalculado: la pantalla necesita saber si ya cuadra
     // sin tener que pedirlo aparte.

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
-import { cajasDeRemesa, guardarCajas, type ClienteDeBase } from './cajas'
+import { ConflictoDeVersion, EstadoCambiado, cajasDeRemesa, guardarCajas, type ClienteDeBase } from './cajas'
+import { registrarEnHistorial } from './historial'
 import { limpiarCajas } from './cajas-validacion'
 import { porQueNoSePuedeEncajar, resumirEncaje, type CajaEnEdicion, type LineaParaEncajar } from './encaje-resumen'
 import { puedeAvanzar, puedeEditarCajas, type EstadoRemesa } from './flujo'
@@ -242,12 +243,14 @@ export async function resolverEnlace(token: string, service: ClienteDeBase = cre
 }
 
 /** Anota que se ha abierto la página. Si falla no importa: es un dato para la agencia, no parte del trabajo */
-export async function anotarApertura(enlace: EnlaceDeEncaje, service: ClienteDeBase = createServiceClient(), ahora = new Date()): Promise<void> {
+export async function anotarApertura(enlace: EnlaceDeEncaje, service: ClienteDeBase = createServiceClient(), ahora = new Date(), ip: string | null = null): Promise<void> {
   try {
     await service.from('fba_enlaces_encaje').update({ abierto_veces: enlace.abiertoVeces + 1, ultimo_uso_at: ahora.toISOString() }).eq('id', enlace.id)
   } catch {
     /* un contador que no sube no tumba la página */
   }
+  // En el historial, agrupado por horas: recargar la página no son diez aperturas
+  await registrarEnHistorial({ remesaId: enlace.remesaId, actor: 'enlace', enlaceId: enlace.id, accion: 'enlace_abierto', ip, agruparMinutos: 60 }, service, ahora)
 }
 
 export interface DatosDeEncaje {
@@ -260,6 +263,8 @@ export interface DatosDeEncaje {
   caducaAt: string
   lineas: LineaParaEncajar[]
   cajas: CajaEnEdicion[]
+  /** La versión de las cajas que se ha cargado (bloqueo optimista). null sin la migración 309 */
+  version: number | null
 }
 
 const fechaCorta = (f: string) => (/^\d{4}-\d{2}-\d{2}/.test(f) ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : f)
@@ -267,8 +272,9 @@ const fechaCorta = (f: string) => (/^\d{4}-\d{2}-\d{2}/.test(f) ? `${f.slice(8, 
 /** Lo que la página necesita para pintarse: qué hay que encajar y qué lleva ya encajado */
 export async function datosParaEncajar(r: Extract<ResolucionDeEnlace, { ok: true }>, service: ClienteDeBase = createServiceClient()): Promise<DatosDeEncaje> {
   const lineas = await lineasDeLaRemesa(r.remesa.id, service)
-  const { cajas } = await cajasDeRemesa(r.remesa.id, service)
+  const { cajas, version } = await cajasDeRemesa(r.remesa.id, service)
   return {
+    version,
     titulo: r.remesa.nombre?.trim() || `Envío del ${fechaCorta(r.remesa.fechaEnvio)}`,
     cliente: r.remesa.clienteNombre,
     fechaEnvio: r.remesa.fechaEnvio,
@@ -302,13 +308,19 @@ export interface Fallo {
 
 export { porQueNoSePuedeEncajar }
 
-export type ResultadoDeGuardado = { ok: true; guardadoAt: string; cajas: number; listo: boolean } | Fallo
+export type ResultadoDeGuardado = { ok: true; guardadoAt: string; cajas: number; listo: boolean; version: number | null } | Fallo
 
 /**
  * Guarda las cajas que manda la página. Se valida TODO antes de tocar nada y con reglas más estrictas
  * que en el ERP: solo SKU de este envío y nunca más unidades de las declaradas.
  */
-export async function guardarEncaje(r: Extract<ResolucionDeEnlace, { ok: true }>, crudas: unknown, service: ClienteDeBase = createServiceClient(), ahora = new Date()): Promise<ResultadoDeGuardado> {
+export async function guardarEncaje(
+  r: Extract<ResolucionDeEnlace, { ok: true }>,
+  crudas: unknown,
+  service: ClienteDeBase = createServiceClient(),
+  ahora = new Date(),
+  opciones: { version?: number | null; ip?: string | null } = {}
+): Promise<ResultadoDeGuardado> {
   if (!puedeEditarCajas(r.remesa.estado)) return { ok: false, estado: 409, error: porQueNoSePuedeEncajar(r.remesa.estado) }
 
   const lineas = await lineasDeLaRemesa(r.remesa.id, service)
@@ -316,12 +328,33 @@ export async function guardarEncaje(r: Extract<ResolucionDeEnlace, { ok: true }>
   const limpieza = limpiarCajas(crudas, { maxCajas: MAX_CAJAS_PUBLICAS, declaradas })
   if (!limpieza.ok) return { ok: false, estado: 400, error: limpieza.error }
 
-  await guardarCajas(r.remesa.id, limpieza.cajas, service)
+  let version: number | null = null
+  try {
+    version = (await guardarCajas(r.remesa.id, limpieza.cajas, service, opciones.version ?? null)).version
+  } catch (error) {
+    // Alguien (la agencia desde el ERP) guardó entre medias, o el envío cambió de paso: se dice y no se pisa
+    if (error instanceof ConflictoDeVersion) return { ok: false, estado: 409, error: 'Alguien de Liberty Seller ha cambiado las cajas mientras las editabas. Recarga la página para ver lo último.' }
+    if (error instanceof EstadoCambiado) return { ok: false, estado: 409, error: 'El envío acaba de cambiar de paso. Recarga la página.' }
+    throw error
+  }
   const guardadoAt = ahora.toISOString()
   await service.from('fba_enlaces_encaje').update({ ultima_edicion_at: guardadoAt }).eq('id', r.enlace.id)
 
   const resumen = resumirEncaje(lineas, limpieza.cajas.map((c) => ({ ...c, contenido: c.contenido })))
-  return { ok: true, guardadoAt, cajas: limpieza.cajas.length, listo: resumen.listo }
+  await registrarEnHistorial(
+    {
+      remesaId: r.remesa.id,
+      actor: 'enlace',
+      enlaceId: r.enlace.id,
+      accion: 'cajas',
+      ip: opciones.ip ?? null,
+      detalle: { cajas: limpieza.cajas.length, unidades: limpieza.cajas.reduce((s, c) => s + c.contenido.reduce((t, x) => t + x.unidades, 0), 0) },
+      agruparMinutos: 15,
+    },
+    service,
+    ahora
+  )
+  return { ok: true, guardadoAt, cajas: limpieza.cajas.length, listo: resumen.listo, version }
 }
 
 export type ResultadoDeTerminar = { ok: true } | Fallo
@@ -332,7 +365,7 @@ export type ResultadoDeTerminar = { ok: true } | Fallo
  * cambio de estado solo se aplica si el envío SIGUE en 'encajando': así un cambio de la agencia entre
  * medias no se pisa.
  */
-export async function terminarEncaje(r: Extract<ResolucionDeEnlace, { ok: true }>, service: ClienteDeBase = createServiceClient(), ahora = new Date()): Promise<ResultadoDeTerminar> {
+export async function terminarEncaje(r: Extract<ResolucionDeEnlace, { ok: true }>, service: ClienteDeBase = createServiceClient(), ahora = new Date(), ip: string | null = null): Promise<ResultadoDeTerminar> {
   if (r.remesa.estado !== 'encajando') return { ok: false, estado: 409, error: porQueNoSePuedeEncajar(r.remesa.estado) }
 
   const lineas = await lineasDeLaRemesa(r.remesa.id, service)
@@ -349,5 +382,6 @@ export async function terminarEncaje(r: Extract<ResolucionDeEnlace, { ok: true }
   if (((data as unknown[] | null) ?? []).length === 0) return { ok: false, estado: 409, error: 'El envío acaba de cambiar de paso. Recarga la página.' }
 
   await service.from('fba_enlaces_encaje').update({ terminado_at: iso }).eq('id', r.enlace.id)
+  await registrarEnHistorial({ remesaId: r.remesa.id, actor: 'enlace', enlaceId: r.enlace.id, accion: 'encaje_terminado', desde: 'encajando', hasta: 'lista', ip }, service, ahora)
   return { ok: true }
 }

@@ -18,7 +18,7 @@ import { ipDe, limitar } from './limite-publico'
 export type EnlaceComprobado = Extract<ResolucionDeEnlace, { ok: true }>
 
 /** Cuántas peticiones por minuto, por IP y enlace, se aceptan en cada acción. Más de lo que teclea una persona */
-export const PETICIONES_POR_MINUTO = { ver: 60, guardar: 120, terminar: 20 } as const
+export const PETICIONES_POR_MINUTO = { ver: 60, guardar: 120, terminar: 20, propuesta: 120, aceptar: 20, catalogo: 90, etiquetas: 12 } as const
 
 /** Y en total por IP, con cualquier enlace: lo que hace una persona con varias pestañas no se acerca a esto */
 export const PETICIONES_POR_IP_POR_MINUTO = 300
