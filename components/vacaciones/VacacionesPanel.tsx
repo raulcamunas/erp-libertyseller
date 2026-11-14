@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { AlarmClock, Inbox, Palmtree, UserX, X } from 'lucide-react'
 import {
@@ -230,6 +231,10 @@ export function VacacionesPanel({ data, onData, onClose, onOpenFicha }: Vacacion
               las peticiones pendientes ya descuentan del saldo. Lo que sobre de {anyo} se arrastra
               y caduca el 31 de marzo de {anyo + 1}.
             </p>
+            {/* Desde el 14 nov 2026 lo completo está en /dashboard/vacaciones: calendario de la empresa, choques y excepciones */}
+            <Link href="/dashboard/vacaciones" className="mt-1 inline-block text-[12px] font-medium text-[#FF6600] underline underline-offset-2">
+              Abrir la pantalla de Vacaciones (calendario del equipo, choques y excepciones)
+            </Link>
           </div>
           <button
             type="button"
