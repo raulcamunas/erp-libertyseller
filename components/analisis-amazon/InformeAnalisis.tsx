@@ -979,7 +979,8 @@ export function InformeAnalisis({
       : 'Y tienes recorrido para vender más.'
 
   return (
-    <div className="min-h-screen overflow-x-hidden text-white antialiased" style={{ background: FONDO, fontFamily: 'var(--font-inter), Inter, system-ui, sans-serif' }}>
+    // overflow-x-clip y no -hidden: con «hidden» este contenedor pasa a hacer scroll y el `sticky` de la barra de arriba no se pega a la ventana
+    <div className="min-h-screen overflow-x-clip text-white antialiased" style={{ background: FONDO, fontFamily: 'var(--font-inter), Inter, system-ui, sans-serif' }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div aria-hidden className="ls-grano pointer-events-none fixed inset-0 z-[60]" />
 
