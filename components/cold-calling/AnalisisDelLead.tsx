@@ -16,6 +16,8 @@ type Analisis = {
   fecha: string
   tipo: string | null
   guion: { tipo: string; frases: string[] } | null
+  /** Solo en el de una tienda sin Amazon: si se puede mandar tal cual y qué mirar antes */
+  calidad?: { nivel: 'bueno' | 'revisar' | 'flojo'; motivos: string[] } | null
   aperturas: number
   abiertoPrimera: string | null
   abiertoUltima: string | null
@@ -55,6 +57,21 @@ export function AnalisisDelLead({ leadId }: { leadId: string }) {
         </h3>
         <span className="text-[10.5px] text-[var(--ls-t4)]">{new Date(a.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</span>
       </div>
+
+      {a.calidad && a.calidad.nivel !== 'bueno' && (
+        <div
+          className={`mt-2 rounded-[6px] border px-2.5 py-2 text-[11.5px] leading-snug ${
+            a.calidad.nivel === 'flojo' ? 'border-red-500/30 bg-red-500/10 text-red-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+          }`}
+        >
+          <b className="block text-[11px] uppercase tracking-wide">{a.calidad.nivel === 'flojo' ? 'Informe flojo: no se manda' : 'Míralo antes de mandarlo'}</b>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {a.calidad.motivos.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {a.guion && (
         <>
@@ -96,7 +113,7 @@ export function AnalisisDelLead({ leadId }: { leadId: string }) {
 
       {a.baja ? (
         <p className="mt-2 text-[11px] text-[var(--ls-t4)]">Pidió no recibir más correos: no se le puede mandar.</p>
-      ) : (
+      ) : a.calidad?.nivel === 'flojo' ? null : (
         <button
           type="button"
           onClick={() => setCorreo(true)}

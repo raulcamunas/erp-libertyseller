@@ -25,6 +25,7 @@ type Preparado = {
   enviadoAt: string | null
   informe: InformeDelCorreo
   datos: DatosCorreoAnalisis
+  calidad?: { nivel: 'bueno' | 'revisar' | 'flojo'; motivos: string[] } | null
 }
 
 const cuando = (iso: string) => new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -125,6 +126,16 @@ export function EnviarAnalisisPorCorreo({ leadId, alCerrar, alEnviar }: { leadId
         ) : p ? (
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,380px)_minmax(0,1fr)] md:overflow-hidden">
             <div className="flex flex-col gap-3 border-b border-[var(--ls-linea)] p-4 md:overflow-y-auto md:border-b-0 md:border-r">
+              {p.calidad && p.calidad.nivel !== 'bueno' && (
+                <div className="rounded-[6px] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-snug text-amber-300">
+                  <b>Mira el análisis antes de mandarlo:</b>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {p.calidad.motivos.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {p.enviadoAt && (
                 <p className="rounded-[6px] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-300">
                   Ya se le mandó el análisis el {cuando(p.enviadoAt)}. Si lo envías otra vez, le llegará de nuevo.

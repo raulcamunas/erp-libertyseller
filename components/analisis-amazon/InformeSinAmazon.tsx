@@ -10,6 +10,7 @@
  */
 import type { ReactNode } from 'react'
 import type { InformeSinAmazon, MercadoSinAmazon, ProductoMini } from '@/lib/analisis-sin-amazon/construir'
+import { cuentaDeMercado, depurar } from '@/lib/analisis-sin-amazon/calidad'
 import { CLIENTES, type ContactoComercial } from './InformeAnalisis'
 
 const N = '#FF6600'
@@ -204,23 +205,14 @@ function Producto({ p, i, verVendedor }: { p: ProductoMini; i: number; verVended
   )
 }
 
-/** IVA general en España: el precio de venta de Amazon lo lleva dentro (en alimentación y libros es menor) */
-const IVA_GENERAL = 0.21
-/** La «tasa Google» que Amazon repercute en España sobre su comisión: un 3 % de la comisión */
-const TASA_DIGITAL = 0.03
-
 function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
   const suyo = m.suyo?.precio ?? 0
-  const base = suyo || m.precioMediano || 0
-  const pct = m.precioMediano && suyo ? Math.round(((suyo - m.precioMediano) / m.precioMediano) * 100) : null
-  // EL PRECIO DE AMAZON LLEVA EL IVA DENTRO y la comisión se calcula sobre ese precio con IVA; el IVA es de Hacienda, no del vendedor. Encima de la comisión, Amazon
-  // repercute en España la tasa digital («tasa Google») como un 3 % más de la comisión (desde abril de 2021). Las tarifas de Amazon llevan IVA, pero una empresa lo
-  // recupera: no es un coste. Lo que NO se puede saber desde fuera (coste del producto, publicidad, envío al almacén, almacenamiento, devoluciones) se nombra debajo
-  const iva = base ? base - base / (1 + IVA_GENERAL) : 0
-  const comision = m.comisionPct && base ? (base * m.comisionPct) / 100 : null
-  const tasaDigital = comision !== null ? comision * TASA_DIGITAL : 0
-  const llega = comision !== null && m.logistica ? base - iva - comision - tasaDigital - m.logistica : null
-  const gamaAlta = !!(suyo && m.precioMediano && suyo > m.precioMediano * 1.5)
+  // La cuenta y sus límites están en lib/analisis-sin-amazon/calidad.ts: solo se compara su precio con el mercado si son de la misma gama, y con precios
+  // bajos o márgenes nulos no se calcula lo que queda (la logística de Amazon es una tarifa fija y se comía el producto: −2,94 € en un snack de 0,90 €)
+  const c = cuentaDeMercado(m)
+  const { base, iva, comision, tasaDigital, llega } = c
+  const pct = c.pct
+  const gamaAlta = !!(c.comparable && m.precioMediano && suyo > m.precioMediano * 1.5)
   const caros = m.productos.filter((p) => (p.precio ?? 0) >= suyo * 0.5).length
   return (
     <div className="sa-mer">
@@ -273,11 +265,21 @@ function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
                 )}
               </div>
             )}
-            {llega !== null && comision !== null && (
+            {c.comparable === false && m.precioMediano && (
+              <div className="sa-comp">
+                Tu producto ({eur(suyo)}) es de otra gama que lo que más se vende aquí (mediana de {eur(m.precioMediano)}): no lo comparamos.
+              </div>
+            )}
+            {c.sinCuenta === 'precio-bajo' && (
+              <p className="sa-nota">
+                A este precio, la logística de Amazon ({eur(c.logistica)} por unidad) pesa demasiado frente al producto: aquí el margen se juega en packs y lotes, no en la unidad suelta.
+              </p>
+            )}
+            {c.sinCuenta === null && llega !== null && (
               <>
                 <div className="sa-cuenta">
                   <div>
-                    <span>Precio de venta con IVA{suyo ? '' : ' (mediana en Amazon)'}</span>
+                    <span>Precio de venta con IVA{c.usaSuyo ? '' : ' (mediana en Amazon)'}</span>
                     <b>{eur(base)}</b>
                   </div>
                   <div>
@@ -294,11 +296,11 @@ function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
                   </div>
                   <div>
                     <span>Preparación y envío con Prime (FBA, por unidad)</span>
-                    <b>− {eur(m.logistica ?? 0)}</b>
+                    <b>− {eur(c.logistica)}</b>
                   </div>
                   <div className="tot">
                     <span>Te quedan, sin IVA</span>
-                    <b>{eur(llega)}</b>
+                    <b>{eur(llega ?? 0)}</b>
                   </div>
                 </div>
                 <p className="sa-nota">
@@ -328,7 +330,8 @@ function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
 }
 
 export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAmazon; contacto: ContactoComercial | null }) {
-  const inf = informe
+  // Sin los mercados dudosos (accesorios, categorías que no son lo suyo) y con los textos rehechos con los que quedan
+  const inf = depurar(informe)
   const nombreComercial = contacto?.nombre ?? 'Liberty Seller'
   const wa = contacto?.whatsapp
     ? `https://wa.me/${contacto.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${nombreComercial}, he visto el análisis de ${inf.vendedor.nombre} en Amazon y me gustaría hablarlo.`)}`

@@ -15,6 +15,7 @@
 import OpenAI from 'openai'
 import { parametrosDeIa } from '@/lib/ia/modelo'
 import { esSinAmazon } from '@/lib/analisis-sin-amazon/construir'
+import { depurar } from '@/lib/analisis-sin-amazon/calidad'
 import { asuntoCorreoAnalisis, type InformeDelCorreo } from './correo'
 
 export type Situacion = 'primer_contacto' | 'sin_respuesta' | 'hablado' | 'no_interesa'
@@ -70,7 +71,8 @@ const DINERO = /€|\$|\beur(?:o|os)?\b|\bfactura(?:r|ción)\b.*\d|\d+\s*%\s*m[a
 const USTED = /(?<!\p{L})(usted|ustedes|vuestr[oa]s?|vosotros|os)(?!\p{L})/iu
 const PROMESA = /(?:le |te )?(?:garantiz|aseguramos|duplicar|triplicar|multiplicar)/i
 
-function resumenDelInforme(inf: InformeDelCorreo): string {
+function resumenDelInforme(original: InformeDelCorreo): string {
+  const inf = esSinAmazon(original) ? depurar(original) : original
   if (esSinAmazon(inf)) {
     const m = inf.marca
     return [

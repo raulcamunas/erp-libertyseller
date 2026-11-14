@@ -108,6 +108,91 @@ function mini(p: K, vendedores: Record<string, K>): ProductoMini {
   }
 }
 
+/**
+ * LOS TEXTOS DEL INFORME (titular, resumen, claves y chuleta) a partir de sus cifras. Aparte de construirSinAmazon para poder rehacerlos con
+ * solo los mercados que valen (lib/analisis-sin-amazon/calidad.ts): un informe ya guardado no se vuelve a pedir a Keepa.
+ */
+export type CifrasDelTexto = {
+  caso: InformeSinAmazon['caso']
+  marcaNombre: string
+  modelos: number
+  nombresTerceros: string[]
+  sinVendedor: number
+  revisadas: number
+  productosWeb: number
+  mercados: MercadoSinAmazon[]
+}
+
+export function textosDelInforme(d: CifrasDelTexto): Pick<InformeSinAmazon, 'titular' | 'resumen' | 'claves' | 'guion'> {
+  const { caso, marcaNombre, modelos, nombresTerceros, sinVendedor, mercados } = d
+  const ventasMes = mercados.reduce((a, m) => a + m.ventasMes, 0)
+  const marcasRivales = [...new Set(mercados.flatMap((m) => m.marcas.map((x) => x.marca)))].slice(0, 4)
+  const principal = [...mercados].sort((a, b) => b.ventasMes - a.ventasMes || (a.resenasMediana ?? 1e9) - (b.resenasMediana ?? 1e9))[0] ?? null
+
+  const claves: Clave[] = []
+  if (caso === 'revendida') {
+    claves.push({
+      cifra: ent(modelos),
+      titulo: `${modelos === 1 ? 'ficha' : 'fichas'} de ${marcaNombre} en Amazon`,
+      detalle: 'Tu marca ya tiene sitio en Amazon.es, aunque tú no vendas allí.',
+    })
+    if (nombresTerceros.length)
+      claves.push({
+        cifra: ent(nombresTerceros.length),
+        titulo: nombresTerceros.length === 1 ? 'tienda vende tu marca' : 'tiendas venden tu marca',
+        detalle: `${enumerar(nombresTerceros.slice(0, 3))}. Ellos ponen el precio y cobran la venta.`,
+      })
+    if (sinVendedor)
+      claves.push({
+        cifra: `${sinVendedor} de ${d.revisadas}`,
+        titulo: sinVendedor === 1 ? 'ficha tuya sin nadie que la venda' : 'fichas tuyas sin nadie que las venda',
+        detalle: 'Quien busca ese producto en Amazon hoy no lo puede comprar.',
+      })
+  } else {
+    claves.push({ cifra: '0', titulo: `fichas de ${marcaNombre} en Amazon`, detalle: 'Quien te busca allí, no te encuentra: acaba comprando otra marca.' })
+  }
+  if (ventasMes >= 300)
+    claves.push({ cifra: `+${ent(ventasMes)}`, titulo: 'unidades al mes', detalle: `Lo que venden solo los primeros puestos de ${principal ? principal.nombre.toLowerCase() : 'tus categorías'}.` })
+  else if (principal?.resenasMediana)
+    claves.push({
+      cifra: ent(principal.resenasMediana),
+      titulo: 'reseñas de mediana entre los que más venden',
+      detalle: `En ${principal.nombre.toLowerCase()}, a ${principal.precioMediano ? eur(principal.precioMediano) : 'precios'} de mediana.`,
+    })
+  if (marcasRivales.length && claves.length < 4)
+    claves.push({ cifra: ent(marcasRivales.length), titulo: 'marcas se reparten tus ventas', detalle: `${enumerar(marcasRivales)} venden allí lo que tú vendes en tu web.` })
+
+  const titular: [string, string] =
+    caso === 'revendida'
+      ? ['Tu marca ya se vende en Amazon.', 'Pero no la vendes tú.']
+      : ['Tus clientes ya compran esto en Amazon.', 'Se lo están vendiendo otros.']
+
+  const resumen =
+    caso === 'revendida'
+      ? `Hemos buscado ${marcaNombre} en Amazon.es: tiene ${ent(modelos)} ${modelos === 1 ? 'ficha' : 'fichas'} y${nombresTerceros.length ? ` la venden ${enumerar(nombresTerceros.slice(0, 3))}, no tú` : ' no las vendes tú'}.${sinVendedor ? ` De las que hemos revisado, ${sinVendedor === 1 ? 'una no tiene ahora mismo a nadie vendiéndola' : `${sinVendedor} no tienen ahora mismo a nadie vendiéndolas`}.` : ''} Y al lado, lo que se vende de lo tuyo y contra quién compites.`
+      : `${d.productosWeb > 0 ? `Hemos cruzado los ${ent(d.productosWeb)} productos de tu web` : 'Hemos mirado tu web'} con lo que se vende hoy en Amazon.es. Tu marca todavía no está, y ${ventasMes >= 300 ? `los primeros puestos de lo que tú vendes mueven allí más de ${ent(ventasMes)} unidades al mes` : `${enumerar(marcasRivales.slice(0, 3)) || 'otras marcas'} se están quedando con esas ventas`}.`
+
+  const frases: string[] =
+    caso === 'revendida'
+      ? [
+          `He estado mirando ${marcaNombre} en Amazon: tiene ${ent(modelos)} fichas${nombresTerceros.length ? ` y las ${nombresTerceros.length > 1 ? 'están' : 'está'} vendiendo ${enumerar(nombresTerceros.slice(0, 2))}` : ''}. ¿Lo sabías?`,
+          sinVendedor ? `De las que he revisado, ${sinVendedor === 1 ? 'una no la vende' : `${sinVendedor} no las vende`} nadie ahora mismo: quien te busca allí no te puede comprar.` : `Ellos ponen el precio y las fotos de tu marca, y se quedan la venta.`,
+          principal ? `En ${principal.nombre.toLowerCase()} los que más venden son ${enumerar(principal.marcas.slice(0, 3).map((x) => x.marca))}.` : '',
+          'Con el Registro de Marca recuperas el control de tus fichas. ¿Te lo enseño en 20 minutos?',
+        ].filter(Boolean)
+      : [
+          `He mirado ${marcaNombre} en Amazon y no estás: quien te busca allí acaba comprando otra marca.`,
+          principal
+            ? `En ${principal.nombre.toLowerCase()} ${principal.modo === 'ventas' ? `los primeros venden más de ${ent(principal.ventasMes)} unidades al mes` : `los que mandan tienen unas ${ent(principal.resenasMediana ?? 0)} reseñas`}, a ${principal.precioMediano ? eur(principal.precioMediano) : 'precios'} de mediana.`
+            : '',
+          marcasRivales.length ? `Se lo están llevando ${enumerar(marcasRivales.slice(0, 3))}.` : '',
+          'No hace falta subir todo: empezaríamos por lo que más se vende. ¿Lo vemos en 20 minutos?',
+        ].filter(Boolean)
+
+
+  return { titular, resumen, claves: claves.slice(0, 4), guion: { tipo: caso === 'revendida' ? 'Su marca la venden otros en Amazon' : 'Su marca no está en Amazon', frases } }
+}
+
 export function construirSinAmazon(
   e: EstudioSinAmazon,
   lead: { nombre: string; web: string; productosWeb: number; cif?: string | null; empresa?: string | null },
@@ -160,71 +245,16 @@ export function construirSinAmazon(
     }
   })
 
-  const ventasMes = mercados.reduce((a, m) => a + m.ventasMes, 0)
-  const facturacion = mercados.reduce((a, m) => a + m.facturacionMes, 0)
-  const nombresTerceros = terceros.map((t) => t.nombre)
-  const marcasRivales = [...new Set(mercados.flatMap((m) => m.marcas.map((x) => x.marca)))].slice(0, 4)
-  const principal = [...mercados].sort((a, b) => b.ventasMes - a.ventasMes || (a.resenasMediana ?? 1e9) - (b.resenasMediana ?? 1e9))[0] ?? null
-
-  const claves: Clave[] = []
-  if (caso === 'revendida') {
-    claves.push({
-      cifra: ent(e.marca.total),
-      titulo: `${e.marca.total === 1 ? 'ficha' : 'fichas'} de ${marcaNombre} en Amazon`,
-      detalle: 'Tu marca ya tiene sitio en Amazon.es, aunque tú no vendas allí.',
-    })
-    if (nombresTerceros.length)
-      claves.push({
-        cifra: ent(nombresTerceros.length),
-        titulo: nombresTerceros.length === 1 ? 'tienda vende tu marca' : 'tiendas venden tu marca',
-        detalle: `${enumerar(nombresTerceros.slice(0, 3))}. Ellos ponen el precio y cobran la venta.`,
-      })
-    if (sinVendedor)
-      claves.push({
-        cifra: `${sinVendedor} de ${fichas.length}`,
-        titulo: sinVendedor === 1 ? 'ficha tuya sin nadie que la venda' : 'fichas tuyas sin nadie que las venda',
-        detalle: 'Quien busca ese producto en Amazon hoy no lo puede comprar.',
-      })
-  } else {
-    claves.push({ cifra: '0', titulo: `fichas de ${marcaNombre} en Amazon`, detalle: 'Quien te busca allí, no te encuentra: acaba comprando otra marca.' })
-  }
-  if (ventasMes >= 300)
-    claves.push({ cifra: `+${ent(ventasMes)}`, titulo: 'unidades al mes', detalle: `Lo que venden solo los primeros puestos de ${principal ? principal.nombre.toLowerCase() : 'tus categorías'}.` })
-  else if (principal?.resenasMediana)
-    claves.push({
-      cifra: ent(principal.resenasMediana),
-      titulo: 'reseñas de mediana entre los que más venden',
-      detalle: `En ${principal.nombre.toLowerCase()}, a ${principal.precioMediano ? eur(principal.precioMediano) : 'precios'} de mediana.`,
-    })
-  if (marcasRivales.length && claves.length < 4)
-    claves.push({ cifra: ent(marcasRivales.length), titulo: 'marcas se reparten tus ventas', detalle: `${enumerar(marcasRivales)} venden allí lo que tú vendes en tu web.` })
-
-  const titular: [string, string] =
-    caso === 'revendida'
-      ? ['Tu marca ya se vende en Amazon.', 'Pero no la vendes tú.']
-      : ['Tus clientes ya compran esto en Amazon.', 'Se lo están vendiendo otros.']
-
-  const resumen =
-    caso === 'revendida'
-      ? `Hemos buscado ${marcaNombre} en Amazon.es: tiene ${ent(e.marca.total)} ${e.marca.total === 1 ? 'ficha' : 'fichas'} y${nombresTerceros.length ? ` la venden ${enumerar(nombresTerceros.slice(0, 3))}, no tú` : ' no las vendes tú'}.${sinVendedor ? ` De las que hemos revisado, ${sinVendedor === 1 ? 'una no tiene ahora mismo a nadie vendiéndola' : `${sinVendedor} no tienen ahora mismo a nadie vendiéndolas`}.` : ''} Y al lado, lo que se vende de lo tuyo y contra quién compites.`
-      : `${lead.productosWeb > 0 ? `Hemos cruzado los ${ent(lead.productosWeb)} productos de tu web` : 'Hemos mirado tu web'} con lo que se vende hoy en Amazon.es. Tu marca todavía no está, y ${ventasMes >= 300 ? `los primeros puestos de lo que tú vendes mueven allí más de ${ent(ventasMes)} unidades al mes` : `${enumerar(marcasRivales.slice(0, 3)) || 'otras marcas'} se están quedando con esas ventas`}.`
-
-  const frases: string[] =
-    caso === 'revendida'
-      ? [
-          `He estado mirando ${marcaNombre} en Amazon: tiene ${ent(e.marca.total)} fichas${nombresTerceros.length ? ` y las ${nombresTerceros.length > 1 ? 'están' : 'está'} vendiendo ${enumerar(nombresTerceros.slice(0, 2))}` : ''}. ¿Lo sabías?`,
-          sinVendedor ? `De las que he revisado, ${sinVendedor === 1 ? 'una no la vende' : `${sinVendedor} no las vende`} nadie ahora mismo: quien te busca allí no te puede comprar.` : `Ellos ponen el precio y las fotos de tu marca, y se quedan la venta.`,
-          principal ? `En ${principal.nombre.toLowerCase()} los que más venden son ${enumerar(principal.marcas.slice(0, 3).map((x) => x.marca))}.` : '',
-          'Con el Registro de Marca recuperas el control de tus fichas. ¿Te lo enseño en 20 minutos?',
-        ].filter(Boolean)
-      : [
-          `He mirado ${marcaNombre} en Amazon y no estás: quien te busca allí acaba comprando otra marca.`,
-          principal
-            ? `En ${principal.nombre.toLowerCase()} ${principal.modo === 'ventas' ? `los primeros venden más de ${ent(principal.ventasMes)} unidades al mes` : `los que mandan tienen unas ${ent(principal.resenasMediana ?? 0)} reseñas`}, a ${principal.precioMediano ? eur(principal.precioMediano) : 'precios'} de mediana.`
-            : '',
-          marcasRivales.length ? `Se lo están llevando ${enumerar(marcasRivales.slice(0, 3))}.` : '',
-          'No hace falta subir todo: empezaríamos por lo que más se vende. ¿Lo vemos en 20 minutos?',
-        ].filter(Boolean)
+  const textos = textosDelInforme({
+    caso,
+    marcaNombre,
+    modelos: e.marca.total,
+    nombresTerceros: terceros.map((t) => t.nombre),
+    sinVendedor,
+    revisadas: fichas.length,
+    productosWeb: lead.productosWeb,
+    mercados,
+  })
 
   return {
     clase: 'sin_amazon',
@@ -251,10 +281,7 @@ export function construirSinAmazon(
             : null,
     },
     mercados,
-    titular,
-    resumen,
-    claves: claves.slice(0, 4),
-    guion: { tipo: caso === 'revendida' ? 'Su marca la venden otros en Amazon' : 'Su marca no está en Amazon', frases },
+    ...textos,
   }
 }
 

@@ -12,6 +12,7 @@
  */
 import type { InformeAnalisis } from './construir'
 import { esSinAmazon, type InformeSinAmazon } from '@/lib/analisis-sin-amazon/construir'
+import { depurar } from '@/lib/analisis-sin-amazon/calidad'
 
 /** El correo vale para los dos informes: el de una cuenta de Amazon y el de una tienda que no vende allí (clase 'sin_amazon') */
 export type InformeDelCorreo = InformeAnalisis | InformeSinAmazon
@@ -70,7 +71,9 @@ type Piezas = {
   pieLegal: string
 }
 
-function piezasDe(inf: InformeDelCorreo): Piezas {
+function piezasDe(original: InformeDelCorreo): Piezas {
+  // En el correo solo entran los mercados que valen (lib/analisis-sin-amazon/calidad.ts): ni accesorios que no son lo suyo ni cifras de otra gama
+  const inf = esSinAmazon(original) ? depurar(original) : original
   if (esSinAmazon(inf)) {
     const m = inf.mercados[0]
     return {

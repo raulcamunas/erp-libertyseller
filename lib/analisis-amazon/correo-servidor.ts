@@ -17,6 +17,8 @@ import { autorizarBuzon, buzonesVisibles, contarEnviosRecientes, enviarDesdeBuzo
 import { MAX_ENVIOS_POR_MINUTO } from '@/lib/correo/enviar'
 import { verificarAntesDeEnviar } from '@/lib/correo/verificacion/pago-servidor'
 import { createServiceClient } from '@/lib/supabase/service'
+import { esSinAmazon } from '@/lib/analisis-sin-amazon/construir'
+import { depurar, type Calidad } from '@/lib/analisis-sin-amazon/calidad'
 import { urlBaseApp } from '@/lib/url-app'
 import { correoAnalisisHtml, textoCorreoAnalisis, type DatosCorreoAnalisis, type InformeDelCorreo } from './correo'
 import { ETIQUETA_DE_SITUACION, escribirTextos, nombreDePila, situacionDelLead, type LeadParaCorreo, type NotaParaCorreo } from './correo-ia'
@@ -79,6 +81,20 @@ async function cargarContexto(sesion: AmazonSession, leadId: string): Promise<Co
   }
 }
 
+/** La calidad del informe de una tienda sin Amazon (null en el de una cuenta de Amazon) */
+const calidadDe = (inf: InformeDelCorreo): Calidad | null => (esSinAmazon(inf) ? depurar(inf).calidad : null)
+
+/** Un informe «flojo» no tiene nada fiable que enseñar: no se prepara ni se envía (lib/analisis-sin-amazon/calidad.ts) */
+function bloqueoPorCalidad(inf: InformeDelCorreo): Fallo | null {
+  const c = calidadDe(inf)
+  if (c?.nivel !== 'flojo') return null
+  return {
+    ok: false,
+    estado: 409,
+    error: `Este análisis no tiene nada fiable que enseñar, así que no se manda. ${c.motivos.join('. ')}.`,
+  }
+}
+
 export type CorreoPreparado = {
   ok: true
   para: string
@@ -91,11 +107,15 @@ export type CorreoPreparado = {
   enviadoAt: string | null
   informe: InformeDelCorreo
   datos: DatosCorreoAnalisis
+  /** Para avisar al comercial si el informe pide revisión antes de mandarlo */
+  calidad: Calidad | null
 }
 
 export async function prepararCorreo(sesion: AmazonSession, leadId: string): Promise<CorreoPreparado | Fallo> {
   const ctx = await cargarContexto(sesion, leadId)
   if ('error' in ctx) return ctx
+  const bloqueo = bloqueoPorCalidad(ctx.informe)
+  if (bloqueo) return bloqueo
   const situacion = situacionDelLead(ctx.lead, ctx.notas)
   const textos = await escribirTextos(ctx.informe, { situacion, nombre: nombreDePila(ctx.lead.decisor), comercial: ctx.datos.comercial.nombre, notas: ctx.notas })
   if (textos.tokens) console.log('[analisis-correo] IA', { entrada: textos.tokens.entrada, salida: textos.tokens.salida })
@@ -111,6 +131,7 @@ export async function prepararCorreo(sesion: AmazonSession, leadId: string): Pro
     enviadoAt: ctx.enviadoAt,
     informe: ctx.informe,
     datos: ctx.datos,
+    calidad: calidadDe(ctx.informe),
   }
 }
 
@@ -119,6 +140,8 @@ export type PeticionDeEnvio = { leadId: string; para: string; asunto: string; sa
 export async function enviarCorreoDelAnalisis(sesion: AmazonSession, p: PeticionDeEnvio): Promise<{ ok: true; para: string; avisos: string[] } | Fallo> {
   const ctx = await cargarContexto(sesion, p.leadId)
   if ('error' in ctx) return ctx
+  const bloqueo = bloqueoPorCalidad(ctx.informe)
+  if (bloqueo) return bloqueo
 
   const lista = leerLista(p.para.slice(0, 500))
   if (lista.invalidas.length) return { ok: false, estado: 400, error: `La dirección «${lista.invalidas[0]}» no es válida.` }

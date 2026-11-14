@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, requireAppAccess } from '@/lib/amazon/api'
 import { MARCA_BAJA, MARCA_ENVIADO } from '@/lib/analisis-amazon/correo-servidor'
 import { ultimoAnalisisDelLead } from '@/lib/analisis-amazon/servidor'
+import { esSinAmazon } from '@/lib/analisis-sin-amazon/construir'
+import { depurar } from '@/lib/analisis-sin-amazon/calidad'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -32,13 +34,16 @@ export async function GET(request: NextRequest) {
   ])
   if (!a) return NextResponse.json({ analisis: null }, { headers: { 'Cache-Control': 'no-store' } })
   const filas = (correos ?? []) as Array<{ body: string; occurred_at: string }>
+  // El de una tienda sin Amazon se lee con sus límites: la chuleta no cita mercados que el informe no enseña, y la ficha ve su calidad
+  const dep = esSinAmazon(a.informe) ? depurar(a.informe) : null
   return NextResponse.json(
     {
       analisis: {
         token: a.token,
         fecha: a.fecha,
         tipo: a.informe?.tipoTexto ?? null,
-        guion: a.informe?.guion ?? null,
+        guion: (dep ?? a.informe)?.guion ?? null,
+        calidad: dep ? { nivel: dep.calidad.nivel, motivos: dep.calidad.motivos } : null,
         aperturas: a.aperturas,
         abiertoPrimera: a.abierto_primera_at,
         abiertoUltima: a.abierto_ultima_at,

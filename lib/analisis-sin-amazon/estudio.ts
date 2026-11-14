@@ -83,7 +83,15 @@ const PRODUCTOS_POR_MERCADO = 6
 /** Palabras que salen en cualquier rama de Amazon y no dicen qué producto es */
 const GENERICAS = /^(infantil|infantiles|ni[nñ]o|ni[nñ]a|ni[nñ]os|ni[nñ]as|bebe|bebes|hombre|hombres|mujer|mujeres|adulto|adultos|unisex|ropa|moda|accesorio|accesorios|otros|varios|productos|hogar|casa|para)$/
 
-const hojaDe = (p: K) => (Array.isArray(p?.categoryTree) && p.categoryTree.length ? p.categoryTree[p.categoryTree.length - 1] : null)
+/** Hojas cuyo nombre solo no dice qué producto es («Seca» es el pienso seco de perros): se le antepone su categoría padre */
+const HOJA_AMBIGUA = /^(seca|h[uú]meda|otros|otras|varios|juegos|accesorios|general|generales)$/i
+const hojaDe = (p: K) => {
+  const arbol: K[] = Array.isArray(p?.categoryTree) ? p.categoryTree : []
+  const hoja = arbol[arbol.length - 1]
+  if (!hoja) return null
+  const padre = arbol[arbol.length - 2]
+  return padre?.name && HOJA_AMBIGUA.test(String(hoja.name ?? '').trim()) ? { ...hoja, name: `${padre.name} · ${hoja.name}` } : hoja
+}
 const raizDe = (p: K) => (Array.isArray(p?.categoryTree) && p.categoryTree.length ? p.categoryTree[0]?.catId ?? null : null)
 const rango = (p: K) => Number(p?.stats?.current?.[3] ?? 0)
 const precioDe = (p: K): number | null => {
