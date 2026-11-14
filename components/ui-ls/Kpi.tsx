@@ -95,7 +95,8 @@ export function Chispa({ valores, color, alto = 40 }: { valores: readonly number
               <stop offset="100%" stopColor={color} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <YAxis hide domain={['dataMin', 'dataMax']} />
+          {/* Suelo por debajo del mínimo: la línea ocupa la mitad de arriba y no parece un sismógrafo */}
+          <YAxis hide domain={[(min: number) => min - (Math.max(...valores) - min) * 0.9, 'dataMax']} />
           <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.75} fill={`url(#${id})`} isAnimationActive={!quieto} animationDuration={900} dot={false} activeDot={false} />
         </AreaChart>
       </ResponsiveContainer>
@@ -179,7 +180,7 @@ export function FilaDeKpis({ children, className, minimo = 190 }: { children: Re
   return (
     <div
       className={cn(
-        'ls-sin-barra -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:overflow-visible sm:px-0 sm:pb-0',
+        'ls-sin-barra -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:overflow-visible sm:px-0 sm:pb-0',
         '[&>*]:w-[76%] [&>*]:shrink-0 [&>*]:snap-start sm:[&>*]:w-auto',
         className,
       )}

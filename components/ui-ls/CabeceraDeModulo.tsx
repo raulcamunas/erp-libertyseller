@@ -121,7 +121,8 @@ export function CabeceraDeModulo({ icono: Icono, titulo, subtitulo, acento, acci
         {debajo && <div className={cn('relative mt-4', pegada && 'mt-2 lg:mt-4')}>{debajo}</div>}
 
         {/* La línea de luz de debajo: del acento a nada */}
-        {!pegada && <div aria-hidden className="relative mt-5 h-px w-full" style={{ background: `linear-gradient(90deg, ${mezcla(color, 55)}, ${mezcla(color, 10)} 35%, transparent 80%)` }} />}
+        {/* Con pestañas debajo no hace falta: ellas ya dibujan su línea */}
+        {!pegada && !debajo && <div aria-hidden className="relative mt-5 h-px w-full" style={{ background: `linear-gradient(90deg, ${mezcla(color, 55)}, ${mezcla(color, 10)} 35%, transparent 80%)` }} />}
       </header>
     </>
   )
