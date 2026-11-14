@@ -9,6 +9,7 @@
  * Solo campañas activas con la nomenclatura del SOP y de productos con ACoS objetivo fijado.
  */
 
+import { todasLasFilas } from './paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { campanasDe } from './campanas'
@@ -67,12 +68,17 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   // ---- lo que ya se propuso (cuarentena) ----
   const desdePuja = new Date(Date.now() - Math.max(1, ficha.diasEntreCambiosPuja) * DIA_MS).toISOString()
   const desdePresupuesto = new Date(Date.now() - Math.max(1, ficha.horasEntreSubidas) * 3_600_000).toISOString()
-  const { data: previas, error: ePrevias } = await service
-    .from('ads_propuestas')
-    .select('tipo, objetivo_id, campaign_id, estado, creada_at, resuelta_at')
-    .eq('perfil_id', cuenta.id)
-    .in('tipo', ['puja', 'presupuesto', 'pausar'])
-    .or(`estado.eq.pendiente,resuelta_at.gte.${desdePresupuesto < desdePuja ? desdePresupuesto : desdePuja}`)
+  // Paginado: con muchas segmentaciones pasaba de las 1.000 filas que da PostgREST y la cuarentena salía incompleta
+  const { data: previas, error: ePrevias } = await todasLasFilas((a, b) =>
+    service
+      .from('ads_propuestas')
+      .select('id, tipo, objetivo_id, campaign_id, estado, creada_at, resuelta_at')
+      .eq('perfil_id', cuenta.id)
+      .in('tipo', ['puja', 'presupuesto', 'pausar'])
+      .or(`estado.eq.pendiente,resuelta_at.gte.${desdePresupuesto < desdePuja ? desdePresupuesto : desdePuja}`)
+      .order('id')
+      .range(a, b)
+  )
   if (ePrevias) {
     if (isMissingSchema(ePrevias)) return { pujas: 0, presupuestos: 0, pausas: 0, omitido: 'falta la migración 298' }
     throw ePrevias
@@ -84,6 +90,12 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
     // Una segmentación con una puja o una pausa pendiente (o resuelta hace poco) no se vuelve a tocar: un cambio cada vez y con ventana de lectura
     if ((r.tipo === 'puja' || r.tipo === 'pausar') && r.objetivo_id && (r.estado === 'pendiente' || (r.resuelta_at ?? '') >= desdePuja)) bloqueadas.add(r.objetivo_id)
     if (r.tipo === 'presupuesto' && (r.estado === 'pendiente' || (r.resuelta_at ?? '') >= desdePresupuesto)) campanasBloqueadas.add(r.campaign_id)
+  }
+  // CUARENTENA UNIFICADA: los cambios A MANO desde Campañas (ads_cambios_log) también cuentan. Con la 311 cada entrada lleva el id de la segmentación; sin ella no se puede cruzar
+  for (const c of await cambiosAManoRecientes(cuenta.id, desdePresupuesto < desdePuja ? desdePresupuesto : desdePuja)) {
+    if (c.campo?.startsWith('presupuesto')) {
+      if (c.creado_at >= desdePresupuesto && c.campaign_id) campanasBloqueadas.add(c.campaign_id)
+    } else if (c.entidad_id && c.creado_at >= desdePuja) bloqueadas.add(c.entidad_id)
   }
 
   // ---- pujas: estado vivo + métricas de 14 días ----
@@ -190,7 +202,7 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
 
   // ---- presupuesto: últimos 7 días contra el presupuesto de hoy ----
   const desde7 = desplazar(hasta, -6)
-  const { data: diario, error: eDiario } = await service.from('ads_rendimiento_diario').select('campaign_id, fecha, gasto, ventas').eq('perfil_id', cuenta.id).gte('fecha', desde7).lte('fecha', hasta).in('campaign_id', ids).limit(5000)
+  const { data: diario, error: eDiario } = await todasLasFilas((a, b) => service.from('ads_rendimiento_diario').select('campaign_id, fecha, gasto, ventas').eq('perfil_id', cuenta.id).gte('fecha', desde7).lte('fecha', hasta).in('campaign_id', ids).order('fecha').order('campaign_id').range(a, b))
   if (eDiario) throw eDiario
   const g7 = new Map<string, { gasto: number; ventas: number; dias: Set<string> }>()
   for (const r of (diario ?? []) as Array<{ campaign_id: string; fecha: string; gasto: number; ventas: number }>) {
@@ -225,4 +237,15 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
     }
   }
   return { pujas, presupuestos, pausas, ...(sinMigracionPausas ? { sinMigracionPausas } : {}) }
+}
+
+/** Los cambios de puja, estado y presupuesto hechos A MANO (o por el motor) que Amazon aceptó desde `desde`. Sin la 311 no hay entidad_id: solo sirven los de presupuesto */
+async function cambiosAManoRecientes(perfilId: string, desde: string): Promise<Array<{ campaign_id: string | null; entidad_id: string | null; campo: string | null; creado_at: string }>> {
+  const service = createServiceClient()
+  const pedir = (columnas: string) =>
+    todasLasFilas((a, b) => service.from('ads_cambios_log').select(columnas).eq('perfil_id', perfilId).eq('ok', true).in('origen', ['manual', 'automatico']).in('accion', ['cambiar', 'pausar', 'activar']).gte('creado_at', desde).order('creado_at').order('id').range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: { code?: string; message?: string } | null }>, 10_000)
+  let r = await pedir('campaign_id, entidad_id, campo, creado_at')
+  if (r.error) r = await pedir('campaign_id, campo, creado_at')
+  if (r.error) return []
+  return r.data.map((x) => ({ campaign_id: (x.campaign_id as string | null) ?? null, entidad_id: (x.entidad_id as string | null) ?? null, campo: (x.campo as string | null) ?? null, creado_at: String(x.creado_at) }))
 }

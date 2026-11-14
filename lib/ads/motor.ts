@@ -39,6 +39,7 @@ import {
 } from './escritura'
 import { anotarEnLote } from './log'
 import { conRastro } from './rastro'
+import { todasLasFilas } from './paginar'
 import { objetivosDesdeAcos, precioParaMotor, ticketsMedios } from './margen'
 import { decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, planificarPropuestas, valorSigueIgual, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
 import { asinDeCampana } from './productos-agrupar'
@@ -334,7 +335,9 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
 
   // Lo ya propuesto: lo pendiente y lo resuelto hace menos de 14 días (la cuarentena)
   const desdeCuarentena = new Date(Date.now() - DIAS_DE_CUARENTENA * DIA_MS).toISOString()
-  const { data: previas } = await service.from('ads_propuestas').select('campaign_id, termino, tipo, estado, resuelta_at').eq('perfil_id', cuenta.id).or(`estado.eq.pendiente,resuelta_at.gte.${desdeCuarentena}`)
+  // Paginado: con más de 1.000 propuestas recientes PostgREST cortaba en silencio y se repetían propuestas
+  const { data: previas, error: ePrevias } = await todasLasFilas((a, b) => service.from('ads_propuestas').select('id, campaign_id, termino, tipo, estado, resuelta_at').eq('perfil_id', cuenta.id).or(`estado.eq.pendiente,resuelta_at.gte.${desdeCuarentena}`).order('id').range(a, b))
+  if (ePrevias) throw ePrevias
   const yaHay = new Set(((previas ?? []) as Array<{ campaign_id: string; termino: string; tipo: string; estado: string }>).filter((r) => r.estado !== 'caducada').map((r) => `${r.campaign_id}|${r.termino.trim().toLowerCase()}|${r.tipo}`))
 
   const plan = planificarPropuestas({
