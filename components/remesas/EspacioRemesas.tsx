@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, BellRing, Boxes, ClipboardList, Database, Download, FileDown, Package, Plus, Sparkles, TrendingDown, Upload } from 'lucide-react'
+import { AlertTriangle, BellRing, Boxes, ClipboardList, Database, Download, FileDown, KanbanSquare, Package, Plus, Sparkles, TrendingDown, Truck, Upload } from 'lucide-react'
 import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
 import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
 import { filasACsv } from '@/lib/fba/catalogo/exportar'
@@ -27,6 +27,7 @@ import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
 import { fecha } from './formato'
 import { VistaReferencias } from './VistaReferencias'
+import { TableroRemesas } from './tablero/TableroRemesas'
 
 /**
  * REMESAS A FBA: DOS COSAS DISTINTAS Y UNA TERCERA PARA MIRAR.
@@ -67,7 +68,7 @@ interface Cliente {
   propuestas: number
 }
 
-type Vista = 'envios' | 'propuestas' | 'referencias' | 'inventario' | 'base'
+type Vista = 'tablero' | 'envios' | 'propuestas' | 'referencias' | 'inventario' | 'base'
 
 export function EspacioRemesas({
   clientes,
@@ -110,7 +111,9 @@ export function EspacioRemesas({
   const [vistaElegida, setVista] = useState<Vista>(() => {
     const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
     if (abierta) return esPropuesta(abierta) ? 'propuestas' : 'envios'
-    return vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'referencias' || vistaInicial === 'inventario' ? vistaInicial : 'envios'
+    if (vistaInicial === 'tablero' || vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'referencias' || vistaInicial === 'inventario') return vistaInicial
+    // La agencia entra al TABLERO: todas las propuestas en marcha de todos sus clientes, por fases
+    return esAgencia ? 'tablero' : 'envios'
   })
 
   // La base de datos solo existe para los clientes que la tienen. Si se estaba en ella
@@ -133,6 +136,21 @@ export function EspacioRemesas({
     router.push(`/dashboard/remesas?cliente=${id}`)
   }
   useEffect(() => setCambiando(null), [cliente.id])
+
+  // Desde el tablero se salta a la remesa de OTRO cliente por la URL: al llegar, se abre en su sitio
+  useEffect(() => {
+    if (!remesaAbierta) return
+    const r = panel.remesas.find((x) => x.id === remesaAbierta)
+    if (!r) return
+    if (esPropuesta(r)) {
+      setPropuestaElegida(r.id)
+      setVista((v) => (v === 'tablero' ? 'propuestas' : v))
+    } else {
+      setEnvioElegido(r.id)
+      setVista((v) => (v === 'tablero' ? 'envios' : v))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remesaAbierta, cliente.id])
 
   /**
    * LA ELEGIDA, DERIVADA Y NO CORREGIDA.
@@ -212,9 +230,17 @@ export function EspacioRemesas({
     <div className="fba-cockpit flex h-[calc(100vh-4rem)] min-h-0 flex-col">
       {/* ================= CABECERA: TÍTULO, VISTAS, CIFRAS Y ACCIONES ================= */}
       <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-[6px] pt-[10px]">
-        <h1 className={cx(TIPO.xl, 'text-[var(--ls-t1)]')}>Remesas a FBA</h1>
+        <h1 className={cx(TIPO.xl, 'flex items-center gap-2 text-[var(--ls-t1)]')}>
+          <span className="grid h-7 w-7 place-items-center rounded-[9px] text-[var(--ls-fondo)] shadow-[0_6px_16px_-8px_var(--ls-mod-remesas)]" style={{ background: 'linear-gradient(135deg, var(--ls-mod-remesas), color-mix(in srgb, var(--ls-mod-remesas) 60%, #0b3b4a))' }}>
+            <Truck className="h-[15px] w-[15px]" />
+          </span>
+          Remesas a FBA
+        </h1>
 
-        <nav aria-label="Vistas" className="flex items-center gap-[2px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
+        <nav aria-label="Vistas" className="flex max-w-full items-center gap-[2px] overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] [scrollbar-width:none]">
+          <Pestana activa={vista === 'tablero'} onClick={() => setVista('tablero')} icono={<KanbanSquare className="h-[14px] w-[14px]" />} titulo="Todas las propuestas en marcha, de todos los clientes, por fases">
+            Tablero
+          </Pestana>
           <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')} icono={<Package className="h-[14px] w-[14px]" />} titulo="Lo que ya ha salido y existe en Amazon">
             Envíos
             <span className="tabular-nums text-[var(--ls-t4)]">{envios.filter(estaEnlazada).length}</span>
@@ -366,7 +392,23 @@ export function EspacioRemesas({
       )}
 
       {/* ================= CUERPO ================= */}
-      {vista === 'inventario' ? (
+      {vista === 'tablero' ? (
+        <div className="min-h-0 flex-1 px-5 pb-1">
+          <TableroRemesas
+            verComo={verComo}
+            clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre }))}
+            onAbrir={(t) => {
+              if (t.clienteId === cliente.id) {
+                setPropuestaElegida(t.id)
+                setVista('propuestas')
+              } else {
+                setCambiando(t.clienteId)
+                router.push(`/dashboard/remesas?cliente=${t.clienteId}&remesa=${t.id}`)
+              }
+            }}
+          />
+        </div>
+      ) : vista === 'inventario' ? (
         <div className="min-h-0 flex-1 px-5 pb-1">
           <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} puedeLeerVentas={esAdmin} />
         </div>
