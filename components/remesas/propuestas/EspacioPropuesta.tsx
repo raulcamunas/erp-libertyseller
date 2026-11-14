@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, Circle, Loader2, Pencil, StickyNote, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, Circle, ClipboardList, History, Loader2, Pencil, StickyNote, Trash2, X } from 'lucide-react'
+import { Pestanas } from '@/components/ui-ls'
 import { toast } from 'sonner'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA, TIPO } from '@/lib/estilo/denso'
 import { esClienteConCatalogo } from '@/lib/fba/catalogo/tipos'
@@ -71,6 +72,7 @@ export function EspacioPropuesta({
   const [borrando, setBorrando] = useState(false)
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
   const [enlazando, setEnlazando] = useState(false)
+  const [pestana, setPestana] = useState<'trabajo' | 'historial'>('trabajo')
   const [form, setForm] = useState({ nombre: remesa.nombre ?? '', fechaEnvio: remesa.fechaEnvio, nota: remesa.nota ?? '' })
 
   // Al mandar la propuesta por el enlace, la tarjeta del enlace avisa para que se relea la remesa
@@ -232,8 +234,28 @@ export function EspacioPropuesta({
         <FasesPropuesta estado={remesa.estado} />
       </div>
 
-      {/* ================= LO QUE TOCA HACER AHORA ================= */}
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2 pr-[2px]">
+      {/* El trabajo de ahora y, aparte, la línea de tiempo de quién hizo qué */}
+      <div className="shrink-0">
+        <Pestanas
+          etiqueta="Secciones de la propuesta"
+          acento="remesas"
+          idPanel={`panel-propuesta-${remesa.id}`}
+          opciones={[
+            { id: 'trabajo', texto: 'Lo que toca', icono: ClipboardList },
+            { id: 'historial', texto: 'Historial', icono: History },
+          ]}
+          valor={pestana}
+          onCambio={setPestana}
+        />
+      </div>
+
+      {pestana === 'historial' ? (
+        <div id={`panel-propuesta-${remesa.id}`} role="tabpanel" className="min-h-0 flex-1 overflow-y-auto pb-2 pr-[2px]">
+          <HistorialRemesa key={`h-${remesa.id}`} remesaId={remesa.id} abierto />
+        </div>
+      ) : (
+      /* ================= LO QUE TOCA HACER AHORA ================= */
+      <div id={`panel-propuesta-${remesa.id}`} role="tabpanel" className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-2 pr-[2px]">
         {/* El porqué de una propuesta que nació con IA. Solo la agencia; abierto mientras se está revisando */}
         {esAdmin && remesa.analisisIa && <TarjetaAnalisisIa key={remesa.id} analisis={remesa.analisisIa} lineas={remesa.lineas} abierto={remesa.estado === 'borrador'} />}
 
@@ -306,8 +328,8 @@ export function EspacioPropuesta({
           </>
         )}
 
-        <HistorialRemesa key={remesa.id} remesaId={remesa.id} />
       </div>
+      )}
 
       {/* ================= EL SIGUIENTE PASO ================= */}
       <BarraAcciones remesa={remesa} actor={actor} cajas={cajas} onMarcarEnviada={() => setEnlazando(true)} />

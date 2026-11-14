@@ -259,7 +259,12 @@ BEGIN
     l->>'sku',
     (l->>'unidades')::INTEGER,
     l->>'referencia', l->>'nombre', l->>'variante', l->>'ean', l->>'fnsku', l->>'asin',
-    NULLIF(v_viejas->(l->>'sku')->>'prop', '')::INTEGER,
+    -- La foto se conserva. Una línea que añade la AGENCIA (no estaba) entra con sus unidades como
+    -- «propuesto»: si no, el cliente la vería como «Nuevo», que es la marca de lo que añade él
+    COALESCE(
+      NULLIF(v_viejas->(l->>'sku')->>'prop', '')::INTEGER,
+      CASE WHEN COALESCE((v_viejas->(l->>'sku')->>'nuevo')::BOOLEAN, FALSE) THEN NULL ELSE (l->>'unidades')::INTEGER END
+    ),
     COALESCE(v_viejas->(l->>'sku')->>'origen', 'agencia'),
     COALESCE((v_viejas->(l->>'sku')->>'nuevo')::BOOLEAN, FALSE),
     v_viejas->(l->>'sku')->>'com'
