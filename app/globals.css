@@ -5564,3 +5564,141 @@ html[data-junta-capsula] .pila-de-avisos { --avisos-min: 76px; }
 .menu-contextual button:disabled { opacity: .45; cursor: default; }
 .menu-contextual-raya { height: 1px; margin: 4px 6px; background: var(--ls-linea); }
 @media (prefers-reduced-motion: reduce) { .menu-contextual { animation: none; } }
+
+/* =====================================================================
+   KIT VISUAL COMÚN (components/ui-ls) — tokens y utilidades
+   =====================================================================
+   Lo que usan las piezas de components/ui-ls para que todos los módulos
+   administrativos rehechos se vean iguales. SOLO AÑADE: ningún token de
+   arriba cambia de valor y ninguna clase vieja se reinterpreta, así que no
+   hay pantalla de hoy que pueda verse distinta por este bloque.
+
+   · Sombras en tres alturas (--ls-sombra-1/2/3), el velo de luz de arriba
+     de las tarjetas (--ls-velo) y el brillo del filo de la destacada
+     (--ls-brillo, que sigue a --ls-acento).
+   · La paleta de gráficos --viz-1..6 en :root. Los tres primeros son
+     EXACTAMENTE los de .fba-cockpit (Remesas), que sigue declarándolos
+     dentro de su clase con el mismo valor: allí no cambia nada.
+   · Un acento por módulo (--ls-mod-*). Va en el icono de la cabecera, en
+     el filo de las tarjetas y en los gráficos; NUNCA como color de texto
+     largo (para eso están --ls-t1..t4).
+   · Utilidades de movimiento: .ls-aparecer (entrada escalonada con
+     --ls-i), .ls-elevar (hover que levanta), .ls-esqueleto (brillo que
+     recorre). TODA animación va dentro de prefers-reduced-motion:
+     no-preference, como el resto del fichero.
+   ===================================================================== */
+:root {
+  --ls-sombra-1: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px -14px rgba(0, 0, 0, 0.55);
+  --ls-sombra-2: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 4px rgba(0, 0, 0, 0.35), 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+  --ls-sombra-3: 0 24px 64px -20px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --ls-brillo: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--ls-acento, #FF6600) 75%, transparent) 50%, transparent 100%);
+  --ls-velo: linear-gradient(180deg, rgba(255, 255, 255, 0.028) 0%, rgba(255, 255, 255, 0) 55%);
+  --ls-esqueleto-a: #1C1F25;
+  --ls-esqueleto-b: #272B33;
+
+  --viz-1: #3987e5;  /* azul */
+  --viz-2: #d95926;  /* naranja */
+  --viz-3: #199e70;  /* aqua */
+  --viz-4: #9d7cf0;  /* violeta */
+  --viz-5: #d9488f;  /* magenta */
+  --viz-6: #c9a227;  /* ámbar */
+
+  --ls-mod-marketing:      #FF7A1A;
+  --ls-mod-seo:            #3D8BFF;
+  --ls-mod-cumplimiento:   #F5A524;
+  --ls-mod-cumplimiento-2: #F05252;
+  --ls-mod-remesas:        #22C7E0;
+  --ls-mod-personas:       #A78BFA;
+  --ls-mod-cuentas:        #34D399;
+  --ls-mod-neutro:         #9AA2AE;
+}
+html.light {
+  --ls-sombra-1: 0 1px 2px rgba(20, 22, 26, 0.06), 0 8px 24px -16px rgba(20, 22, 26, 0.18);
+  --ls-sombra-2: 0 2px 4px rgba(20, 22, 26, 0.07), 0 16px 36px -16px rgba(20, 22, 26, 0.26);
+  --ls-sombra-3: 0 24px 60px -20px rgba(20, 22, 26, 0.32), 0 0 0 1px rgba(20, 22, 26, 0.05);
+  --ls-velo: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 55%);
+  --ls-esqueleto-a: #ECEEF2;
+  --ls-esqueleto-b: #F8F9FB;
+
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #7c4fd6;
+  --viz-5: #c2347a;
+  --viz-6: #a07d10;
+
+  --ls-mod-marketing:      #D9560B;
+  --ls-mod-seo:            #1D5FE0;
+  --ls-mod-cumplimiento:   #B7791F;
+  --ls-mod-cumplimiento-2: #C53030;
+  --ls-mod-remesas:        #0E8AA0;
+  --ls-mod-personas:       #6D28D9;
+  --ls-mod-cuentas:        #059669;
+  --ls-mod-neutro:         #5B6270;
+}
+
+/* La tarjeta destacada: filo superior de luz con el acento */
+.ls-filo-brillo::before {
+  content: '';
+  position: absolute;
+  inset: 0 10% auto 10%;
+  height: 1px;
+  background: var(--ls-brillo);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* El foco de luz que sigue al ratón en las tarjetas interactivas (--mx/--my los escribe la tarjeta) */
+.ls-foco { isolation: isolate; }
+.ls-foco::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, var(--ls-acento, #FF6600) 10%, transparent), transparent 55%);
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+.ls-foco:hover::after { opacity: 1; }
+
+/* El esqueleto: quieto por defecto; el brillo que lo recorre, solo si se permite movimiento */
+.ls-esqueleto {
+  background-color: var(--ls-esqueleto-a);
+  background-image: linear-gradient(90deg, transparent 0%, var(--ls-esqueleto-b) 50%, transparent 100%);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-position: 150% 0;
+}
+
+/* Filas de pestañas y de acciones que se desplazan en el móvil, sin barra visible */
+.ls-sin-barra { scrollbar-width: none; }
+.ls-sin-barra::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes ls-aparecer {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes ls-barrido {
+    from { background-position: 150% 0; }
+    to   { background-position: -50% 0; }
+  }
+  /* `both` y no `forwards`: al terminar no deja un transform puesto (los fixed de dentro siguen yendo a la ventana).
+     El retraso se corta a 12 pasos: una lista larga no tarda más en aparecer entera. */
+  .ls-aparecer {
+    animation: ls-aparecer 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(min(var(--ls-i, 0), 12) * 40ms);
+  }
+  .ls-elevar {
+    transition: transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+  .ls-elevar:hover { transform: translateY(-2px); box-shadow: var(--ls-sombra-2); }
+  .ls-elevar:active { transform: translateY(0); }
+  .ls-esqueleto { animation: ls-barrido 1.4s ease-in-out infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ls-elevar:hover { box-shadow: var(--ls-sombra-2); }
+  .ls-foco::after { transition: none; }
+}
