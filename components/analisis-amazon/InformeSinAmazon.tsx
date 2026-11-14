@@ -204,12 +204,22 @@ function Producto({ p, i, verVendedor }: { p: ProductoMini; i: number; verVended
   )
 }
 
+/** IVA general en España: el precio de venta de Amazon lo lleva dentro (en alimentación y libros es menor) */
+const IVA_GENERAL = 0.21
+/** La «tasa Google» que Amazon repercute en España sobre su comisión: un 3 % de la comisión */
+const TASA_DIGITAL = 0.03
+
 function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
   const suyo = m.suyo?.precio ?? 0
   const base = suyo || m.precioMediano || 0
   const pct = m.precioMediano && suyo ? Math.round(((suyo - m.precioMediano) / m.precioMediano) * 100) : null
+  // EL PRECIO DE AMAZON LLEVA EL IVA DENTRO y la comisión se calcula sobre ese precio con IVA; el IVA es de Hacienda, no del vendedor. Encima de la comisión, Amazon
+  // repercute en España la tasa digital («tasa Google») como un 3 % más de la comisión (desde abril de 2021). Las tarifas de Amazon llevan IVA, pero una empresa lo
+  // recupera: no es un coste. Lo que NO se puede saber desde fuera (coste del producto, publicidad, envío al almacén, almacenamiento, devoluciones) se nombra debajo
+  const iva = base ? base - base / (1 + IVA_GENERAL) : 0
   const comision = m.comisionPct && base ? (base * m.comisionPct) / 100 : null
-  const llega = comision !== null && m.logistica ? base - comision - m.logistica : null
+  const tasaDigital = comision !== null ? comision * TASA_DIGITAL : 0
+  const llega = comision !== null && m.logistica ? base - iva - comision - tasaDigital - m.logistica : null
   const gamaAlta = !!(suyo && m.precioMediano && suyo > m.precioMediano * 1.5)
   const caros = m.productos.filter((p) => (p.precio ?? 0) >= suyo * 0.5).length
   return (
@@ -267,23 +277,34 @@ function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
               <>
                 <div className="sa-cuenta">
                   <div>
-                    <span>Precio de venta{suyo ? '' : ' (mediana en Amazon)'}</span>
+                    <span>Precio de venta con IVA{suyo ? '' : ' (mediana en Amazon)'}</span>
                     <b>{eur(base)}</b>
                   </div>
                   <div>
-                    <span>Comisión de Amazon ({String(Math.round((m.comisionPct ?? 0) * 10) / 10).replace('.', ',')} %)</span>
+                    <span>IVA (21 %)</span>
+                    <b>− {eur(iva)}</b>
+                  </div>
+                  <div>
+                    <span>Comisión de Amazon ({String(Math.round((m.comisionPct ?? 0) * 10) / 10).replace('.', ',')} % del precio con IVA)</span>
                     <b>− {eur(comision)}</b>
                   </div>
                   <div>
-                    <span>Envío con Prime (FBA, por unidad)</span>
+                    <span>Tasa digital que repercute Amazon (3 % de la comisión)</span>
+                    <b>− {eur(tasaDigital)}</b>
+                  </div>
+                  <div>
+                    <span>Preparación y envío con Prime (FBA, por unidad)</span>
                     <b>− {eur(m.logistica ?? 0)}</b>
                   </div>
                   <div className="tot">
-                    <span>Te llega a ti</span>
+                    <span>Te quedan, sin IVA</span>
                     <b>{eur(llega)}</b>
                   </div>
                 </div>
-                <p className="sa-nota">Con las comisiones que Amazon aplica hoy a productos como el tuyo. Antes del coste del producto y de la publicidad.</p>
+                <p className="sa-nota">
+                  Con las comisiones que Amazon aplica hoy a productos como el tuyo y el IVA general (en alimentación y libros es menor). De aquí salen todavía el coste del producto, la publicidad, el envío
+                  de tu mercancía al almacén de Amazon, el almacenamiento mensual y las devoluciones. El IVA de las comisiones de Amazon no se cuenta: como empresa lo recuperas.
+                </p>
               </>
             )}
           </Ventana>
