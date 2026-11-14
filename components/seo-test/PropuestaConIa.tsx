@@ -174,7 +174,8 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
               </div>
             )}
             {actual.estado === 'aplicada' && actual.resultado?.mensaje && <p className="text-[11.5px] text-[var(--ls-t4)]">Avisos de Amazon al aplicar: {actual.resultado.mensaje}</p>}
-            {actual.estado === 'aplicada' && <Verificacion v={actual.resultado?.verificacion ?? null} />}
+            {/* Solo las aplicadas con registro (migración 312) se verifican: las de antes, o sin la 312, se quedaban con «Comprobando…» para siempre */}
+            {actual.estado === 'aplicada' && (actual.resultado?.edicionId || actual.resultado?.verificacion) && <Verificacion v={actual.resultado?.verificacion ?? null} />}
 
             {actual.estado === 'pendiente' && (
               <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] pt-3">
