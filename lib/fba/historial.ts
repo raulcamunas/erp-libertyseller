@@ -41,6 +41,8 @@ export type AccionDeHistorial =
   | 'manifiesto'
   | 'embalaje'
   | 'encaje_terminado'
+  | 'envio_amazon'
+  | 'transporte_aceptado'
 
 export interface ApunteDeHistorial {
   remesaId: string
@@ -254,6 +256,13 @@ export function tituloDeEvento(e: Pick<EventoDeHistorial, 'accion' | 'desde' | '
       return 'Descargó el Excel de embalaje'
     case 'encaje_terminado':
       return 'Terminó de encajar'
+    case 'envio_amazon':
+      return tituloDeEnvioAmazon(e.hasta, d)
+    case 'transporte_aceptado': {
+      const coste = num(d.coste)
+      const quien = typeof d.nombre === 'string' && d.nombre ? ` como «${d.nombre}»` : ''
+      return coste !== null ? `Aceptó el coste del transporte (${coste.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${typeof d.moneda === 'string' ? d.moneda : '€'})${quien}` : `Aceptó el coste del transporte${quien}`
+    }
     default:
       return 'Hizo un cambio'
   }
@@ -265,8 +274,48 @@ export function tonoDeEvento(e: Pick<EventoDeHistorial, 'accion' | 'hasta'>): To
     if (e.hasta === 'aprobada' || e.hasta === 'lista' || e.hasta === 'enviada' || e.hasta === 'cerrada') return 'ok'
     return 'info'
   }
-  if (e.accion === 'propuesta_aceptada' || e.accion === 'encaje_terminado') return 'ok'
+  if (e.accion === 'propuesta_aceptada' || e.accion === 'encaje_terminado' || e.accion === 'transporte_aceptado') return 'ok'
+  if (e.accion === 'envio_amazon') {
+    if (e.hasta === 'reparto_confirmado' || e.hasta === 'transporte_confirmado') return 'ok'
+    if (e.hasta === 'cancelado' || e.hasta === 'cancelando' || e.hasta === 'cajas_reabiertas') return 'aviso'
+    return 'info'
+  }
   if (e.accion === 'enlace_revocado' || e.accion === 'propuesta_devuelta') return 'aviso'
   if (e.accion === 'propuesta_cliente') return 'info'
   return 'neutro'
+}
+
+/** El titular de un apunte del envío a Amazon por API (lib/fba/envio-amazon-motor.ts) */
+function tituloDeEnvioAmazon(hasta: string | null, d: Record<string, unknown>): string {
+  if (typeof d.error === 'string' && d.error) return `Amazon rechazó un paso del envío: ${d.error.slice(0, 140)}`
+  switch (hasta) {
+    case 'modo_api':
+      return 'Pasó el envío a «Desde el ERP» (API de Amazon)'
+    case 'modo_manual':
+      return 'Pasó el envío a «Manual» (Seller Central)'
+    case 'plan':
+      return 'Mandó el envío a Amazon (plan creado)'
+    case 'cajas_reenviadas':
+      return 'Volvió a mandar las cajas a Amazon'
+    case 'cajas_reabiertas':
+      return 'Reabrió las cajas del envío a Amazon'
+    case 'reparto_confirmando':
+      return 'Confirmó el reparto por centros'
+    case 'reparto_confirmado':
+      return 'Amazon creó los envíos FBA'
+    case 'transporte_cotizando':
+      return 'Pidió la cotización del transporte'
+    case 'transporte_elegido':
+      return 'Cambió el transporte elegido'
+    case 'transporte_confirmando':
+      return 'Confirmó el transporte con Amazon'
+    case 'transporte_confirmado':
+      return 'Transporte confirmado: etiquetas disponibles'
+    case 'cancelando':
+      return 'Pidió cancelar el plan en Amazon'
+    case 'cancelado':
+      return 'Plan cancelado en Amazon'
+    default:
+      return 'Paso del envío a Amazon'
+  }
 }

@@ -50,7 +50,7 @@ export function PantallaFinal({ recien, resumen, cajas, lineas }: { recien: bool
               Las etiquetas de las cajas
             </p>
             <p className="mt-1 text-[14px] leading-relaxed text-[#5E5852]">
-              Ahora, cuando lo configuremos, te enviaremos las etiquetas para pegarlas en las cajas <span className="whitespace-nowrap">(si has hecho el envío con UPS).</span>
+              Cuando preparemos el envío en Amazon te avisaremos: si va con el UPS de Amazon, aceptarás el coste del transporte y descargarás las etiquetas de las cajas desde tu enlace, en «Envío».
             </p>
           </div>
         </div>

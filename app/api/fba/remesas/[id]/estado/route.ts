@@ -73,6 +73,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // Agencia = admin o empleado; cliente = el resto (lib/fba/acceso.ts). Antes un empleado contaba como cliente
     const actor = sesion.actor
 
+    /**
+     * CAJAS EN AMAZON (envío por API, migración 310): con las cajas ya mandadas a Amazon no se vuelve a
+     * «Encajando» por aquí; se hace con «Reabrir cajas» del propio envío, que obliga a regenerar el reparto.
+     * Sin la 310 la columna no existe y no hay nada que bloquear.
+     */
+    if (remesa.estado === 'lista' && hasta === 'encajando') {
+      const { data: b, error: errB } = await service.from('fba_remesas').select('envio_cajas_bloqueadas_at').eq('id', params.id).maybeSingle()
+      if (!errB && (b as { envio_cajas_bloqueadas_at?: string | null } | null)?.envio_cajas_bloqueadas_at) {
+        return fail(409, 'Las cajas de esta remesa ya están en Amazon. Para cambiarlas usa «Reabrir cajas» en «Enviar a Amazon» (o cancela el plan).')
+      }
+    }
+
     // Las líneas a 0 son las que el cliente ha dicho «esta no» desde su enlace: no cuentan como referencia
     const { count: lineas } = await service
       .from('fba_remesa_lineas')

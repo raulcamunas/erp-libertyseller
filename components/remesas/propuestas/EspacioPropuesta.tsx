@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, Circle, ClipboardList, History, Loader2, Pencil, StickyNote, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Calendar, Check, CheckCircle2, ChevronDown, Circle, ClipboardList, History, Loader2, Pencil, Send, StickyNote, Trash2, X } from 'lucide-react'
 import { Pestanas } from '@/components/ui-ls'
 import { toast } from 'sonner'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA, TIPO } from '@/lib/estilo/denso'
@@ -16,6 +16,7 @@ import { DireccionOrigen } from '../DireccionOrigen'
 import { EditorBoceto } from '../EditorBoceto'
 import { EditorCajas } from '../EditorCajas'
 import { fecha } from '../formato'
+import { EnviarAAmazon } from '../amazon/EnviarAAmazon'
 import { BarraAcciones } from './BarraAcciones'
 import { BotonExcel } from './BotonExcel'
 import { EnlaceParaElCliente } from './EnlaceParaElCliente'
@@ -72,7 +73,10 @@ export function EspacioPropuesta({
   const [borrando, setBorrando] = useState(false)
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
   const [enlazando, setEnlazando] = useState(false)
-  const [pestana, setPestana] = useState<'trabajo' | 'historial'>('trabajo')
+  const [pestana, setPestana] = useState<'trabajo' | 'amazon' | 'historial'>('trabajo')
+  // «Enviar a Amazon» desde el ERP: solo administradores, y desde que se encaja (en «Lista» se manda)
+  const conEnvioAmazon = esAdmin && (remesa.estado === 'encajando' || remesa.estado === 'lista')
+  const pestanaVista = pestana === 'amazon' && !conEnvioAmazon ? 'trabajo' : pestana
   const [form, setForm] = useState({ nombre: remesa.nombre ?? '', fechaEnvio: remesa.fechaEnvio, nota: remesa.nota ?? '' })
 
   // Al mandar la propuesta por el enlace, la tarjeta del enlace avisa para que se relea la remesa
@@ -242,16 +246,21 @@ export function EspacioPropuesta({
           idPanel={`panel-propuesta-${remesa.id}`}
           opciones={[
             { id: 'trabajo', texto: 'Lo que toca', icono: ClipboardList },
+            ...(conEnvioAmazon ? [{ id: 'amazon' as const, texto: 'Enviar a Amazon', icono: Send }] : []),
             { id: 'historial', texto: 'Historial', icono: History },
           ]}
-          valor={pestana}
+          valor={pestanaVista}
           onCambio={setPestana}
         />
       </div>
 
-      {pestana === 'historial' ? (
+      {pestanaVista === 'historial' ? (
         <div id={`panel-propuesta-${remesa.id}`} role="tabpanel" className="min-h-0 flex-1 overflow-y-auto pb-2 pr-[2px]">
           <HistorialRemesa key={`h-${remesa.id}`} remesaId={remesa.id} abierto />
+        </div>
+      ) : pestanaVista === 'amazon' ? (
+        <div id={`panel-propuesta-${remesa.id}`} role="tabpanel" className="min-h-0 flex-1 overflow-y-auto pb-2 pr-[2px]">
+          <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} />
         </div>
       ) : (
       /* ================= LO QUE TOCA HACER AHORA ================= */
@@ -320,6 +329,19 @@ export function EspacioPropuesta({
         {remesa.estado === 'lista' && (
           <>
             <PuntosDeControl remesa={remesa} cajas={cajas} />
+            {conEnvioAmazon && (
+              <button
+                type="button"
+                onClick={() => setPestana('amazon')}
+                className="ls-elevar flex w-full items-center gap-3 rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-3 text-left [@media(pointer:coarse)]:min-h-[44px]"
+              >
+                <Send className="h-4 w-4 shrink-0" style={{ color: 'var(--ls-mod-remesas)' }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold text-[var(--ls-t1)]">Crear el envío desde el ERP</span>
+                  <span className="block text-[12px] text-[var(--ls-t3)]">Plan, reparto, UPS de Amazon y etiquetas sin salir de aquí. O, como siempre, con el manifiesto en Seller Central.</span>
+                </span>
+              </button>
+            )}
             {esAdmin && <PlantillasAmazon remesaId={remesa.id} referencias={remesa.lineas.length} unidades={unidades} />}
             {esAdmin && <DireccionOrigen clienteId={clienteId} clienteNombre={clienteNombre} puedeEditar={puedeEditar} />}
             <ImprimirEtiquetas remesa={remesa} />

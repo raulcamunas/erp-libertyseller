@@ -318,7 +318,7 @@ export function DetalleEnvio({
 
       {/* ======= EL DESGLOSE, A TODA LA ALTURA QUE QUEDA, Y AL LADO LO QUE NO SE VA ======= */}
       <div className="flex min-h-0 flex-1 gap-3">
-        <PestanasEnvio remesa={remesa} skus={skus} hoy={hoy} conectado={conectado} />
+        <PestanasEnvio remesa={remesa} skus={skus} hoy={hoy} conectado={conectado} esAdmin={puedeLeerVentas} />
 
         {/* La columna fija: el recorrido en Amazon y las cifras, siempre a la vista
             mientras las pestañas hacen scroll. Solo en pantallas anchas. */}

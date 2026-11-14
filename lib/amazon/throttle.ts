@@ -87,6 +87,14 @@ export type AmazonOperation =
   // ---------- Las de SEO Test (editor de ficha y seguimiento de la competencia) ----------
   | 'getDefinitionsProductType'
   | 'getItemOffersBatch'
+  // ---------- Las que añadió el envío desde el ERP (lib/fba/inbound-v2024.ts) ----------
+  | 'listInboundPlans'
+  | 'getInboundPlan'
+  | 'listInboundPlanBoxes'
+  | 'generateDeliveryWindowOptions'
+  | 'listDeliveryWindowOptions'
+  | 'confirmDeliveryWindowOptions'
+  | 'getLabels'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -247,6 +255,15 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   // Ofertas de un ASIN AJENO (la competencia). 0,1 por segundo: UNA CADA DIEZ SEGUNDOS, 20 ASIN por llamada. Por eso el seguimiento diario va con
   // presupuesto (lib/seo/rivales-servidor.ts) y no pasa de unas pocas llamadas por pasada.
   getItemOffersBatch: { rate: 0.1, burst: 1 },
+  // Las del envío desde el ERP. Igual que arriba: leer ráfaga 6, escribir ráfaga 2.
+  listInboundPlans: { rate: 2, burst: 6 },
+  getInboundPlan: { rate: 2, burst: 6 },
+  listInboundPlanBoxes: { rate: 2, burst: 6 },
+  generateDeliveryWindowOptions: { rate: 2, burst: 2 },
+  listDeliveryWindowOptions: { rate: 2, burst: 6 },
+  confirmDeliveryWindowOptions: { rate: 2, burst: 2 },
+  // getLabels es de la API v0 (2 por segundo, ráfaga 30). Es la que da las etiquetas de caja y la de UPS
+  getLabels: { rate: 2, burst: 30 },
 }
 
 export function sleep(ms: number): Promise<void> {

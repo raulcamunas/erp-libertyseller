@@ -569,6 +569,25 @@ export async function GET(request: NextRequest) {
       )
     )
 
+    // La API de envíos 2024-03-20 (crear el envío desde el ERP). SOLO LEE: lista un plan, no crea nada
+    sondas.push(
+      await sondar(
+        {
+          nombre: 'listInboundPlans (2024-03-20)',
+          rol: 'Logística de Amazon',
+          para: 'Crear el envío a FBA desde el ERP (plan, cajas, reparto, transporte UPS y etiquetas). Las escrituras siguen sin probar hasta el primer envío real.',
+        },
+        async () => {
+          const { httpStatus } = await spApiRequest<unknown>(credentials, 'listInboundPlans', {
+            method: 'GET',
+            path: '/inbound/fba/2024-03-20/inboundPlans',
+            query: { pageSize: 1 },
+          })
+          return { httpStatus }
+        }
+      )
+    )
+
     const ledger = sondas.find((s) => s.nombre.includes('LEDGER'))
 
     return NextResponse.json({

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowRightLeft, Boxes, CheckCircle2, ClipboardList, Eye, FileSpreadsheet, History, Link2, Link2Off, PenLine, RefreshCw, Send, Tags, Undo2, type LucideIcon } from 'lucide-react'
+import { ArrowRightLeft, Boxes, CheckCircle2, ClipboardList, Eye, FileSpreadsheet, History, Link2, Link2Off, PenLine, RefreshCw, Send, Tags, Truck, Undo2, type LucideIcon } from 'lucide-react'
 import { Boton, EsqueletoTexto, EstadoVacio, LineaDeTiempo, Tarjeta, type Hito } from '@/components/ui-ls'
 import type { TonoEstado } from '@/lib/estilo/denso'
 import { quienLoHizo, tituloDeEvento, tonoDeEvento, type AccionDeHistorial, type EventoDeHistorial, type TonoDeEvento } from '@/lib/fba/historial'
@@ -30,6 +30,8 @@ const ICONO: Record<AccionDeHistorial, LucideIcon> = {
   manifiesto: FileSpreadsheet,
   embalaje: FileSpreadsheet,
   encaje_terminado: CheckCircle2,
+  envio_amazon: Truck,
+  transporte_aceptado: CheckCircle2,
 }
 
 const TONO: Record<TonoDeEvento, TonoEstado> = { info: 'cian', ok: 'verde', aviso: 'ambar', peligro: 'rojo', neutro: 'gris' }
