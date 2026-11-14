@@ -84,6 +84,14 @@ export type AmazonOperation =
   | 'cancelInboundPlan'
   | 'updateShipmentTrackingDetails'
   | 'createMarketplaceItemLabels'
+  // ---------- Las que añadió el envío desde el ERP (lib/fba/inbound-v2024.ts) ----------
+  | 'listInboundPlans'
+  | 'getInboundPlan'
+  | 'listInboundPlanBoxes'
+  | 'generateDeliveryWindowOptions'
+  | 'listDeliveryWindowOptions'
+  | 'confirmDeliveryWindowOptions'
+  | 'getLabels'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -237,6 +245,15 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   cancelInboundPlan: { rate: 2, burst: 2 },
   updateShipmentTrackingDetails: { rate: 2, burst: 2 },
   createMarketplaceItemLabels: { rate: 2, burst: 30 },
+  // Las del envío desde el ERP. Igual que arriba: leer ráfaga 6, escribir ráfaga 2.
+  listInboundPlans: { rate: 2, burst: 6 },
+  getInboundPlan: { rate: 2, burst: 6 },
+  listInboundPlanBoxes: { rate: 2, burst: 6 },
+  generateDeliveryWindowOptions: { rate: 2, burst: 2 },
+  listDeliveryWindowOptions: { rate: 2, burst: 6 },
+  confirmDeliveryWindowOptions: { rate: 2, burst: 2 },
+  // getLabels es de la API v0 (2 por segundo, ráfaga 30). Es la que da las etiquetas de caja y la de UPS
+  getLabels: { rate: 2, burst: 30 },
 }
 
 export function sleep(ms: number): Promise<void> {
