@@ -22,16 +22,6 @@ export default async function PhoneNumbersPage() {
     .select('*')
     .order('position', { ascending: true, nullsFirst: false })
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="heading-medium text-white mb-1">Teléfonos</h1>
-        <p className="text-white/50 text-sm">
-          Los números que usamos y para qué es cada uno.
-        </p>
-      </div>
-
-      <PhoneNumbersTable initialRows={(rows as PhoneNumber[]) || []} />
-    </div>
-  )
+  // La cabecera, el buscador y la tabla los pinta el componente (con el kit visual común)
+  return <PhoneNumbersTable initialRows={(rows as PhoneNumber[]) || []} />
 }
