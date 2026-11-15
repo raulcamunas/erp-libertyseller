@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarClock, CheckCheck, CircleAlert, Info, ListChecks, RotateCcw, TriangleAlert } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { CAJA, Segmentado, TiraDeCifras } from '@/components/marketing-test/piezas'
+import { CAJA, Segmentado } from '@/components/marketing-test/piezas'
 import { entero } from '@/components/marketing-test/formato'
 import { Vacio } from '@/components/plataforma/comun'
 import { tareasDeLaCuenta, type Tarea } from '@/lib/seo/tareas'
 import type { Gravedad } from '@/lib/seo/norma'
-import { BotonCopiar, fichaDe, IrA, nombreDe } from './comun'
+import { BotonCopiar, DeslizableEnMovil, fichaDe, IrA, nombreDe, SELECT_PEQUENO, TiraDeCifrasSeo } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 
 type Filtro = 'todas' | 'graves' | 'seo' | 'otros'
@@ -93,7 +93,7 @@ export function PestanaSeoHoy({ cuentaId, datos, irA }: { cuentaId: string; dato
 
   return (
     <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
-      <TiraDeCifras
+      <TiraDeCifrasSeo
         cifras={[
           { etiqueta: 'Urgentes', valor: entero(pendientes.filter((t) => t.gravedad === 'grave').length), nota: 'fuera de norma o caídas fuertes', color: pendientes.some((t) => t.gravedad === 'grave') ? COLOR_ESTADO.rojo : undefined },
           { etiqueta: 'Esta semana', valor: entero(pendientes.filter((t) => t.gravedad === 'atencion').length), nota: 'mejoras con impacto', color: pendientes.some((t) => t.gravedad === 'atencion') ? COLOR_ESTADO.ambar : undefined },
@@ -103,6 +103,7 @@ export function PestanaSeoHoy({ cuentaId, datos, irA }: { cuentaId: string; dato
       />
 
       <div className="flex flex-wrap items-center gap-2">
+        <DeslizableEnMovil>
         <Segmentado
           etiqueta="Qué tareas"
           opciones={[
@@ -114,10 +115,11 @@ export function PestanaSeoHoy({ cuentaId, datos, irA }: { cuentaId: string; dato
           valor={filtro}
           cambiar={(v) => setFiltro(v as Filtro)}
         />
+        </DeslizableEnMovil>
         {datos.productos.length > 1 && (
-          <label className="inline-flex min-w-0 items-center gap-2">
-            <span className="text-[12px] text-[var(--ls-t4)]">Producto</span>
-            <select value={producto} onChange={(e) => setProducto(e.target.value)} className="h-[30px] max-w-[320px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[12.5px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)]">
+          <label className="flex w-full min-w-0 items-center gap-2 sm:inline-flex sm:w-auto">
+            <span className="shrink-0 text-[12px] text-[var(--ls-t4)]">Producto</span>
+            <select value={producto} onChange={(e) => setProducto(e.target.value)} className={`${SELECT_PEQUENO} sm:max-w-[320px]`}>
               <option value="todos">Todos ({datos.productos.length})</option>
               {datos.productos.map((p) => (
                 <option key={p.id} value={p.asin}>

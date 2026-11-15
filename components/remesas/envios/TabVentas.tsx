@@ -168,7 +168,7 @@ function MapaDeCalor({
           <table className="border-separate border-spacing-0">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-30 h-[26px] min-w-[230px] border-b border-r border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-left text-[11px] font-semibold text-[var(--ls-t4)]">
+                <th className="sticky left-0 top-0 z-30 h-[26px] min-w-[140px] border-b lg:min-w-[230px] border-r border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-left text-[11px] font-semibold text-[var(--ls-t4)]">
                   Producto
                 </th>
                 {columnas.map((d) => (
@@ -186,7 +186,7 @@ function MapaDeCalor({
                 <tr key={f.sku} className="group">
                   <th
                     scope="row"
-                    className="sticky left-0 z-10 h-[28px] max-w-[260px] cursor-pointer truncate border-b border-r border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2 text-left text-[12px] font-normal text-[var(--ls-t2)] group-hover:bg-[var(--ls-sup3)]"
+                    className="sticky left-0 z-10 h-[28px] max-w-[150px] cursor-pointer lg:max-w-[260px] truncate border-b border-r border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2 text-left text-[12px] font-normal text-[var(--ls-t2)] group-hover:bg-[var(--ls-sup3)]"
                     title={`${f.nombre ?? f.sku} — pulsa para ver solo este producto`}
                     onClick={() => onElegir(f.sku)}
                   >

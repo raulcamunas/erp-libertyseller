@@ -155,11 +155,11 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos }
                         const donde = p.enBullets ? 'en viñetas' : p.enBackend ? 'en backend' : 'en ninguna parte'
                         return (
                           <div key={p.palabra} className="flex items-center gap-2">
-                            <span className="rounded-[6px] bg-[var(--ls-sup2)] px-[7px] py-[2px] text-[12.5px] font-medium text-[var(--ls-t1)]">{p.palabra}</span>
-                            <span className="text-[11px] text-[var(--ls-t4)]">
+                            <span className="shrink-0 rounded-[6px] bg-[var(--ls-sup2)] px-[7px] py-[2px] text-[12.5px] font-medium text-[var(--ls-t1)]">{p.palabra}</span>
+                            <span className="min-w-0 flex-1 text-[11px] text-[var(--ls-t4)]">
                               {entero(p.compras)} compras · {entero(p.volumen)} búsquedas · en {p.busquedas} {p.busquedas === 1 ? 'búsqueda' : 'búsquedas'}
                             </span>
-                            <span className="ml-auto text-[11px]" style={{ color: p.enBullets || p.enBackend ? 'var(--ls-t3)' : COLOR_ESTADO.ambar }}>
+                            <span className="ml-auto shrink-0 whitespace-nowrap text-[11px]" style={{ color: p.enBullets || p.enBackend ? 'var(--ls-t3)' : COLOR_ESTADO.ambar }}>
                               {donde}
                             </span>
                           </div>
@@ -317,11 +317,12 @@ function Bloque({ titulo, medida, lleno, alerta, copiar, children }: { titulo: s
     <section className={CAJA.base}>
       <header className={`${CAJA.cabecera} justify-between`}>
         <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">{titulo}</h3>
-        <div className="flex items-center gap-2">
-          <div className="h-[5px] w-[80px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* La barra, desde sm: en el móvil quitaba sitio al título y la medida partía en dos líneas */}
+          <div className="hidden h-[5px] w-[80px] shrink-0 overflow-hidden rounded-full bg-[var(--ls-sup2)] sm:block">
             <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(lleno > 0 ? 2 : 0, lleno * 100))}%`, background: alerta ? COLOR_ESTADO.ambar : COLOR_ESTADO.verde }} />
           </div>
-          <span className="text-[11px] tabular-nums" style={{ color: alerta ? COLOR_ESTADO.ambar : 'var(--ls-t4)' }}>{medida}</span>
+          <span className="text-right text-[11px] tabular-nums" style={{ color: alerta ? COLOR_ESTADO.ambar : 'var(--ls-t4)' }}>{medida}</span>
           {copiar != null && <BotonCopiar texto={copiar} compacto />}
         </div>
       </header>

@@ -75,11 +75,12 @@ export function TabAlmacen({ filas, nombreArchivo }: { filas: FilaProducto[]; no
       </div>
 
       <Tarjeta cuerpo={false}>
-        <div className="max-h-[calc(100vh-300px)] min-h-[260px] overflow-auto">
+        {/* En el móvil la tabla crece con la página (sin alto máximo: un scroll de casi una pantalla dentro de otro se quedaba con el dedo) y la columna fija del producto es estrecha, para que se vean las cifras al deslizar de lado. Desde lg, como siempre */}
+        <div className="overflow-auto lg:max-h-[calc(100vh-300px)] lg:min-h-[260px]">
           <table className={TABLA.tabla}>
             <thead>
               <tr>
-                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[230px]')}>Producto</th>
+                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[230px]')}>Producto</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)}>Recibidas</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)}>Vendidas</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)}>Quedan</th>
@@ -96,7 +97,7 @@ export function TabAlmacen({ filas, nombreArchivo }: { filas: FilaProducto[]; no
             <tbody>
               {visibles.map((f) => (
                 <tr key={f.sku} className={cx(TABLA.fila, f.quedan === 0 && 'opacity-60')}>
-                  <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[270px]')}>
+                  <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[270px]')}>
                     <div className="flex items-baseline gap-2 overflow-hidden">
                       <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{f.sku}</span>
                       <span className="truncate text-[var(--ls-t1)]" title={f.nombre ?? ''}>

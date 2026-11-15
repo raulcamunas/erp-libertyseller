@@ -420,7 +420,10 @@ function DialogoAceptar({
   }
 
   return (
-    <motion.div className="fixed inset-0 z-50 flex items-end justify-center bg-[#141414]/50 p-0 sm:items-center sm:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onCerrar}>
+    // EN EL MÓVIL ES UNA HOJA DESDE ABAJO QUE NO PASA DEL ALTO VISIBLE Y HACE SCROLL DENTRO. Con el teclado abierto (el nombre tiene el foco
+    // nada más abrir) la hoja entera no cabía y el botón «Acepto» quedaba debajo del teclado sin forma de llegar a él; y el scroll se
+    // escapaba a la página de detrás (overscroll-contain lo para)
+    <motion.div className="fixed inset-0 z-50 flex items-end justify-center overscroll-contain bg-[#141414]/50 p-0 sm:items-center sm:p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onCerrar}>
       <motion.div
         role="dialog"
         aria-modal="true"
@@ -430,7 +433,7 @@ function DialogoAceptar({
         exit={{ y: 40, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 380, damping: 34 }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[520px] rounded-t-3xl bg-[#FFFFFF] px-6 pb-6 pt-5 shadow-[0_30px_80px_-30px_rgba(20,20,20,0.7)] sm:rounded-3xl"
+        className="max-h-[100dvh] w-full max-w-[520px] overflow-y-auto overscroll-contain rounded-t-3xl bg-[#FFFFFF] px-6 pb-6 pt-5 shadow-[0_30px_80px_-30px_rgba(20,20,20,0.7)] sm:rounded-3xl"
       >
         <h2 id="titulo-aceptar" className="text-[22px] text-[#141414]" style={{ fontFamily: FUENTE_TITULO, fontWeight: 600 }}>
           Aceptar la propuesta

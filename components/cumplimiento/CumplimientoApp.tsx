@@ -77,7 +77,8 @@ export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pesta
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-3">
+    // Alto fijo solo desde md (ver app/dashboard/cumplimiento/page.tsx): en el móvil todo crece y hace scroll la ventana, sin cajas con scroll dentro
+    <div className="flex gap-3 md:h-full md:min-h-0">
       <BarraDeClientes
         titulo="Cumplimiento"
         icono={<ClipboardCheck className="h-[17px] w-[17px]" />}
@@ -98,7 +99,7 @@ export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pesta
         }
         elegir={elegir}
       />
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col md:h-full md:min-h-0">
         {/* En el móvil la barra lateral no cabe: cliente y país en dos desplegables */}
         <div className="mb-3 grid shrink-0 grid-cols-2 gap-2 md:hidden">
           <select aria-label="Cliente" value={cliente.slug} onChange={(e) => { const c = clientes.find((x) => x.slug === e.target.value); if (c) elegir(c.slug, c.cuentas[0]?.id ?? null) }} className={`h-[40px] min-w-0 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-[13px] font-medium text-[var(--ls-t1)] ${TACTIL}`}>
@@ -178,10 +179,11 @@ function Cuerpo({
         debajo={<Pestanas etiqueta="Cumplimiento" acento="cumplimiento" opciones={opciones} valor={activa} onCambio={(t) => irA(t)} idPanel="cumplimiento-panel" />}
       />
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto pt-1">
+      {/* Desde md, el contenido baja aquí dentro con la cabecera quieta; en el móvil no hay scroll interior (lo hace la ventana) */}
+      <div className="min-w-0 pt-1 md:min-h-0 md:flex-1 md:overflow-auto">
         <PanelDePestana id="cumplimiento-panel" key={activa}>
           {activa === 'listings' ? (
-            <div className="flex h-full min-h-[520px] flex-col">
+            <div className="flex min-h-[520px] flex-col md:h-full">
               <TableroCumplimiento
                 key={`${cliente.slug}|${mercado}|${JSON.stringify(filtroListings)}|${vuelta}`}
                 slug={cliente.slug}

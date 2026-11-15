@@ -97,6 +97,7 @@ export function CitasDelCiclo({
   const [fecha, setFecha] = useState('')
   const [importe, setImporte] = useState('')
   const [aQuitar, setAQuitar] = useState<CitaDelCiclo | null>(null)
+  // Los campos van a 16 px con el dedo ([@media(pointer:coarse)]): con menos, iOS amplía la página al enfocarlos y no la devuelve
 
   const importeTexto = importe.trim().replace(',', '.')
   const importeLeido = importeTexto === '' ? null : Number(importeTexto)
@@ -176,7 +177,7 @@ export function CitasDelCiclo({
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
               placeholder="Ej.: Zapatos Martínez"
-              className="h-11 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[14px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]"
+              className="h-11 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[14px] text-[var(--ls-t1)] outline-none [@media(pointer:coarse)]:text-[16px] placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]"
             />
           </label>
           <label className="block">
@@ -185,7 +186,7 @@ export function CitasDelCiclo({
               type="date"
               value={fecha}
               onChange={(e) => setFecha(e.target.value)}
-              className="h-11 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[14px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)] [color-scheme:dark] [html.light_&]:[color-scheme:light]"
+              className="h-11 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[14px] text-[var(--ls-t1)] outline-none [@media(pointer:coarse)]:text-[16px] focus:border-[var(--ls-acc-graf)] [color-scheme:dark] [html.light_&]:[color-scheme:light]"
             />
           </label>
           <label className="block">
@@ -197,7 +198,7 @@ export function CitasDelCiclo({
                 inputMode="decimal"
                 placeholder={String(resolveRate(rates, fecha || claveCiclo).commission)}
                 aria-invalid={importeMalo || undefined}
-                className={`h-11 w-full rounded-[10px] border bg-[var(--ls-sup2)] pl-3 pr-8 text-[14px] tabular-nums text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] ${importeMalo ? 'border-[var(--ls-e-rojo)]' : 'border-[var(--ls-linea2)]'}`}
+                className={`h-11 w-full rounded-[10px] border bg-[var(--ls-sup2)] pl-3 pr-8 text-[14px] tabular-nums text-[var(--ls-t1)] outline-none [@media(pointer:coarse)]:text-[16px] placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] ${importeMalo ? 'border-[var(--ls-e-rojo)]' : 'border-[var(--ls-linea2)]'}`}
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-[var(--ls-t4)]">$</span>
             </div>

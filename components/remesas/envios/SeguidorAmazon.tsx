@@ -106,7 +106,9 @@ export function SeguidorAmazon({
 
   return (
     <div>
-      <ol className="flex items-center gap-2" aria-label="Recorrido del envío en Amazon">
+      {/* Si los siete pasos no caben (un teléfono, o un portátil sin la columna de la derecha) la fila se desliza de lado. Antes cada paso
+          encogía pero su rótulo no, y los rótulos se pintaban unos encima de otros («CrEnEnRe…») */}
+      <ol className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Recorrido del envío en Amazon">
         {PASOS_AMAZON.map((paso, i) => {
           const hecho = !sinDato && i < actual
           const enCurso = !sinDato && i === actual
@@ -115,7 +117,7 @@ export function SeguidorAmazon({
           const fecha = fechas[i]
           const ultimo = i === PASOS_AMAZON.length - 1
           return (
-            <li key={paso.id} className={cx('flex min-w-0 items-center gap-2', !ultimo && 'flex-1')}>
+            <li key={paso.id} className={cx('flex items-center gap-2', !ultimo && 'flex-1')}>
               <span
                 className="relative flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full border-2 bg-[var(--ls-sup)]"
                 style={{

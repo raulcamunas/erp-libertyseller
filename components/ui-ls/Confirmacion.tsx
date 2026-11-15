@@ -5,6 +5,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Boton, FOCO, TACTIL } from './Boton'
+import { useAltoDelTeclado } from './useAltoDelTeclado'
 import { palabraCoincide } from './utilidades'
 
 /**
@@ -36,6 +37,9 @@ export function Confirmacion({ abierto, onCambio, titulo, descripcion, palabra =
   const [escrito, setEscrito] = useState('')
   const [trabajando, setTrabajando] = useState(false)
   const idCampo = useId()
+  // El campo de la palabra coge el foco al abrir y en el móvil sale el teclado: el diálogo se centra en lo que queda visible encima, o el botón de confirmar
+  // quedaría tapado (15 nov 2026, 375×740: el botón acababa en y=531 y el teclado empieza hacia y=440)
+  const teclado = useAltoDelTeclado(abierto)
 
   // Cada vez que se abre, la palabra se vuelve a escribir
   useEffect(() => {
@@ -63,9 +67,10 @@ export function Confirmacion({ abierto, onCambio, titulo, descripcion, palabra =
       <Alerta.Portal>
         <Alerta.Overlay className="fixed inset-0 z-[70] bg-[rgba(6,7,9,0.66)] backdrop-blur-[3px] data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 motion-reduce:animate-none" />
         <Alerta.Content
+          style={{ ['--ls-teclado' as string]: `${teclado}px` }}
           className={cn(
             // Centrado con inset-0 + margin auto (y no con translate -50 %): así la animación de zoom no lo descoloca al empezar
-            'fixed inset-0 z-[70] m-auto h-fit max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[440px] overflow-y-auto rounded-[18px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-3)] outline-none',
+            'fixed inset-x-0 bottom-[var(--ls-teclado,0px)] top-0 z-[70] m-auto h-fit max-h-[calc(100dvh-2rem-var(--ls-teclado,0px))] w-[calc(100vw-2rem)] max-w-[440px] overflow-y-auto rounded-[18px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-3)] outline-none',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-[0.97] data-[state=closed]:zoom-out-[0.97] motion-reduce:animate-none',
           )}
         >
@@ -111,7 +116,7 @@ export function Confirmacion({ abierto, onCambio, titulo, descripcion, palabra =
                   spellCheck={false}
                   autoFocus
                   className={cn(
-                    'mt-2 h-10 w-full rounded-[10px] border bg-[var(--ls-sup2)] px-3 font-mono text-[14px] tracking-[0.04em] text-[var(--ls-t1)] placeholder:text-[var(--ls-t4)] transition-colors',
+                    'mt-2 h-10 w-full rounded-[10px] border bg-[var(--ls-sup2)] px-3 font-mono text-[14px] tracking-[0.04em] text-[var(--ls-t1)] placeholder:text-[var(--ls-t4)] transition-colors [@media(pointer:coarse)]:text-[16px]',
                     TACTIL,
                     FOCO,
                     listo ? 'border-[color-mix(in_srgb,var(--ls-e-verde)_55%,transparent)]' : 'border-[var(--ls-linea2)]',

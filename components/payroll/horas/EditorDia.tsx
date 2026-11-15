@@ -155,9 +155,18 @@ export function EditorDia({
         <input
           value={nota}
           onChange={(e) => setNota(e.target.value)}
+          /* Con el teclado del móvil abierto, la hoja inferior queda tapada justo donde está «Guardar»: el Intro del
+             teclado («Hecho») guarda desde la nota, igual que desde las horas */
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              void guardar()
+            }
+          }}
+          enterKeyHint="done"
           maxLength={200}
           placeholder="Ej.: salí antes por médico"
-          className="h-10 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none transition-colors placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] [@media(pointer:coarse)]:h-11"
+          className="h-10 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none transition-colors placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-[16px]"
         />
       </label>
 

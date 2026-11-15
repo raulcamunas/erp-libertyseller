@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -57,10 +58,11 @@ const MESES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
 
+// 16 px con el dedo: con menos, iOS amplía la página al enfocar la casilla y no la devuelve
 const campo =
-  'w-full rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-right text-[13px] tabular-nums text-white outline-none transition-colors focus:border-[#FF6600]'
+  'w-full rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-right text-[13px] tabular-nums text-white outline-none transition-colors focus:border-[#FF6600] [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-[16px]'
 
-/** Una fila del año: un mes, su precio/hora, su comisión por cita y la de la semi-cualificada */
+/** Una fila del año: un mes, su precio/hora, su comisión por cita y la de la semi-cualificada. En el móvil las casillas bajan a 60 px para que el nombre del mes no se quede en una columna de 50 px */
 function FilaMes({
   mesKey,
   nombre,
@@ -182,7 +184,7 @@ function FilaMes({
 
   return (
     <div
-      className={`grid grid-cols-[1fr_72px_72px_72px] items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
+      className={`grid grid-cols-[1fr_60px_60px_60px] sm:grid-cols-[1fr_72px_72px_72px] items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
         esteMes
           ? 'border-[#FF6600]/40 bg-[#FF6600]/[0.06]'
           : sinTarifa
@@ -274,7 +276,29 @@ export function RateSettings({
 
   const conTarifa = meses.filter((m) => m.fila).length
 
-  return (
+  /**
+   * MIENTRAS ESTÁ ABIERTO, LA PÁGINA DE DETRÁS NO SE MUEVE, y Escape cierra.
+   *
+   * Sin esto, en el móvil deslizar por la lista de meses arrastraba la página de debajo (medido: 589 px de scroll de
+   * fondo en cuatro deslizamientos dentro del diálogo). Se guarda y se devuelve lo que hubiera en el body.
+   */
+  useEffect(() => {
+    const antes = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', tecla)
+    return () => {
+      document.body.style.overflow = antes
+      window.removeEventListener('keydown', tecla)
+    }
+  }, [onClose])
+
+  /**
+   * EN UN PORTAL AL BODY. Dentro de la página, `fixed` se colocaba respecto al recuadro animado de la ruta (su animación
+   * de entrada deja un transform puesto) y no respecto a la ventana: en el móvil el diálogo salía centrado en una caja de
+   * 2.300 px de alto, a 900 px de la parte de arriba, fuera de la pantalla. Solo se veía el fondo oscuro.
+   */
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0 }}
@@ -286,7 +310,7 @@ export function RateSettings({
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.18 }}
-        className="relative max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d0d] p-4 shadow-2xl"
+        className="relative max-h-[88dvh] w-full max-w-xl overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-[#0d0d0d] p-4 shadow-2xl"
       >
         <div className="mb-1 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-[15px] font-semibold text-white">
@@ -295,7 +319,8 @@ export function RateSettings({
           <button
             type="button"
             onClick={onClose}
-            className="text-white/40 transition-colors hover:text-white"
+            aria-label="Cerrar"
+            className="flex items-center justify-center text-white/40 transition-colors hover:text-white [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
           >
             <X className="h-4 w-4" />
           </button>
@@ -330,7 +355,7 @@ export function RateSettings({
           </button>
         </div>
 
-        <div className="mb-1 grid grid-cols-[1fr_72px_72px_72px] gap-2 px-2.5 text-[9.5px] font-semibold uppercase tracking-wider text-white/35">
+        <div className="mb-1 grid grid-cols-[1fr_60px_60px_60px] sm:grid-cols-[1fr_72px_72px_72px] gap-2 px-2.5 text-[9.5px] font-semibold uppercase tracking-wider text-white/35">
           <span>Mes</span>
           <span className="text-right">$/hora</span>
           <span className="text-right">$/cita</span>
@@ -357,6 +382,7 @@ export function RateSettings({
           mes, vacía sus tres casillas.
         </p>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   )
 }

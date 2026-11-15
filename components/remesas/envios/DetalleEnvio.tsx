@@ -227,7 +227,8 @@ export function DetalleEnvio({
               )}
             </div>
 
-            <div className="flex shrink-0 items-center gap-[6px]">
+            {/* flex-wrap: en el móvil los botones no caben en una fila y, sin bajar de línea, se salían por la izquierda de la tarjeta */}
+            <div className="flex flex-wrap items-center gap-[6px]">
               {/* Para cualquiera que pueda ver el envío, no solo para quien lo edita: es lo que se le manda al cliente */}
               {!editando && <BotonInformePdf remesaId={remesa.id} sinLineas={remesa.lineas.length === 0} />}
               {estaEnlazada(remesa) && puedeEditar && !editando && (

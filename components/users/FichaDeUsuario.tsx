@@ -196,7 +196,8 @@ export function FichaDeUsuario({ abierto, usuario, actorId, onCerrar, onGuardado
       {!creando && (
         <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] font-medium text-[var(--ls-t1)]" aria-live="polite">
           <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
-            <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--ls-e-ambar)] opacity-60 motion-safe:animate-ping" />
+            {/* En el móvil late 3 veces y se para (un latido infinito recalcula estilos en cada fotograma); en el ordenador, siempre. Como la Insignia «viva» del kit. */}
+            <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--ls-e-ambar)] opacity-60 motion-safe:animate-ping max-lg:![animation-iteration-count:3]" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--ls-e-ambar)]" />
           </span>
           {cambios} {cambios === 1 ? 'cambio sin guardar' : 'cambios sin guardar'}
@@ -248,7 +249,9 @@ export function FichaDeUsuario({ abierto, usuario, actorId, onCerrar, onGuardado
         }
         pie={pie}
       >
-        <div className="-mt-1 flex flex-col gap-4">
+        {/* En el móvil la hoja tiene SIEMPRE el alto máximo: crece con su contenido y Perfil es corto y Accesos larguísimo, así que al cambiar de pestaña
+            la hoja entera saltaba arriba y abajo (15 nov 2026, 375×740: el borde de arriba pasaba de y=108 a y=59). En el ordenador el panel ya va a toda altura. */}
+        <div className="-mt-1 flex flex-col gap-4 max-lg:min-h-[calc(92dvh-11rem)]">
           <Pestanas etiqueta="Secciones de la ficha" acento="personas" opciones={opciones} valor={pestana} onCambio={setPestana} idPanel="ficha-usuario" />
 
           <PanelDePestana id="ficha-usuario" key={pestana}>

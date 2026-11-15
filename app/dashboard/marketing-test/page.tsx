@@ -55,8 +55,11 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
   const cliente = paraLaBarra.find((c) => c.slug === uno(searchParams.c)) ?? paraLaBarra[0]
   const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
+  // Altura fija SOLO en escritorio (lg): ahí la pantalla tiene su propio scroll interno y la cabecera se queda a la vista. En el móvil y la tableta la página corre con el
+  // scroll de la ventana: con `h-[calc(100dvh-8rem)]` la cabecera (título, desplegables y pestañas, ~360 px) se quedaba clavada y el contenido se leía en una caja de 380 px de
+  // 740, con una franja vacía debajo, el dedo no pasaba de la caja a la página y, al esconderse la barra de direcciones, el `dvh` cambiaba y la caja se volvía a maquetar
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex flex-col min-w-0 lg:h-[calc(100vh-4rem)]">
       <MarketingTest clientes={paraLaBarra} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'resumen'} />
     </div>
   )

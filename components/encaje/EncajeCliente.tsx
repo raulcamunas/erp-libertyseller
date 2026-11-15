@@ -360,8 +360,9 @@ function Confirmacion({ resumen, terminando, motivos, onCancelar, onConfirmar }:
   }, [onCancelar, terminando])
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#0E0E0E]/60 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-confirmar">
-      <div className="w-full max-w-[470px] rounded-2xl bg-[#FFFFFF] p-6 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]">
+    // Con muchos motivos o en un teléfono apaisado la tarjeta puede no caber: hace scroll ella, sin arrastrar la página de detrás
+    <div className="fixed inset-0 z-50 grid place-items-center overscroll-contain bg-[#0E0E0E]/60 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-confirmar">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-[470px] overflow-y-auto overscroll-contain rounded-2xl bg-[#FFFFFF] p-6 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]">
         <h2 id="titulo-confirmar" className="text-[21px] leading-tight text-[#141414]" style={{ fontFamily: FUENTE_TITULO, fontWeight: 600 }}>
           ¿Has terminado de encajar?
         </h2>

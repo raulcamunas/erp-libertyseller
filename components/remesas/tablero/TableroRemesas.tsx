@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { AlarmClock, Boxes, CalendarClock, ClipboardCheck, Hourglass, KanbanSquare, Package, RefreshCw, Search, UserRound, Users } from 'lucide-react'
 import { Boton, EsqueletoTarjeta, EstadoVacio, FilaDeKpis, Insignia, Kpi, Segmentado, Tarjeta } from '@/components/ui-ls'
 import type { TonoEstado } from '@/lib/estilo/denso'
@@ -25,6 +25,24 @@ const POR_COLUMNA = 30
 
 type Filtro = 'todas' | 'mias' | 'vencidas'
 
+/**
+ * ¿PANTALLA DE ORDENADOR (lg o más)?
+ *
+ * El punto que late de «te toca» va en CADA tarjeta: con siete u ocho a la vista, en un móvil medio (CPU x4) esas animaciones infinitas
+ * costaban 0,65 s de hilo principal por cada 3 s de scroll (600 recálculos de estilo frente a 20 sin ellas) y el scroll daba tirones. En
+ * el móvil el punto se queda fijo —sigue diciendo de quién es el turno—; en el ordenador late como siempre. Vale también para el «Revisar»
+ * de la columna: con UNA sola animación de estas ya se recalculan los estilos en cada fotograma (medido: 600 recálculos en 3 s).
+ */
+const CONSULTA_ANCHO = '(min-width: 1024px)'
+function suscribirAncho(avisar: () => void) {
+  const m = window.matchMedia(CONSULTA_ANCHO)
+  m.addEventListener('change', avisar)
+  return () => m.removeEventListener('change', avisar)
+}
+function useEsAncho(): boolean {
+  return useSyncExternalStore(suscribirAncho, () => window.matchMedia(CONSULTA_ANCHO).matches, () => true)
+}
+
 export function TableroRemesas({
   verComo,
   clientes,
@@ -41,6 +59,7 @@ export function TableroRemesas({
   const [cliente, setCliente] = useState<string>('')
   const [texto, setTexto] = useState('')
   const [abiertas, setAbiertas] = useState<Set<ColumnaDelTablero>>(new Set())
+  const ancho = useEsAncho()
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -148,12 +167,12 @@ export function TableroRemesas({
                     {c.texto}
                     <span className="ml-2 tabular-nums text-[var(--ls-t4)]">{lista.length}</span>
                   </h3>
-                  {c.id === 'revision' && lista.length > 0 && <Insignia tono="naranja" vivo tamano="sm">Revisar</Insignia>}
+                  {c.id === 'revision' && lista.length > 0 && <Insignia tono="naranja" vivo={ancho} tamano="sm">Revisar</Insignia>}
                 </header>
                 {lista.length === 0 ? (
                   <p className="rounded-[14px] border border-dashed border-[var(--ls-linea2)] px-3 py-5 text-center text-[12.5px] text-[var(--ls-t4)]">Nada aquí</p>
                 ) : (
-                  enseñadas.map((t, i) => <TarjetaRemesa key={t.id} t={t} indice={i < 8 ? i : undefined} verComo={verComo} onClick={() => onAbrir(t)} />)
+                  enseñadas.map((t, i) => <TarjetaRemesa key={t.id} t={t} indice={i < 8 ? i : undefined} verComo={verComo} latido={ancho} onClick={() => onAbrir(t)} />)
                 )}
                 {lista.length > POR_COLUMNA && (
                   <Boton variante="fantasma" tamano="sm" onClick={() => setAbiertas((s) => new Set(s).add(c.id))} disabled={todas}>
@@ -169,7 +188,7 @@ export function TableroRemesas({
   )
 }
 
-function TarjetaRemesa({ t, indice, verComo, onClick }: { t: TarjetaDeTablero; indice?: number; verComo: Actor; onClick: () => void }) {
+function TarjetaRemesa({ t, indice, verComo, latido, onClick }: { t: TarjetaDeTablero; indice?: number; verComo: Actor; latido: boolean; onClick: () => void }) {
   const mia = t.quien === verComo
   return (
     <Tarjeta variante="interactiva" acento="remesas" indice={indice} onClick={onClick} aria-label={`Abrir ${t.nombre ?? 'la remesa'} de ${t.clienteNombre}`} cuerpoClassName="!p-3">
@@ -178,7 +197,7 @@ function TarjetaRemesa({ t, indice, verComo, onClick }: { t: TarjetaDeTablero; i
           <p className="truncate text-[11.5px] font-semibold uppercase tracking-wide text-[var(--ls-mod-remesas)]">{t.clienteNombre}</p>
           <p className="mt-0.5 line-clamp-2 text-[13.5px] font-medium leading-snug text-[var(--ls-t1)]">{t.nombre ?? 'Propuesta sin nombre'}</p>
         </div>
-        <Insignia tono={mia ? 'naranja' : 'gris'} tamano="sm" vivo={mia} title={verComo === 'agencia' ? t.turno.paraAgencia : t.turno.paraCliente}>
+        <Insignia tono={mia ? 'naranja' : 'gris'} tamano="sm" vivo={mia && latido} title={verComo === 'agencia' ? t.turno.paraAgencia : t.turno.paraCliente}>
           {t.quien === 'agencia' ? 'Agencia' : 'Cliente'}
         </Insignia>
       </div>

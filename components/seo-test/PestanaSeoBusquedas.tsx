@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Download, Megaphone, Search, Swords, TrendingUp } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { CAJA, Segmentado, TiraDeCifras } from '@/components/marketing-test/piezas'
+import { CAJA, Segmentado } from '@/components/marketing-test/piezas'
 import { dinero, entero, porcentaje } from '@/components/marketing-test/formato'
 import { Vacio } from '@/components/plataforma/comun'
 import { coberturaDe } from '@/lib/seo/cobertura'
@@ -12,7 +12,7 @@ import { resumenDeProducto } from '@/lib/seo/resumen'
 import type { ConsultaGuardada, FilaCompetencia } from '@/lib/seo/datos'
 import type { Veredicto } from '@/lib/seo/embudo'
 import type { BusquedaSinExacta } from '@/lib/seo/publicidad-calculo'
-import { consultasDe, DeltaPuntos, diagnosticoDe, EmbudoMini, EtiquetaDeVeredicto, estiloDeVeredicto, fichaDe, mapaAnterior, Marca, SelectorDeProducto, serieDe, TarjetaDeEmbudo } from './comun'
+import { consultasDe, DeltaPuntos, DeslizableEnMovil, diagnosticoDe, EmbudoMini, EtiquetaDeVeredicto, estiloDeVeredicto, fichaDe, mapaAnterior, Marca, SelectorDeProducto, serieDe, TarjetaDeEmbudo, TiraDeCifrasSeo, useEsOrdenador } from './comun'
 import { esRelevante, impactoDe } from '@/lib/seo/embudo'
 import { useDelProducto } from './useDelProducto'
 import type { DatosSeo } from './useCuentaSeo'
@@ -38,6 +38,7 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [orden, setOrden] = useState<Orden>('impacto')
   const [busqueda, setBusqueda] = useState('')
+  const esOrdenador = useEsOrdenador()
 
   const ficha = asin ? fichaDe(datos, asin) : null
   const consultas = useMemo(() => (asin ? consultasDe(datos, asin, periodo) : []), [datos, asin, periodo])
@@ -96,9 +97,10 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
             <Download className="h-[13px] w-[13px]" /> CSV
           </button>
         )}
-        <label className="relative">
+        <label className="relative w-full sm:w-auto">
           <span className="sr-only">Filtrar búsquedas</span>
-          <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
+          {/* Centrada en vertical: al dedo el campo mide 44 px y con top fijo la lupa quedaba arriba */}
+          <Search className="pointer-events-none absolute left-[10px] top-1/2 h-[13px] w-[13px] -translate-y-1/2 text-[var(--ls-t4)]" />
           <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Filtrar búsquedas" className="h-[30px] w-full rounded-[9px] sm:w-[220px] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:text-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]" />
         </label>
       </div>
@@ -113,7 +115,7 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
         </Vacio>
       ) : (
         <>
-          <TiraDeCifras
+          <TiraDeCifrasSeo
             cifras={[
               { etiqueta: 'Búsquedas', valor: entero(r.busquedas), nota: previo ? `antes ${entero(previo.busquedas)}` : undefined },
               { etiqueta: 'Volumen total', valor: entero(r.volumenTotal), nota: previo ? `antes ${entero(previo.volumen)}` : undefined },
@@ -127,6 +129,8 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
 
           {datos.lectura.mejoras && <TarjetaDeEvolucion serie={serie} periodo={periodo} />}
 
+          {/* Cinco opciones con textos largos: en el móvil medían 690 px y ensanchaban la página entera a 716 px (zoom fuera, la página bailaba de lado) */}
+          <DeslizableEnMovil>
           <Segmentado
             etiqueta="Qué búsquedas"
             opciones={[
@@ -139,8 +143,12 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
             valor={filtro}
             cambiar={(v) => setFiltro(v as Filtro)}
           />
+          </DeslizableEnMovil>
 
-          <TarjetasDeBusquedas filas={filas} />
+          {/* Las tarjetas son del móvil y la tabla del ordenador. Antes se pintaban las dos y una se escondía con CSS: en el móvil, cada letra del filtro
+              volvía a montar las 400 filas de la tabla escondida. Hasta saber el ancho (en el servidor) van las dos, como antes */}
+          {esOrdenador !== true && <TarjetasDeBusquedas filas={filas} />}
+          {esOrdenador !== false && (
           <div className={`${CAJA.base} hidden overflow-x-auto md:block`}>
             <table className={`w-full ${conCompetencia ? 'min-w-[1380px]' : 'min-w-[1140px]'} border-separate border-spacing-0 whitespace-nowrap text-[12.5px]`}>
               <thead>
@@ -205,6 +213,7 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
               </tbody>
             </table>
           </div>
+          )}
           <NotaDeCompetencia datos={datos} hay={conCompetencia} desde={competencia.datos?.desde ?? null} />
 
           <SinExacta publicidad={publicidad.datos} />
@@ -326,22 +335,23 @@ function SinExacta({ publicidad }: { publicidad: DatosDePublicidad | null }) {
   if (!publicidad || !publicidad.hayMarketingTest || publicidad.campanas === 0) return null
   return (
     <section className={CAJA.base}>
-      <header className={CAJA.cabecera}>
-        <Megaphone className="h-[14px] w-[14px] text-[var(--ls-t3)]" />
+      <header className={`${CAJA.cabecera} flex-wrap`}>
+        <Megaphone className="h-[14px] w-[14px] shrink-0 text-[var(--ls-t3)]" />
         <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Búsquedas que venden sin keyword EXACTA en Marketing Test</h3>
         <span className="ml-auto text-[11.5px] text-[var(--ls-t4)]">{publicidad.campanas} campañas del producto · solo sugerencias</span>
       </header>
+      {/* En el móvil la búsqueda va en su línea y las cifras debajo: con los tres anchos fijos (310 px) en la misma fila, el texto se quedaba en 0 px */}
       {publicidad.sinExacta.length === 0 ? (
         <p className={`${CAJA.cuerpo} text-[12.5px]`} style={{ color: COLOR_ESTADO.verde }}>Todas las búsquedas con compras ya tienen su keyword exacta.</p>
       ) : (
         <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
           {publicidad.sinExacta.map((b) => (
-            <div key={b.consulta} className="flex items-center gap-3 px-4 py-[8px]">
-              <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--ls-t1)]">{b.consulta}</span>
-              {b.enOtraConcordancia && <span className="rounded-[5px] bg-[var(--ls-sup2)] px-[6px] py-[1px] text-[10.5px] text-[var(--ls-t3)]" title="Ya se puja por ella en amplia o frase, pero no en exacta">en amplia/frase</span>}
-              <span className="w-[120px] text-right text-[11.5px] tabular-nums text-[var(--ls-t3)]">{entero(b.comprasTotal)} compras</span>
-              <span className="w-[110px] text-right text-[11.5px] tabular-nums text-[var(--ls-t4)]">{entero(b.volumen)} búsquedas</span>
-              <span className="w-[80px] text-right text-[11.5px] tabular-nums text-[var(--ls-t3)]" title="Tu cuota de compras en esa búsqueda">{porcentaje(b.cuotaCompras)}</span>
+            <div key={b.consulta} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-[8px] sm:flex-nowrap">
+              <span className="w-full min-w-0 truncate text-[12.5px] font-medium text-[var(--ls-t1)] sm:w-auto sm:flex-1">{b.consulta}</span>
+              {b.enOtraConcordancia && <span className="shrink-0 whitespace-nowrap rounded-[5px] bg-[var(--ls-sup2)] px-[6px] py-[1px] text-[10.5px] text-[var(--ls-t3)]" title="Ya se puja por ella en amplia o frase, pero no en exacta">en amplia/frase</span>}
+              <span className="whitespace-nowrap text-right text-[11.5px] tabular-nums text-[var(--ls-t3)] sm:w-[120px]">{entero(b.comprasTotal)} compras</span>
+              <span className="whitespace-nowrap text-right text-[11.5px] tabular-nums text-[var(--ls-t4)] sm:w-[110px]">{entero(b.volumen)} búsquedas</span>
+              <span className="ml-auto whitespace-nowrap text-right text-[11.5px] tabular-nums text-[var(--ls-t3)] sm:ml-0 sm:w-[80px]" title="Tu cuota de compras en esa búsqueda">{porcentaje(b.cuotaCompras)}</span>
             </div>
           ))}
         </div>

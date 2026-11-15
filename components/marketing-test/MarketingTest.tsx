@@ -86,11 +86,13 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
     escribirUrl(cliente.slug, cuenta?.id ?? null, t)
   }
 
+  // Alto fijo y scroll interno solo desde lg (escritorio). Por debajo todo fluye con el scroll de la ventana (ver app/dashboard/marketing-test/page.tsx): una caja con scroll
+  // propio dentro de una página que también se desliza es lo que en el móvil «se pillaba»
   return (
-    <div className="flex h-full min-h-0 gap-3">
+    <div className="flex min-w-0 gap-3 lg:h-full lg:min-h-0">
       <BarraDeClientes clientes={clientes} clienteSlug={cliente.slug} cuentaId={cuenta?.id ?? null} colapsada={colapsada} alternar={alternarBarra} elegir={elegir} />
 
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col lg:h-full lg:min-h-0">
         {/* ---- la cabecera del módulo (kit): quién y dónde, y las pestañas con su indicador animado ---- */}
         <div className="shrink-0 lg:pr-36">
           <CabeceraDeModulo
@@ -139,7 +141,7 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
           />
         </div>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-auto pt-1" id="panel-ppc" role="tabpanel">
+        <div className="min-w-0 flex-1 pt-1 lg:min-h-0 lg:overflow-auto" id="panel-ppc" role="tabpanel">
           {!cuenta ? (
             <EstadoVacio icono={Megaphone} acento="marketing" titulo="Este cliente no tiene ninguna cuenta de anunciante en uso" descripcion="Se encienden («Se usa») en Amazon API · Publicidad." />
           ) : activa === 'resumen' ? (

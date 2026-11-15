@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Check, ClipboardList, Package, Tags, Truck, type LucideIcon } from 'lucide-react'
 import { FASES_DEL_PORTAL, indiceDeFase, type FaseDelPortal } from '@/lib/fba/propuesta-cliente'
@@ -29,9 +30,20 @@ export function BarraDeFases({
   pegada?: boolean
 }) {
   const iActual = indiceDeFase(actual)
+  // En el móvil la tira se desliza de lado y la cuarta fase no cabe: al abrir «Cajas» o «Envío» la pestaña elegida quedaba cortada por el
+  // borde. Se mueve SOLO la tira, de lado (scrollIntoView movería también la página)
+  const tira = useRef<HTMLOListElement>(null)
+  useEffect(() => {
+    const t = tira.current
+    const b = t?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!t || !b || t.scrollWidth <= t.clientWidth) return
+    const caja = t.getBoundingClientRect()
+    const boton = b.getBoundingClientRect()
+    t.scrollTo({ left: t.scrollLeft + boton.left - caja.left - (caja.width - boton.width) / 2, behavior: 'smooth' })
+  }, [vista])
   return (
     <nav aria-label="Fases del envío" className={cx(pegada && 'sticky top-0 z-30', 'border-b border-[#E5E1DB] bg-[#F7F5F2]/95 backdrop-blur')}>
-      <ol className="mx-auto flex max-w-[1180px] gap-1 overflow-x-auto px-3 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden" role="tablist">
+      <ol ref={tira} className="mx-auto flex max-w-[1180px] gap-1 overflow-x-auto px-3 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden" role="tablist">
         {FASES_DEL_PORTAL.map((f, i) => {
           const Icono = ICONOS[f.id]
           const hecha = i < iActual

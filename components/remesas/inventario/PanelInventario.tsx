@@ -733,11 +733,12 @@ function Contenido({
 
           {/* ================= LA TABLA ================= */}
           <Tarjeta cuerpo={false} className="shrink-0 overflow-hidden">
-            <div className="max-h-[640px] overflow-auto">
+            {/* En el móvil la tabla crece con la página (sin alto máximo: un scroll de casi una pantalla dentro de otro se quedaba con el dedo) y la columna fija del producto es estrecha, para que se vean las cifras al deslizar de lado. Desde lg, como siempre */}
+            <div className="overflow-auto lg:max-h-[640px]">
               <table className={TABLA.tabla}>
                 <thead>
                   <tr>
-                    <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[300px]')}>Producto</th>
+                    <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[300px]')}>Producto</th>
                     {tramoActivo && (
                       <th className={cx(TABLA.cabecera, TABLA.derecha)} title={`Unidades de cada producto que están en el tramo ${tramoActivo.texto}`}>
                         {tramoActivo.id === 'anterior' ? 'Sin edad' : `En ${tramoActivo.texto.replace(' días', '')}`}
@@ -759,7 +760,7 @@ function Contenido({
                 <tbody>
                   {visibles.map((s) => (
                     <tr key={s.sku} className={cx(TABLA.fila, 'cursor-pointer', s.enAmazon === 0 && 'opacity-70')} onClick={() => setAbierta(s.sku)}>
-                      <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[360px]')}>
+                      <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[360px]')}>
                         <div className="flex items-baseline gap-2 overflow-hidden">
                           <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{s.sku}</span>
                           <span className="truncate text-[var(--ls-t1)]" title={s.nombre ?? ''}>

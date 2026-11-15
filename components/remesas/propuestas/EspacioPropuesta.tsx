@@ -131,8 +131,9 @@ export function EspacioPropuesta({
     <div className="flex h-full min-h-0 flex-col gap-2">
       {/* ================= FICHA ================= */}
       <header className="shrink-0 rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-[11px]">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
+        {/* flex-wrap: en el móvil los botones de la derecha bajan de línea; sin ello estrujaban la ficha a una columna de 120 px («Envío 8 · l…») */}
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-[min(100%,260px)] flex-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {editando ? (
                 <input

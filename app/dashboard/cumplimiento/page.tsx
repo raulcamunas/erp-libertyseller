@@ -51,8 +51,10 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
   const cliente = clientes.find((c) => c.slug === uno(searchParams.c)) ?? clientes[0]
   const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
+  // Alto fijo (y scroll por dentro) solo desde md, donde está la barra de clientes. En el móvil la página crece y hace scroll la ventana: con el alto fijo
+  // la cabecera y las pestañas se quedaban quietas (~330 px de 740) y el contenido bajaba en una caja de 375 px; deslizar sobre la cabecera no movía nada
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex flex-col md:h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
       <CumplimientoApp clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'hoy'} />
     </div>
   )

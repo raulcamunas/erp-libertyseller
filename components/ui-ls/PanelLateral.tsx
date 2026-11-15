@@ -6,6 +6,7 @@ import type { LucideIcon } from 'lucide-react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Boton } from './Boton'
+import { useAltoDelTeclado } from './useAltoDelTeclado'
 import { colorDeAcento, mezcla, type Modulo } from './utilidades'
 
 /**
@@ -37,6 +38,8 @@ export interface PanelLateralProps {
 
 export function PanelLateral({ abierto, onCambio, titulo, descripcion, icono: Icono, acento, children, pie, ancho = 460, acciones }: PanelLateralProps) {
   const color = colorDeAcento(acento)
+  // En el móvil la hoja se apoya ENCIMA del teclado: si no, el pie con «Guardar» queda debajo mientras se escribe (ver useAltoDelTeclado)
+  const teclado = useAltoDelTeclado(abierto)
   return (
     <Dialogo.Root open={abierto} onOpenChange={onCambio}>
       <Dialogo.Portal>
@@ -44,15 +47,15 @@ export function PanelLateral({ abierto, onCambio, titulo, descripcion, icono: Ic
         <Dialogo.Content
           className={cn(
             'fixed z-50 flex flex-col overflow-hidden border-[var(--ls-linea2)] bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-[var(--ls-sombra-3)] outline-none',
-            // Móvil: hoja inferior
-            'inset-x-0 bottom-0 max-h-[92dvh] rounded-t-[20px] border-t pb-[env(safe-area-inset-bottom)]',
+            // Móvil: hoja inferior, por encima del teclado si lo hay (--ls-teclado; en el ordenador siempre es 0 y lg:inset-y-0 / lg:max-h-none mandan)
+            'inset-x-0 bottom-[var(--ls-teclado,0px)] max-h-[calc(92dvh-var(--ls-teclado,0px))] rounded-t-[20px] border-t pb-[env(safe-area-inset-bottom)]',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom data-[state=open]:duration-300 data-[state=closed]:duration-200',
             // Ordenador: panel a la derecha, a toda altura
             'lg:inset-y-0 lg:left-auto lg:right-0 lg:max-h-none lg:w-[var(--ancho-panel)] lg:max-w-[calc(100vw-2rem)] lg:rounded-none lg:rounded-l-[18px] lg:border-l lg:border-t-0 lg:pb-0',
             'lg:data-[state=open]:slide-in-from-right lg:data-[state=closed]:slide-out-to-right lg:data-[state=open]:slide-in-from-bottom-0 lg:data-[state=closed]:slide-out-to-bottom-0',
             'motion-reduce:animate-none',
           )}
-          style={{ ['--ancho-panel' as string]: `${ancho}px`, ['--ls-acento' as string]: color }}
+          style={{ ['--ancho-panel' as string]: `${ancho}px`, ['--ls-acento' as string]: color, ['--ls-teclado' as string]: `${teclado}px` }}
         >
           {/* Asa de la hoja (solo móvil) */}
           <div aria-hidden className="flex justify-center pt-2 lg:hidden">

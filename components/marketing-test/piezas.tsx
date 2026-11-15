@@ -25,7 +25,9 @@ export type Dias = 7 | 14 | 30
  */
 export function Segmentado<T extends string | number>({ opciones, valor, cambiar, etiqueta }: { opciones: ReadonlyArray<{ id: T; texto: string; cuenta?: number }>; valor: T; cambiar: (v: T) => void; etiqueta: string }) {
   return (
-    <div role="radiogroup" aria-label={etiqueta} className="inline-flex shrink-0 items-center rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[2px]">
+    // Por debajo de lg no pasa del ancho de su fila y se desliza de lado dentro de sí: con opciones largas medía más que el teléfono y ensanchaba la
+    // página entera (15 nov 2026: «Activas · Pausadas · Archivadas · Todas» en Campañas acababa en x=381 de 375 y el móvil alejaba la vista)
+    <div role="radiogroup" aria-label={etiqueta} className="ls-sin-barra inline-flex shrink-0 items-center rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[2px] max-lg:max-w-full max-lg:overflow-x-auto">
       {opciones.map((o) => {
         const activo = o.id === valor
         return (
@@ -35,7 +37,7 @@ export function Segmentado<T extends string | number>({ opciones, valor, cambiar
             role="radio"
             aria-checked={activo}
             onClick={() => cambiar(o.id)}
-            className={`inline-flex h-[26px] items-center gap-[6px] whitespace-nowrap rounded-[7px] px-[10px] text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ls-acc-graf)] ${
+            className={`inline-flex h-[26px] shrink-0 items-center gap-[6px] whitespace-nowrap rounded-[7px] px-[10px] text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ls-acc-graf)] ${
               activo ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-[0_1px_2px_rgba(0,0,0,0.25)] ring-1 ring-[var(--ls-linea2)]' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
             }`}
           >
@@ -78,9 +80,18 @@ export function SelectorDePeriodo({ dias, cambiar, en, actualizar, cargando }: {
 /** Una tira de cifras con separadores, como la de arriba de la consola de Amazon Ads */
 export function TiraDeCifras({ cifras }: { cifras: ReadonlyArray<{ etiqueta: string; valor: string; nota?: string; color?: string }> }) {
   return (
-    <div className="grid overflow-hidden rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]" style={{ gridTemplateColumns: `repeat(${cifras.length}, minmax(0, 1fr))` }}>
+    // En el móvil, de dos en dos (con 4-5 columnas en 327 px cada cifra se quedaba en «1…»); la impar del final ocupa la fila. Desde sm, todas en una fila como siempre
+    <div className="grid grid-cols-2 overflow-hidden rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] sm:[grid-template-columns:repeat(var(--cifras),minmax(0,1fr))]" style={{ ['--cifras' as string]: cifras.length }}>
       {cifras.map((c, i) => (
-        <div key={c.etiqueta} className={`min-w-0 px-4 py-3 ${i > 0 ? 'border-l border-[var(--ls-linea)]' : ''}`}>
+        <div
+          key={c.etiqueta}
+          className={[
+            'min-w-0 border-[var(--ls-linea)] px-4 py-3',
+            i % 2 === 1 ? 'border-l' : i > 0 ? 'sm:border-l' : '',
+            i >= 2 ? 'border-t sm:border-t-0' : '',
+            cifras.length % 2 === 1 && i === cifras.length - 1 ? 'col-span-2 sm:col-span-1' : '',
+          ].join(' ')}
+        >
           <div className={`truncate ${TIPO.xs} ${TEXTO.t4}`}>{c.etiqueta}</div>
           <div className="mt-[2px] truncate text-[19px] font-semibold leading-[1.2] tracking-[-0.02em] tabular-nums" style={{ color: c.color ?? 'var(--ls-t1)' }}>
             {c.valor}

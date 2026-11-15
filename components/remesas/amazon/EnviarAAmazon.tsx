@@ -60,6 +60,12 @@ const ICONO_FASE: Record<FaseEnvio, LucideIcon> = {
 
 const ORDEN: FaseEnvio[] = FASES_ENVIO.map((f) => f.id)
 
+/**
+ * SIN «HOVER PEGADO» EN EL MÓVIL. `.ls-elevar` levanta 2 px al pasar el ratón, pero en una pantalla táctil el :hover se queda puesto en lo último
+ * que se tocó: la fase o la opción tocada se quedaba subida y torcida respecto a las demás hasta tocar otra cosa. Donde no hay ratón no se levanta.
+ */
+const SIN_HOVER_TACTIL = '[@media(hover:none)]:!transform-none'
+
 const dinero = (n: number | null, moneda: string | null): string => {
   if (n === null) return '—'
   return `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moneda === 'EUR' || !moneda ? '€' : moneda}`
@@ -254,7 +260,7 @@ function BarraDeFasesEnvio({ actual, vista, onVer, cancelado }: { actual: FaseEn
                 onClick={() => onVer(f.id)}
                 aria-current={esActual ? 'step' : undefined}
                 aria-label={`${i + 1} · ${f.texto}`}
-                className="ls-elevar relative flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[6px] py-2 text-left sm:justify-start sm:px-[10px] [@media(pointer:coarse)]:min-h-[44px]"
+                className={`ls-elevar ${SIN_HOVER_TACTIL} relative flex w-full items-center justify-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[6px] py-2 text-left sm:justify-start sm:px-[10px] [@media(pointer:coarse)]:min-h-[44px]`}
               >
                 {vista === f.id && <motion.span layoutId="fase-envio-amazon" className="absolute inset-0 rounded-[10px]" style={{ boxShadow: `inset 0 0 0 1.5px ${ACENTO.remesas}`, background: mezcla(ACENTO.remesas, 7) }} transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
                 <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ background: mezcla(color, 14), color }}>
@@ -511,6 +517,7 @@ function FaseReparto({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; trab
               indice={i}
               variante={activa ? 'destacada' : 'interactiva'}
               acento="remesas"
+              className={SIN_HOVER_TACTIL}
               onClick={o.caducada ? undefined : () => setElegida(o.placementOptionId)}
               icono={Warehouse}
               titulo={`${o.centros} centro${o.centros === 1 ? '' : 's'}`}
@@ -600,7 +607,9 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
     return <EstadoVacio icono={Truck} titulo="El transporte va después del reparto" descripcion="Cuando se confirme el reparto, aquí se pide la cotización de UPS." acento="remesas" />
   }
 
-  const campo = 'h-10 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-mod-remesas)] [@media(pointer:coarse)]:h-11'
+  // En el táctil, 16 px: con menos, Safari del iPhone amplía la página al tocar el campo y no la devuelve a su tamaño (se queda descuadrada y
+  // con scroll de lado hasta pellizcar). En el ordenador sigue en 13 px.
+  const campo = 'h-10 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-mod-remesas)] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-[16px]'
   const pedir = e.acciones.includes('generar_transporte')
 
   return (
@@ -698,7 +707,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
                         type="button"
                         disabled={!!trabajando || o.coste === null}
                         onClick={() => o.transportationOptionId !== elegida && void enviar({ accion: 'elegir_transporte', transportationOptionId: o.transportationOptionId }, '', o.transportationOptionId)}
-                        className="ls-elevar flex items-center justify-between gap-2 rounded-[10px] border px-3 py-2 text-left text-[12.5px] disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px]"
+                        className={`ls-elevar ${SIN_HOVER_TACTIL} flex items-center justify-between gap-2 rounded-[10px] border px-3 py-2 text-left text-[12.5px] disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px]`}
                         style={{ borderColor: o.transportationOptionId === elegida ? ACENTO.remesas : 'var(--ls-linea)', background: o.transportationOptionId === elegida ? mezcla(ACENTO.remesas, 8) : undefined }}
                       >
                         <span className="min-w-0">

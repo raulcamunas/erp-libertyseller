@@ -172,7 +172,10 @@ export function CalendarioEmpresa({
           ))}
         </div>
 
-        <div className="relative overflow-hidden">
+        {/* En el móvil la rejilla reserva siempre 6 semanas (6 × 48 px + 5 huecos de 4 px): un mes de 4, 5 o 6 filas
+            cambiaba la altura de la página 52–104 px a cada flecha y la leyenda y las tarjetas de debajo saltaban.
+            En el PC (sm y más) se queda como estaba. */}
+        <div className="relative min-h-[308px] overflow-hidden sm:min-h-0">
           <AnimatePresence mode="popLayout" initial={false} custom={direccion}>
             <motion.div
               key={mes}
@@ -213,7 +216,10 @@ export function CalendarioEmpresa({
           </AnimatePresence>
         </div>
 
-        {esperandoFin && puedeElegir && <p className="text-[12.5px] font-medium text-[var(--ls-acc)] sm:hidden">Ahora pulsa el último día</p>}
+        {/* La línea está siempre (invisible si no toca) para que el primer toque no empuje la leyenda hacia abajo */}
+        {puedeElegir && (
+          <p aria-hidden={!esperandoFin} className={cn('text-[12.5px] font-medium text-[var(--ls-acc)] sm:hidden', !esperandoFin && 'invisible')}>Ahora pulsa el último día</p>
+        )}
 
         {/* Leyenda */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-[var(--ls-t3)]">
@@ -311,11 +317,17 @@ function Casilla({ dia, hoy, ocupado, festivo, yoId, enSeleccion, choca, enfocad
         >
           {dayNumber(dia)}
         </span>
-        {festivo && <Flag className={cn('mt-[3px] h-3 w-3 shrink-0', festivo.descuenta ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]')} aria-hidden />}
+        {/* Arriba solo en sm y más: en una casilla de 375 px quedan ~29 px y el número (22) + la bandera (12) no caben:
+            la bandera salía cortada por la mitad. En el móvil va abajo, junto a los puntos */}
+        {festivo && <Flag className={cn('mt-[3px] hidden h-3 w-3 shrink-0 sm:block', festivo.descuenta ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]')} aria-hidden />}
       </span>
 
       {festivo && (
         <span className={cn('hidden truncate text-[10.5px] leading-tight sm:block', festivo.descuenta ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]')}>{festivo.nombre}</span>
+      )}
+
+      {festivo && personas.length === 0 && (
+        <Flag className={cn('h-2.5 w-2.5 shrink-0 sm:hidden', festivo.descuenta ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]')} aria-hidden />
       )}
 
       {personas.length > 0 && (
@@ -339,6 +351,7 @@ function Casilla({ dia, hoy, ocupado, festivo, yoId, enSeleccion, choca, enfocad
           </span>
           {/* Móvil: puntos de color */}
           <span className="flex flex-wrap items-center gap-[3px] sm:hidden">
+            {festivo && <Flag className={cn('h-2.5 w-2.5 shrink-0', festivo.descuenta ? 'text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]')} aria-hidden />}
             {personas.slice(0, 4).map((p) => (
               <span
                 key={p.id}

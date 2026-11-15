@@ -71,7 +71,8 @@ export function BarraCambiosSinGuardar({ visible, onGuardar, onDescartar, cuanto
             >
               <span className="flex min-w-0 flex-1 items-center gap-[10px] text-[13px] font-medium text-[var(--ls-t1)]">
                 <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--ls-e-ambar)] opacity-60 motion-safe:animate-ping" />
+                  {/* En el móvil late 3 veces y se para (un latido infinito recalcula estilos en cada fotograma del scroll); en el ordenador, siempre */}
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--ls-e-ambar)] opacity-60 motion-safe:animate-ping max-lg:![animation-iteration-count:3]" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--ls-e-ambar)]" />
                 </span>
                 <span className="truncate" aria-live="polite">

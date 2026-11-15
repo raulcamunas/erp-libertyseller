@@ -85,7 +85,9 @@ export function ListaPorEncajar({
         </div>
       </div>
 
-      <ul className="max-h-[560px] space-y-1.5 overflow-y-auto border-t border-[#EFEBE5] p-2.5 lg:max-h-[calc(100vh-290px)]">
+      {/* El scroll propio solo en el ordenador, donde la lista va fija al lado de las cajas. En el móvil va debajo de las cajas y crece con
+          la página: una lista de 560 px con su scroll dentro de la página (tres cuartos de la pantalla) se quedaba con el dedo al bajar */}
+      <ul className="space-y-1.5 border-t border-[#EFEBE5] p-2.5 lg:max-h-[calc(100vh-290px)] lg:overflow-y-auto">
         {visibles.map((l) => {
           const falta = resumen.porSku[l.sku].restantes
           const arrastrable = editable && falta > 0

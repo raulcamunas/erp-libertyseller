@@ -70,7 +70,7 @@ export function TableroClientes({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex shrink-0 items-center gap-3 text-[12px] text-[var(--ls-t3)]">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--ls-t3)]">
         <span>
           Los envíos vivos de cada cliente. {datos && <>Actualizado a las {new Date(datos.en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}.</>}
         </span>
@@ -92,7 +92,9 @@ export function TableroClientes({
       )}
 
       {datos && (
-        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
+        // En el móvil las columnas se pasan de lado de una en una (snap) y cada una mide lo suyo: estiradas a la más alta dejaban cajas vacías
+        // de una pantalla entera. Desde lg, igual que siempre
+        <div className="flex min-h-0 flex-1 snap-x snap-mandatory items-start gap-3 overflow-x-auto pb-2 lg:snap-none lg:items-stretch">
           {columnas.map((c) => (
             <Columna key={c.clienteId} columna={c} nuevos={nuevosPorCliente[c.clienteId] ?? 0} onAbrir={onAbrir} onImportar={onImportar} />
           ))}
@@ -112,7 +114,7 @@ function Columna({ columna, nuevos, onAbrir, onImportar }: { columna: ColumnaTab
   const aviso = seAgota > 0 ? COLOR_ESTADO.rojo : vivas.some((t) => t.noLlegaron > 0) ? COLOR_ESTADO.ambar : null
 
   return (
-    <section className={cx('flex min-h-0 w-[300px] shrink-0 flex-col rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)]', sinNada && 'opacity-60')} aria-label={`Envíos de ${columna.nombre}`}>
+    <section className={cx('flex min-h-0 w-[300px] shrink-0 snap-start flex-col rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)]', sinNada && 'opacity-60')} aria-label={`Envíos de ${columna.nombre}`}>
       <header className="shrink-0 border-b border-[var(--ls-linea)] px-[11px] py-[9px]">
         <div className="flex items-center gap-2">
           {aviso && <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: aviso }} title={seAgota > 0 ? `${seAgota} envío${seAgota === 1 ? '' : 's'} se agota${seAgota === 1 ? '' : 'n'} en menos de 7 días` : 'Hay unidades que Amazon no ha dado por recibidas'} />}

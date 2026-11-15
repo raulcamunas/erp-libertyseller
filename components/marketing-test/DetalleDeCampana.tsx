@@ -7,6 +7,7 @@ import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { COINCIDENCIA_ES, pujaConCambio, pujaValida, type MetricasDeObjetivo } from '@/lib/ads/segmentaciones-calculo'
 import type { DetalleDeCampana as Detalle, GrupoDeAnuncios, Segmentacion } from '@/lib/ads/segmentaciones'
 import { llamar } from './llamar'
+import { useEsEscritorio } from './useEsEscritorio'
 import { decimal, dinero, entero, porcentaje } from './formato'
 
 type Orden = 'texto' | 'puja' | 'impresiones' | 'clics' | 'ctr' | 'cpc' | 'gasto' | 'pedidos' | 'ventas' | 'acos' | 'cvr'
@@ -37,6 +38,8 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
   const [verPausadas, setVerPausadas] = useState(true)
   // En el móvil se pintan 30 tarjetas por grupo y el resto a petición (un grupo automático puede tener cientos)
   const [verTodas, setVerTodas] = useState<Record<string, boolean>>({})
+  // Solo se monta la versión que se ve (tarjetas en el móvil, tabla en escritorio): la tabla escondida con todas las segmentaciones era lo que trababa el móvil al abrir una campaña
+  const escritorio = useEsEscritorio()
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -139,6 +142,7 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
               ) : (
                 <>
                 {/* MÓVIL Y TABLETA: una tarjeta por segmentación (nada de desplazarse en horizontal) */}
+                {!escritorio && (
                 <ul className="flex flex-col gap-2 p-2 lg:hidden">
                   {ordenar(g.segmentaciones).slice(0, verTodas[g.adGroupId] ? undefined : 30).map((s) => (
                     <TarjetaDeSegmentacion
@@ -168,6 +172,8 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
                     </li>
                   )}
                 </ul>
+                )}
+                {escritorio && (
                 <div className="hidden overflow-x-auto lg:block">
                   <table className="w-full border-separate border-spacing-0 text-[12.5px]">
                     <thead>
@@ -202,6 +208,7 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
                     </tbody>
                   </table>
                 </div>
+                )}
                 </>
               )}
             </div>

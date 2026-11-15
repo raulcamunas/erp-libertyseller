@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { ArrowRight, Check, Copy, X } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
@@ -20,12 +20,20 @@ export function fichaDe(datos: DatosSeo, asin: string): FichaGuardada | null {
 
 export const nombreDe = (p: ProductoSeguido, ficha: FichaGuardada | null) => p.nombre || ficha?.titulo || p.asin
 
+/**
+ * Un <select> pequeño que en el móvil no se sale de la pantalla. Un select mide lo que su opción más larga (70 letras de título), y con solo un
+ * `max-w-[420px]` en un móvil de 375 px se salía por la derecha y quedaba cortado; aquí, por debajo de sm, ocupa la fila y se encoge (min-w-0). Al
+ * dedo, 44 px de alto y letra de 16 px: con menos, Safari del iPhone amplía la página al tocarlo y se queda ampliada (la pantalla «se mueve sola»).
+ */
+export const SELECT_PEQUENO =
+  'h-[30px] min-w-0 flex-1 rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[12.5px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)] sm:flex-none [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:text-[16px]'
+
 /** El selector de producto de las pestañas Búsquedas y Ficha */
 export function SelectorDeProducto({ productos, datos, asin, setAsin }: { productos: ProductoSeguido[]; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void }) {
   return (
-    <label className="inline-flex min-w-0 items-center gap-2">
-      <span className="text-[12px] text-[var(--ls-t4)]">Producto</span>
-      <select value={asin ?? ''} onChange={(e) => setAsin(e.target.value)} className="h-[30px] max-w-[420px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[12.5px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)]">
+    <label className="flex w-full min-w-0 items-center gap-2 sm:inline-flex sm:w-auto">
+      <span className="shrink-0 text-[12px] text-[var(--ls-t4)]">Producto</span>
+      <select value={asin ?? ''} onChange={(e) => setAsin(e.target.value)} className={`${SELECT_PEQUENO} sm:max-w-[420px]`}>
         {productos.map((p) => (
           <option key={p.id} value={p.asin}>
             {nombreDe(p, fichaDe(datos, p.asin)).slice(0, 70)} · {p.asin}
@@ -34,6 +42,55 @@ export function SelectorDeProducto({ productos, datos, asin, setAsin }: { produc
       </select>
     </label>
   )
+}
+
+/**
+ * La tira de cifras de SEO: en el ordenador, la misma que la de Marketing Test (todas en una fila); en el móvil, de dos en dos. Con 4 o 5 columnas en
+ * 327 px cada cifra se quedaba en «1…» y «Vol…» (la de Marketing Test trunca y no se lee nada); la impar del final ocupa la fila entera.
+ */
+export function TiraDeCifrasSeo({ cifras }: { cifras: ReadonlyArray<{ etiqueta: string; valor: string; nota?: string; color?: string }> }) {
+  const n = cifras.length
+  return (
+    <div className="grid grid-cols-2 overflow-hidden rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] sm:[grid-template-columns:repeat(var(--cifras),minmax(0,1fr))]" style={{ ['--cifras' as string]: n }}>
+      {cifras.map((c, i) => (
+        <div
+          key={c.etiqueta}
+          className={[
+            'min-w-0 px-4 py-3',
+            // Móvil (2 columnas): raya a la izquierda en la segunda de cada fila y arriba desde la segunda fila. Ordenador (una fila): raya a la izquierda en todas menos la primera
+            i % 2 === 1 ? 'border-l border-[var(--ls-linea)]' : i > 0 ? 'sm:border-l sm:border-[var(--ls-linea)]' : '',
+            i >= 2 ? 'border-t border-[var(--ls-linea)] sm:border-t-0' : '',
+            n % 2 === 1 && i === n - 1 ? 'col-span-2 sm:col-span-1' : '',
+          ].join(' ')}
+        >
+          <div className="truncate text-[11px] font-semibold text-[var(--ls-t4)]">{c.etiqueta}</div>
+          <div className="mt-[2px] truncate text-[19px] font-semibold leading-[1.2] tracking-[-0.02em] tabular-nums" style={{ color: c.color ?? 'var(--ls-t1)' }}>
+            {c.valor}
+          </div>
+          {c.nota && <div className="truncate text-[11px] font-semibold text-[var(--ls-t4)]">{c.nota}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const ANCHO_ORDENADOR = '(min-width: 768px)'
+const suscribirAncho = (avisar: () => void) => {
+  const m = window.matchMedia(ANCHO_ORDENADOR)
+  m.addEventListener('change', avisar)
+  return () => m.removeEventListener('change', avisar)
+}
+/**
+ * ¿Pantalla de ordenador (md, 768 px o más)? Para no montar lo que solo se ve en el otro tamaño (la tabla de 400 filas en el móvil). En el servidor y
+ * en la hidratación es null: entonces se pinta todo y lo esconde el CSS, como antes.
+ */
+export function useEsOrdenador(): boolean | null {
+  return useSyncExternalStore(suscribirAncho, () => window.matchMedia(ANCHO_ORDENADOR).matches, () => null)
+}
+
+/** Unos botones segmentados que no caben en el móvil (5 opciones con textos largos) se desplazan de lado dentro de su fila, sin ensanchar la página */
+export function DeslizableEnMovil({ children }: { children: ReactNode }) {
+  return <div className="ls-sin-barra -mx-1 min-w-0 max-w-[calc(100%+0.5rem)] overflow-x-auto px-1 sm:mx-0 sm:max-w-full sm:overflow-visible sm:px-0">{children}</div>
 }
 
 /** Una marca de «está» / «no está» para la cobertura en la ficha */

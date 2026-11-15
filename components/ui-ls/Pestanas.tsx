@@ -93,15 +93,22 @@ export function Pestanas<T extends string | number>({ opciones, valor, onCambio,
   }, [botones, valor])
   useLayoutSeguro(() => {
     medir()
-    // La pestaña elegida, a la vista dentro de la barra (en el móvil puede quedar fuera). Solo en horizontal: scrollIntoView movería también la página.
+  }, [medir, opciones])
+  // La pestaña elegida, a la vista dentro de la barra (en el móvil puede quedar fuera). Solo en horizontal: scrollIntoView movería también la página.
+  // SOLO cuando cambia la pestaña elegida, no en cada render: casi todas las pantallas pasan `opciones` como un array nuevo en cada render, y antes cualquier
+  // re-render del padre (escribir en un campo, cambiar el periodo) devolvía la barra a la pestaña elegida mientras el dedo la estaba deslizando (15 nov 2026:
+  // medido en el muestrario a 375 px, scrollLeft 194 → 0 al cambiar el periodo).
+  useLayoutSeguro(() => {
     const b = botones.current.get(valor)
     const c = barra.current
     if (b && c && c.scrollWidth > c.clientWidth) {
       if (b.offsetLeft < c.scrollLeft) c.scrollTo({ left: b.offsetLeft - 8, behavior: 'smooth' })
       else if (b.offsetLeft + b.offsetWidth > c.scrollLeft + c.clientWidth) c.scrollTo({ left: b.offsetLeft + b.offsetWidth - c.clientWidth + 8, behavior: 'smooth' })
     }
-  }, [medir, valor, opciones])
+  }, [valor])
   // Se vuelve a medir si cambia el ancho (giro del móvil, fuentes que cargan, una cuenta que aparece). Observa la barra, cuyo tamaño no depende de la línea: sin bucle.
+  // Depende de los ids de las opciones y no del array: con un array nuevo por render se desconectaba y reconectaba el observador a cada tecla.
+  const idsDeOpciones = opciones.map((o) => String(o.id)).join('|')
   useEffect(() => {
     const c = barra.current
     if (!c || typeof ResizeObserver === 'undefined') return
@@ -110,7 +117,7 @@ export function Pestanas<T extends string | number>({ opciones, valor, onCambio,
     for (const b of Array.from(c.querySelectorAll('[role=tab]'))) ro.observe(b)
     document.fonts?.ready.then(() => medir()).catch(() => {})
     return () => ro.disconnect()
-  }, [medir, opciones])
+  }, [medir, idsDeOpciones])
   // La primera vez aparece en su sitio; a partir de ahí se desliza
   useEffect(() => {
     if (linea && !deslizar) {

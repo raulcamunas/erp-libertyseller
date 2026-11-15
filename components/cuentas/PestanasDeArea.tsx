@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -149,7 +149,11 @@ export function PestanaMarketing({ c }: { c: CuentaEnLista }) {
       </FilaDeKpis>
 
       {serie.some((d) => d.gasto > 0 || d.ventas > 0) && (
-        <Tarjeta titulo="Gasto y ventas de publicidad · 14 días" subtitulo="Por día, todas sus cuentas juntas" icono={Megaphone} acento="marketing" indice={5} acciones={<Leyenda />}>
+        <Tarjeta titulo="Gasto y ventas de publicidad · 14 días" subtitulo="Por día, todas sus cuentas juntas" icono={Megaphone} acento="marketing" indice={5} acciones={<span className="hidden sm:block"><Leyenda /></span>}>
+          {/* En el móvil la leyenda en la cabecera dejaba el título en «Gasto y vent…»: ahí va encima del gráfico */}
+          <div className="mb-2 sm:hidden">
+            <Leyenda />
+          </div>
           <GraficoGastoVentas serie={serie} moneda={moneda} />
         </Tarjeta>
       )}
@@ -177,8 +181,22 @@ function Leyenda() {
 }
 
 function GraficoGastoVentas({ serie, moneda }: { serie: Array<{ fecha: string; gasto: number; ventas: number }>; moneda: string }) {
+  // CON EL DEDO, el recuadro del día se quedaba pegado: Recharts lo enseña al tocar (también al deslizar la página por encima del gráfico) y no lo
+  // quita al levantar el dedo ni al tocar fuera, así que tapaba el gráfico hasta salir de la pestaña. Al levantar el dedo se deja 1,5 s y se apaga;
+  // el siguiente toque lo vuelve a encender. Con ratón no cambia nada (activo queda sin definir y manda el hover de siempre).
+  const [activo, setActivo] = useState<boolean | undefined>(undefined)
+  const apagar = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => void (apagar.current && clearTimeout(apagar.current)), [])
+  const alTocar = () => {
+    if (apagar.current) clearTimeout(apagar.current)
+    setActivo(undefined)
+  }
+  const alSoltar = () => {
+    if (apagar.current) clearTimeout(apagar.current)
+    apagar.current = setTimeout(() => setActivo(false), 1500)
+  }
   return (
-    <div className="h-[220px] w-full" role="img" aria-label="Gasto y ventas de publicidad por día en los últimos 14 días">
+    <div className="h-[220px] w-full" role="img" aria-label="Gasto y ventas de publicidad por día en los últimos 14 días" onTouchStart={alTocar} onTouchEnd={alSoltar} onTouchCancel={alSoltar}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={serie} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <defs>
@@ -195,6 +213,7 @@ function GraficoGastoVentas({ serie, moneda }: { serie: Array<{ fecha: string; g
           <XAxis dataKey="fecha" tickFormatter={diaCorto} tick={{ fill: 'var(--ls-t4)', fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={18} />
           <YAxis tickFormatter={(v: number) => dinero(v, moneda)} tick={{ fill: 'var(--ls-t4)', fontSize: 11 }} axisLine={false} tickLine={false} width={64} />
           <Tooltip
+            active={activo}
             contentStyle={{ background: 'var(--ls-sup3)', border: '1px solid var(--ls-linea2)', borderRadius: 10, fontSize: 12, color: 'var(--ls-t1)' }}
             labelFormatter={(l) => diaCorto(String(l))}
             formatter={(v, nombre) => [dinero(Number(v), moneda, 2), nombre === 'ventas' ? 'Ventas' : 'Gasto']}

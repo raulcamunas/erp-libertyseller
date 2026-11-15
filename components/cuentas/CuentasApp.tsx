@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, BriefcaseBusiness, Megaphone, PackageCheck, RefreshCw, Search, ShieldCheck, Truck, UserRound, Users, Wallet } from 'lucide-react'
 import { NOMBRE_SEMANA } from '@/lib/cuentas/ciclo'
 import { semaforos, tonoGeneral, urgencia, type Semaforo } from '@/lib/cuentas/salud'
@@ -85,6 +85,24 @@ export function CuentasApp({ clienteInicial, pestanaInicial }: { clienteInicial:
     window.history.replaceState(null, '', url.toString())
   }, [abierto])
 
+  // EL SCROLL AL ABRIR Y AL VOLVER. La lista y el panel viven en la misma página y el documento hace scroll en la ventana: sin esto, al pulsar una tarjeta
+  // de abajo el panel se abría con el scroll de la lista (665 px en el móvil) y se caía en mitad de la cuenta, sin ver ni el nombre ni las pestañas; y al
+  // volver se perdía el sitio. Al abrir se guarda dónde estaba la lista y se sube arriba; al volver se recupera (15 nov 2026).
+  const scrollDeLaLista = useRef<number | null>(null)
+  const abrir = (slug: string) => {
+    scrollDeLaLista.current = window.scrollY
+    setAbierto(slug)
+  }
+  useLayoutEffect(() => {
+    if (abierto) {
+      window.scrollTo(0, 0)
+    } else if (scrollDeLaLista.current != null) {
+      const y = scrollDeLaLista.current
+      scrollDeLaLista.current = null
+      window.scrollTo(0, y)
+    }
+  }, [abierto])
+
   // La primera vez: si no llevas ninguna, se enseñan todas
   useEffect(() => {
     if (datos && !datos.clientes.some((c) => c.responsable?.id === datos.yo)) setFiltro('todas')
@@ -132,7 +150,8 @@ export function CuentasApp({ clienteInicial, pestanaInicial }: { clienteInicial:
   const urgentes = enFiltro.filter((x) => x.salud.some((s) => s.tono === 'rojo' || s.tono === 'ambar')).length
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] min-w-0 px-4 pb-12 lg:px-1">
+    // Sin margen lateral propio por debajo de lg: la ruta ya pone p-6 y sumar px-4 dejaba 295 px útiles en un móvil de 375 (losetas cortadas, «Mark…»)
+    <div className="mx-auto w-full max-w-[1280px] min-w-0 pb-12 lg:px-1">
       <CabeceraDeModulo
         icono={BriefcaseBusiness}
         acento="cuentas"
@@ -220,7 +239,7 @@ export function CuentasApp({ clienteInicial, pestanaInicial }: { clienteInicial:
         {visibles.length > 0 && (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 330px), 1fr))' }}>
             {visibles.map((x, i) => (
-              <TarjetaDeCuenta key={x.c.slug} x={x} indice={i} abrir={() => setAbierto(x.c.slug)} />
+              <TarjetaDeCuenta key={x.c.slug} x={x} indice={i} abrir={() => abrir(x.c.slug)} />
             ))}
           </div>
         )}

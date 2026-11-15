@@ -230,7 +230,7 @@ export function HoursTracker({ initialHours, initialRates, qualifiedAppointments
                   value={selectedUserId}
                   onChange={(e) => cambiarPersona(e.target.value)}
                   aria-label="Persona"
-                  className="h-9 max-w-[200px] shrink-0 cursor-pointer rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none transition-colors focus:border-[var(--ls-acc-graf)] [@media(pointer:coarse)]:min-h-[44px]"
+                  className="h-9 max-w-[200px] shrink-0 cursor-pointer rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none transition-colors focus:border-[var(--ls-acc-graf)] [@media(pointer:coarse)]:min-h-[44px] [@media(pointer:coarse)]:text-[16px]"
                 >
                   <option value={currentUser.id}>{currentUser.full_name || 'Yo'}</option>
                   {team

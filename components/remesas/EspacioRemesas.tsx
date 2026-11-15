@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, BellRing, Boxes, ClipboardList, Columns3, Database, Download, FileDown, KanbanSquare, Package, PackagePlus, Plus, Sparkles, Timer, TrendingDown, Truck, Upload } from 'lucide-react'
@@ -69,6 +69,9 @@ interface Cliente {
   envios: number
   propuestas: number
 }
+
+/** La tira de cifras mide más que un teléfono: ahí se desliza de lado dentro de sí misma en vez de ensanchar la página */
+const CIFRA_MOVIL = 'max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
 
 type Vista = 'tablero' | 'fases' | 'envios' | 'propuestas' | 'inventario' | 'base'
 
@@ -141,6 +144,29 @@ export function EspacioRemesas({
   const { porCliente: nuevosPorCliente, refrescar: refrescarNuevos } = useEnviosNuevosDeTodos(hayQueImportar)
   const nuevosDeEste = cliente.puedeEditar ? (nuevosPorCliente[cliente.id] ?? 0) : 0
   const [cambiando, setCambiando] = useState<string | null>(null)
+
+  /**
+   * EN EL MÓVIL, ELEGIR EN LA LISTA LLEVA AL DETALLE.
+   *
+   * Por debajo de lg la lista y el detalle van uno debajo del otro y la lista entera va primero: sin esto, tocar un envío cambiaba algo que
+   * estaba una o dos pantallas más abajo y parecía que no había pasado nada. En el ordenador están lado a lado y no se mueve nada.
+   */
+  const detalle = useRef<HTMLElement>(null)
+
+  // La pestaña abierta, siempre a la vista en su barra: en el móvil la barra se desliza de lado y «Envíos» quedaba cortada por el borde
+  const barraVistas = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const barra = barraVistas.current
+    const activa = barra?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!barra || !activa || barra.scrollWidth <= barra.clientWidth) return
+    const caja = barra.getBoundingClientRect()
+    const boton = activa.getBoundingClientRect()
+    barra.scrollTo({ left: barra.scrollLeft + boton.left - caja.left - (caja.width - boton.width) / 2, behavior: 'smooth' })
+  }, [vistaElegida])
+  function alDetalleEnMovil() {
+    if (typeof window === 'undefined' || window.matchMedia('(min-width: 1024px)').matches) return
+    requestAnimationFrame(() => detalle.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  }
 
   function irACliente(id: string, remesa?: string | null) {
     // Desde el tablero se va a los envíos del cliente elegido
@@ -243,9 +269,12 @@ export function EspacioRemesas({
   }
 
   return (
-    <div className="fba-cockpit flex h-[calc(100vh-4rem)] min-h-0 flex-col">
+    // EN EL MÓVIL LA PÁGINA CRECE Y HACE SCROLL LA VENTANA. La altura fija de pantalla (con las listas y el detalle con su propio scroll dentro) es
+    // para el ordenador: en un teléfono dejaba la lista en 150 px con su scroll, el detalle cortado por abajo y dos scrolls metidos uno en otro que se
+    // quedaban con el dedo. Desde lg vuelve a ser la cabina de altura fija de siempre.
+    <div className="fba-cockpit flex min-w-0 flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0">
       {/* ================= CABECERA: TÍTULO, VISTAS, CIFRAS Y ACCIONES ================= */}
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-[6px] pt-[10px]">
+      <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-0 pb-[6px] pt-[10px] lg:px-5">
         <h1 className={cx(TIPO.xl, 'flex items-center gap-2 text-[var(--ls-t1)]')}>
           <span className="grid h-7 w-7 place-items-center rounded-[9px] text-[var(--ls-fondo)] shadow-[0_6px_16px_-8px_var(--ls-mod-remesas)]" style={{ background: 'linear-gradient(135deg, var(--ls-mod-remesas), color-mix(in srgb, var(--ls-mod-remesas) 60%, #0b3b4a))' }}>
             <Truck className="h-[15px] w-[15px]" />
@@ -253,7 +282,9 @@ export function EspacioRemesas({
           Remesas a FBA
         </h1>
 
-        <nav aria-label="Vistas" className="flex items-center gap-[2px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
+        {/* Las pestañas no caben en un teléfono: se deslizan de lado DENTRO de su barra. Sin max-w-full la barra medía 540 px y estiraba la página
+            entera (el móvil la alejaba a 660 px de ancho y todo se veía diminuto) */}
+        <nav ref={barraVistas} aria-label="Vistas" className="flex max-w-full items-center gap-[2px] overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {clientes.length > 1 && (
             <Pestana activa={vista === 'tablero'} onClick={() => setVista('tablero')} icono={<Columns3 className="h-[14px] w-[14px]" />} titulo="Todos los clientes en columnas: el estado de sus envíos de un vistazo">
               Tablero
@@ -289,7 +320,7 @@ export function EspacioRemesas({
 
         {/* Las cifras del cliente, en la misma fila: no merecen una fila entera */}
         {vista === 'envios' && (
-          <div className={CIFRAS.tira}>
+          <div className={cx(CIFRAS.tira, CIFRA_MOVIL)}>
             <Cifra rotulo="enviadas" valor={cifras.enviadas} />
             <Cifra rotulo="vivas" valor={cifras.vivas} />
             <Cifra rotulo="de camino" valor={cifras.enCamino} />
@@ -298,7 +329,7 @@ export function EspacioRemesas({
           </div>
         )}
         {vista === 'propuestas' && (
-          <div className={CIFRAS.tira}>
+          <div className={cx(CIFRAS.tira, CIFRA_MOVIL)}>
             <Cifra rotulo="te tocan a ti" valor={cifras.tocan} urgente={cifras.tocan > 0} />
             <Cifra rotulo="en propuesta" valor={cifras.porFase('borrador')} />
             <Cifra rotulo="aprobadas" valor={cifras.porFase('aprobada')} />
@@ -307,7 +338,7 @@ export function EspacioRemesas({
           </div>
         )}
         {vista === 'base' && catalogo.filas && catalogo.filas.length > 0 && (
-          <div className={CIFRAS.tira}>
+          <div className={cx(CIFRAS.tira, CIFRA_MOVIL)}>
             <Cifra rotulo="REF" valor={cifrasBase.referencias} />
             <Cifra rotulo="modelos" valor={cifrasBase.modelos} />
             <Cifra rotulo="tallas" valor={cifrasBase.tallas} />
@@ -315,87 +346,96 @@ export function EspacioRemesas({
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-3">
-          {alertas && (
-            <Link
-              href="/dashboard/remesas/alertas"
-              className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}
-              title="Lo que va mal en la logística de todos los clientes: roturas de stock, envíos parados, descuadres y stock parado"
-            >
-              <BellRing className="h-3 w-3" />
-              Alertas
-              {alertas.criticas + alertas.altas > 0 && (
-                <span className={INSIGNIA.contador} title={`${alertas.criticas} críticas y ${alertas.altas} altas`}>
-                  {alertas.criticas + alertas.altas}
-                </span>
-              )}
-            </Link>
-          )}
-          {esAdmin && vista !== 'tablero' && (
-            <button type="button" onClick={() => setPlazosAbierto(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cuánto tarda este cliente desde que le avisamos hasta que su mercancía está a la venta en Amazon: preparación, transporte, recepción y margen. De ahí salen los avisos de reponer">
-              <Timer className="h-3 w-3" />
-              Plazos
-            </button>
-          )}
-          {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
-          {cliente.puedeEditar && vista === 'envios' && (
-            <button type="button" onClick={() => setImportandoDe(cliente.id)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Los envíos que Amazon tiene en la cuenta de este cliente y el ERP todavía no: se marcan y se importan de golpe">
-              <PackagePlus className="h-3 w-3" />
-              Importar pedidos
-              {nuevosDeEste > 0 && <span className={INSIGNIA.contador} title={`${nuevosDeEste} nuevo${nuevosDeEste === 1 ? '' : 's'} en Amazon`}>{nuevosDeEste}</span>}
-            </button>
-          )}
-          {vista === 'tablero' ? null : vista === 'base' ? (
-            <>
-              {catalogo.filas && catalogo.filas.length > 0 && (
-                <button type="button" onClick={descargarBase} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Descargar la base de datos en el formato de la hoja de cálculo">
-                  <FileDown className="h-3 w-3" />
-                  Exportar CSV
-                </button>
-              )}
-              {catalogo.puedeEditar && !catalogo.sinMigrar && (
-                <>
-                  <button type="button" onClick={() => setImportando(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cargar o completar la base de datos desde el CSV de la hoja">
-                    <Upload className="h-3 w-3" />
-                    Importar CSV
-                  </button>
-                  <button type="button" onClick={() => setAnadiendo({})} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-                    <Plus className="h-3 w-3" />
-                    Añadir referencia
-                  </button>
-                </>
-              )}
-            </>
-          ) : (
-            cliente.puedeEditar &&
-            (puedeProponerConIa ? (
-              // La agencia tiene las dos: que la IA proponga, o montarla a mano como siempre
-              <>
-                <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Eliges tú qué mandar, producto a producto">
-                  <Plus className="h-3 w-3" />
-                  Propuesta manual
-                </button>
-                <button type="button" onClick={() => setConIa(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)} title="La IA mira el inventario, las ventas y las devoluciones y propone qué mandar. Se revisa y se corrige antes de crearla">
-                  <Sparkles className="h-3 w-3" />
-                  Propuesta con IA
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-                <Plus className="h-3 w-3" />
-                Nueva propuesta
-              </button>
-            ))
-          )}
-        </div>
       </header>
 
-      {/* ================= CLIENTES ================= */}
-      {clientes.length > 1 && <BarraClientes clientes={clientes} activo={vista === 'tablero' ? '' : cliente.id} cargando={cambiando} onElegir={irACliente} nuevos={nuevosPorCliente} />}
+      {/* ================= CLIENTES Y LO QUE SE HACE CON EL ELEGIDO =================
+          Alertas, Plazos y los botones del cliente (importar, propuestas, base de datos) van en la fila de los clientes y no en la cabecera: allí, cuando no cabían junto a
+          las vistas, bajaban a una segunda fila sueltos a la derecha y parecía que flotaban (15 nov 2026). Los clientes se deslizan de lado en lo que queda. */}
+      {(clientes.length > 1 || vista !== 'tablero' || alertas) && (
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-0 pb-[8px] pt-[2px] lg:flex-nowrap lg:px-5">
+          {clientes.length > 1 && <BarraClientes clientes={clientes} activo={vista === 'tablero' ? '' : cliente.id} cargando={cambiando} onElegir={irACliente} nuevos={nuevosPorCliente} />}
+          {/* max-w-full y sin shrink-0 por debajo de lg: en el móvil, con shrink-0, el grupo medía lo que todos sus botones en una sola fila (600 px)
+              y ensanchaba la página entera; así baja de línea dentro del ancho de la pantalla */}
+          <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden lg:shrink-0">
+            {alertas && (
+              <Link
+                href="/dashboard/remesas/alertas"
+                className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}
+                title="Lo que va mal en la logística de todos los clientes: roturas de stock, envíos parados, descuadres y stock parado"
+              >
+                <BellRing className="h-3 w-3" />
+                Alertas
+                {alertas.criticas + alertas.altas > 0 && (
+                  <span className={INSIGNIA.contador} title={`${alertas.criticas} críticas y ${alertas.altas} altas`}>
+                    {alertas.criticas + alertas.altas}
+                  </span>
+                )}
+              </Link>
+            )}
+            {esAdmin && vista !== 'tablero' && (
+              <button type="button" onClick={() => setPlazosAbierto(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cuánto tarda este cliente desde que le avisamos hasta que su mercancía está a la venta en Amazon: preparación, transporte, recepción y margen. De ahí salen los avisos de reponer">
+                <Timer className="h-3 w-3" />
+                Plazos
+              </button>
+            )}
+            {/* Solo en pantallas muy anchas (2xl), como antes de mover estos botones a la fila de los clientes */}
+            {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
+            {cliente.puedeEditar && vista === 'envios' && (
+              <button type="button" onClick={() => setImportandoDe(cliente.id)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Los envíos que Amazon tiene en la cuenta de este cliente y el ERP todavía no: se marcan y se importan de golpe">
+                <PackagePlus className="h-3 w-3" />
+                Importar pedidos
+                {nuevosDeEste > 0 && <span className={INSIGNIA.contador} title={`${nuevosDeEste} nuevo${nuevosDeEste === 1 ? '' : 's'} en Amazon`}>{nuevosDeEste}</span>}
+              </button>
+            )}
+            {vista === 'tablero' ? null : vista === 'base' ? (
+              <>
+                {catalogo.filas && catalogo.filas.length > 0 && (
+                  <button type="button" onClick={descargarBase} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Descargar la base de datos en el formato de la hoja de cálculo">
+                    <FileDown className="h-3 w-3" />
+                    Exportar CSV
+                  </button>
+                )}
+                {catalogo.puedeEditar && !catalogo.sinMigrar && (
+                  <>
+                    <button type="button" onClick={() => setImportando(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cargar o completar la base de datos desde el CSV de la hoja">
+                      <Upload className="h-3 w-3" />
+                      Importar CSV
+                    </button>
+                    <button type="button" onClick={() => setAnadiendo({})} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+                      <Plus className="h-3 w-3" />
+                      Añadir referencia
+                    </button>
+                  </>
+                )}
+              </>
+            ) : (
+              cliente.puedeEditar &&
+              (puedeProponerConIa ? (
+                // La agencia tiene las dos: que la IA proponga, o montarla a mano como siempre
+                <>
+                  <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Eliges tú qué mandar, producto a producto">
+                    <Plus className="h-3 w-3" />
+                    Propuesta manual
+                  </button>
+                  <button type="button" onClick={() => setConIa(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)} title="La IA mira el inventario, las ventas y las devoluciones y propone qué mandar. Se revisa y se corrige antes de crearla">
+                    <Sparkles className="h-3 w-3" />
+                    Propuesta con IA
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+                  <Plus className="h-3 w-3" />
+                  Nueva propuesta
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ================= AVISOS (solo si los hay) ================= */}
       {vista !== 'tablero' && ((!panel.conectado && envios.length > 0) || panel.ultimoError) && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-0 pb-2 lg:px-5">
           {!panel.conectado && envios.length > 0 && (
             <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
               <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
@@ -412,7 +452,7 @@ export function EspacioRemesas({
       )}
 
       {vista === 'envios' && nuevosDeEste > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-0 pb-2 lg:px-5">
           <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
             <PackagePlus className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
             {nuevosDeEste === 1 ? 'Hay 1 envío nuevo en Amazon que todavía no está en el ERP' : `Hay ${nuevosDeEste} envíos nuevos en Amazon que todavía no están en el ERP`}
@@ -425,7 +465,7 @@ export function EspacioRemesas({
 
       {/* ================= CUERPO ================= */}
       {vista === 'tablero' ? (
-        <div className="min-h-0 flex-1 px-5 pb-3">
+        <div className="min-h-0 flex-1 px-0 pb-3 lg:px-5">
           <TableroClientes
             nuevosPorCliente={nuevosPorCliente}
             version={versionTablero}
@@ -434,7 +474,7 @@ export function EspacioRemesas({
           />
         </div>
       ) : vista === 'fases' ? (
-        <div className="min-h-0 flex-1 px-5 pb-1">
+        <div className="min-h-0 flex-1 px-0 pb-1 lg:px-5">
           <TableroRemesas
             verComo={verComo}
             clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre }))}
@@ -450,19 +490,22 @@ export function EspacioRemesas({
           />
         </div>
       ) : vista === 'inventario' ? (
-        <div className="min-h-0 flex-1 px-5 pb-1">
+        <div className="min-h-0 flex-1 px-0 pb-1 lg:px-5">
           <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} puedeLeerVentas={esAdmin} />
         </div>
       ) : vista === 'base' ? (
-        <div className="min-h-0 flex-1 px-5 pb-4">
+        <div className="min-h-0 flex-1 px-0 pb-4 lg:px-5">
           <VistaBaseDeDatos clienteId={cliente.id} clienteNombre={cliente.nombre} onAnadir={(p) => setAnadiendo(p ?? {})} onImportar={() => setImportando(true)} />
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-5 pb-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-0 pb-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:px-5">
           {vista === 'envios' ? (
             <>
-              <ListaEnvios envios={envios} seleccionada={envio?.id ?? null} onElegir={setEnvioElegido} puedeEditar={cliente.puedeEditar} onTraer={() => setTrayendo(true)} diasCobertura={diasCobertura} hoy={hoy} />
-              <section className="min-h-0 min-w-0">
+              <ListaEnvios envios={envios} seleccionada={envio?.id ?? null} onElegir={(id) => {
+                  setEnvioElegido(id)
+                  alDetalleEnMovil()
+                }} puedeEditar={cliente.puedeEditar} onTraer={() => setTrayendo(true)} diasCobertura={diasCobertura} hoy={hoy} />
+              <section ref={detalle} className="min-h-0 min-w-0 scroll-mt-16 lg:scroll-mt-0">
                 {envio ? (
                   <DetalleEnvio key={envio.id} remesa={envio} skus={panel.skus} hoy={hoy} puedeEditar={cliente.puedeEditar} puedeBorrar={esAdmin} puedeLeerVentas={esAdmin} conectado={panel.conectado} />
                 ) : (
@@ -479,14 +522,17 @@ export function EspacioRemesas({
               <ListaPropuestas
                 propuestas={propuestas}
                 seleccionada={propuesta?.id ?? null}
-                onElegir={(id) => setPropuestaElegida(id)}
+                onElegir={(id) => {
+                  setPropuestaElegida(id)
+                  alDetalleEnMovil()
+                }}
                 verComo={verComo}
                 hoy={hoy}
                 puedeEditar={cliente.puedeEditar}
                 onNueva={() => setNueva(true)}
                 onNuevaIa={puedeProponerConIa ? () => setConIa(true) : undefined}
               />
-              <section className="min-h-0 min-w-0">
+              <section ref={detalle} className="min-h-0 min-w-0 scroll-mt-16 lg:scroll-mt-0">
                 {propuesta ? (
                   <EspacioPropuesta
                     key={propuesta.id}
@@ -607,7 +653,7 @@ function Pestana({ activa, onClick, icono, titulo, children }: { activa: boolean
       title={titulo}
       aria-current={activa ? 'page' : undefined}
       className={cx(
-        'inline-flex h-[28px] items-center gap-[7px] rounded-[6px] px-3 text-[12.5px] font-medium transition-colors',
+        'inline-flex h-[28px] shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[6px] px-3 text-[12.5px] font-medium transition-colors',
         activa ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-[inset_0_0_0_1px_var(--ls-linea2)]' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
       )}
     >
@@ -652,11 +698,42 @@ function BarraClientes({ clientes, activo, cargando, onElegir, nuevos }: { clien
   const fila = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fila.current?.querySelector('[data-activo="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+    // Se mueve SOLO la fila, de lado. scrollIntoView movía también la ventana: en el móvil, donde la página hace scroll, cambiar de cliente
+    // con la página bajada daba un tirón hacia la fila
+    const f = fila.current
+    const b = f?.querySelector<HTMLElement>('[data-activo="true"]')
+    if (!f || !b) return
+    const caja = f.getBoundingClientRect()
+    const boton = b.getBoundingClientRect()
+    f.scrollTo({ left: f.scrollLeft + boton.left - caja.left - (caja.width - boton.width) / 2, behavior: 'smooth' })
   }, [activo])
 
+  // Difuminado en el borde por el que la fila sigue: sin él, el último cliente quedaba cortado en seco y parecía un fallo
+  const [bordes, setBordes] = useState({ izq: false, der: false })
+  const medirBordes = useCallback(() => {
+    const f = fila.current
+    if (!f) return
+    const izq = f.scrollLeft > 2
+    const der = f.scrollLeft + f.clientWidth < f.scrollWidth - 2
+    setBordes((b) => (b.izq === izq && b.der === der ? b : { izq, der }))
+  }, [])
+  useEffect(() => {
+    const f = fila.current
+    if (!f) return
+    medirBordes()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medirBordes) : null
+    ro?.observe(f)
+    return () => ro?.disconnect()
+  }, [medirBordes, clientes.length])
+  const mascara = `linear-gradient(to right, ${bordes.izq ? 'transparent, #000 28px' : '#000, #000'}, ${bordes.der ? '#000 calc(100% - 40px), transparent' : '#000, #000'})`
+
   return (
-    <div ref={fila} className="flex shrink-0 items-center gap-[6px] overflow-x-auto px-5 pb-[8px] pt-[2px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      ref={fila}
+      onScroll={medirBordes}
+      className="flex min-w-0 basis-full items-center gap-[6px] overflow-x-auto py-[2px] lg:flex-1 lg:basis-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      style={{ maskImage: mascara, WebkitMaskImage: mascara }}
+    >
       {clientes.map((c) => {
         const esActivo = c.id === activo
         const vacio = c.remesas === 0

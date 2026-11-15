@@ -298,7 +298,7 @@ function CoberturaAntesDespues({ d, antes, despues }: { d: DiagnosticoDeProducto
   if (r.total === 0) return null
   const fila = (texto: string, x: number, y: number) => (
     <div className="flex items-center gap-2 text-[12px]">
-      <span className="w-[260px] text-[var(--ls-t3)]">{texto}</span>
+      <span className="min-w-0 flex-1 text-[var(--ls-t3)] sm:w-[260px] sm:flex-none">{texto}</span>
       <span className="tabular-nums text-[var(--ls-t3)]">{x}</span>
       <span className="text-[var(--ls-t4)]">→</span>
       <span className="font-semibold tabular-nums" style={{ color: y > x ? COLOR_ESTADO.verde : y < x ? COLOR_ESTADO.rojo : 'var(--ls-t1)' }}>{y}</span>
@@ -323,7 +323,8 @@ function Fila({ etiqueta, medidaAntes, medidaDespues, copiar, children }: { etiq
   const color = (m: { pasa: boolean }) => (m.pasa ? { color: COLOR_ESTADO.rojo } : undefined)
   return (
     <div className="flex flex-col gap-[5px]">
-      <div className="grid grid-cols-2 gap-3 text-[11px] text-[var(--ls-t4)]">
+      {/* En el móvil las dos cajas van una debajo de otra: los rótulos también (en dos columnas de 140 px la medida partía en cuatro líneas y «Copiar» se salía de la tarjeta) */}
+      <div className="grid gap-1 text-[11px] text-[var(--ls-t4)] md:grid-cols-2 md:gap-3">
         <span>
           <strong className="font-semibold text-[var(--ls-t2)]">{etiqueta}</strong> · ahora · <span style={color(medidaAntes)}>{medidaAntes.texto}</span>
         </span>

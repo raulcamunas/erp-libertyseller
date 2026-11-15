@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarRange, Check, FileText, LayoutDashboard, ListChecks, NotebookPen, PartyPopper, RefreshCw, UserRound } from 'lucide-react'
 import type { TipoDeInforme } from '@/lib/cuentas/informe'
@@ -96,6 +96,18 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales, pes
     window.history.replaceState(null, '', url.toString())
   }, [pestana])
 
+  // Al cambiar de pestaña desde abajo (la flecha de una tarea del Resumen, una loseta) la pestaña nueva se abría con el scroll de la anterior: en el móvil se
+  // caía en mitad de Remesas sin ver su principio. Si el principio del panel ha quedado por encima de la pantalla, se sube a las pestañas.
+  const primeraPestana = useRef(true)
+  useLayoutEffect(() => {
+    if (primeraPestana.current) {
+      primeraPestana.current = false
+      return
+    }
+    const panel = document.getElementById('panel-cuenta')
+    if (panel && panel.getBoundingClientRect().top < 0) window.scrollTo(0, 0)
+  }, [pestana])
+
   const prepararInforme = async (tipo?: TipoDeInforme) => {
     setGuardando('informe')
     setError(null)
@@ -142,7 +154,8 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales, pes
   }, [c])
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] min-w-0 px-4 pb-12 lg:px-1">
+    // Sin margen lateral propio por debajo de lg: la ruta ya pone p-6 (ver CuentasApp)
+    <div className="mx-auto w-full max-w-[1280px] min-w-0 pb-12 lg:px-1">
       <CabeceraDeModulo
         icono={BriefcaseBusiness}
         acento="cuentas"
@@ -505,6 +518,11 @@ function SemanaDelCiclo({
 }
 
 function Informes({ informes, desactivado, ocupado, preparar }: { informes: InformeEnLista[]; desactivado: boolean; ocupado: boolean; preparar: (t?: TipoDeInforme) => void }) {
+  const botones = (['semanal', 'quincenal', 'mensual'] as const).map((t) => (
+    <Boton key={t} variante="fantasma" tamano="sm" disabled={desactivado || ocupado} onClick={() => preparar(t)} className="px-2">
+      + {t}
+    </Boton>
+  ))
   return (
     <Tarjeta
       titulo="Informes al cliente"
@@ -512,16 +530,10 @@ function Informes({ informes, desactivado, ocupado, preparar }: { informes: Info
       acento="personas"
       indice={4}
       sinRelleno
-      acciones={
-        <span className="flex gap-1">
-          {(['semanal', 'quincenal', 'mensual'] as const).map((t) => (
-            <Boton key={t} variante="fantasma" tamano="sm" disabled={desactivado || ocupado} onClick={() => preparar(t)} className="px-2">
-              + {t}
-            </Boton>
-          ))}
-        </span>
-      }
+      // En el móvil los tres botones en la cabecera se comían el título (0 px de ancho) y «+ mensual» se cortaba: ahí van en una fila propia debajo
+      acciones={<span className="hidden gap-1 sm:flex">{botones}</span>}
     >
+      <div className="flex flex-wrap gap-1 border-b border-[var(--ls-linea)] px-3 py-2 sm:hidden">{botones}</div>
       {informes.length === 0 ? (
         <EstadoVacio compacto icono={FileText} acento="personas" titulo="Todavía no hay informes" descripcion="El de esta semana se prepara desde su paso del ciclo; también puedes preparar uno suelto con los botones de arriba." />
       ) : (

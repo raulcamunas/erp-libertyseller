@@ -72,11 +72,12 @@ export function TablaReferencias({ filas, conectado, nombreArchivo }: { filas: F
       </div>
 
       <Tarjeta cuerpo={false}>
-        <div className="max-h-[calc(100vh-290px)] min-h-[280px] overflow-auto">
+        {/* En el móvil la tabla crece con la página (sin alto máximo: un scroll de casi una pantalla dentro de otro se quedaba con el dedo) y la columna fija del producto es estrecha, para que se vean las cifras al deslizar de lado. Desde lg, como siempre */}
+        <div className="overflow-auto lg:max-h-[calc(100vh-290px)] lg:min-h-[280px]">
           <table className={TABLA.tabla}>
             <thead>
               <tr>
-                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[240px]')}>Producto</th>
+                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[240px]')}>Producto</th>
                 <th className={cx(TABLA.cabecera, 'hidden 2xl:table-cell')}>ASIN</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)}>Env.</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)} title="Lo que Amazon dice que ha recibido de las que mandamos">
@@ -104,7 +105,7 @@ export function TablaReferencias({ filas, conectado, nombreArchivo }: { filas: F
                 const faltan = f.recibidas !== null && f.recibidas < f.enviadas
                 return (
                   <tr key={f.sku} className={cx(TABLA.fila, f.quedan === 0 && 'opacity-60')}>
-                    <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[300px]')}>
+                    <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[300px]')}>
                       <div className="flex items-baseline gap-2 overflow-hidden">
                         <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{f.sku}</span>
                         <span className="truncate text-[var(--ls-t1)]" title={f.nombre ?? ''}>

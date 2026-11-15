@@ -13,6 +13,7 @@ import { dinero, decimal, entero, porcentaje } from './formato'
 import { useRendimiento } from './useRendimiento'
 import { DetalleDeCampana } from './DetalleDeCampana'
 import { AvisosDeCuenta } from './AvisosDeCuenta'
+import { useEsEscritorio } from './useEsEscritorio'
 
 type Fila = FilaDeCampana
 type Orden = 'nombre' | 'presupuesto' | 'gasto' | 'ventas' | 'acos' | 'roas' | 'pedidos' | 'clics' | 'cpc' | 'ctr'
@@ -49,6 +50,8 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   const [cuantasMovil, setCuantasMovil] = useState(40)
   const { campanas, informe, actualizar } = useRendimiento(perfilId, dias)
   const conocidos = useProductosConocidos(perfilId)
+  // En «Lista» se monta solo la versión que se ve: con las dos, la campaña abierta montaba DOS veces su detalle (dos lecturas a Amazon y el doble de nodos) en el móvil
+  const escritorio = useEsEscritorio()
 
   const filas: Fila[] = useMemo(() => {
     const vivas = campanas.fase === 'listo' ? campanas.datos : []
@@ -261,6 +264,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
       ) : (
       <>
       {/* MÓVIL Y TABLETA: una tarjeta por campaña; al pulsarla se abren sus segmentaciones debajo */}
+      {!escritorio && (
       <ul className="flex flex-col gap-2 lg:hidden">
         {campanas.fase === 'cargando' && visibles.length === 0 && <li className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo las campañas de Amazon…</li>}
         {campanas.fase !== 'cargando' && visibles.length === 0 && <li className={`${TIPO.s} ${TEXTO.t3}`}>No hay campañas con ese filtro.</li>}
@@ -306,6 +310,8 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
           </li>
         )}
       </ul>
+      )}
+      {escritorio && (
       <div className="hidden min-w-0 overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] lg:block">
         <table className={TABLA.tabla}>
           <thead>
@@ -351,6 +357,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
           )}
         </table>
       </div>
+      )}
       </>
       )}
 

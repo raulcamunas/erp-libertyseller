@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { BadgeCheck, Boxes, Check, PencilRuler, Send, Truck } from 'lucide-react'
 import { TIPO } from '@/lib/estilo/denso'
 import type { EstadoRemesa } from '@/lib/fba/flujo'
@@ -43,16 +44,27 @@ export const INFO_FASE: Record<FasePropuesta, { titulo: string; quien: string; p
 
 export function FasesPropuesta({ estado }: { estado: EstadoRemesa }) {
   const actual = FASES_PROPUESTA.indexOf(estado as FasePropuesta)
+  // Cuando la fila se desliza (móvil), la fase en curso se pone a la vista: si no, en «Encajando» o «Lista» quedaba cortada por el borde
+  const caja = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const c = caja.current
+    const enCurso = c?.querySelector<HTMLElement>('[data-en-curso="true"]')
+    if (!c || !enCurso || c.scrollWidth <= c.clientWidth) return
+    const rc = c.getBoundingClientRect()
+    const re = enCurso.getBoundingClientRect()
+    c.scrollLeft += re.left - rc.left - (rc.width - re.width) / 2
+  }, [actual])
 
   return (
-    <div className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 pb-[10px] pt-[12px]">
-      <ol className="grid grid-cols-5" aria-label="Fases de la propuesta">
+    // En el móvil las cinco fases no caben (los rótulos se pisaban): la fila mantiene su ancho y se desliza de lado dentro de la tarjeta
+    <div ref={caja} className="overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 pb-[10px] pt-[12px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ol className="grid min-w-[600px] grid-cols-5 sm:min-w-0" aria-label="Fases de la propuesta">
         {FASES_PROPUESTA.map((f, i) => {
           const info = INFO_FASE[f]
           const hecha = i < actual
           const enCurso = i === actual
           return (
-            <li key={f} className="relative min-w-0" title={info.pista}>
+            <li key={f} data-en-curso={enCurso} className="relative min-w-0" title={info.pista}>
               <span
                 className="absolute left-[calc(50%+16px)] right-[calc(-50%+16px)] top-[13px] h-[2px] rounded-full"
                 style={{ background: hecha ? 'var(--ls-e-verde)' : 'var(--ls-linea2)', opacity: hecha ? 0.75 : 1 }}

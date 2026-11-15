@@ -11,7 +11,7 @@ import type { CambioGuardado, Rival } from '@/lib/seo/rivales-servidor'
 import type { FilaCompetencia } from '@/lib/seo/datos'
 import type { DatosDeHelium } from '@/lib/seo/helium-servidor'
 import { trozosNuevos } from '@/lib/seo/propuesta'
-import { SelectorDeProducto } from './comun'
+import { SelectorDeProducto, useEsOrdenador } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { useDelProducto } from './useDelProducto'
 
@@ -39,6 +39,7 @@ export function PestanaSeoCompetencia({ cuentaId, datos, asin, setAsin, irAProdu
   const [anadiendo, setAnadiendo] = useState(false)
   const [fotografiando, setFotografiando] = useState(false)
   const [abierto, setAbierto] = useState<string | null>(null)
+  const esOrdenador = useEsOrdenador()
 
   const rivales = r.datos?.rivales ?? []
   const cambios = r.datos?.cambios ?? []
@@ -138,7 +139,8 @@ export function PestanaSeoCompetencia({ cuentaId, datos, asin, setAsin, irAProdu
       cabecera: 'Cambios (7 días)',
       celda: (x) => {
         const n = semana.filter((c) => c.competidorId === x.id).length
-        return n > 0 ? <Insignia tono="azul" tamano="sm" vivo>{n}</Insignia> : <span className="text-[var(--ls-t4)]">—</span>
+        // El punto que late (animate-ping infinito), solo en el ordenador: uno por fila recalculaba estilos 60 veces por segundo sin tocar nada, y en el móvil son batería y tirones
+        return n > 0 ? <Insignia tono="azul" tamano="sm" vivo={esOrdenador === true}>{n}</Insignia> : <span className="text-[var(--ls-t4)]">—</span>
       },
       ordenar: (x) => semana.filter((c) => c.competidorId === x.id).length,
       alinear: 'derecha',

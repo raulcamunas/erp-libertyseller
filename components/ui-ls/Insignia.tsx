@@ -48,7 +48,9 @@ export function Insignia({ tono = 'gris', children, icono: Icono, punto = !Icono
         <Icono className={tamano === 'sm' ? 'h-3 w-3' : 'h-[13px] w-[13px]'} aria-hidden />
       ) : punto ? (
         <span className="relative inline-flex h-[6px] w-[6px]" aria-hidden>
-          {vivo && <span className="absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping" style={{ background: color }} />}
+          {/* En el móvil late 3 veces y se para: un latido infinito obliga a recalcular estilos en cada fotograma del scroll (15 nov 2026, 375 px y CPU x4:
+              la lista con cuatro «En curso» gastaba 1,04 s de CPU en 20 gestos y 0,39 s con 3 latidos). En el ordenador sigue latiendo siempre. */}
+          {vivo && <span className="absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping max-lg:![animation-iteration-count:3]" style={{ background: color }} />}
           <span className="relative inline-flex h-[6px] w-[6px] rounded-full" style={{ background: color }} />
         </span>
       ) : null}

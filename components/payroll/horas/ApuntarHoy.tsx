@@ -94,12 +94,16 @@ export function ApuntarHoyTarjeta(props: { horasHoy: number; guardando: boolean;
 }
 
 /**
- * «Apuntar hoy» en el MÓVIL: pegajoso abajo mientras se baja por la pantalla, con fondo esmerilado y el hueco de la
- * barra del sistema. Es `sticky` (no `fixed`), así que no necesita portal y no tapa nada al final de la página.
+ * «Apuntar hoy» en el MÓVIL: pegajoso abajo mientras se baja por la pantalla, con el hueco de la barra del sistema. Es
+ * `sticky` (no `fixed`), así que no necesita portal y no tapa nada al final de la página.
+ *
+ * -mx-6 porque la página de la ruta lleva p-6 en el móvil (con -mx-4 quedaban 8 px de calle a cada lado y el contenido
+ * asomaba por los bordes). Y fondo casi opaco SIN backdrop-blur: un desenfoque de 24 px sobre algo pegajoso obliga a
+ * redesenfocar lo que pasa por debajo en cada fotograma del scroll, que en un Android medio es justo lo que da tirones.
  */
 export function ApuntarHoyPegajoso(props: { horasHoy: number; guardando: boolean; onApuntar: (h: number) => void; onOtra: () => void }) {
   return (
-    <div className="sticky bottom-0 z-20 -mx-4 mt-4 border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_88%,transparent)] px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2.5 shadow-[0_-12px_30px_-18px_rgba(0,0,0,0.6)] backdrop-blur-xl lg:hidden">
+    <div className="sticky bottom-0 z-20 -mx-6 mt-4 border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_97%,transparent)] px-6 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2.5 shadow-[0_-12px_30px_-18px_rgba(0,0,0,0.6)] lg:hidden">
       <div className="mb-2">
         <Estado horasHoy={props.horasHoy} />
       </div>

@@ -90,11 +90,12 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
                     <Trash2 className="h-[14px] w-[14px]" />
                   </button>
                 </div>
-                <div className="grid grid-cols-4 border-t border-[var(--ls-linea)]">
-                  <Dato etiqueta="Búsquedas" valor={consultas.length > 0 ? entero(r.busquedas) : '—'} nota={consultas.length > 0 ? `${entero(r.volumenTotal)} de volumen` : 'sin datos aún'} />
-                  <Dato etiqueta="Cuota de compras" valor={porcentaje(r.cuotaCompras)} nota="de lo que se compra en sus búsquedas" color={r.cuotaCompras != null && r.cuotaCompras >= 0.1 ? COLOR_ESTADO.verde : undefined} />
-                  <Dato etiqueta="Cuota de impresiones" valor={porcentaje(r.cuotaImpresiones)} nota="cuánto sale cuando se busca" />
-                  <Dato etiqueta="Keywords en la ficha" valor={r.cobertura == null ? '—' : porcentaje(r.cobertura, 0)} nota={r.faltanEnFicha ? `${r.faltanEnFicha} de las 20 principales no están` : ficha ? 'de las 20 principales' : 'ficha sin leer aún'} color={r.cobertura == null ? undefined : r.cobertura >= 0.8 ? COLOR_ESTADO.verde : r.cobertura >= 0.5 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo} />
+                {/* Cuatro cifras: de dos en dos en el móvil (en cuatro columnas de 80 px cada «6,7 %» partía en dos líneas y las notas en seis) */}
+                <div className="grid grid-cols-2 border-t border-[var(--ls-linea)] sm:grid-cols-4">
+                  <Dato i={0} etiqueta="Búsquedas" valor={consultas.length > 0 ? entero(r.busquedas) : '—'} nota={consultas.length > 0 ? `${entero(r.volumenTotal)} de volumen` : 'sin datos aún'} />
+                  <Dato i={1} etiqueta="Cuota de compras" valor={porcentaje(r.cuotaCompras)} nota="de lo que se compra en sus búsquedas" color={r.cuotaCompras != null && r.cuotaCompras >= 0.1 ? COLOR_ESTADO.verde : undefined} />
+                  <Dato i={2} etiqueta="Cuota de impresiones" valor={porcentaje(r.cuotaImpresiones)} nota="cuánto sale cuando se busca" />
+                  <Dato i={3} etiqueta="Keywords en la ficha" valor={r.cobertura == null ? '—' : porcentaje(r.cobertura, 0)} nota={r.faltanEnFicha ? `${r.faltanEnFicha} de las 20 principales no están` : ficha ? 'de las 20 principales' : 'ficha sin leer aún'} color={r.cobertura == null ? undefined : r.cobertura >= 0.8 ? COLOR_ESTADO.verde : r.cobertura >= 0.5 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo} />
                 </div>
                 {(v || ficha) && (
                   <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] px-4 py-[8px] text-[11.5px]">
@@ -158,15 +159,19 @@ function Evolucion({ serie }: { serie: PuntoDeEvolucion[] }) {
   )
 }
 
-function Dato({ etiqueta, valor, nota, color }: { etiqueta: string; valor: string; nota: string; color?: string }) {
+function Dato({ i, etiqueta, valor, nota, color }: { i: number; etiqueta: string; valor: string; nota: string; color?: string }) {
+  // Rayas: en el móvil (2 × 2) a la izquierda de la segunda columna y encima de la segunda fila; en sm (1 × 4) a la izquierda de todas menos la primera
+  const rayas = `${i % 2 === 1 ? 'border-l' : i > 0 ? 'sm:border-l' : ''} ${i >= 2 ? 'border-t sm:border-t-0' : ''}`
   return (
-    <div className="min-w-0 border-l border-[var(--ls-linea)] px-4 py-3 first:border-l-0">
+    <div className={`min-w-0 border-[var(--ls-linea)] px-4 py-3 ${rayas}`}>
       <div className="truncate text-[11px] text-[var(--ls-t4)]">{etiqueta}</div>
       <div className="mt-[2px] text-[18px] font-semibold tabular-nums tracking-[-0.015em]" style={{ color: color ?? 'var(--ls-t1)' }}>{valor}</div>
       <div className="text-[10.5px] leading-[1.35] text-[var(--ls-t4)]">{nota}</div>
     </div>
   )
 }
+
+const esTactil = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 
 function SelectorDelCatalogo({ cuentaId, cerrar, hecho }: { cuentaId: string; cerrar: () => void; hecho: () => void }) {
   const [q, setQ] = useState('')
@@ -221,16 +226,17 @@ function SelectorDelCatalogo({ cuentaId, cerrar, hecho }: { cuentaId: string; ce
       <header className={`${CAJA.cabecera} justify-between`}>
         <h2 className="text-[13px] font-semibold text-[var(--ls-t1)]">Elegir del catálogo de la cuenta</h2>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={cerrar} className="h-[28px] rounded-[8px] px-[10px] text-[12px] font-medium text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">Cancelar</button>
-          <button type="button" disabled={n === 0 || guardando} onClick={guardar} className="h-[28px] rounded-[8px] bg-[var(--ls-acc-relleno)] px-[12px] text-[12px] font-semibold text-[var(--ls-acc-tinta)] disabled:opacity-45">
+          <button type="button" onClick={cerrar} className="h-[28px] rounded-[8px] px-[10px] [@media(pointer:coarse)]:h-[40px] text-[12px] font-medium text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">Cancelar</button>
+          <button type="button" disabled={n === 0 || guardando} onClick={guardar} className="h-[28px] rounded-[8px] [@media(pointer:coarse)]:h-[40px] bg-[var(--ls-acc-relleno)] px-[12px] text-[12px] font-semibold text-[var(--ls-acc-tinta)] disabled:opacity-45">
             {guardando ? 'Añadiendo…' : n === 0 ? 'Elige productos' : `Seguir ${n}`}
           </button>
         </div>
       </header>
       <div className={`${CAJA.cuerpo} flex flex-col gap-2`}>
         <label className="relative">
-          <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por SKU, ASIN o título" className="h-[32px] w-full rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)]" />
+          <Search className="pointer-events-none absolute left-[10px] top-1/2 h-[13px] w-[13px] -translate-y-1/2 text-[var(--ls-t4)]" />
+          {/* Al dedo, 16 px: con menos, Safari del iPhone amplía la página al enfocar y se queda ampliada. Y sin autoFocus en táctil (abría el teclado de golpe y tapaba la lista) */}
+          <input autoFocus={!esTactil()} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por SKU, ASIN o título" className="h-[32px] w-full rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-[30px] pr-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:text-[16px]" />
         </label>
         {!lista ? (
           <p className="text-[12px] text-[var(--ls-t4)]">Cargando…</p>

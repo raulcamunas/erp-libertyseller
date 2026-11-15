@@ -90,10 +90,11 @@ export function BarraDeClientes({
   }, [clientes, busqueda])
   const paises = clientes.reduce((n, c) => n + c.cuentas.filter(esPais).length, 0)
 
+  // En la tableta (md, sin alto fijo: la página corre con la ventana) la barra se queda con su alto arriba en vez de estirarse hasta el fondo de la pestaña; en lg ocupa la columna entera
   return (
     <aside
       aria-label="Clientes"
-      className={`hidden shrink-0 flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] transition-[width] duration-200 md:flex ${colapsada ? 'w-[60px]' : 'w-[248px]'}`}
+      className={`hidden shrink-0 flex-col self-start overflow-hidden rounded-[14px] lg:self-stretch border border-[var(--ls-linea)] bg-[var(--ls-sup)] transition-[width] duration-200 md:flex ${colapsada ? 'w-[60px]' : 'w-[248px]'}`}
     >
       {/* ---- la marca ---- */}
       <div className={`flex items-center gap-[10px] px-3 pb-3 pt-[14px] ${colapsada ? 'flex-col' : ''}`}>

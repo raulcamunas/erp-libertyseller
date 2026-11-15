@@ -129,7 +129,7 @@ export function TabRotacion({ filas, ritmo, nombreArchivo }: { filas: FilaProduc
           <table className={TABLA.tabla}>
             <thead>
               <tr>
-                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[230px]')}>Producto</th>
+                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[230px]')}>Producto</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)}>Vendidas</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha)}>Ud/día · 7 d</th>
                 <th className={cx(TABLA.cabecera, TABLA.derecha, 'hidden 2xl:table-cell')}>Ud/día · total</th>
@@ -142,7 +142,7 @@ export function TabRotacion({ filas, ritmo, nombreArchivo }: { filas: FilaProduc
             <tbody>
               {ordenadas.map((f) => (
                 <tr key={f.sku} className={TABLA.fila}>
-                  <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[270px]')}>
+                  <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[270px]')}>
                     <div className="flex items-baseline gap-2 overflow-hidden">
                       <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{f.sku}</span>
                       <span className="truncate text-[var(--ls-t1)]" title={f.nombre ?? ''}>

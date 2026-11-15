@@ -345,7 +345,8 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
   let indice = 0
 
   return (
-    <div className="flex flex-col gap-4 pb-28">
+    // Con la barra del lote abajo (fija), sitio de sobra para que no tape lo último de la lista
+    <div className={`flex flex-col gap-4 ${marcadasLista.length > 0 ? 'pb-40' : 'pb-28'}`}>
       <EstadoDelMotor
         modo={modo}
         firmada={firmada}
@@ -526,9 +527,10 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
                   {marcadasLista.length} {marcadasLista.length === 1 ? 'marcada' : 'marcadas'}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--ls-t3)]">{resumenDeLote(marcadasLista)}</span>
-                <span className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
-                  <Boton variante="fantasma" tamano="sm" icono={X} disabled={algoOcupado} onClick={() => setMarcadas(new Set())}>
-                    Quitar marcas
+                {/* En el móvil los tres botones caben en UNA fila («Quitar marcas» solo con la X): en dos filas la barra medía 150 px y tapaba la última tarjeta */}
+                <span className="flex w-full flex-nowrap justify-end gap-2 sm:w-auto">
+                  <Boton variante="fantasma" tamano="sm" icono={X} disabled={algoOcupado} onClick={() => setMarcadas(new Set())} aria-label="Quitar marcas" title="Quitar marcas">
+                    <span className="hidden sm:inline">Quitar marcas</span>
                   </Boton>
                   <Boton variante="secundario" tamano="sm" icono={Ban} disabled={algoOcupado} onClick={() => setConfirmar({ tipo: 'descartar-lote', ps: marcadasLista })}>
                     Descartar
