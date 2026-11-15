@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, MotionConfig } from 'framer-motion'
-import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TACTIL } from './Boton'
@@ -51,15 +51,18 @@ function useTeclado<T extends string | number>(opciones: ReadonlyArray<Opcion<T>
     e.preventDefault()
     onCambio(siguiente.id)
     const b = botones.current.get(siguiente.id)
+    // focus() ya desplaza la barra lo justo para que se vea la opción
     b?.focus()
-    b?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
   const registrar = (id: T) => (el: HTMLButtonElement | null) => {
     if (el) botones.current.set(id, el)
     else botones.current.delete(id)
   }
-  return { alPulsarTecla, registrar }
+  return { alPulsarTecla, registrar, botones }
 }
+
+// useLayoutEffect en el navegador (medir antes de pintar, sin parpadeo) y useEffect en el servidor (sin el aviso de React)
+const useLayoutSeguro = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
 function Cuenta({ n, activa }: { n: number; activa: boolean }) {
   return (
@@ -76,16 +79,68 @@ function Cuenta({ n, activa }: { n: number; activa: boolean }) {
 
 export function Pestanas<T extends string | number>({ opciones, valor, onCambio, etiqueta, className, acento, idPanel }: Comunes<T> & { acento?: Modulo | string; idPanel?: string }) {
   const grupo = useId()
-  const { alPulsarTecla, registrar } = useTeclado(opciones, valor, onCambio)
+  const { alPulsarTecla, registrar, botones } = useTeclado(opciones, valor, onCambio)
+  const barra = useRef<HTMLDivElement>(null)
+  // EL SUBRAYADO se coloca midiendo la pestaña elegida (offsetLeft/offsetWidth dentro de la barra) y se desliza con transform. Antes era un layoutId de
+  // framer-motion dentro de cada botón: en una barra con scroll horizontal calculaba mal el origen y saltaba, y como asomaba 1 px por debajo (encima del
+  // border-b) el overflow de la barra lo recortaba y solo se veía el brillo borroso (15 nov 2026, Marketing).
+  const [linea, setLinea] = useState<{ x: number; w: number } | null>(null)
+  const [deslizar, setDeslizar] = useState(false)
+  const medir = useCallback(() => {
+    const b = botones.current.get(valor)
+    if (!b) return setLinea(null)
+    setLinea((prev) => (prev && prev.x === b.offsetLeft && prev.w === b.offsetWidth ? prev : { x: b.offsetLeft, w: b.offsetWidth }))
+  }, [botones, valor])
+  useLayoutSeguro(() => {
+    medir()
+    // La pestaña elegida, a la vista dentro de la barra (en el móvil puede quedar fuera). Solo en horizontal: scrollIntoView movería también la página.
+    const b = botones.current.get(valor)
+    const c = barra.current
+    if (b && c && c.scrollWidth > c.clientWidth) {
+      if (b.offsetLeft < c.scrollLeft) c.scrollTo({ left: b.offsetLeft - 8, behavior: 'smooth' })
+      else if (b.offsetLeft + b.offsetWidth > c.scrollLeft + c.clientWidth) c.scrollTo({ left: b.offsetLeft + b.offsetWidth - c.clientWidth + 8, behavior: 'smooth' })
+    }
+  }, [medir, valor, opciones])
+  // Se vuelve a medir si cambia el ancho (giro del móvil, fuentes que cargan, una cuenta que aparece). Observa la barra, cuyo tamaño no depende de la línea: sin bucle.
+  useEffect(() => {
+    const c = barra.current
+    if (!c || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => medir())
+    ro.observe(c)
+    for (const b of Array.from(c.querySelectorAll('[role=tab]'))) ro.observe(b)
+    document.fonts?.ready.then(() => medir()).catch(() => {})
+    return () => ro.disconnect()
+  }, [medir, opciones])
+  // La primera vez aparece en su sitio; a partir de ahí se desliza
+  useEffect(() => {
+    if (linea && !deslizar) {
+      const t = requestAnimationFrame(() => setDeslizar(true))
+      return () => cancelAnimationFrame(t)
+    }
+  }, [linea, deslizar])
   return (
     <MotionConfig reducedMotion="user">
       <div
+        ref={barra}
         role="tablist"
         aria-label={etiqueta}
         onKeyDown={alPulsarTecla}
-        className={cn('ls-sin-barra relative flex max-w-full items-end gap-1 overflow-x-auto border-b border-[var(--ls-linea)]', className)}
+        // La raya de abajo es una sombra interior y no un border-b: así el subrayado se pinta ENCIMA de ella, dentro de la barra, y el overflow no lo recorta
+        className={cn('ls-sin-barra relative flex max-w-full items-end gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--ls-linea)]', className)}
         style={{ ['--ls-acento' as string]: colorDeAcento(acento) }}
       >
+        {linea && (
+          <span
+            aria-hidden
+            className={cn('pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full motion-reduce:transition-none', deslizar && 'transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]')}
+            style={{
+              width: Math.max(0, linea.w - 16),
+              transform: `translateX(${linea.x + 8}px)`,
+              background: 'var(--ls-acento)',
+              boxShadow: '0 -1px 8px color-mix(in srgb, var(--ls-acento) 55%, transparent)',
+            }}
+          />
+        )}
         {opciones.map((o) => {
           const activa = o.id === valor
           const Icono = o.icono
@@ -111,15 +166,6 @@ export function Pestanas<T extends string | number>({ opciones, valor, onCambio,
               {Icono && <Icono className={cn('h-[15px] w-[15px]', activa && 'text-[var(--ls-acento)]')} aria-hidden />}
               {o.texto}
               {o.cuenta != null && <Cuenta n={o.cuenta} activa={activa} />}
-              {activa && (
-                <motion.span
-                  layoutId={`${grupo}-indicador`}
-                  aria-hidden
-                  className="absolute inset-x-2 -bottom-px h-[2px] rounded-full"
-                  style={{ background: 'var(--ls-acento)', boxShadow: '0 0 12px color-mix(in srgb, var(--ls-acento) 70%, transparent)' }}
-                  transition={{ type: 'spring', stiffness: 520, damping: 40 }}
-                />
-              )}
             </button>
           )
         })}
