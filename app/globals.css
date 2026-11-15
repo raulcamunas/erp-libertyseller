@@ -330,10 +330,12 @@
       transform: translateY(30px);
       filter: blur(10px);
     }
+    /* `none` y no translateY(0)/blur(0): la animación acaba `forwards` y un transform o filtro que se queda puesto hace de cada `fixed` de dentro algo
+       relativo a la página y no a la ventana, y en el móvil pinta toda la página en una capa aparte con filtro (scroll a tirones) — 15 nov 2026 */
     to {
       opacity: 1;
-      transform: translateY(0);
-      filter: blur(0);
+      transform: none;
+      filter: none;
     }
   }
 
