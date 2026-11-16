@@ -1,6 +1,6 @@
 'use client'
 
-import { CalendarClock, Link2, ListChecks, Loader2, PanelRight, Table2, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Gauge, Link2, ListChecks, Loader2, PanelRight, Table2, type LucideIcon } from 'lucide-react'
 import type { ResumenDeCartera } from '@/lib/cold-calling/cartera'
 import { BOTON, CIFRAS, INSIGNIA, TITULO } from '@/lib/estilo/denso'
 import type { CalendarPerson } from '@/lib/types/appointments'
@@ -17,13 +17,14 @@ import { Numero } from '@/components/rendimiento/ui'
  * contaba las atrasadas y la otra no, y parecía que la pantalla estaba rota.
  */
 
-export type VistaDeCartera = 'ficha' | 'tabla' | 'rellamadas' | 'listas'
+export type VistaDeCartera = 'ficha' | 'tabla' | 'rellamadas' | 'listas' | 'informes'
 
 const VISTAS: ReadonlyArray<{ id: VistaDeCartera; icono: LucideIcon; etiqueta: string; ayuda: string }> = [
   { id: 'ficha', icono: PanelRight, etiqueta: 'Ficha', ayuda: 'La lista a la izquierda y la ficha del lead a la derecha: para trabajar un lead a fondo' },
   { id: 'tabla', icono: Table2, etiqueta: 'Tabla', ayuda: 'Como el Excel: muchos leads a la vez, con el estado y la rellamada editables en la fila' },
   { id: 'rellamadas', icono: CalendarClock, etiqueta: 'Rellamadas', ayuda: 'La agenda del día: a quién se prometió volver a llamar' },
   { id: 'listas', icono: ListChecks, etiqueta: 'Listas', ayuda: 'Las listas de leads: lo usadas que están, mover leads entre ellas, asignarlas al equipo y añadir tiendas nuevas' },
+  { id: 'informes', icono: Gauge, etiqueta: 'Informes', ayuda: 'Cómo va la recogida de informes: ritmo, cola, turnos y el log de cada uno (solo administradores)' },
 ]
 
 interface Props {
@@ -39,13 +40,15 @@ interface Props {
   onTelefonos: () => void
   /** ¿Puede gestionar las listas de leads? Solo entonces sale la vista «Listas» */
   puedeGestionarListas: boolean
+  /** ¿Es administrador? Solo entonces sale la vista «Informes» (la ruta lo vuelve a comprobar) */
+  esAdmin?: boolean
 }
 
 const porcentaje = (p: number) => `${(p * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`
 
-export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, propietario, onPropietario, cargando, onTelefonos, puedeGestionarListas }: Props) {
-  // En «Listas» la cabecera se queda en el título y las vistas: las cifras y el selector de cartera son de una cartera, y esa pantalla trae las suyas
-  const enListas = vista === 'listas'
+export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, propietario, onPropietario, cargando, onTelefonos, puedeGestionarListas, esAdmin = false }: Props) {
+  // En «Listas» e «Informes» la cabecera se queda en el título y las vistas: las cifras y el selector de cartera son de una cartera, y esas pantallas traen las suyas
+  const enListas = vista === 'listas' || vista === 'informes'
   const trabajadosPct = resumen.total > 0 ? resumen.trabajados / resumen.total : 0
 
   return (
@@ -111,7 +114,7 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
         )}
 
         <div role="group" aria-label="Vista" className="flex items-center gap-0.5 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-0.5">
-          {VISTAS.filter((v) => v.id !== 'listas' || puedeGestionarListas).map((v) => {
+          {VISTAS.filter((v) => (v.id !== 'listas' || puedeGestionarListas) && (v.id !== 'informes' || esAdmin)).map((v) => {
             const activa = vista === v.id
             const Icono = v.icono
             return (

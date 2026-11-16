@@ -4,7 +4,8 @@
  *
  * LA COLA vive en Storage (bucket privado `analisis-keepa`, sin migración):
  *   cola.json      [{ lead, seller, tienda, comercial }] en el orden acordado: primero los «sin contactar», luego Fase 2 y 3 con llamada
- *                  próxima, luego el resto y al final los «no interesa», por turnos Alejandro → Maoli → Daniela.
+ *                  próxima, luego el resto y al final los «no interesa». El TURNO entre comerciales ya no va en el orden del fichero: lo
+ *                  decide turnos.ts al vuelo (Alejandro → Maoli → Daniela → José → Naomi, configurable en ORDEN_DE_COMERCIALES).
  *   saltados.json  { sellerId: motivo } los que no tienen informe posible (Keepa no los conoce, sin productos, el lead ya no existe…)
  * Lo hecho no se apunta aparte: es el lead con `analisis_amazon_at`. Así lo que cargó el portátil cuenta igual.
  *
@@ -15,43 +16,80 @@
  * (cola-sin-amazon.json, informe de lib/analisis-sin-amazon). Se alternan: una de cada, y si una se acaba sigue la otra. Las de la
  * segunda se apuntan en saltados.json con la clave `lead:<id>`. Si al estudiar una tienda «sin Amazon» resulta que el vendedor de su
  * marca es ella (mismo CIF o razón social), el lead se marca como vendedor y pasa al principio de la cola de Amazon.
+ *
+ * TURNOS POR COMERCIAL (16 nov 2026, turnos.ts): uno de cada comercial en el orden de ORDEN_DE_COMERCIALES, y para cada uno se alterna Amazon
+ * y sin Amazon. El turno se deduce de los últimos hechos de la bitácora, con el comercial de la cola como agrupa el Repartidor (antes era una
+ * variable en memoria que se perdía en cada despliegue; el dueño actual del lead solo de respaldo, ver turnos.ts `hechosDelTurno`). Un
+ * saltado no consume el turno; un hecho sí. Si no hay saldo para lo que toca, se espera: no se cuela otro más barato.
+ *
+ * BITÁCORA (bitacora.json): cada hecho, saltado o fallo con su hora y sus tokens, para el panel «Informes» de Cold Calling. Y el saldo se
+ * pregunta ANTES de leer las colas: en la mayoría de pasadas no hay saldo y no hace falta bajar 1,6 MB de colas ni paginar los hechos.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/service'
 import { construirAnalisis } from './construir'
 import { guardarAnalisis } from './guardar'
-import { estudiarVendedor, saldoKeepa, SinTokens } from './keepa'
+import { estudiarVendedor, saldoKeepa, SinTokens, type Saldo } from './keepa'
 import { falta303 } from './servidor'
 import { clientesActuales, esCliente, type Clientes } from './clientes'
 import { leerCatalogo } from '@/lib/analisis-sin-amazon/catalogo'
 import { estudiarTienda, planDeEstudio } from '@/lib/analisis-sin-amazon/estudio'
 import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon/construir'
+import { apuntarEnBitacora, escribirJson, leerJson, type EnCola, type EnColaSinAmazon, type EventoDeBitacora } from './almacen'
+import { COSTE_DE_TIPO, comercialDe, estadoDelTurno, hechosDelTurno, idPorNombre, Repartidor, trasHecho, type HechoDelTurno, type TipoDeCola } from './turnos'
 
-export const BUCKET = 'analisis-keepa'
-/** Con 10 productos (13 nov 2026) un informe de Amazon gasta ~100; con este saldo no se queda a medias */
-const TOKENS_POR_TIENDA = 110
-/** El de tiendas sin Amazon gasta más: marca, sus vendedores y hasta 2 mercados de 6 (~150-200; el umbral cubre el peor caso) */
-const TOKENS_SIN_AMAZON = 280
+export { BUCKET, type EnCola, type EnColaSinAmazon } from './almacen'
+/** Lo que hace falta para empezar cada tipo de tienda (110 y 280; el porqué, en turnos.ts COSTE_DE_TIPO) */
+const TOKENS_POR_TIENDA = COSTE_DE_TIPO.amazon
+const TOKENS_SIN_AMAZON = COSTE_DE_TIPO.sin
 const MINUTOS_POR_PASADA = 4
 const INTENTOS_ANTES_DE_SALTAR = 3
 
-export type EnCola = { lead: string; seller: string; tienda: string; comercial?: string }
-export type EnColaSinAmazon = { lead: string; tienda: string; web: string; comercial?: string }
+/** Cuántos informes recientes se miran para saber de quién fue el último y qué tipo hizo cada comercial (5 comerciales × ~5) */
+const INFORMES_PARA_EL_TURNO = 25
 
 /** Los fallos seguidos de cada vendedor, en memoria (el servidor es un solo proceso) */
 const fallos = new Map<string, number>()
 let enMarcha = false
-/** De quién es el turno: se alternan las dos colas */
-let turno: 'amazon' | 'sin' = 'amazon'
+/**
+ * Lo que necesita lo que toca ahora (110 o 280 tokens), para no leer las colas si no hay saldo para ello. En memoria: tras un despliegue
+ * vale lo mínimo y la primera pasada con saldo lo corrige.
+ */
+let necesitaLoSiguiente = TOKENS_POR_TIENDA
 
-async function leerJson<T>(s: SupabaseClient, nombre: string, siNoHay: T): Promise<T> {
-  const { data, error } = await s.storage.from(BUCKET).download(nombre)
-  if (error || !data) return siNoHay
-  return JSON.parse(await data.text()) as T
+/** ¿Hay una pasada en marcha en este proceso? (para el panel de Informes) */
+export const recogidaEnMarcha = () => enMarcha
+
+const costeDe = (tipo: TipoDeCola) => (tipo === 'amazon' ? TOKENS_POR_TIENDA : TOKENS_SIN_AMAZON)
+
+/**
+ * Los últimos informes guardados con el dueño ACTUAL de su lead. Solo de respaldo para el turno (`hechosDelTurno`): manda la bitácora, que
+ * guarda el comercial de la entrada de la cola, como agrupa el Repartidor. Esto cubre la bitácora vacía y lo de antes de ella.
+ */
+async function ultimosInformes(s: SupabaseClient): Promise<HechoDelTurno[]> {
+  const { data, error } = await s.from('analisis_amazon').select('lead_id, seller_id, creado_en, cold_leads(assigned_to)').order('creado_en', { ascending: false }).limit(INFORMES_PARA_EL_TURNO)
+  if (error) throw error
+  return ((data ?? []) as Array<{ lead_id: string; seller_id: string; creado_en: string; cold_leads: { assigned_to: string | null } | Array<{ assigned_to: string | null }> | null }>).map((f) => {
+    const lead = Array.isArray(f.cold_leads) ? f.cold_leads[0] : f.cold_leads
+    return { comercialId: lead?.assigned_to ?? null, tipo: f.seller_id === SELLER_SIN_AMAZON ? 'sin' : 'amazon', at: f.creado_en, lead: f.lead_id }
+  })
 }
 
-async function escribirJson(s: SupabaseClient, nombre: string, datos: unknown) {
-  await s.storage.from(BUCKET).upload(nombre, new Blob([JSON.stringify(datos)], { type: 'application/json' }), { upsert: true, contentType: 'application/json' })
+async function perfiles(s: SupabaseClient): Promise<Array<{ id: string; full_name: string | null }>> {
+  const { data, error } = await s.from('profiles').select('id, full_name')
+  if (error) throw error
+  return (data ?? []) as Array<{ id: string; full_name: string | null }>
+}
+
+/** El resumen de la pasada (cabe en 480): si hay que recortar, se recortan los nombres y nunca lo de detrás, que el panel lee («N tokens», «esperando saldo…») */
+export function componerResumen(hechas: number, nombres: readonly string[], cola: string, tokens: number, motivo: string): string {
+  const cola_ = [cola, tokens > 0 ? `${tokens} tokens` : '', motivo].filter(Boolean).join(' · ')
+  if (!hechas) return `ningún informe nuevo · ${cola_}`.slice(0, 480)
+  const cabeza = `${hechas} ${hechas === 1 ? 'informe' : 'informes'}`
+  const hueco = 480 - cabeza.length - cola_.length - 6
+  let lista = nombres.join(', ')
+  if (lista.length > hueco) lista = hueco > 1 ? lista.slice(0, hueco - 1) + '…' : ''
+  return `${cabeza}${lista ? ` (${lista})` : ''} · ${cola_}`.slice(0, 480)
 }
 
 /** Los leads de la cola que ya tienen informe */
@@ -85,7 +123,7 @@ async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola, clientes
   return { ok: true, nombre: v.tienda, tokens: e.gastado }
 }
 
-async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon, clientes: Clientes): Promise<Hecho & { tokens: number }> {
+async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon, clientes: Clientes, comercialId: string | null): Promise<Hecho & { tokens: number }> {
   const { data: lead, error } = await s.from('cold_leads').select('id, store_name, web, cif, company, vende_en_amazon, seller_url').eq('id', v.lead).maybeSingle()
   if (error) throw error
   const l = lead as { store_name: string | null; web: string | null; cif: string | null; company: string | null; vende_en_amazon: string | null; seller_url: string | null } | null
@@ -105,7 +143,7 @@ async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmaz
     // Es vendedor de Amazon: se marca y pasa al principio de la cola del informe de Amazon
     await s.from('cold_leads').update({ vende_en_amazon: 'vende', seller_url: `https://www.amazon.es/sp?seller=${e.propio.sellerId}` }).eq('id', v.lead)
     const cola = await leerJson<EnCola[]>(s, 'cola.json', [])
-    if (!cola.some((c) => c.lead === v.lead)) await escribirJson(s, 'cola.json', [{ lead: v.lead, seller: e.propio.sellerId, tienda: nombre, comercial: v.comercial }, ...cola])
+    if (!cola.some((c) => c.lead === v.lead)) await escribirJson(s, 'cola.json', [{ lead: v.lead, seller: e.propio.sellerId, tienda: nombre, comercial: v.comercial, ...(comercialId ? { comercialId } : {}) }, ...cola])
     return { ok: false, saltar: `vende en Amazon como ${e.propio.nombre} (por ${e.propio.por}): pasa a la cola de Amazon`, tokens: e.gastado }
   }
   if (!e.marca.productos.length && !e.mercados.length) return { ok: false, saltar: 'nada comparable en Amazon', tokens: e.gastado }
@@ -127,85 +165,113 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
   if (enMarcha) return nada('ya hay una pasada en marcha')
   enMarcha = true
   try {
+    // El saldo primero (no gasta): si no llega para lo que toca, no se leen las colas ni los hechos
+    let saldo: Saldo | null = await saldoKeepa(clave)
+    if (saldo.tokens < necesitaLoSiguiente) return nada(`ningún informe nuevo · esperando saldo de Keepa (${saldo.tokens}/${necesitaLoSiguiente})`)
+
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos, clientes] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
       yaHechos(s),
       clientesActuales(s),
+      perfiles(s),
+      ultimosInformes(s),
+      // La bitácora (~2 MB) solo se baja en las pasadas con saldo: de ella sale el turno, con el comercial de la cola
+      leerJson<EventoDeBitacora[]>(s, 'bitacora.json', []).catch(() => [] as EventoDeBitacora[]),
     ])
     if (!cola.length && !colaSin.length) return nada('no hay cola (cola.json en Storage)')
     const pendientes = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
     const pendientesSin = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`])
-    if (!pendientes.length && !pendientesSin.length) return nada('cola terminada')
+    if (!pendientes.length && !pendientesSin.length) {
+      necesitaLoSiguiente = TOKENS_POR_TIENDA
+      return nada('cola terminada')
+    }
+
+    const porNombre = idPorNombre(gente)
+    const comercialIdDe = (v: EnCola | EnColaSinAmazon) => comercialDe(v, porNombre)
+    const reparto = new Repartidor<EnCola, EnColaSinAmazon>(pendientes, pendientesSin, comercialIdDe)
+    let turno = estadoDelTurno(hechosDelTurno(Array.isArray(bitacora) ? bitacora : [], ultimos, INFORMES_PARA_EL_TURNO))
 
     const fin = Date.now() + MINUTOS_POR_PASADA * 60_000
     let hechas = 0
     let tokens = 0
     let saltadosNuevos = false
     const nombres: string[] = []
+    const eventos: EventoDeBitacora[] = []
     let motivoDeParar = ''
-    let ia = 0
-    let ib = 0
+
+    const apuntar = (tarea: Tarea, comercialId: string | null, resultado: EventoDeBitacora['resultado'], gastado: number, motivo?: string) =>
+      eventos.push({ at: new Date().toISOString(), tipo: tarea.tipo, lead: tarea.v.lead, tienda: tarea.v.tienda, comercialId, resultado, ...(motivo ? { motivo: motivo.slice(0, 200) } : {}), tokens: gastado })
+
+    const guardarLoApuntado = async () => {
+      if (saltadosNuevos) await escribirJson(s, 'saltados.json', saltados)
+      await apuntarEnBitacora(s, eventos)
+    }
 
     while (Date.now() < fin) {
-      const quiere: 'amazon' | 'sin' = turno === 'amazon' ? (ia < pendientes.length ? 'amazon' : 'sin') : ib < pendientesSin.length ? 'sin' : 'amazon'
-      const tarea: Tarea | null =
-        quiere === 'amazon' ? (ia < pendientes.length ? { tipo: 'amazon', v: pendientes[ia] } : null) : ib < pendientesSin.length ? { tipo: 'sin', v: pendientesSin[ib] } : null
-      if (!tarea) break
-      const necesita = tarea.tipo === 'amazon' ? TOKENS_POR_TIENDA : TOKENS_SIN_AMAZON
-      const saldo = await saldoKeepa(clave)
-      if (saldo.tokens < necesita) {
-        motivoDeParar = `esperando saldo de Keepa (${saldo.tokens}/${necesita})`
+      const eleccion = reparto.siguiente(turno)
+      if (!eleccion) break
+      const tarea: Tarea = eleccion.tipo === 'amazon' ? { tipo: 'amazon', v: eleccion.v } : { tipo: 'sin', v: eleccion.v }
+      const necesita = costeDe(tarea.tipo)
+      // El primer saldo es el de hace un momento; luego se vuelve a preguntar antes de cada tienda
+      const ahora = saldo ?? (await saldoKeepa(clave))
+      saldo = null
+      if (ahora.tokens < necesita) {
+        // Le toca a este: se espera a tener saldo para él (no se cuela otro más barato)
+        motivoDeParar = `esperando saldo de Keepa (${ahora.tokens}/${necesita})`
         break
       }
       const llave = tarea.tipo === 'amazon' ? tarea.v.seller : `lead:${tarea.v.lead}`
-      if (tarea.tipo === 'amazon') ia++
-      else ib++
+      const comercialId = comercialIdDe(tarea.v)
+      reparto.quitar(eleccion)
       try {
-        const r = tarea.tipo === 'amazon' ? await hacerAmazon(s, clave, tarea.v, clientes) : await hacerSinAmazon(s, clave, tarea.v, clientes)
+        const r = tarea.tipo === 'amazon' ? await hacerAmazon(s, clave, tarea.v, clientes) : await hacerSinAmazon(s, clave, tarea.v, clientes, comercialId)
         tokens += r.tokens
         if (r.ok) {
           fallos.delete(llave)
           hechas++
           nombres.push(r.nombre)
-          turno = tarea.tipo === 'amazon' ? 'sin' : 'amazon'
+          turno = trasHecho(turno, eleccion)
+          apuntar(tarea, comercialId, 'hecho', r.tokens)
         } else if (r.parar) {
+          await guardarLoApuntado()
           return nada(r.parar, pendientes.length + pendientesSin.length - hechas, tokens)
         } else if (r.saltar) {
+          // Un saltado no consume el turno: el mismo comercial sigue con su siguiente
           saltados[llave] = r.saltar.slice(0, 200)
           saltadosNuevos = true
+          apuntar(tarea, comercialId, 'saltado', r.tokens, r.saltar)
         }
       } catch (e) {
         if (e instanceof SinTokens) {
           motivoDeParar = 'Keepa se ha quedado sin saldo a mitad de tienda (se repite en la próxima)'
-          if (tarea.tipo === 'amazon') ia--
-          else ib--
           break
         }
         const n = (fallos.get(llave) ?? 0) + 1
         fallos.set(llave, n)
-        console.warn(`[analisis-keepa] ${tarea.v.tienda}: ${(e as Error).message} (intento ${n})`)
+        const mensaje = (e as Error).message
+        console.warn(`[analisis-keepa] ${tarea.v.tienda}: ${mensaje} (intento ${n})`)
+        apuntar(tarea, comercialId, 'fallo', 0, `${mensaje} (intento ${n})`)
         if (n >= INTENTOS_ANTES_DE_SALTAR) {
-          saltados[llave] = `falla: ${(e as Error).message}`.slice(0, 200)
+          saltados[llave] = `falla: ${mensaje}`.slice(0, 200)
           saltadosNuevos = true
           fallos.delete(llave)
+          apuntar(tarea, comercialId, 'saltado', 0, `falla: ${mensaje}`)
         }
-        // Que el siguiente fallo no bloquee la otra cola
-        turno = tarea.tipo === 'amazon' ? 'sin' : 'amazon'
         break
       }
     }
-    if (saltadosNuevos) await escribirJson(s, 'saltados.json', saltados)
+    await guardarLoApuntado()
+
+    // Lo que necesitará lo siguiente, para que la próxima pasada sepa sin leer nada si le llega el saldo
+    const proxima = reparto.siguiente(turno)
+    necesitaLoSiguiente = proxima ? costeDe(proxima.tipo) : TOKENS_POR_TIENDA
 
     const quedan = pendientes.length + pendientesSin.length - hechas
-    const partes = [
-      hechas ? `${hechas} ${hechas === 1 ? 'informe' : 'informes'} (${nombres.join(', ')})` : 'ningún informe nuevo',
-      `${quedan} en cola (${pendientes.length} de Amazon, ${pendientesSin.length} sin Amazon)`,
-    ]
-    if (motivoDeParar) partes.push(motivoDeParar)
-    return { hechos: hechas, tokens, pendientes: quedan, resumen: partes.join(' · ').slice(0, 480) }
+    const resumen = componerResumen(hechas, nombres, `${quedan} en cola (${pendientes.length} de Amazon, ${pendientesSin.length} sin Amazon)`, tokens, motivoDeParar)
+    return { hechos: hechas, tokens, pendientes: quedan, resumen }
   } finally {
     enMarcha = false
   }

@@ -30,6 +30,7 @@ import { BandaDeFestivos } from './Festivos'
 import { FichaDelLead } from './FichaDelLead'
 import { FiltrosDeLista } from './FiltrosDeLista'
 import { ListaDeLeads, ListaPorSecciones, type SeccionDeLista } from './ListaDeLeads'
+import { PanelDeInformes } from './informes/PanelDeInformes'
 import { PantallaDeListas } from './listas/PantallaDeListas'
 import { NavegadorDeDias } from './NavegadorDeDias'
 import { TablaDeLeads } from './TablaDeLeads'
@@ -108,9 +109,13 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const cartera = useCartera({ propietarioInicial, userId: currentUser.id })
   const { leads, propietario, cargando, incompleta, parchear, cambiarPropietario, refrescar, cargadaEn } = cartera
 
+  const esAdmin = currentUser.role === 'admin'
   const [vistaElegida, setVista] = useState<VistaDeCartera>('ficha')
-  // La vista «Listas» solo existe para quien puede gestionarlas: si se recordó de otra vez y ya no puede (le quitaron la casilla), se vuelve a la ficha
-  const vista: VistaDeCartera = vistaElegida === 'listas' && !puedeGestionarListas ? 'ficha' : vistaElegida
+  // La vista «Listas» solo existe para quien puede gestionarlas: si se recordó de otra vez y ya no puede (le quitaron la casilla), se vuelve a la ficha.
+  // Y «Informes», solo para administradores (la ruta lo vuelve a comprobar)
+  const vista: VistaDeCartera = (vistaElegida === 'listas' && !puedeGestionarListas) || (vistaElegida === 'informes' && !esAdmin) ? 'ficha' : vistaElegida
+  /** «Listas» e «Informes» son pantallas propias: ni filtros, ni banda de festivos, ni teclado de la cartera */
+  const vistaDePanel = vista === 'listas' || vista === 'informes'
   const [filtros, setFiltros] = useState<FiltrosDeCartera>(SIN_FILTROS)
   const [seleccionado, setSeleccionado] = useState<string | null>(null)
   const [diaElegido, setDiaElegido] = useState<string | null>(null)
@@ -262,17 +267,17 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // efecto de su hook mide la pantalla, así que aquí se mira la pantalla directamente
   // Y no antes de haber leído las preferencias: con los filtros de ayer puestos, el primero de la lista NO es el primero de la cartera entera
   useEffect(() => {
-    if (!preferenciasListas || esMovil || vista === 'tabla' || vista === 'listas' || leadSeleccionado || navegacion.length === 0) return
+    if (!preferenciasListas || esMovil || vista === 'tabla' || vistaDePanel || leadSeleccionado || navegacion.length === 0) return
     // Con un lead pedido por la dirección no se enseña un instante la ficha del primero: la ficha pide sus datos al abrirse
     if (leadPendiente) return
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) return
     setSeleccionado(navegacion[0].id)
-  }, [preferenciasListas, esMovil, vista, leadSeleccionado, navegacion, leadPendiente])
+  }, [preferenciasListas, esMovil, vista, vistaDePanel, leadSeleccionado, navegacion, leadPendiente])
 
   // Teclado: ↑ ↓ cambian de lead y «/» va a la búsqueda. Nada de esto actúa mientras se escribe o hay un diálogo abierto, ni mientras la
   // pantalla está oculta (se está en Correo: las flechas y la barra son de lo que se ve)
   useEffect(() => {
-    if (!activa || vista === 'tabla' || vista === 'listas') return
+    if (!activa || vista === 'tabla' || vistaDePanel) return
     const alPulsar = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector('[role="dialog"]')) return
       const el = e.target as HTMLElement | null
@@ -291,7 +296,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
     }
     window.addEventListener('keydown', alPulsar)
     return () => window.removeEventListener('keydown', alPulsar)
-  }, [activa, vista, mover])
+  }, [activa, vista, vistaDePanel, mover])
 
   const cambiarFiltros = useCallback((cambios: Partial<FiltrosDeCartera>) => setFiltros((previos) => ({ ...previos, ...cambios })), [])
   const elegirVista = useCallback((v: VistaDeCartera) => {
@@ -355,7 +360,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   const puedeEditar = (l: ColdLead) => puedeVerTodos || l.assigned_to === currentUser.id
   // EN EL MÓVIL, CON UN LEAD ABIERTO, LA FICHA OCUPA TODA LA PANTALLA: las cifras de la cartera, las vistas y los filtros se comían más de media pantalla y la ficha
   // quedaba en una tira de abajo sin poder bajar. Vuelven al pulsar «‹» (volver a la lista)
-  const fichaAPantallaCompleta = esMovil && Boolean(seleccionado) && vista !== 'tabla' && vista !== 'listas'
+  const fichaAPantallaCompleta = esMovil && Boolean(seleccionado) && vista !== 'tabla' && !vistaDePanel
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
@@ -371,10 +376,11 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         cargando={cargando}
         onTelefonos={() => setComprobando(true)}
         puedeGestionarListas={puedeGestionarListas}
+        esAdmin={esAdmin}
       />
       )}
 
-      {incompleta && !cargando && vista !== 'listas' && (
+      {incompleta && !cargando && !vistaDePanel && (
         <div className={`${AVISO.base} ${AVISO.conTono} items-center`} style={{ borderLeftColor: COLOR_ESTADO.ambar }} role="alert">
           <AlertTriangle className={`${AVISO.icono} !mt-0 text-[var(--ls-e-ambar)]`} aria-hidden />
           <p className="flex-1">
@@ -387,9 +393,9 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
       )}
 
       {/* Hoy es festivo en la comunidad de algunos leads de esta cartera (o lo será en los próximos días): se dice arriba, con los que afecta y el botón de ocultarlos por hoy */}
-      {!fichaAPantallaCompleta && vista !== 'listas' && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
+      {!fichaAPantallaCompleta && !vistaDePanel && vista !== 'rellamadas' && <BandaDeFestivos leads={leads} hoy={hoy} ocultando={ocultarFestivos} onOcultar={(ocultar) => setOcultarFestivosEn(ocultar ? hoy : null)} />}
 
-      {vista === 'listas' || fichaAPantallaCompleta ? null : vista === 'rellamadas' ? (
+      {vistaDePanel || fichaAPantallaCompleta ? null : vista === 'rellamadas' ? (
         <NavegadorDeDias dia={diaRellamadas} hoy={hoy} onDia={(d) => setDiaElegido(d === hoy ? null : d)} delDia={rell.delDia.length} atrasadas={rell.atrasadas.length} />
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -415,9 +421,11 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
         </div>
       )}
 
-      <div className={`min-h-0 min-w-0 flex-1 ${vista === 'listas' ? 'flex flex-col' : ''}`}>
+      <div className={`min-h-0 min-w-0 flex-1 ${vistaDePanel ? 'flex flex-col' : ''}`}>
         {vista === 'listas' ? (
           <PantallaDeListas alCambiarLeads={() => void refrescar()} />
+        ) : vista === 'informes' ? (
+          <PanelDeInformes activa={activa} />
         ) : vista === 'tabla' ? (
           // Con SOLO partners a la vista, la tabla con las columnas de su Excel; con cualquier otra mezcla, la de siempre
           tablaDePartners ? (
