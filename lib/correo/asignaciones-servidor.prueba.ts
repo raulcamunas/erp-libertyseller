@@ -109,6 +109,20 @@ async function main() {
     ok('si la reabre ella misma, sin aviso', avisos(b).length === n)
   }
 
+  console.log('\n=== reabrir con la encargada ya sin acceso al buzón: no se reabre ni se le avisa ===')
+  {
+    // Patricia tenía el hilo, lo marcó hecho, y después le bloquean el buzón: reabrirlo no le puede mandar el asunto y la nota
+    const b = nueva({ correo_buzon_bloqueos: [] })
+    await asignarHilo(b.servicio, ana, hilo, { personaId: PATRICIA, nota: 'Llámale' })
+    await marcarHiloHecho(b.servicio, { id: PATRICIA, nombre: 'Patricia' }, hilo, true)
+    b.tablas.get('correo_buzon_bloqueos')!.push({ buzon_id: B_ANA, lector_id: PATRICIA, bloqueado_por: RAUL, bloqueado_at: '2026-11-16T10:00:00.000Z' })
+    const antes = avisos(b).length
+    await new Promise((r) => setTimeout(r, 5))
+    const reabre = await marcarHiloHecho(b.servicio, ana, hilo, false)
+    ok('con el buzón bloqueado a Patricia: 400 y sin reabrir', !reabre.ok && reabre.estado === 400 && reabre.error === NO_SE_LE_PUEDE_ENCARGAR && encargos(b)[0].hecho_at !== null, JSON.stringify(reabre))
+    ok('y no le llega ningún aviso', avisos(b).length === antes)
+  }
+
   console.log('\n=== sin la migración 318 ===')
   {
     const b = nueva({ correo_hilo_asignaciones: null })

@@ -485,13 +485,20 @@ export async function asignarHilo(
 export async function marcarHiloHecho(
   service: Servicio,
   hechoPor: { id: string; nombre: string },
-  hilo: { id: string; buzonId: string; asunto: string },
+  hilo: { id: string; buzonId: string; asunto: string; duenoId?: string },
   hecho: boolean
 ): Promise<{ ok: true; cambiado: boolean } | FalloDeAsignacion> {
   const actual = await leerEncargo(service, hilo.id)
   if (actual === 'falta318') return falta318()
   if (!actual) return { ok: false, estado: 404, error: NADIE_LA_LLEVA }
   if ((actual.hecho_at !== null) === hecho) return { ok: true, cambiado: false }
+
+  // Reabrir vuelve a encargar a la misma persona y le AVISA con el asunto y la nota: si desde entonces le han bloqueado el buzón, se lo han quitado
+  // o ya no puede usar Correo, no se reabre para ella (ni se le avisa): gana el bloqueo, y nadie recibe contenido de un buzón que no lee
+  if (!hecho && hilo.duenoId) {
+    const regla = await cargarReglaEnBloque(service)
+    if (!puedeEncargarseA(regla, actual.persona_id, { id: hilo.buzonId, user_id: hilo.duenoId }, true)) return { ok: false, estado: 400, error: NO_SE_LE_PUEDE_ENCARGAR }
+  }
 
   const ahora = new Date().toISOString()
   const { error } = await service

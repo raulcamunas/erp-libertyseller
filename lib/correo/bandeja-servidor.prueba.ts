@@ -97,7 +97,7 @@ function montar(cambiar: (d: Datos) => void = () => undefined, conRpc = true) {
   cambiar(d)
   const llamadas: Array<Record<string, unknown>> = []
   // correo_buscar: todo casa; devuelve los hilos de ese buzón y, a propósito, repite uno de otro buzón (no debe salir dos veces)
-  const correo_buscar = (args: Record<string, unknown>) => [...d.correo_hilos.filter((h) => h.buzon_id === args.p_buzon), d.correo_hilos[0]].map((h) => ({ hilo_id: h.id }))
+  const correo_buscar = (args: Record<string, unknown>) => [...d.correo_hilos.filter((h) => h.buzon_id === args.p_buzon), d.correo_hilos[0]].map((h) => ({ hilo_id: h.id, ultimo_mensaje_at: h.ultimo_mensaje_at }))
   const base = crearBaseFalsa(d as never, conRpc ? { rpc: { correo_bandeja: rpcBandeja(d, llamadas), correo_buscar } } : {})
   return { base, llamadas }
 }
@@ -245,6 +245,17 @@ async function main() {
     const buscado = await listarBandeja(base.servicio, jhanna, consulta({ q: 'asunto', silenciados: '0' }))
     const deAnaBuscado = buscado.tipo === 'ok' ? buscado.hilos.filter((h) => h.buzonId === B_ANA) : []
     ok('al buscar con silenciados=0 pasa lo mismo: solo el rebote', deAnaBuscado.length === 1 && deAnaBuscado[0].id === hiloId(9), deAnaBuscado.map((h) => h.id.slice(-2)).join(','))
+  }
+
+  console.log('\n=== la búsqueda corta por fecha antes de pedir los hilos (una URL con 240 ids da 414) ===')
+  {
+    ACCESOS_RECIENTES.clear()
+    const { base } = montar()
+    const todo = await listarBandeja(base.servicio, jhanna, consulta({ q: 'asunto', limite: '2' }))
+    const ids = todo.tipo === 'ok' ? todo.hilos.map((h) => h.id) : []
+    const fechas = todo.tipo === 'ok' ? todo.hilos.map((h) => h.ultimoMensajeAt) : []
+    ok('con limite = 2 salen como mucho 2 conversaciones', ids.length > 0 && ids.length <= 2, String(ids.length))
+    ok('y son las más recientes (de más nueva a más vieja)', fechas.length === 2 && fechas[0] >= fechas[1], fechas.join(' > '))
   }
 
   console.log(`\n${comprobaciones - fallos}/${comprobaciones} comprobaciones bien${fallos ? ` — ${fallos} FALLAN` : ''}`)

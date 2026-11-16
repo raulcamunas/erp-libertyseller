@@ -644,7 +644,8 @@ export function BarraDeBuzones(props: PropsDeBarraDeBuzones & ExtrasDeBarra) {
         <LayoutGroup id="correo-barra-carril">
           {/* Lo de arriba se desplaza; el pie (Secuencias, Resumen, Equipo y permisos, Conectar) queda siempre a la vista, aunque la tableta sea baja */}
           <nav aria-label="Buzones de correo" className="flex h-full w-16 shrink-0 flex-col">
-            <div className="flex min-h-0 flex-1 flex-col items-stretch gap-1 overflow-y-auto overflow-x-hidden py-2 ls-sin-barra [&>*]:shrink-0">
+            {/* Barra fina VISIBLE (no `ls-sin-barra`): en una ventana baja (1100×800) los últimos buzones (y la «contraseña rechazada» de uno) quedaban bajo el pie sin ninguna pista de que se pudiera desplazar */}
+            <div className="flex min-h-0 flex-1 flex-col items-stretch gap-1 overflow-y-auto overflow-x-hidden py-2 [scrollbar-width:thin] [scrollbar-color:var(--ls-linea2)_transparent] [&>*]:shrink-0">
               <Entrada variante="carril" icono={Inbox} texto="Mis correos" activo={activa === 'mios'} onClick={() => abrirMios(null)} cuenta={cuentaMios} />
               {verAsignados && (
                 <Entrada variante="carril" icono={UserCheck} texto="Asignados a mí" activo={activa === 'asignados'} onClick={() => onCarpeta({ tipo: 'asignados' })} cuenta={sinLeerAsignados} />

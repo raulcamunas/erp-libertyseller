@@ -675,9 +675,12 @@ export async function listarBandeja(service: Servicio, sesion: { userId: string;
     const porBuzon = await aLaVez(ids, BUSQUEDAS_A_LA_VEZ, async (buzonId) => {
       const { data, error } = await service.rpc('correo_buscar', { p_buzon: buzonId, p_q: q, p_limite: consulta.limite })
       if (error) throw new Error('No se ha podido buscar.', { cause: error })
-      return ((data ?? []) as Array<{ hilo_id: string }>).map((a) => a.hilo_id)
+      return ((data ?? []) as Array<{ hilo_id: string; ultimo_mensaje_at?: string | null }>).map((a) => ({ id: a.hilo_id, ultimoMensajeAt: a.ultimo_mensaje_at ?? '' }))
     })
-    const hiloIds = [...new Set(porBuzon.flat())]
+    // Se corta ANTES de pedir los hilos: con 6 buzones y una palabra corriente salían ~240 ids en una sola URL de PostgREST (más de 9 KB: un 414 y la búsqueda no daba nada).
+    // Se dejan unos cuantos de más por los hilos sin mensajes que se descartan después, y nunca más de 150 ids
+    const cortados = mezclarResultadosDeBusqueda(porBuzon, Math.min(150, consulta.limite + 20))
+    const hiloIds = cortados.map((c) => c.id)
     if (hiloIds.length === 0) return { tipo: 'ok', hilos: [], siguiente: null }
     const { data, error } = await service.from('correo_hilos').select(CAMPOS_DE_LISTA).in('id', hiloIds)
     if (error) throw new Error('No se han podido leer los hilos.', { cause: error })
