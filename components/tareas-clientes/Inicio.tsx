@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { AlertTriangle, ArrowUpRight, Bot, CheckCircle2, Flame, ImageIcon, LayoutGrid, LogOut, Palette, Search, ShieldCheck, Star, Sun, Timer, UserCheck, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Bot, CheckCircle2, Flame, ImageIcon, LayoutGrid, LogOut, Palette, Search, ShieldCheck, Plus, Star, Sun, Timer, UserCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EstadisticasDeCliente } from '@/lib/tareas-clientes/servidor'
 import { ETIQUETA_DE_GRUPO, type ClienteTC, type GrupoDeCliente, type Portada as PortadaGuardada } from '@/lib/tareas-clientes/tipos'
@@ -16,6 +16,7 @@ import { BASE, pedir, type DatosDeInicio, type Preferencias } from './api'
 import { FondoAnimado, SelectorDePortada, estiloDePortada, fondoNecesitaCortina } from './Portada'
 import { AccesosDeClientes } from './AccesosDeClientes'
 import { SalidaDeNotion } from './SalidaDeNotion'
+import { NuevoCliente } from './NuevoCliente'
 import { TareasAutomaticas } from './TareasAutomaticas'
 import { PilaDeAvatares } from './ui'
 import { usePresencia } from './PresenciaProvider'
@@ -65,6 +66,7 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
   const [datos, setDatos] = useState<DatosDeInicio | null>(inicial)
   const [error, setError] = useState<string | null>(null)
   const [accesosAbierto, setAccesosAbierto] = useState(false)
+  const [nuevoAbierto, setNuevoAbierto] = useState(false)
   const [automaticasAbierto, setAutomaticasAbierto] = useState(false)
   const [salidaAbierta, setSalidaAbierta] = useState(false)
   const [filtro, setFiltro] = useState('')
@@ -188,6 +190,15 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
           </div>
         )}
       </div>
+      {nuevoAbierto && (
+        <NuevoCliente
+          onCerrar={() => setNuevoAbierto(false)}
+          onCreado={(c) => {
+            setNuevoAbierto(false)
+            router.push(`/dashboard/tareas-clientes/${c.id}`)
+          }}
+        />
+      )}
       {accesosAbierto && <AccesosDeClientes onCerrar={() => setAccesosAbierto(false)} />}
       {salidaAbierta && <SalidaDeNotion onCerrar={() => setSalidaAbierta(false)} />}
       {automaticasAbierto && <TareasAutomaticas personas={datos.personas} onCerrar={() => setAutomaticasAbierto(false)} />}
@@ -199,6 +210,11 @@ export function Inicio({ esAdmin, inicial = null }: { esAdmin: boolean; inicial?
           {filtro && <button type="button" aria-label="Borrar la búsqueda" onClick={() => setFiltro('')}><X className="h-3.5 w-3.5 text-[var(--ls-t4)]" /></button>}
         </label>
         <button type="button" aria-pressed={soloVencidas} onClick={() => setSoloVencidas((v) => !v)} className="tc-ini-chip" data-on={soloVencidas ? 'true' : undefined}><Flame className="h-3.5 w-3.5" /> Con tareas vencidas</button>
+        {esAdmin && (
+          <button type="button" onClick={() => setNuevoAbierto(true)} className="tc-ini-chip" style={{ marginLeft: 'auto' }}>
+            <Plus className="h-3.5 w-3.5" /> Nuevo cliente
+          </button>
+        )}
         {filtrando && <span className="text-[12px] text-[var(--ls-t3)]">{visibles.length} de {datos.clientes.length} clientes</span>}
       </div>
 

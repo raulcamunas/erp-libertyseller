@@ -739,6 +739,30 @@ export async function actualizarCliente(actor: Actor & { esAdmin: boolean }, id:
   return data as ClienteTC
 }
 
+/**
+ * Crea un cliente SOLO en el ERP (sin base de Notion): empieza a trabajarse aquí. Sus tareas nacen como `solo_erp` y la sincronización con Notion no lo toca (solo mira los que
+ * tienen notion_ds_id). Con los estados y departamentos por defecto hasta que se personalicen. Solo administradores.
+ */
+export async function crearCliente(actor: Actor & { esAdmin: boolean }, entrada: { nombre?: unknown; grupo?: unknown; icono?: unknown; color?: unknown; descripcion?: unknown }): Promise<ClienteTC> {
+  if (!actor.esAdmin) throw new ErrorDeTareas('Solo un administrador puede crear clientes.', 403)
+  const nombre = tope(entrada.nombre, 120)
+  if (!nombre) throw new ErrorDeTareas('El cliente necesita un nombre.', 400)
+  const grupo = entrada.grupo ?? 'agencia'
+  if (grupo !== 'agencia' && grupo !== 'marcas_eeuu' && grupo !== 'otros') throw new ErrorDeTareas('Ese grupo no existe.', 400)
+  const service = createServiceClient()
+  const { data: existentes } = await service.from('tc_clientes').select('id, nombre').ilike('nombre', nombre.replace(/[%_]/g, '')).limit(5)
+  if (((existentes ?? []) as Array<{ nombre: string }>).some((c) => c.nombre.trim().toLowerCase() === nombre.toLowerCase())) throw new ErrorDeTareas('Ya hay un cliente con ese nombre.', 409)
+  const { data: ultimo } = await service.from('tc_clientes').select('orden').eq('grupo', grupo).order('orden', { ascending: false }).limit(1).maybeSingle()
+  const color = tope(entrada.color, 24) || 'orange'
+  const { data, error } = await service
+    .from('tc_clientes')
+    .insert({ nombre, grupo, icono: entrada.icono ? tope(entrada.icono, 16) : null, color, descripcion: entrada.descripcion ? tope(entrada.descripcion, 2000) : null, orden: ((ultimo as { orden: number } | null)?.orden ?? 0) + 1 })
+    .select('*')
+    .single()
+  if (error || !data) throw new ErrorDeTareas(`No se ha podido crear el cliente: ${error?.message ?? 'sin respuesta'}`, 500)
+  return data as ClienteTC
+}
+
 /** El orden de las tarjetas de clientes dentro de su grupo: el que se ve al arrastrarlas */
 export async function reordenarClientes(ids: unknown): Promise<void> {
   if (!Array.isArray(ids) || !ids.every(esUuid) || ids.length > 200) throw new ErrorDeTareas('La lista de clientes no es válida.')
