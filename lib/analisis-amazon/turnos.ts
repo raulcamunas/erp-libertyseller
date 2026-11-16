@@ -22,6 +22,7 @@ export const ORDEN_DE_COMERCIALES = [
   { id: '4f01dd8a-de2f-4ed7-8c5c-9b62cd46b7e4', nombre: 'Daniela' },
   { id: '6a53c10f-f661-4d07-afe6-8123a45afb3c', nombre: 'José' },
   { id: '29bcc583-ad29-471a-a41f-cead1c301696', nombre: 'Naomi' },
+  { id: 'ec1ca458-8e69-4620-80e1-c7e1dbab7301', nombre: 'Sharon' },
 ] as const
 
 export type TipoDeCola = 'amazon' | 'sin'
