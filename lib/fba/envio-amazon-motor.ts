@@ -21,9 +21,12 @@ import {
   repartirCajasEnGrupos,
   resumirReparto,
   resumirSelecciones,
+  sinCobroDeAmazon,
   validarCajas,
+  validarPalets,
   validarInventario,
   type AccionEnvio,
+  type DatosPalets,
   type DireccionOrigen,
   type ModoEnvio,
   type OpcionEmbalaje,
@@ -75,6 +78,10 @@ export interface DatosDelEnvio {
   opcionesReparto?: Array<OpcionReparto & { destinos: Array<{ shipmentId: string; destino: string | null; ciudad: string | null }> }>
   envios?: DestinoDeEnvio[]
   recogida?: { dia: string; iso: string; contacto: api.Contacto | null }
+  /** Envío por palés (LTL). Sin esto, paquetería */
+  palets?: DatosPalets | null
+  /** Seguimiento del envío de palés con transporte propio (BOL) */
+  seguimientoLtl?: { bol: string; fletes: string[]; at: string } | null
   opcionesTransporte?: OpcionTransporte[]
   sinAsociado?: string[]
   /** Envíos cuya ventana de entrega falta por confirmar (solo transporte propio) */
@@ -202,6 +209,10 @@ export interface EstadoDelEnvio {
   cancelable: ReturnType<typeof cancelabilidad>
   cajasAmazon: DatosDelEnvio['cajasAmazon'] | null
   seguimiento: DatosDelEnvio['seguimiento'] | null
+  palets: DatosPalets | null
+  seguimientoLtl: DatosDelEnvio['seguimientoLtl'] | null
+  /** Transporte propio: Amazon no cobra, no hay coste que acepte el cliente */
+  sinCobro: boolean
   acciones: AccionEnvio[]
   operaciones: OperacionVista[]
   avisos: string[]
@@ -298,7 +309,10 @@ export async function estadoDelEnvio(remesaId: string, service: ClienteDeBase = 
     cancelable: cancelabilidad(paso, f.anulable_hasta, ahora),
     cajasAmazon: datos.cajasAmazon ?? null,
     seguimiento: datos.seguimiento ?? null,
-    acciones: accionesPermitidas({ modo, paso, conError: !!f.envio_error, clienteAcepto: !!aceptacion, anulableHasta: f.anulable_hasta, ahora }),
+    palets: datos.palets ?? null,
+    seguimientoLtl: datos.seguimientoLtl ?? null,
+    sinCobro: sinCobroDeAmazon(seleccion),
+    acciones: accionesPermitidas({ modo, paso, conError: !!f.envio_error, clienteAcepto: !!aceptacion, anulableHasta: f.anulable_hasta, ahora, sinCobro: sinCobroDeAmazon(seleccion), conPalets: !!datos.palets }),
     operaciones: filasOps.map((o) => ({ id: o.id, paso: o.paso, operacion: o.operacion, estado: o.estado, problemas: o.problemas ?? [], creadaAt: o.created_at, terminadaAt: o.terminada_at, autor: o.user_id ? nombres.get(o.user_id) ?? null : null })),
     avisos: datos.avisos ?? [],
   }
@@ -339,6 +353,9 @@ function vacio(): EstadoDelEnvio {
     cancelable: { puede: false, grave: false, motivo: '' },
     cajasAmazon: null,
     seguimiento: null,
+    palets: null,
+    seguimientoLtl: null,
+    sinCobro: false,
     acciones: [],
     operaciones: [],
     avisos: [],
@@ -510,8 +527,8 @@ async function lanzarTransporte(ctx: Ctx): Promise<void> {
   if (!ctx.fila.placement_option_id) throw new FalloDelEnvio('Falta el reparto confirmado')
   const envios = (d.envios ?? []).map((e) => e.shipmentId)
   if (!envios.length) throw new FalloDelEnvio('El reparto no tiene envíos')
-  const cuerpo = api.cuerpoGenerarTransporte(ctx.fila.placement_option_id, envios, d.recogida.iso, d.recogida.contacto)
-  await lanzar(ctx, 'transporte_generar', () => api.generarOpcionesTransporte(ctx.creds, plan(ctx), cuerpo), { envios: envios.length, recogida: d.recogida.dia })
+  const cuerpo = api.cuerpoGenerarTransporte(ctx.fila.placement_option_id, envios, d.recogida.iso, d.recogida.contacto, d.palets ?? null)
+  await lanzar(ctx, 'transporte_generar', () => api.generarOpcionesTransporte(ctx.creds, plan(ctx), cuerpo), { envios: envios.length, recogida: d.recogida.dia, palets: d.palets?.cantidad ?? 0 })
 }
 
 async function lanzarConfirmarTransporte(ctx: Ctx): Promise<void> {
@@ -640,9 +657,10 @@ async function trasExito(ctx: Ctx, paso: PasoEnvio): Promise<void> {
     case 'transporte_generar': {
       const opciones = await api.listarOpcionesTransporte(ctx.creds, plan(ctx), ctx.fila.placement_option_id as string)
       const envios = (d.envios ?? []).map((e) => e.shipmentId)
-      const prop = proponerTransporte(opciones, envios)
+      const prop = proponerTransporte(opciones, envios, new Date(), !!d.palets)
       await guardar(ctx, {
-        envio_paso: prop.ok ? 'transporte_cliente' : 'transporte_elegir',
+        // Transporte propio: Amazon no cobra nada, no hay coste que el cliente tenga que aceptar
+        envio_paso: prop.ok ? (sinCobroDeAmazon(prop.selecciones) ? 'transporte_listo' : 'transporte_cliente') : 'transporte_elegir',
         envio_datos: { ...d, opcionesTransporte: opciones, sinAsociado: prop.sinAsociado },
         transporte_seleccion: prop.selecciones,
         coste_transporte: prop.selecciones.length ? prop.total : null,
@@ -827,6 +845,9 @@ export interface ParametrosDeAccion {
   contacto?: { nombre?: string; telefono?: string; email?: string }
   /** La palabra escrita para confirmar (CANCELAR en una cancelación grave) */
   palabra?: string
+  palets?: { cantidad?: number; largoCm?: number; anchoCm?: number; altoCm?: number; pesoKg?: number; apilable?: boolean }
+  bol?: string
+  fletes?: string[]
 }
 
 export async function cambiarModo(remesaId: string, modo: ModoEnvio, userId: string, service: ClienteDeBase = createServiceClient()): Promise<void> {
@@ -848,7 +869,7 @@ export async function ejecutarAccion(remesaId: string, accion: AccionEnvio, p: P
   if (r.sinMigrar) throw new FalloDelEnvio('Falta lanzar la migración 310 para enviar desde el ERP', 503)
   const f = r.fila
   const paso = pasoDe(f)
-  const permitidas = accionesPermitidas({ modo: f.envio_modo, paso, conError: !!f.envio_error, clienteAcepto: !!f.transporte_aceptado_por_cliente_at, anulableHasta: f.anulable_hasta })
+  const permitidas = accionesPermitidas({ modo: f.envio_modo, paso, conError: !!f.envio_error, clienteAcepto: !!f.transporte_aceptado_por_cliente_at, anulableHasta: f.anulable_hasta, sinCobro: sinCobroDeAmazon(f.transporte_seleccion ?? []), conPalets: !!f.envio_datos?.palets })
   if (!permitidas.includes(accion)) throw new FalloDelEnvio(`Ahora no se puede: el envío está en «${TEXTO_DEL_PASO[paso]}». Recarga para ver lo último.`)
   const creds = await credencialesDe(f)
   const ctx: Ctx = { service, fila: f, creds, userId, actor: 'agencia' }
@@ -928,9 +949,17 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       const email = (p.contacto?.email ?? dir?.email ?? '').trim()
       if (!nombre || !telefono) throw new FalloDelEnvio('Falta el contacto de la recogida (nombre y teléfono)', 400)
       const recogida = { dia: p.dia as string, iso: fecha.iso, contacto: { nombre: nombre.slice(0, 80), telefono: telefono.slice(0, 30), email: email.slice(0, 120) || null } }
-      if (!(await moverPaso(ctx, ['transporte_datos', 'transporte_elegir', 'transporte_cliente', 'transporte_listo'], { envio_paso: 'transporte_generar', envio_datos: { ...(f.envio_datos ?? {}), recogida } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      // Palés (LTL) o paquetería: lo que se escribió ahora manda sobre lo de antes
+      let palets: DatosPalets | null = null
+      if (p.palets) {
+        const v = validarPalets(p.palets)
+        if (!v.ok) throw new FalloDelEnvio(v.error, 400)
+        if ((f.envio_datos?.envios ?? []).length > 1) throw new FalloDelEnvio('El reparto de Amazon tiene más de un envío: los palés con varios destinos se hacen en Seller Central', 400)
+        palets = v.palets
+      }
+      if (!(await moverPaso(ctx, ['transporte_datos', 'transporte_elegir', 'transporte_cliente', 'transporte_listo'], { envio_paso: 'transporte_generar', envio_datos: { ...(f.envio_datos ?? {}), recogida, palets } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await lanzarTransporte(ctx)
-      await apuntar('transporte_cotizando', { recogida: p.dia })
+      await apuntar('transporte_cotizando', { recogida: p.dia, palets: palets?.cantidad ?? 0 })
       return
     }
     case 'elegir_transporte': {
@@ -940,7 +969,7 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       const sin = envios.filter((sid) => !nuevas.some((s) => s.shipmentId === sid))
       const res = resumirSelecciones(nuevas, sin)
       if (!(await moverPaso(ctx, ['transporte_elegir', 'transporte_cliente', 'transporte_listo'], {
-        envio_paso: res.ok ? 'transporte_cliente' : 'transporte_elegir',
+        envio_paso: res.ok ? (sinCobroDeAmazon(nuevas) ? 'transporte_listo' : 'transporte_cliente') : 'transporte_elegir',
         transporte_seleccion: nuevas,
         coste_transporte: res.total,
         moneda_envio: res.moneda,
@@ -957,16 +986,32 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
     case 'confirmar_transporte': {
       const coste = num(f.coste_transporte)
       const aceptado = num(f.transporte_aceptado_coste)
-      if (!f.transporte_aceptado_por_cliente_at) throw new FalloDelEnvio('El cliente todavía no ha aceptado el coste del transporte en su enlace')
-      if (coste === null || aceptado === null || Math.abs(coste - aceptado) > 0.005) throw new FalloDelEnvio('El coste ha cambiado desde que el cliente lo aceptó: tiene que volver a aceptarlo')
-      if (!cotizacionVigente(f.transporte_caduca_at)) throw new FalloDelEnvio('La cotización de Amazon ha caducado: vuelve a pedirla (y el cliente tendrá que aceptarla otra vez)')
       const sel = f.transporte_seleccion ?? []
+      const sinCobro = sinCobroDeAmazon(sel)
+      if (!sinCobro) {
+        if (!f.transporte_aceptado_por_cliente_at) throw new FalloDelEnvio('El cliente todavía no ha aceptado el coste del transporte en su enlace')
+        if (coste === null || aceptado === null || Math.abs(coste - aceptado) > 0.005) throw new FalloDelEnvio('El coste ha cambiado desde que el cliente lo aceptó: tiene que volver a aceptarlo')
+        if (!cotizacionVigente(f.transporte_caduca_at)) throw new FalloDelEnvio('La cotización de Amazon ha caducado: vuelve a pedirla (y el cliente tendrá que aceptarla otra vez)')
+      }
       const conVentana = sel.filter((s) => s.necesitaVentana).map((s) => s.shipmentId)
       // Solo si sigue siendo la MISMA aceptación que se ha comprobado arriba: si entretanto otra pantalla pidió otra
       // cotización y el cliente la aceptó de nuevo, la selección leída aquí ya no es la que aceptó
-      if (!(await moverPaso(ctx, 'transporte_listo', { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }, { transporte_aceptado_por_cliente_at: f.transporte_aceptado_por_cliente_at }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, 'transporte_listo', { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }, sinCobro ? {} : { transporte_aceptado_por_cliente_at: f.transporte_aceptado_por_cliente_at as string }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await apuntar('transporte_confirmando', { coste, moneda: f.moneda_envio })
       return conVentana.length ? lanzarVentana(ctx) : lanzarConfirmarTransporte(ctx)
+    }
+    case 'guardar_seguimiento': {
+      const d = f.envio_datos ?? {}
+      const envio = (d.envios ?? [])[0]
+      if (!envio || !f.inbound_plan_id) throw new FalloDelEnvio('No hay envío en Amazon')
+      const bol = (p.bol ?? '').trim() || envio.confirmacion || ''
+      if (!bol) throw new FalloDelEnvio('Falta el número de conocimiento de embarque (BOL)', 400)
+      if (!/^[A-Za-z0-9._/ -]{3,60}$/.test(bol)) throw new FalloDelEnvio('El BOL solo puede llevar letras, números y - . / (de 3 a 60 caracteres)', 400)
+      const fletes = (p.fletes ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 10)
+      await api.guardarSeguimientoLtl(creds, f.inbound_plan_id, envio.shipmentId, bol, fletes)
+      await guardar(ctx, { envio_datos: { ...d, seguimientoLtl: { bol, fletes, at: new Date().toISOString() } } })
+      await apuntar('seguimiento_palets', { bol, envio: envio.confirmacion })
+      return
     }
     case 'reintentar': {
       // Solo uno reintenta: se quita el error si sigue puesto
@@ -1050,6 +1095,28 @@ export async function enlacesDeEtiquetas(remesaId: string, hoja: api.HojaDeCaja,
       await service.from('fba_envios').update({ etiquetas_descargadas_at: new Date().toISOString() }).eq('remesa_id', remesaId).eq('shipment_id', e.shipmentId)
     } catch (err) {
       out.push({ shipmentId: e.shipmentId, confirmacion: e.confirmacion, destino: e.destino, cajas: boxIds.length, url: null, error: textoDeFallo(err) })
+    }
+  }
+  return out
+}
+
+/** Las etiquetas de PALÉ (una por palé; se pegan en los 4 lados) de cada envío. Enlaces que caducan */
+export async function enlacesDeEtiquetasDePalet(remesaId: string, hoja: api.HojaDeCaja, service: ClienteDeBase = createServiceClient()): Promise<Array<{ shipmentId: string; confirmacion: string | null; destino: string | null; palets: number; url: string | null; error: string | null }>> {
+  const r = await leerRemesa(remesaId, service)
+  if (!r || r.sinMigrar) throw new FalloDelEnvio('Esa remesa ya no existe', 404)
+  const f = r.fila
+  const palets = f.envio_datos?.palets
+  if (!palets) throw new FalloDelEnvio('Este envío no es de palés')
+  if (pasoDe(f) !== 'etiquetas' || !f.transporte_confirmado_at) throw new FalloDelEnvio('Las etiquetas salen cuando el transporte está confirmado')
+  const creds = await credencialesDe(f)
+  const out = []
+  for (const e of f.envio_datos?.envios ?? []) {
+    try {
+      if (!e.confirmacion) throw new FalloDelEnvio('Este envío no tiene número FBA todavía')
+      const url = await api.etiquetasDePalet(creds, e.confirmacion, palets.cantidad, hoja)
+      out.push({ shipmentId: e.shipmentId, confirmacion: e.confirmacion, destino: e.destino, palets: palets.cantidad, url, error: null })
+    } catch (err) {
+      out.push({ shipmentId: e.shipmentId, confirmacion: e.confirmacion, destino: e.destino, palets: palets.cantidad, url: null, error: textoDeFallo(err) })
     }
   }
   return out

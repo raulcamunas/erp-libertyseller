@@ -1,6 +1,6 @@
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
-import type { CajaDeAmazon, CajaDeGrupo, DireccionOrigen, LineaParaPlan, OpcionEmbalaje, OpcionReparto, OpcionTransporte } from './envio-amazon'
+import type { CajaDeAmazon, CajaDeGrupo, DatosPalets, DireccionOrigen, LineaParaPlan, OpcionEmbalaje, OpcionReparto, OpcionTransporte } from './envio-amazon'
 
 /**
  * CREAR EL ENVÍO EN AMAZON: LA FULFILLMENT INBOUND API 2024-03-20.
@@ -329,12 +329,25 @@ export interface Contacto {
 }
 
 /** PURA. El cuerpo de generateTransportationOptions */
-export function cuerpoGenerarTransporte(placementOptionId: string, envios: string[], saleEl: string, contacto: Contacto | null) {
+export function cuerpoGenerarTransporte(placementOptionId: string, envios: string[], saleEl: string, contacto: Contacto | null, palets: DatosPalets | null = null) {
   return {
     placementOptionId,
     shipmentTransportationConfigurations: envios.map((shipmentId) => ({
       shipmentId,
       readyToShipWindow: { start: saleEl },
+      // Palés (FREIGHT_LTL): cuántos, qué miden y cuánto pesa cada uno. Sin esto Amazon solo cotiza paquetería
+      ...(palets
+        ? {
+            pallets: [
+              {
+                quantity: palets.cantidad,
+                dimensions: { length: palets.largoCm, width: palets.anchoCm, height: palets.altoCm, unitOfMeasurement: 'CM' },
+                weight: { unit: 'KG', value: palets.pesoKg },
+                stackability: palets.apilable ? 'STACKABLE' : 'NON_STACKABLE',
+              },
+            ],
+          }
+        : {}),
       ...(contacto ? { contactInformation: { name: contacto.nombre, phoneNumber: contacto.telefono, ...(contacto.email ? { email: contacto.email } : {}) } } : {}),
     })),
   }
@@ -518,6 +531,33 @@ export async function etiquetasDeCaja(creds: AmazonCredentials, confirmacion: st
   })
   const url = data.payload?.DownloadURL
   if (!url) throw new AmazonApiError({ kind: 'servidor', message: 'getLabels sin DownloadURL', humanMessage: 'Amazon no ha devuelto las etiquetas. Vuelve a probar en un minuto.' })
+  return url
+}
+
+/**
+ * Seguimiento de un envío de palés con transportista propio (LTL): el número de conocimiento de embarque (BOL).
+ * Amazon lo pide para que el almacén reconozca el camión. Si el transportista no da uno, vale el nº FBA.
+ */
+export const guardarSeguimientoLtl = (creds: AmazonCredentials, planId: string, shipmentId: string, bol: string, fletes: string[] = []) =>
+  escribir<{ operationId?: string }>(creds, 'updateShipmentTrackingDetails', 'PUT', `${RUTA}/inboundPlans/${enc(planId)}/shipments/${enc(shipmentId)}/trackingDetails`, {
+    trackingDetails: { ltlTrackingDetail: { billOfLadingNumber: bol, ...(fletes.length ? { freightBillNumber: fletes } : {}) } },
+  })
+
+/** PURA. La query de getLabels v0 para etiquetas de PALÉ (una por palé, se imprimen por los 4 lados) */
+export function consultaEtiquetasPalet(palets: number, hoja: HojaDeCaja) {
+  if (!Number.isInteger(palets) || palets < 1) throw new Error('No hay palés para imprimir')
+  if (palets > 100) throw new Error('Amazon da como mucho 100 etiquetas de palé de una vez')
+  return { PageType: HOJAS_DE_CAJA[hoja], LabelType: 'PALLET', NumberOfPallets: palets }
+}
+
+export async function etiquetasDePalet(creds: AmazonCredentials, confirmacion: string, palets: number, hoja: HojaDeCaja): Promise<string> {
+  const { data } = await spApiRequest<{ payload?: { DownloadURL?: string } }>(creds, 'getLabels', {
+    method: 'GET',
+    path: `/fba/inbound/v0/shipments/${enc(confirmacion)}/labels`,
+    query: consultaEtiquetasPalet(palets, hoja),
+  })
+  const url = data.payload?.DownloadURL
+  if (!url) throw new AmazonApiError({ kind: 'servidor', message: 'getLabels (palé) sin DownloadURL', humanMessage: 'Amazon no ha devuelto las etiquetas de palé. Vuelve a probar en un minuto o descárgalas en Seller Central.' })
   return url
 }
 

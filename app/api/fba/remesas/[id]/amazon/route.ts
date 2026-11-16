@@ -15,7 +15,7 @@ import { avanzar, cambiarModo, ejecutarAccion, estadoDelEnvio, type ParametrosDe
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const ACCIONES: AccionEnvio[] = ['iniciar', 'elegir_embalaje', 'reenviar_cajas', 'reabrir_cajas', 'confirmar_reparto', 'generar_transporte', 'elegir_transporte', 'confirmar_transporte', 'reintentar', 'cancelar']
+const ACCIONES: AccionEnvio[] = ['iniciar', 'elegir_embalaje', 'reenviar_cajas', 'reabrir_cajas', 'confirmar_reparto', 'generar_transporte', 'elegir_transporte', 'confirmar_transporte', 'guardar_seguimiento', 'reintentar', 'cancelar']
 
 /** Las que no tienen vuelta atrás piden escribir la palabra también aquí, no solo en la pantalla */
 const PALABRA: Partial<Record<AccionEnvio, string>> = { confirmar_reparto: 'REPARTO', confirmar_transporte: 'TRANSPORTE' }
@@ -53,7 +53,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       if (palabra && String(body.palabra ?? '').trim().toUpperCase() !== palabra) return fail(400, `Para confirmar hay que escribir «${palabra}»`)
       const texto = (v: unknown, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined)
       const contacto = body.contacto && typeof body.contacto === 'object' ? (body.contacto as Record<string, unknown>) : null
+      const nume = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v.replace(',', '.'))) ? Number(v.replace(',', '.')) : undefined)
+      const pal = body.palets && typeof body.palets === 'object' ? (body.palets as Record<string, unknown>) : null
       const parametros: ParametrosDeAccion = {
+        palets: pal ? { cantidad: nume(pal.cantidad), largoCm: nume(pal.largoCm), anchoCm: nume(pal.anchoCm), altoCm: nume(pal.altoCm), pesoKg: nume(pal.pesoKg), apilable: pal.apilable === true } : undefined,
+        bol: texto(body.bol, 60),
+        fletes: Array.isArray(body.fletes) ? body.fletes.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 40)).slice(0, 10) : undefined,
         packingOptionId: texto(body.packingOptionId),
         placementOptionId: texto(body.placementOptionId),
         transportationOptionId: texto(body.transportationOptionId),

@@ -598,6 +598,14 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
   const [dia, setDia] = useState(e.recogida?.dia ?? manana())
   const [contacto, setContacto] = useState({ nombre: e.recogida?.contacto?.nombre ?? e.direccion?.nombre ?? '', telefono: e.recogida?.contacto?.telefono ?? e.direccion?.telefono ?? '', email: e.recogida?.contacto?.email ?? e.direccion?.email ?? '' })
   const [confirmar, setConfirmar] = useState(false)
+  const [tipo, setTipo] = useState<'paquete' | 'palet'>(e.palets ? 'palet' : 'paquete')
+  const [pal, setPal] = useState({ cantidad: String(e.palets?.cantidad ?? 1), largo: String(e.palets?.largoCm ?? 120), ancho: String(e.palets?.anchoCm ?? 80), alto: e.palets ? String(e.palets.altoCm) : '', peso: e.palets ? String(e.palets.pesoKg) : '', apilable: e.palets?.apilable ?? false })
+  const cuerpoCotizar = {
+    accion: 'generar_transporte',
+    dia,
+    contacto,
+    ...(tipo === 'palet' ? { palets: { cantidad: pal.cantidad, largoCm: pal.largo, anchoCm: pal.ancho, altoCm: pal.alto, pesoKg: pal.peso, apilable: pal.apilable } } : {}),
+  }
   const queda = cuantoQueda(e.transporteCaduca, ahora)
   const confirmado = !!e.transporteConfirmadoAt
   const porEnvio = useMemo(() => {
@@ -618,7 +626,52 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
   return (
     <div className="space-y-3">
       {(e.paso === 'transporte_datos' || (pedir && !e.seleccion.length)) && (
-        <Tarjeta indice={0} variante="destacada" acento="remesas" icono={Truck} titulo="Recogida" subtitulo="Cuándo estará la mercancía lista para que UPS la recoja">
+        <Tarjeta indice={0} variante="destacada" acento="remesas" icono={Truck} titulo="Recogida" subtitulo={tipo === 'palet' ? 'Cuándo estará el palé listo para que lo recoja el transportista' : 'Cuándo estará la mercancía lista para que UPS la recoja'}>
+          <div className="mb-3">
+            <Segmentado
+              etiqueta="Tipo de envío"
+              tamano="sm"
+              opciones={[
+                { id: 'paquete', texto: 'Paquetería (UPS)' },
+                { id: 'palet', texto: 'Palés (transporte propio)' },
+              ]}
+              valor={tipo}
+              onCambio={(v) => setTipo(v as 'paquete' | 'palet')}
+            />
+          </div>
+          {tipo === 'palet' && (
+            <div className="mb-3 rounded-[10px] border border-[var(--ls-linea)] p-3">
+              <p className="mb-2 text-[12px] leading-[1.5] text-[var(--ls-t3)]">
+                Medidas y peso de CADA palé, con la mercancía puesta y el palé incluido. Amazon no recibe palés de más de 183 cm de alto ni de 680 kg. Si no cabe en el plan de Amazon como palé, las cajas se mandan de otra forma.
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <label className="text-[12px] text-[var(--ls-t3)]">
+                  Palés
+                  <input className={campo} inputMode="numeric" value={pal.cantidad} onChange={(v) => setPal({ ...pal, cantidad: v.target.value })} />
+                </label>
+                <label className="text-[12px] text-[var(--ls-t3)]">
+                  Largo (cm)
+                  <input className={campo} inputMode="decimal" value={pal.largo} onChange={(v) => setPal({ ...pal, largo: v.target.value })} />
+                </label>
+                <label className="text-[12px] text-[var(--ls-t3)]">
+                  Ancho (cm)
+                  <input className={campo} inputMode="decimal" value={pal.ancho} onChange={(v) => setPal({ ...pal, ancho: v.target.value })} />
+                </label>
+                <label className="text-[12px] text-[var(--ls-t3)]">
+                  Alto (cm)
+                  <input className={campo} inputMode="decimal" value={pal.alto} onChange={(v) => setPal({ ...pal, alto: v.target.value })} placeholder="97" />
+                </label>
+                <label className="text-[12px] text-[var(--ls-t3)]">
+                  Peso (kg)
+                  <input className={campo} inputMode="decimal" value={pal.peso} onChange={(v) => setPal({ ...pal, peso: v.target.value })} placeholder="46,5" />
+                </label>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--ls-t2)]">
+                <input type="checkbox" checked={pal.apilable} onChange={(v) => setPal({ ...pal, apilable: v.target.checked })} />
+                Se puede apilar otro palé encima
+              </label>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="text-[12px] text-[var(--ls-t3)]">
               Día de recogida
@@ -638,7 +691,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
             </label>
           </div>
           <div className="mt-3 flex justify-end">
-            <Boton variante="primario" icono={Truck} cargando={trabajando === 'cotizar'} onClick={() => void enviar({ accion: 'generar_transporte', dia, contacto }, '', 'cotizar')}>
+            <Boton variante="primario" icono={Truck} cargando={trabajando === 'cotizar'} onClick={() => void enviar(cuerpoCotizar, '', 'cotizar')}>
               Pedir cotización a Amazon
             </Boton>
           </div>
@@ -647,7 +700,15 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
 
       {e.paso === 'transporte_generar' && !e.error && <EstadoVacio icono={Truck} titulo="Pidiendo la cotización a Amazon…" descripcion="Se actualiza solo en cuanto Amazon conteste." acento="remesas" />}
 
-      {e.seleccion.length > 0 && (
+      {e.seleccion.length > 0 && e.sinCobro && (
+        <Tarjeta indice={1} variante="destacada" acento="remesas" icono={Truck} titulo="Transporte propio" subtitulo={`Recogida el ${fechaDia(e.recogida?.dia)}`}>
+          <p className="text-[13px] leading-[1.55] text-[var(--ls-t2)]">
+            Amazon no cobra nada: el palé lo lleva el transportista que elijas tú ({e.palets ? `${e.palets.cantidad} palé${e.palets.cantidad === 1 ? '' : 's'} de ${e.palets.largoCm}×${e.palets.anchoCm}×${e.palets.altoCm} cm y ${e.palets.pesoKg} kg` : 'palés'}). No hay coste que el cliente tenga que aceptar. Al confirmar, Amazon reserva la entrega y salen las etiquetas de caja y de palé.
+          </p>
+        </Tarjeta>
+      )}
+
+      {e.seleccion.length > 0 && !e.sinCobro && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr]">
           <Tarjeta indice={1} variante="destacada" acento="remesas" icono={Truck} titulo="Coste del transporte" subtitulo={[...new Set(e.seleccion.map((s) => s.transportista ?? 'Transportista de Amazon'))].join(', ')}>
             <p className="text-[34px] font-semibold tabular-nums leading-none tracking-[-0.02em] text-[var(--ls-t1)]">
@@ -708,7 +769,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
                       <button
                         key={o.transportationOptionId}
                         type="button"
-                        disabled={!!trabajando || o.coste === null}
+                        disabled={!!trabajando || (o.coste === null && o.deAmazon)}
                         onClick={() => o.transportationOptionId !== elegida && void enviar({ accion: 'elegir_transporte', transportationOptionId: o.transportationOptionId }, '', o.transportationOptionId)}
                         className={`ls-elevar ${SIN_HOVER_TACTIL} flex items-center justify-between gap-2 rounded-[10px] border px-3 py-2 text-left text-[12.5px] disabled:opacity-50 [@media(pointer:coarse)]:min-h-[44px]`}
                         style={{ borderColor: o.transportationOptionId === elegida ? ACENTO.remesas : 'var(--ls-linea)', background: o.transportationOptionId === elegida ? mezcla(ACENTO.remesas, 8) : undefined }}
@@ -719,7 +780,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
                             {o.deAmazon ? 'Asociado de Amazon' : 'Transporte propio'} · {o.modo === 'SMALL_PARCEL' ? 'paquetería' : 'palés'}
                           </span>
                         </span>
-                        <span className="shrink-0 tabular-nums text-[var(--ls-t1)]">{dinero(o.coste, o.moneda)}</span>
+                        <span className="shrink-0 tabular-nums text-[var(--ls-t1)]">{o.coste === null && !o.deAmazon ? 'Sin cargo' : dinero(o.coste, o.moneda)}</span>
                       </button>
                     ))}
                   </div>
@@ -733,7 +794,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
       {!confirmado && e.seleccion.length > 0 && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
           {pedir && (
-            <Boton variante="secundario" icono={RefreshCw} cargando={trabajando === 'cotizar'} onClick={() => void enviar({ accion: 'generar_transporte', dia, contacto }, '', 'cotizar')} className="sm:mr-auto">
+            <Boton variante="secundario" icono={RefreshCw} cargando={trabajando === 'cotizar'} onClick={() => void enviar(cuerpoCotizar, '', 'cotizar')} className="sm:mr-auto">
               Pedir otra cotización
             </Boton>
           )}
@@ -755,7 +816,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
         palabra="TRANSPORTE"
         titulo="Confirmar el transporte con Amazon"
         textoConfirmar="Confirmar transporte"
-        descripcion={`Se acepta el cargo de ${dinero(e.costeTransporte, e.moneda)} que Amazon cobra en la cuenta del cliente (aceptado por ${e.aceptacion?.nombre ?? 'el cliente'}). Se puede anular sin coste durante unas 24 h en paquetería.`}
+        descripcion={e.sinCobro ? 'Amazon reserva la entrega con transporte propio: no hay cargo. Después hay que imprimir las etiquetas y pasarle al transportista el nº de envío para que pida la cita en el almacén.' : `Se acepta el cargo de ${dinero(e.costeTransporte, e.moneda)} que Amazon cobra en la cuenta del cliente (aceptado por ${e.aceptacion?.nombre ?? 'el cliente'}). Se puede anular sin coste durante unas 24 h en paquetería.`}
         onConfirmar={async () => {
           const ok = await enviar({ accion: 'confirmar_transporte', palabra: 'TRANSPORTE' }, '', 'transporte')
           if (!ok) throw new Error('no')
@@ -791,6 +852,44 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
   const [enlaces, setEnlaces] = useState<Array<{ shipmentId: string; confirmacion: string | null; destino: string | null; cajas: number; url: string | null; error: string | null }>>([])
   const [marcando, setMarcando] = useState(false)
   const [confirmarEnviada, setConfirmarEnviada] = useState(false)
+  const [pidiendoPalet, setPidiendoPalet] = useState(false)
+  const [enlacesPalet, setEnlacesPalet] = useState<Array<{ shipmentId: string; confirmacion: string | null; palets: number; url: string | null; error: string | null }>>([])
+  const [bol, setBol] = useState(e.seguimientoLtl?.bol ?? '')
+  const [guardandoBol, setGuardandoBol] = useState(false)
+  const palets = e.palets
+
+  async function pedirPalet() {
+    setPidiendoPalet(true)
+    try {
+      const res = await fetch(`/api/fba/remesas/${remesaId}/amazon/etiquetas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hoja, tipo: 'palet' }) })
+      const j = (await res.json().catch(() => null)) as { enlaces?: typeof enlacesPalet; error?: string } | null
+      if (!res.ok) {
+        toast.error(j?.error ?? 'No se han podido pedir las etiquetas de palé')
+        return
+      }
+      setEnlacesPalet(j?.enlaces ?? [])
+      const primera = j?.enlaces?.find((x) => x.url)
+      if (primera?.url) window.open(primera.url, '_blank', 'noopener')
+    } finally {
+      setPidiendoPalet(false)
+    }
+  }
+
+  async function guardarBol() {
+    setGuardandoBol(true)
+    try {
+      const res = await fetch(`/api/fba/remesas/${remesaId}/amazon`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'guardar_seguimiento', bol }) })
+      const j = (await res.json().catch(() => null)) as { error?: string } | null
+      if (!res.ok) {
+        toast.error(j?.error ?? 'No se ha podido guardar el seguimiento')
+        return
+      }
+      toast.success('Seguimiento guardado en Amazon')
+      onEnviada()
+    } finally {
+      setGuardandoBol(false)
+    }
+  }
 
   if (e.paso !== 'etiquetas') {
     return <EstadoVacio icono={Tags} titulo="Las etiquetas salen al confirmar el transporte" descripcion="Etiqueta de caja de Amazon con la de UPS, una por caja." acento="remesas" />
@@ -866,8 +965,75 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
         )}
       </Tarjeta>
 
+      {palets && (
+        <>
+          <Tarjeta indice={1} variante="destacada" acento="remesas" icono={Printer} titulo="Etiquetas de palé" subtitulo={`${palets.cantidad} palé${palets.cantidad === 1 ? '' : 's'} · se pegan en los 4 lados de cada palé, a la vista`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[12.5px] leading-[1.5] text-[var(--ls-t3)]">Salen con el formato de hoja de arriba. Si el palé lleva varias referencias («SKU mixtos») no hace falta la etiqueta de «Un único SKU». No tapes las etiquetas de las cajas con el film opaco ni con cartón.</p>
+              <Boton variante="primario" icono={Download} cargando={pidiendoPalet} onClick={() => void pedirPalet()}>
+                Descargar etiquetas de palé
+              </Boton>
+            </div>
+            {enlacesPalet.length > 0 && (
+              <ul className="mt-3 space-y-2">
+                {enlacesPalet.map((l) => (
+                  <li key={l.shipmentId} className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[var(--ls-linea)] px-3 py-2 text-[12.5px]">
+                    <span className="font-mono text-[var(--ls-t1)]">
+                      {l.confirmacion ?? l.shipmentId} · {l.palets} palé{l.palets === 1 ? '' : 's'}
+                    </span>
+                    {l.url ? (
+                      <a href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold" style={{ color: ACENTO.remesas }}>
+                        <Download className="h-[13px] w-[13px]" /> Abrir PDF
+                      </a>
+                    ) : (
+                      <span style={{ color: COLOR_ESTADO.rojo }}>{l.error}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Tarjeta>
+
+          <Tarjeta indice={2} icono={Truck} titulo="Seguimiento y cita del transportista" subtitulo="Amazon lo pide para reconocer el camión en el almacén">
+            <div className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <label className="flex-1 text-[12px] text-[var(--ls-t3)]">
+                  Nº de conocimiento de embarque (BOL)
+                  <input
+                    className="mt-1 h-10 w-full rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-mod-remesas)] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-[16px]"
+                    value={bol}
+                    onChange={(v) => setBol(v.target.value)}
+                    placeholder={e.envios[0]?.confirmacion ?? 'FBA…'}
+                  />
+                </label>
+                <Boton variante="primario" icono={CheckCircle2} cargando={guardandoBol} disabled={!e.acciones.includes('guardar_seguimiento')} onClick={() => void guardarBol()}>
+                  Guardar en Amazon
+                </Boton>
+              </div>
+              <p className="text-[12px] text-[var(--ls-t3)]">
+                {e.seguimientoLtl ? `Guardado ${fechaHora(e.seguimientoLtl.at)}: ${e.seguimientoLtl.bol}. ` : ''}Si el transportista no te da un número propio, déjalo en blanco y se usa el nº de envío FBA.
+              </p>
+              <div className="rounded-[10px] border border-[var(--ls-linea)] p-3 text-[12.5px] leading-[1.6] text-[var(--ls-t2)]">
+                <p className="mb-1 font-semibold text-[var(--ls-t1)]">Qué darle al transportista</p>
+                <ul className="list-disc space-y-[2px] pl-4">
+                  <li>
+                    Envío FBA <b className="font-mono">{e.envios[0]?.confirmacion ?? '—'}</b>
+                    {e.envios[0]?.destino ? ` → almacén ${e.envios[0].destino}${e.envios[0].ciudad ? ` (${e.envios[0].ciudad})` : ''}` : ''}
+                  </li>
+                  <li>
+                    {e.cajas.cajas} caja{e.cajas.cajas === 1 ? '' : 's'} en {palets.cantidad} palé{palets.cantidad === 1 ? '' : 's'} de {palets.largoCm}×{palets.anchoCm}×{palets.altoCm} cm y {palets.pesoKg} kg
+                  </li>
+                  <li>La referencia de Amazon (en Seller Central, «Seguimiento del envío») y la franja de entrega que Amazon confirmó</li>
+                  <li>Tiene que reservar la CITA de entrega en el almacén dentro de esa franja: sin cita no los recibe nadie</li>
+                </ul>
+              </div>
+            </div>
+          </Tarjeta>
+        </>
+      )}
+
       {cajasAmazon.length > 0 && (
-        <Tarjeta indice={1} icono={Boxes} titulo="Qué etiqueta va en cada caja" subtitulo="Emparejadas por contenido y peso con las cajas del ERP">
+        <Tarjeta indice={palets ? 3 : 1} icono={Boxes} titulo="Qué etiqueta va en cada caja" subtitulo="Emparejadas por contenido y peso con las cajas del ERP">
           <div className="space-y-3">
             {cajasAmazon.map(([sid, cajas]) => (
               <div key={sid}>
@@ -886,7 +1052,7 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
       )}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-        <p className="text-[12px] text-[var(--ls-t3)] sm:mr-auto">Cuando UPS se lleve la mercancía, márcala como enviada: pasa a «Envíos» con su nº FBA.</p>
+        <p className="text-[12px] text-[var(--ls-t3)] sm:mr-auto">{palets ? 'Cuando el transportista se lleve el palé' : 'Cuando UPS se lleve la mercancía'}, márcala como enviada: pasa a «Envíos» con su nº FBA.</p>
         <Boton variante="secundario" icono={Truck} cargando={marcando} onClick={() => setConfirmarEnviada(true)}>
           Marcar como enviada
         </Boton>

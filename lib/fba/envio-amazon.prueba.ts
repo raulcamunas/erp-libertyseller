@@ -16,6 +16,8 @@ import {
   OPERACION_DEL_PASO,
   PASOS_ENVIO,
   proponerTransporte,
+  sinCobroDeAmazon,
+  validarPalets,
   puedeReabrirCajas,
   repartirCajasEnGrupos,
   resumirReparto,
@@ -24,6 +26,7 @@ import {
   type CajaParaValidar,
 } from './envio-amazon'
 import {
+  consultaEtiquetasPalet,
   consultaEtiquetas,
   cuerpoCajas,
   cuerpoConfirmarTransporte,
@@ -241,6 +244,27 @@ const pares = emparejarCajas(
   deAmazon
 )
 ok('emparejadas por contenido y peso', pares, [{ numero: 1, boxId: 'FBAU1' }, { numero: 2, boxId: 'FBAU2' }, { numero: 3, boxId: 'FBAU3' }])
+
+
+/* ---- Palés (LTL) ---- */
+const v1 = validarPalets({ cantidad: 1, largoCm: 120, anchoCm: 80, altoCm: 97, pesoKg: 46.5, apilable: false })
+ok('palé válido', v1.ok && v1.palets.apilable === false && v1.palets.pesoKg === 46.5, true)
+ok('palé sin peso', validarPalets({ cantidad: 1, largoCm: 120, anchoCm: 80, altoCm: 97 }).ok, false)
+ok('palé de 2 m de alto', validarPalets({ cantidad: 1, largoCm: 120, anchoCm: 80, altoCm: 200, pesoKg: 100 }).ok, false)
+ok('palé de 800 kg', validarPalets({ cantidad: 1, largoCm: 120, anchoCm: 80, altoCm: 150, pesoKg: 800 }).ok, false)
+ok('cantidad 0', validarPalets({ cantidad: 0, largoCm: 120, anchoCm: 80, altoCm: 97, pesoKg: 40 }).ok, false)
+const cuerpoP = cuerpoGenerarTransporte('PL1', ['S1'], '2026-11-20T09:00:00Z', null, { cantidad: 2, largoCm: 120, anchoCm: 80, altoCm: 97, pesoKg: 46.5, apilable: true })
+ok('cuerpo con palés', JSON.stringify(cuerpoP.shipmentTransportationConfigurations[0]), JSON.stringify({ shipmentId: 'S1', readyToShipWindow: { start: '2026-11-20T09:00:00Z' }, pallets: [{ quantity: 2, dimensions: { length: 120, width: 80, height: 97, unitOfMeasurement: 'CM' }, weight: { unit: 'KG', value: 46.5 }, stackability: 'STACKABLE' }] }))
+ok('cuerpo sin palés no lleva pallets', 'pallets' in cuerpoGenerarTransporte('PL1', ['S1'], 'x', null).shipmentTransportationConfigurations[0], false)
+const opPropio = { transportationOptionId: 'T1', shipmentId: 'S1', transportista: 'Other', codigoTransportista: null, modo: 'FREIGHT_LTL', solucion: 'USE_YOUR_OWN_CARRIER', coste: null, moneda: null, caduca: null, anulableHasta: null, precondiciones: ['CONFIRMED_DELIVERY_WINDOW'], deAmazon: false }
+const propP = proponerTransporte([opPropio], ['S1'], new Date(), true)
+ok('palés: sin asociado se propone el propio', propP.ok && propP.selecciones[0]?.transportationOptionId === 'T1', true)
+ok('paquetería: el propio no se propone', proponerTransporte([opPropio], ['S1']).ok, false)
+ok('transporte propio no cobra', sinCobroDeAmazon(propP.selecciones), true)
+ok('sin cobro confirma sin aceptación', accionesPermitidas({ modo: 'api', paso: 'transporte_listo', conError: false, clienteAcepto: false, anulableHasta: null, sinCobro: true }).includes('confirmar_transporte'), true)
+ok('con cobro no confirma sin aceptación', accionesPermitidas({ modo: 'api', paso: 'transporte_listo', conError: false, clienteAcepto: false, anulableHasta: null }).includes('confirmar_transporte'), false)
+ok('seguimiento solo con palés', [accionesPermitidas({ modo: 'api', paso: 'etiquetas', conError: false, clienteAcepto: true, anulableHasta: null, conPalets: true }).includes('guardar_seguimiento'), accionesPermitidas({ modo: 'api', paso: 'etiquetas', conError: false, clienteAcepto: true, anulableHasta: null }).includes('guardar_seguimiento')], [true, false])
+ok('etiquetas de palé', consultaEtiquetasPalet(1, 'a4_4'), { PageType: 'PackageLabel_A4_4', LabelType: 'PALLET', NumberOfPallets: 1 })
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO' : `\n  ${fallos} FALLOS`)
 if (fallos) process.exit(1)

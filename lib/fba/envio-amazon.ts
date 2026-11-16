@@ -476,6 +476,39 @@ export function resumirReparto(opciones: OpcionReparto[], ahora = new Date()): O
   return filas
 }
 
+/** Un envío por PALÉS (LTL): cuántos, qué mide cada uno, cuánto pesa y si se puede apilar */
+export interface DatosPalets {
+  cantidad: number
+  largoCm: number
+  anchoCm: number
+  altoCm: number
+  /** Peso de CADA palé, con la mercancía */
+  pesoKg: number
+  apilable: boolean
+}
+
+export const LIMITES_PALET = { maxCantidad: 100, maxLadoCm: 250, maxAltoCm: 183, maxPesoKg: 680 }
+
+/** PURA. Valida lo que se escribe en la pantalla antes de pedirle nada a Amazon */
+export function validarPalets(p: Partial<DatosPalets> | null | undefined): { ok: true; palets: DatosPalets } | { ok: false; error: string } {
+  if (!p) return { ok: false, error: 'Faltan los datos del palé' }
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN)
+  const cantidad = n(p.cantidad)
+  if (!Number.isInteger(cantidad) || cantidad < 1) return { ok: false, error: 'Pon cuántos palés son (un número entero, al menos 1)' }
+  if (cantidad > LIMITES_PALET.maxCantidad) return { ok: false, error: `Como mucho ${LIMITES_PALET.maxCantidad} palés` }
+  const lados: Array<[string, number]> = [['largo', n(p.largoCm)], ['ancho', n(p.anchoCm)], ['alto', n(p.altoCm)]]
+  for (const [nombre, v] of lados) {
+    if (!(v > 0)) return { ok: false, error: `Falta el ${nombre} del palé en cm` }
+    if (v > LIMITES_PALET.maxLadoCm) return { ok: false, error: `El ${nombre} del palé no puede pasar de ${LIMITES_PALET.maxLadoCm} cm` }
+  }
+  if (n(p.altoCm) > LIMITES_PALET.maxAltoCm) return { ok: false, error: `Amazon no recibe palés de más de ${LIMITES_PALET.maxAltoCm} cm de alto (72 in), con el palé incluido` }
+  const peso = n(p.pesoKg)
+  if (!(peso > 0)) return { ok: false, error: 'Falta el peso del palé en kg' }
+  if (peso > LIMITES_PALET.maxPesoKg) return { ok: false, error: `Un palé no puede pesar más de ${LIMITES_PALET.maxPesoKg} kg (1.500 lb)` }
+  const r1 = (v: number) => Math.round(v * 10) / 10
+  return { ok: true, palets: { cantidad, largoCm: r1(n(p.largoCm)), anchoCm: r1(n(p.anchoCm)), altoCm: r1(n(p.altoCm)), pesoKg: r1(peso), apilable: !!p.apilable } }
+}
+
 export interface OpcionTransporte {
   transportationOptionId: string
   shipmentId: string
@@ -541,19 +574,26 @@ const minIso = (xs: Array<string | null>): string | null => {
  * La propuesta de transporte por defecto: en cada envío, el transportista ASOCIADO de Amazon en paquetería
  * (UPS) más barato. Si algún envío no lo tiene, se dice y no se propone nada para él (la agencia decide).
  */
-export function proponerTransporte(opciones: OpcionTransporte[], envios: string[], ahora = new Date()): PropuestaTransporte {
+export function proponerTransporte(opciones: OpcionTransporte[], envios: string[], ahora = new Date(), palets = false): PropuestaTransporte {
   const selecciones: SeleccionTransporte[] = []
   const sinAsociado: string[] = []
   for (const sid of envios) {
-    const candidatas = opciones
-      .filter((o) => o.shipmentId === sid && o.deAmazon && o.modo === 'SMALL_PARCEL' && o.coste !== null)
+    const delEnvio = opciones.filter((o) => o.shipmentId === sid)
+    const candidatas = delEnvio
+      .filter((o) => o.deAmazon && (palets ? o.modo.toUpperCase().startsWith('FREIGHT') : o.modo === 'SMALL_PARCEL') && o.coste !== null)
       .filter((o) => !o.caduca || Date.parse(o.caduca) > ahora.getTime())
       .sort((a, b) => (a.coste ?? 0) - (b.coste ?? 0))
+    // Palés: si Amazon no ofrece su transportista asociado (lo normal en España), se propone el transporte propio
+    const propio = palets && !candidatas[0] ? delEnvio.find((o) => !o.deAmazon && o.modo.toUpperCase().startsWith('FREIGHT')) : undefined
     if (candidatas[0]) selecciones.push(aSeleccion(candidatas[0]))
+    else if (propio) selecciones.push(aSeleccion(propio))
     else sinAsociado.push(sid)
   }
   return resumirSelecciones(selecciones, sinAsociado)
 }
+
+/** Transporte propio: Amazon no cobra nada, así que no hay coste que acepte el cliente */
+export const sinCobroDeAmazon = (sel: SeleccionTransporte[]): boolean => sel.length > 0 && sel.every((s) => s.solucion.toUpperCase() === 'USE_YOUR_OWN_CARRIER')
 
 export function resumirSelecciones(selecciones: SeleccionTransporte[], sinAsociado: string[] = []): PropuestaTransporte {
   const total = Math.round(selecciones.reduce((s, x) => s + (x.coste ?? 0), 0) * 100) / 100
@@ -645,6 +685,7 @@ export type AccionEnvio =
   | 'generar_transporte'
   | 'elegir_transporte'
   | 'confirmar_transporte'
+  | 'guardar_seguimiento'
   | 'reintentar'
   | 'cancelar'
 
@@ -652,7 +693,7 @@ export type AccionEnvio =
  * Qué acciones admite cada paso. La pantalla enseña solo estas y la ruta lo vuelve a comprobar con lo que
  * hay en la base en ese instante.
  */
-export function accionesPermitidas(p: { modo: ModoEnvio; paso: PasoEnvio; conError: boolean; clienteAcepto: boolean; anulableHasta: string | null; ahora?: Date }): AccionEnvio[] {
+export function accionesPermitidas(p: { modo: ModoEnvio; paso: PasoEnvio; conError: boolean; clienteAcepto: boolean; anulableHasta: string | null; ahora?: Date; sinCobro?: boolean; conPalets?: boolean }): AccionEnvio[] {
   if (p.modo !== 'api') return []
   const out: AccionEnvio[] = []
   const { paso } = p
@@ -668,7 +709,8 @@ export function accionesPermitidas(p: { modo: ModoEnvio; paso: PasoEnvio; conErr
   // confirme, hay que poder pedir otra (y el cliente vuelve a aceptarla). Sin esto solo quedaba cancelar el plan
   if (paso === 'transporte_datos' || paso === 'transporte_elegir' || paso === 'transporte_cliente' || paso === 'transporte_listo') out.push('generar_transporte')
   if (paso === 'transporte_elegir' || paso === 'transporte_cliente' || paso === 'transporte_listo') out.push('elegir_transporte')
-  if (paso === 'transporte_listo' && p.clienteAcepto) out.push('confirmar_transporte')
+  if (paso === 'transporte_listo' && (p.clienteAcepto || p.sinCobro)) out.push('confirmar_transporte')
+  if (paso === 'etiquetas' && p.conPalets) out.push('guardar_seguimiento')
   if (p.conError && pasoEnCurso(paso)) out.push('reintentar')
   if (cancelabilidad(paso, p.anulableHasta, p.ahora).puede || (p.conError && pasoEnCurso(paso) && paso !== 'cancelando')) out.push('cancelar')
   if (p.conError && paso === 'cancelando') out.push('reintentar')
