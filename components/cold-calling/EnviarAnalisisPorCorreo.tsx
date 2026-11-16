@@ -1,6 +1,6 @@
 'use client'
 
-import { Loader2, RefreshCw, Send, Sparkles, X } from 'lucide-react'
+import { Check, Loader2, RefreshCw, Send, Sparkles, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -16,6 +16,8 @@ import { avisarCorreoEnviadoALead } from '@/lib/correo/peticiones'
 
 type Preparado = {
   para: string
+  /** Todos los correos del lead (el principal y los extra): se marcan los que reciben el análisis */
+  correos?: string[]
   desde: string
   asunto: string
   saludo: string
@@ -39,6 +41,12 @@ export function EnviarAnalisisPorCorreo({ leadId, alCerrar, alEnviar }: { leadId
   const [asunto, setAsunto] = useState('')
   const [saludo, setSaludo] = useState('')
   const [entradilla, setEntradilla] = useState('')
+
+  // Las direcciones que hay ahora en «Para» (separadas por coma, punto y coma o espacio)
+  const escritas = useMemo(() => para.split(/[;,\s]+/).map((x) => x.trim()).filter(Boolean), [para])
+  const estaMarcado = (c: string) => escritas.some((x) => x.toLowerCase() === c.toLowerCase())
+  const alternar = (c: string) => setPara((escritas.some((x) => x.toLowerCase() === c.toLowerCase()) ? escritas.filter((x) => x.toLowerCase() !== c.toLowerCase()) : [...escritas, c]).join(', '))
+  const marcarTodos = (correos: string[]) => setPara([...escritas, ...correos.filter((c) => !estaMarcado(c))].join(', '))
 
   async function preparar() {
     setCargando(true)
@@ -143,8 +151,36 @@ export function EnviarAnalisisPorCorreo({ leadId, alCerrar, alEnviar }: { leadId
               )}
               <label className="text-[11px] font-semibold text-[var(--ls-t3)]">
                 Para
-                <input className={`${CAMPO} mt-1`} value={para} onChange={(e) => setPara(e.target.value)} placeholder="correo@empresa.com" />
+                <input className={`${CAMPO} mt-1`} value={para} onChange={(e) => setPara(e.target.value)} placeholder="correo@empresa.com (varios, separados por coma)" />
               </label>
+              {/* Los correos que ya tiene el lead: se marcan los que reciben el análisis, en un solo correo */}
+              {(p.correos?.length ?? 0) > 1 && (
+                <div className="-mt-1 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--ls-t3)]">
+                    <span>Correos de este lead · {escritas.length} marcado{escritas.length === 1 ? '' : 's'}</span>
+                    <button type="button" className="text-[var(--ls-t2)] underline-offset-2 hover:underline" onClick={() => marcarTodos(p.correos ?? [])}>
+                      Marcar todos
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(p.correos ?? []).map((c) => {
+                      const on = estaMarcado(c)
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => alternar(c)}
+                          aria-pressed={on}
+                          className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${on ? 'border-[var(--ls-acc)] bg-[var(--ls-acc)]/10 text-[var(--ls-t1)]' : 'border-[var(--ls-linea)] text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'}`}
+                        >
+                          <Check className={`h-3 w-3 shrink-0 ${on ? 'opacity-100' : 'opacity-0'}`} aria-hidden />
+                          <span className="truncate">{c}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
               <label className="text-[11px] font-semibold text-[var(--ls-t3)]">
                 Asunto
                 <input className={`${CAMPO} mt-1`} value={asunto} onChange={(e) => setAsunto(e.target.value)} />

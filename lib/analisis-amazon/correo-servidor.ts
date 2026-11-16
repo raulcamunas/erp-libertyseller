@@ -12,6 +12,7 @@
 import type { AmazonSession } from '@/lib/amazon/api'
 import { elegirMiBuzon } from '@/lib/correo/mi-buzon'
 import { leerLista } from '@/lib/correo/direcciones'
+import { emailsDelLead } from '@/lib/cold-calling/contactos'
 import { cuerpoDelApunte } from '@/lib/correo/apunte'
 import { autorizarBuzon, buzonesVisibles, contarEnviosRecientes, enviarDesdeBuzon } from '@/lib/correo/servidor'
 import { MAX_ENVIOS_POR_MINUTO } from '@/lib/correo/enviar'
@@ -26,13 +27,15 @@ import { contactoDeUsuario, ultimoAnalisisDelLead } from './servidor'
 
 /** Así empieza el apunte del historial cuando el correo llevaba el análisis (y así se sabe que ya se mandó) */
 export const MARCA_ENVIADO = '📈 Con su análisis de Amazon:'
+/** Cuántas direcciones de la misma empresa pueden recibir el análisis en un solo correo */
+export const MAX_DESTINATARIOS = 5
 /** Así empieza el apunte cuando el lead pulsa la baja del correo */
 export const MARCA_BAJA = '🚫 Ha pedido no recibir más correos'
 
 type Fallo = { ok: false; estado: number; error: string }
 
 type Contexto = {
-  lead: LeadParaCorreo & { email: string | null; store_name: string | null }
+  lead: LeadParaCorreo & { email: string | null; emails_extra: string | null; store_name: string | null }
   notas: NotaParaCorreo[]
   informe: InformeDelCorreo
   datos: DatosCorreoAnalisis
@@ -44,7 +47,7 @@ async function cargarContexto(sesion: AmazonSession, leadId: string): Promise<Co
   // La sesión de quien envía decide si el lead es suyo (RLS); lo demás, con la clave de servicio
   const { data: lead } = await sesion.supabase
     .from('cold_leads')
-    .select('id, status, ciclo_fase, decisor, last_contacted_at, email, store_name')
+    .select('id, status, ciclo_fase, decisor, last_contacted_at, email, emails_extra, store_name')
     .eq('id', leadId)
     .maybeSingle()
   if (!lead) return { ok: false, estado: 404, error: 'No tienes acceso a este lead.' }
@@ -98,6 +101,8 @@ function bloqueoPorCalidad(inf: InformeDelCorreo): Fallo | null {
 export type CorreoPreparado = {
   ok: true
   para: string
+  /** Todos los correos que tiene el lead (el principal y los extra), para elegir a cuáles se manda */
+  correos: string[]
   desde: string
   asunto: string
   saludo: string
@@ -122,6 +127,7 @@ export async function prepararCorreo(sesion: AmazonSession, leadId: string): Pro
   return {
     ok: true,
     para: ctx.lead.email ?? '',
+    correos: emailsDelLead(ctx.lead),
     desde: ctx.buzon.direccion,
     asunto: textos.asunto,
     saludo: textos.saludo,
@@ -145,7 +151,8 @@ export async function enviarCorreoDelAnalisis(sesion: AmazonSession, p: Peticion
 
   const lista = leerLista(p.para.slice(0, 500))
   if (lista.invalidas.length) return { ok: false, estado: 400, error: `La dirección «${lista.invalidas[0]}» no es válida.` }
-  if (lista.personas.length !== 1) return { ok: false, estado: 400, error: 'Pon una sola dirección: el análisis es de esa empresa.' }
+  if (lista.personas.length < 1) return { ok: false, estado: 400, error: 'Falta la dirección a la que se manda.' }
+  if (lista.personas.length > MAX_DESTINATARIOS) return { ok: false, estado: 400, error: `Como mucho ${MAX_DESTINATARIOS} direcciones en un mismo correo: el análisis es de una sola empresa.` }
   const asunto = p.asunto.replace(/[\r\n]+/g, ' ').trim().slice(0, 200)
   const saludo = p.saludo.replace(/[\r\n]+/g, ' ').trim().slice(0, 120)
   const entradilla = p.entradilla.replace(/\r\n?/g, '\n').trim().slice(0, 2000)
@@ -174,7 +181,7 @@ export async function enviarCorreoDelAnalisis(sesion: AmazonSession, p: Peticion
   // El correo YA HA SALIDO: lo que falle de aquí en adelante no se devuelve como error
   const ahora = new Date().toISOString()
   const cuerpo = cuerpoDelApunte({
-    para: lista.personas[0].direccion,
+    para: lista.personas.map((x) => x.direccion).join(', '),
     asunto,
     texto: `${saludo}\n\n${entradilla || '(entradilla de siempre)'}\n\n${MARCA_ENVIADO} ${ctx.datos.url}`,
   })
@@ -183,7 +190,7 @@ export async function enviarCorreoDelAnalisis(sesion: AmazonSession, p: Peticion
   const { error: e2 } = await service.from('cold_leads').update({ last_contacted_at: ahora }).eq('id', p.leadId)
   if (e2) console.error('[analisis-correo] enviado pero sin sellar el último contacto', { codigo: e2.code })
 
-  return { ok: true, para: lista.personas[0].direccion, avisos: verificacion?.avisos ?? [] }
+  return { ok: true, para: lista.personas.map((x) => x.direccion).join(', '), avisos: verificacion?.avisos ?? [] }
 }
 
 /** El lead pulsa «darse de baja» en el correo: queda en su historial y ya no se le puede mandar otro desde aquí */
