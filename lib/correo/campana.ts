@@ -1,5 +1,5 @@
 import type { AvisoDeCorreo } from './avisos'
-import type { DatosDeAviso, TipoDeAvisoDeCorreo } from './campana-tipos'
+import type { DatosDeAviso, MotivoDeAsignacion, TipoDeAvisoDeCorreo } from './campana-tipos'
 import { ETIQUETA_DE_CLASE, type ClaseDeRespuesta } from './secuencias/clases'
 import { diaCorto } from './secuencias/fechas'
 import type { MotivoDeRebote } from './verificacion/rebotes'
@@ -20,7 +20,7 @@ import type { MotivoDeRebote } from './verificacion/rebotes'
  */
 
 export interface AvisoParaLaCampana {
-  /** A quién se avisa: el dueño del buzón o de la secuencia, nunca quien supervisa */
+  /** A quién se avisa: el dueño del buzón o de la secuencia, quien lo tiene asignado o lo sigue en «Mis correos». Nunca quien solo supervisa */
   userId: string
   tipo: TipoDeAvisoDeCorreo
   clave: string
@@ -72,18 +72,41 @@ const PORQUE_REBOTA: Record<MotivoDeRebote, string> = {
   desconocido: 'el servidor no ha dicho por qué',
 }
 
+/**
+ * Cómo se avisa a quien no es el dueño del buzón:
+ *   · `sinContenidoEn`  la dirección del buzón: el aviso dice «Correo nuevo en <dirección>» SIN remitente, asunto ni vista previa (quien solo lo sigue, o quien lo
+ *                       tiene asignado si su rastro no se pudo escribir). El contenido se ve al abrirlo, y ahí queda anotado.
+ *   · `enviadoDesde`    para un REBOTE: la dirección del buzón desde la que esta persona (que no es la dueña) envió el correo que ha rebotado.
+ */
+export interface ComoAvisar {
+  sinContenidoEn?: string
+  enviadoDesde?: string
+}
+
 /** Un correo de una persona que acaba de llegar (o el aviso de que un correo nuestro no se pudo entregar) */
-export function avisoDeCorreoNuevo(userId: string, c: AvisoDeCorreo, rebote: DetalleDeRebote | null = null): AvisoParaLaCampana {
+export function avisoDeCorreoNuevo(userId: string, c: AvisoDeCorreo, rebote: DetalleDeRebote | null = null, como: ComoAvisar = {}): AvisoParaLaCampana {
   if (c.rebote) {
     const porque = PORQUE_REBOTA[rebote?.motivo ?? 'desconocido']
     const direccion = rebote?.direccion ?? null
+    const desde = como.enviadoDesde?.trim()
     return armar({
       userId,
       tipo: 'correo_rebote',
       clave: claveDeMensaje(c.id),
-      titulo: 'Un correo no se ha entregado',
-      mensaje: `${direccion ? `El correo a ${direccion}` : 'Un correo tuyo'} ha rebotado: ${porque}.${rebote?.motivo === 'inexistente' ? ' Busca otra dirección.' : ''}`,
+      titulo: desde ? `Un correo que enviaste desde ${desde} no se ha entregado` : 'Un correo tuyo no se ha entregado',
+      mensaje: `${direccion ? `El correo a ${direccion}` : desde ? 'El correo' : 'Un correo tuyo'} ha rebotado: ${porque}.${rebote?.motivo === 'inexistente' ? ' Busca otra dirección.' : ''}`,
       datos: datos({ buzonId: c.buzonId, hiloId: c.hiloId, mensajeId: c.id, direccion }),
+    })
+  }
+  const en = como.sinContenidoEn?.trim()
+  if (en) {
+    return armar({
+      userId,
+      tipo: 'correo_nuevo',
+      clave: claveDeMensaje(c.id),
+      titulo: `Correo nuevo en ${recortar(en, 80)}`,
+      mensaje: 'Ábrelo en Correo para leerlo.',
+      datos: datos({ buzonId: c.buzonId, hiloId: c.hiloId, mensajeId: c.id }),
     })
   }
   const asunto = c.asunto.trim() || '(sin asunto)'
@@ -250,6 +273,98 @@ export function avisoDeRespuestaDeLead(
     mensaje: `${resumen} ${siguiente}${aviso}`,
     datos: datos({ buzonId: p.buzonId, hiloId: p.hiloId, mensajeId: p.mensajeId, inscripcionId: p.inscripcionId, leadId: p.leadId, clase: p.clase }),
     enriquecer: true,
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/* Asignaciones (migración 318)                                        */
+/* ------------------------------------------------------------------ */
+
+/** El instante de una asignación como número (va en la clave): quitar y volver a asignar es otra asignación y vuelve a avisar. Una fecha que no se entiende cuenta como 0 */
+const epochDe = (iso: string): number => {
+  const t = Date.parse(iso)
+  return Number.isFinite(t) ? t : 0
+}
+
+function datosDeAsignacion(d: { buzonId: string; hiloId?: string | null; porId: string; porNombre: string; motivo: MotivoDeAsignacion }): DatosDeAviso {
+  return datos({ buzonId: d.buzonId, hiloId: d.hiloId ?? null, porId: d.porId, porNombre: d.porNombre, motivo: d.motivo })
+}
+
+/**
+ * Alguien te ha encargado una conversación («Encárgate tú»). No se avisa a quien se la asigna a sí misma: devuelve null.
+ * Clave `asig:hilo:<hiloId>:<epoch de asignado_at>`.
+ */
+export function avisoDeAsignacionDeHilo(p: {
+  /** La persona encargada */
+  userId: string
+  buzonId: string
+  hiloId: string
+  porId: string
+  porNombre: string
+  /** El asunto de la conversación (quien la recibe ya lee ese buzón: se ha comprobado antes de asignar) */
+  asunto?: string | null
+  nota?: string | null
+  asignadoAt: string
+}): AvisoParaLaCampana | null {
+  if (!p.userId || p.userId === p.porId) return null
+  const asunto = limpiar(p.asunto ?? '') || '(sin asunto)'
+  const nota = limpiar(p.nota ?? '')
+  return armar({
+    userId: p.userId,
+    tipo: 'correo_asignado',
+    clave: `asig:hilo:${p.hiloId}:${epochDe(p.asignadoAt)}`,
+    titulo: `${limpiar(p.porNombre) || 'Alguien'} te ha encargado una conversación`,
+    mensaje: nota ? `${asunto} — «${nota}»` : asunto,
+    datos: datosDeAsignacion({ buzonId: p.buzonId, hiloId: p.hiloId, porId: p.porId, porNombre: p.porNombre, motivo: 'hilo' }),
+  })
+}
+
+/**
+ * Un administrador ha asignado un buzón a una persona. Dos avisos posibles:
+ *   · `para: 'persona'`  a quien se lo asignan: «Raúl te ha asignado daniela@… (puedes responder)». Clave `asig:buzon:<buzonId>:<personaId>:<epoch>`.
+ *   · `para: 'dueno'`    al dueño del buzón: «Raúl ha dado a Patricia acceso para responder desde tu buzón». La misma clave con `:dueno`.
+ * No se avisa a quien lo ha hecho él mismo (un administrador que se lo asigna a sí mismo, o que es el dueño): devuelve null.
+ */
+export function avisoDeAsignacionDeBuzon(p: {
+  para: 'persona' | 'dueno'
+  buzonId: string
+  /** La dirección del buzón */
+  direccion: string
+  duenoId: string
+  personaId: string
+  personaNombre: string
+  porId: string
+  porNombre: string
+  puedeResponder: boolean
+  asignadoAt: string
+}): AvisoParaLaCampana | null {
+  const userId = p.para === 'persona' ? p.personaId : p.duenoId
+  if (!userId || userId === p.porId) return null
+  if (p.para === 'dueno' && p.duenoId === p.personaId) return null
+  const por = limpiar(p.porNombre) || 'Un administrador'
+  const persona = limpiar(p.personaNombre) || 'una persona'
+  const clave = `asig:buzon:${p.buzonId}:${p.personaId}:${epochDe(p.asignadoAt)}${p.para === 'dueno' ? ':dueno' : ''}`
+  if (p.para === 'persona') {
+    return armar({
+      userId,
+      tipo: 'correo_asignado',
+      clave,
+      titulo: `${por} te ha asignado ${p.direccion}${p.puedeResponder ? ' (puedes responder)' : ''}`,
+      mensaje: p.puedeResponder
+        ? 'Lo tienes en «Mis correos»: te avisa de lo que llega y puedes contestar desde él. Lo que leas y envíes queda anotado.'
+        : 'Lo tienes en «Mis correos»: te avisa de lo que llega. Solo lectura: lo que leas queda anotado.',
+      datos: datosDeAsignacion({ buzonId: p.buzonId, porId: p.porId, porNombre: p.porNombre, motivo: 'buzon' }),
+    })
+  }
+  return armar({
+    userId,
+    tipo: 'correo_asignado',
+    clave,
+    titulo: p.puedeResponder ? `${por} ha dado a ${persona} acceso para responder desde tu buzón` : `${por} ha dado a ${persona} acceso a tu buzón`,
+    mensaje: p.puedeResponder
+      ? `${persona} lee ${p.direccion} y puede enviar desde él. Cada correo que envíe queda anotado con su nombre.`
+      : `${persona} lee ${p.direccion} y le avisa de lo que llega, sin poder enviar desde él.`,
+    datos: datosDeAsignacion({ buzonId: p.buzonId, porId: p.porId, porNombre: p.porNombre, motivo: 'buzon_dueno' }),
   })
 }
 

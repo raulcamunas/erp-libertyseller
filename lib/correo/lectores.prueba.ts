@@ -1,5 +1,6 @@
 import {
   MAX_CAMBIOS_POR_PETICION,
+  QUITALO_EN_ASIGNACIONES,
   armarMatriz,
   celdaDe,
   decidirCambios,
@@ -7,7 +8,10 @@ import {
   esDeComercial,
   paraBloquear,
   paraDesbloquear,
+  quitarChocaConAsignacion,
   validarPeticion,
+  type AsignacionDeLaMatriz,
+  type CambioReciente,
   type Bloqueo,
   type BuzonDeLaMatriz,
   type Concesion,
@@ -193,6 +197,47 @@ console.log('\n=== validar y decidir cambios de bloqueo ===')
   const quita = decidirCambios(lector, mapa, { lectorId: JHANNA.id, cambios: [{ buzonId: B_CARLOS.id, bloquear: false }] })
   ok('quitar un bloqueo que no existía no es un error: se aplica (no cambia nada)', quita.ok && quita.aplicar.length === 1)
   ok('se puede bloquear un buzón de un administrador (aunque nadie lo lea por permiso, queda dicho)', (() => { const x = decidirCambios(lector, mapa, { lectorId: JHANNA.id, cambios: [{ buzonId: B_RAUL.id, bloquear: true }] }); return x.ok && x.aplicar.length === 1 })())
+}
+
+console.log('\n=== un buzón ASIGNADO (migración 318) ===')
+{
+  const asigna = (p: PersonaDeLaMatriz, b: BuzonDeLaMatriz, puedeResponder = true): AsignacionDeLaMatriz => ({ buzonId: b.id, personaId: p.id, puedeResponder })
+  const solo = celdaDe(JHANNA, B_ANA, false, false, { puedeResponder: true })
+  ok('solo asignado: vía «asignado», con respuesta', solo.via === 'asignado' && solo.asignado === true && solo.puedeResponder === true && !solo.concedido)
+  const sinResp = celdaDe(JHANNA, B_ANA, false, false, { puedeResponder: false })
+  ok('asignado sin respuesta: vía «asignado» y no responde', sinResp.via === 'asignado' && sinResp.puedeResponder === false)
+  const conPermiso = celdaDe(persona(6, 'Jhanna', { permisoEquipo: true }), B_ANA, false, false, { puedeResponder: true })
+  ok('si además lo lee por permiso, la vía es el permiso y se sabe que está asignado', conPermiso.via === 'permiso' && conPermiso.asignado === true)
+  const conConcesion = celdaDe(JHANNA, B_ANA, true, false, { puedeResponder: false })
+  ok('abierto a mano y asignado: vía «concedido» (lo que se quitaría aquí) y asignado debajo', conConcesion.via === 'concedido' && conConcesion.asignado === true)
+  ok('sin asignación, la celda de siempre (asignado: false)', celdaDe(JHANNA, B_ANA, false).asignado === false && celdaDe(JHANNA, B_ANA, false).via === 'nada')
+  ok('el suyo nunca sale asignado', celdaDe(ANA, B_ANA, false, false, { puedeResponder: true }).via === 'suyo' && celdaDe(ANA, B_ANA, false, false, { puedeResponder: true }).asignado === false)
+
+  const m = armarMatriz({ personas: [ANA, JHANNA, persona(13, 'SinCasilla', { tieneCorreo: false })], buzones: BUZONES, concesiones: [], asignaciones: [asigna(JHANNA, B_ANA), asigna(JHANNA, B_RAUL, false), asigna(persona(13, 'SinCasilla'), B_BEA)] })
+  const j = m.filas.find((f) => f.persona.id === JHANNA.id)!
+  ok('la matriz marca las asignaciones y las cuenta como leídas', j.celdas[B_ANA.id].via === 'asignado' && j.celdas[B_RAUL.id].via === 'asignado' && j.celdas[B_RAUL.id].puedeResponder === false && j.leidos === 2)
+  ok('quien perdió la casilla de Correo pero tiene una asignación sigue saliendo (para poder quitársela)', m.filas.some((f) => f.persona.nombre === 'SinCasilla'))
+  ok('sin asignaciones (sin la 318) la matriz sale como siempre', armarMatriz({ personas: [ANA, JHANNA], buzones: BUZONES, concesiones: [] }).filas.find((f) => f.persona.id === JHANNA.id)!.leidos === 0)
+
+  // «No ve» sobre una celda que solo abre la asignación: se quita en Asignaciones
+  const asignados = new Set([B_ANA.id, B_BEA.id])
+  const concedidos = new Set([B_BEA.id])
+  ok('quitar un buzón que solo lee por asignación choca', quitarChocaConAsignacion([{ buzonId: B_ANA.id, leer: false }], asignados, concedidos) === B_ANA.id)
+  ok('si además está abierto a mano, quitar cierra lo abierto a mano y no choca', quitarChocaConAsignacion([{ buzonId: B_BEA.id, leer: false }], asignados, concedidos) === null)
+  ok('abrir o bloquear un asignado no choca (bloquear lo desasigna en el servidor)', quitarChocaConAsignacion([{ buzonId: B_ANA.id, leer: true }, { buzonId: B_ANA.id, bloquear: true }], asignados, concedidos) === null)
+  ok('quitar uno no asignado no choca', quitarChocaConAsignacion([{ buzonId: B_CARLOS.id, leer: false }], asignados, concedidos) === null)
+  ok('el texto que se enseña', QUITALO_EN_ASIGNACIONES === 'Quítalo en Asignaciones.')
+
+  // Los atajos de bloqueo no se llevan por delante asignaciones (aunque además lo lea por permiso)
+  const ALEJANDRO = persona(9, 'Alejandro', { permisoEquipo: true, permisoCorreo: true })
+  const mm = armarMatriz({ personas: [ALEJANDRO], buzones: BUZONES, concesiones: [], asignaciones: [asigna(ALEJANDRO, B_CONTA)] })
+  ok('«bloquear administrativos» no ofrece el administrativo que tiene ASIGNADO (se quita a propósito, no de golpe)', paraBloquear(mm.filas[0], BUZONES, 'administrativos').length === 0)
+  ok('pero sí los comerciales que lee por permiso, como siempre', paraBloquear(mm.filas[0], BUZONES, 'comerciales').length === 3)
+  ok('paraDesbloquear no cambia', paraDesbloquear(mm.filas[0], BUZONES).length === 0)
+
+  // El historial admite las acciones nuevas y su detalle (es un tipo: basta con que compile)
+  const cambios: CambioReciente[] = (['asignado', 'desasignado', 'responde', 'solo_avisos'] as const).map((accion) => ({ accion, buzon: 'ana@l.es', lector: 'Jhanna', porQuien: 'Raúl', cuando: '2026-11-16T10:00:00Z', detalle: null }))
+  ok('el historial admite asignado, desasignado, responde y solo avisos', cambios.length === 4)
 }
 
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)

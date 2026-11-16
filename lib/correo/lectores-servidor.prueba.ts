@@ -8,8 +8,10 @@ import {
   buzonesBloqueadosA,
   buzonesConcedidosA,
   cambiarLectores,
+  cargarReglaEnBloque,
   leerDatosDeLaMatriz,
 } from '@/lib/correo/lectores-servidor'
+import { QUITALO_EN_ASIGNACIONES } from '@/lib/correo/lectores'
 
 let fallos = 0
 let comprobaciones = 0
@@ -47,9 +49,11 @@ const datos = () => ({
   correo_buzon_lectores: [] as Array<Record<string, unknown>>,
   correo_buzon_lectores_historial: [] as Array<Record<string, unknown>>,
   correo_buzon_bloqueos: [] as Array<Record<string, unknown>>,
+  correo_buzon_asignaciones: [] as Array<Record<string, unknown>>,
 })
-const nueva = (extra: Record<string, unknown[] | null> = {}) =>
-  crearBaseFalsa({ ...datos(), ...extra } as never, { unicos: { correo_buzon_lectores: ['buzon_id', 'lector_id'], correo_buzon_bloqueos: ['buzon_id', 'lector_id'] } })
+const nueva = (extra: Record<string, unknown[] | null> = {}, columnas?: Record<string, readonly string[]>) =>
+  crearBaseFalsa({ ...datos(), ...extra } as never, { unicos: { correo_buzon_lectores: ['buzon_id', 'lector_id'], correo_buzon_bloqueos: ['buzon_id', 'lector_id'], correo_buzon_asignaciones: ['buzon_id', 'persona_id'] }, columnas })
+const HISTORIAL_SIN_318 = ['id', 'buzon_id', 'buzon_direccion', 'lector_id', 'lector_nombre', 'accion', 'hecho_por', 'hecho_por_nombre', 'hecho_at']
 
 async function main() {
   console.log('\n=== sin la migración nada se rompe ===')
@@ -262,6 +266,108 @@ async function main() {
     ok('Jhanna: el administrativo bloqueado (aunque lo vería por su permiso) y los de los comerciales sin bloquear', j.celdas[B_CONTA].bloqueado && j.celdas[B_CONTA].via === 'permiso' && !j.celdas[B_ANA].bloqueado && !j.celdas[B_BEA].bloqueado)
     ok('lee 2 (los comerciales) y tiene 1 bloqueado', j.leidos === 2 && j.bloqueados === 1)
     ok('el historial enseña el bloqueo', d.recientes.length === 1 && d.recientes[0].accion === 'bloqueado' && d.recientes[0].buzon === 'conta@l.es')
+  }
+
+  console.log('\n=== asignaciones en la matriz (migración 318) ===')
+  {
+    const sin = await leerDatosDeLaMatriz(nueva({ correo_buzon_asignaciones: null }, { correo_buzon_lectores_historial: HISTORIAL_SIN_318 }).servicio)
+    ok('sin la 318 la matriz sale igual, sin asignaciones, y lo dice', sin.asignacionesDisponibles === false && (sin.asignaciones ?? []).length === 0 && sin.matriz.filas.length === 4)
+    const b = nueva(
+      {
+        correo_buzon_asignaciones: [{ buzon_id: B_ANA, persona_id: JHANNA, puede_responder: true, asignado_por: RAUL, asignado_at: '2026-11-16T10:00:00.000Z' }],
+        correo_buzon_lectores_historial: [{ accion: 'asignado', buzon_direccion: 'ana@l.es', lector_nombre: 'Jhanna', hecho_por_nombre: 'Raúl', hecho_at: '2026-11-16T10:00:00.000Z', detalle: 'responde' }],
+      },
+    )
+    const d = await leerDatosDeLaMatriz(b.servicio)
+    const j = d.matriz.filas.find((f) => f.persona.id === JHANNA)!
+    ok('la celda de Jhanna en el de Ana sale «asignado» con respuesta', j.celdas[B_ANA].via === 'asignado' && j.celdas[B_ANA].puedeResponder === true && d.asignacionesDisponibles === true && d.asignaciones?.length === 1)
+    ok('el historial trae la acción nueva y su detalle', d.recientes[0].accion === 'asignado' && d.recientes[0].detalle === 'responde')
+    const viejo = await leerDatosDeLaMatriz(nueva({ correo_buzon_lectores_historial: [{ accion: 'concedido', buzon_direccion: 'ana@l.es', lector_nombre: 'Jhanna', hecho_por_nombre: 'Raúl', hecho_at: '2026-10-27T10:00:00.000Z' }] }, { correo_buzon_lectores_historial: HISTORIAL_SIN_318 }).servicio)
+    ok('sin la columna detalle (318 sin lanzar) el historial se lee igual, con detalle null', viejo.recientes.length === 1 && viejo.recientes[0].detalle === null)
+    const rota = nueva()
+    rota.errores.set('correo_buzon_asignaciones', { code: 'XX000', message: 'rota' })
+    ok('un fallo de verdad al leer las asignaciones no se esconde', (await leerDatosDeLaMatriz(rota.servicio).catch((e) => e)) instanceof Error)
+  }
+
+  console.log('\n=== «No ve» sobre una asignación: se quita en Asignaciones ===')
+  {
+    const b = nueva({ correo_buzon_asignaciones: [{ buzon_id: B_ANA, persona_id: JHANNA, puede_responder: true }] })
+    const r = await cambiarLectores(b.servicio, { id: RAUL, nombre: 'Raúl' }, { lectorId: JHANNA, cambios: [{ buzonId: B_ANA, leer: false }, { buzonId: B_BEA, leer: true }] })
+    ok('400 «Quítalo en Asignaciones» y no se toca nada', !r.ok && r.estado === 400 && r.error === QUITALO_EN_ASIGNACIONES && b.tablas.get('correo_buzon_lectores')!.length === 0 && b.tablas.get('correo_buzon_asignaciones')!.length === 1)
+    const c = nueva({
+      correo_buzon_asignaciones: [{ buzon_id: B_ANA, persona_id: JHANNA, puede_responder: true }],
+      correo_buzon_lectores: [{ buzon_id: B_ANA, lector_id: JHANNA, concedido_por: RAUL, concedido_at: '2026-10-27T10:00:00.000Z' }],
+    })
+    const r2 = await cambiarLectores(c.servicio, { id: RAUL, nombre: 'Raúl' }, { lectorId: JHANNA, cambios: [{ buzonId: B_ANA, leer: false }] })
+    ok('si además estaba abierto a mano, quitar cierra lo abierto a mano y la asignación sigue', r2.ok && r2.quitados === 1 && c.tablas.get('correo_buzon_asignaciones')!.length === 1)
+    const sin318 = await cambiarLectores(nueva({ correo_buzon_asignaciones: null }).servicio, { id: RAUL, nombre: 'Raúl' }, { lectorId: JHANNA, cambios: [{ buzonId: B_ANA, leer: false }] })
+    ok('sin la 318, quitar funciona como siempre', sin318.ok && sin318.quitados === 0)
+  }
+
+  console.log('\n=== bloquear a quien lo tiene asignado: primero se desasigna ===')
+  {
+    const b = nueva({ correo_buzon_asignaciones: [{ buzon_id: B_ANA, persona_id: JHANNA, puede_responder: true }, { buzon_id: B_BEA, persona_id: JHANNA, puede_responder: false }] })
+    const r = await cambiarLectores(b.servicio, { id: RAUL, nombre: 'Raúl' }, { lectorId: JHANNA, cambios: [{ buzonId: B_ANA, bloquear: true }] })
+    ok('se bloquea y se cuenta la asignación quitada', r.ok && r.bloqueados === 1 && r.desasignados === 1)
+    ok('la asignación de ese buzón desaparece; la otra sigue', b.tablas.get('correo_buzon_asignaciones')!.length === 1 && b.tablas.get('correo_buzon_asignaciones')![0].buzon_id === B_BEA)
+    const h = b.tablas.get('correo_buzon_lectores_historial')!.map((x) => x.accion)
+    ok('el historial dice primero «desasignado» y luego «bloqueado»', h.join() === 'desasignado,bloqueado', h.join())
+    const orden = b.peticiones.filter((x) => x === 'correo_buzon_asignaciones.delete' || x === 'correo_buzon_bloqueos.insert')
+    ok('y en la base, primero se quita la asignación', orden.join() === 'correo_buzon_asignaciones.delete,correo_buzon_bloqueos.insert', orden.join())
+
+    const c = nueva({ correo_buzon_asignaciones: [{ buzon_id: B_ANA, persona_id: JHANNA, puede_responder: true }] })
+    c.errores.set('correo_buzon_lectores_historial', { code: 'XX000', message: 'rota' })
+    const r2 = await cambiarLectores(c.servicio, { id: RAUL, nombre: 'Raúl' }, { lectorId: JHANNA, cambios: [{ buzonId: B_ANA, bloquear: true }] })
+    ok('quitar la asignación y bloquear se hacen aunque falle el rastro (es lo que QUITA acceso)', r2.ok && c.tablas.get('correo_buzon_asignaciones')!.length === 0 && c.tablas.get('correo_buzon_bloqueos')!.length === 1)
+  }
+
+  console.log('\n=== la regla de todo el equipo, en bloque ===')
+  {
+    const b = nueva({
+      user_app_permissions: [
+        ...datos().user_app_permissions,
+        { user_id: JHANNA, app_id: 'correo-supervision', can_access: true },
+        { user_id: BEA, app_id: 'equipo-comercial', can_access: true },
+        { user_id: SOCIO, app_id: 'correo', can_access: true },
+      ],
+      correo_buzon_lectores: [{ buzon_id: B_RAUL, lector_id: ANA, concedido_por: RAUL, concedido_at: '2026-10-27T10:00:00.000Z' }],
+      correo_buzon_bloqueos: [{ buzon_id: B_CONTA, lector_id: JHANNA, bloqueado_por: RAUL, bloqueado_at: '2026-10-29T09:00:00.000Z' }],
+      correo_buzon_asignaciones: [
+        { buzon_id: B_ANA, persona_id: CONTA, puede_responder: true },
+        { buzon_id: B_BEA, persona_id: RAUL, puede_responder: true },
+        { buzon_id: B_ANA, persona_id: SOCIO, puede_responder: true },
+      ],
+    })
+    const antes = b.peticiones.length
+    const regla = await cargarReglaEnBloque(b.servicio)
+    ok('se carga en 5 consultas como mucho', b.peticiones.length - antes <= 5, String(b.peticiones.length - antes))
+    const buzon = (id: string, user_id: string) => ({ id, user_id })
+    const ev = (p: string, bz: { id: string; user_id: string }, m: 'leer' | 'responder' | 'escribir' | 'administrar') => regla.evaluar(p, bz, m)
+    ok('el dueño lee y responde el suyo', (() => { const d = ev(ANA, buzon(B_ANA, ANA), 'responder'); return d.ok && d.esDueno })())
+    ok('la asignada con respuesta lee y responde, y es «asignado»', (() => { const d = ev(CONTA, buzon(B_ANA, ANA), 'responder'); return d.ok && d.asignado && d.puedeResponder && d.porSupervision })())
+    ok('pero no configura el buzón', !ev(CONTA, buzon(B_ANA, ANA), 'escribir').ok)
+    ok('un administrador lee todo y responde solo lo que se ha asignado', ev(RAUL, buzon(B_ANA, ANA), 'leer').ok && !ev(RAUL, buzon(B_ANA, ANA), 'responder').ok && ev(RAUL, buzon(B_BEA, BEA), 'responder').ok)
+    ok('la supervisión del correo lee los del equipo, no el de un administrador, y no el que tiene bloqueado', ev(JHANNA, buzon(B_ANA, ANA), 'leer').ok && !ev(JHANNA, buzon(B_RAUL, RAUL), 'leer').ok && !ev(JHANNA, buzon(B_CONTA, CONTA), 'leer').ok)
+    ok('la supervisión comercial lee los comerciales y no el administrativo', ev(BEA, buzon(B_ANA, ANA), 'leer').ok && !ev(BEA, buzon(B_CONTA, CONTA), 'leer').ok)
+    ok('lo abierto a mano también cuenta', ev(ANA, buzon(B_RAUL, RAUL), 'leer').ok)
+    ok('un partner no entra ni con una asignación colada', !ev(SOCIO, buzon(B_ANA, ANA), 'leer').ok)
+    ok('quien no tiene perfil solo lee lo suyo (nada aquí)', !ev(id(999), buzon(B_ANA, ANA), 'leer').ok)
+    const p = (x: string) => regla.persona(x)
+    ok('la app Correo: con la casilla, o administrador; un partner nunca', p(ANA)?.appCorreo === true && p(RAUL)?.appCorreo === true && p(SOCIO)?.appCorreo === false && p(JHANNA)?.appCorreo === true)
+    ok('sin poder leer Auth, todos activos', p(ANA)?.activo === true && regla.personas.length === 6)
+    ok('y el nombre', p(JHANNA)?.nombre === 'Jhanna' && p(id(999)) === undefined)
+
+    // Con Auth: quien tiene banned_until en el futuro, desactivado
+    const conAuth = nueva()
+    ;(conAuth.servicio as unknown as { auth: unknown }).auth = { admin: { listUsers: async () => ({ data: { users: [{ id: BEA, banned_until: '2999-01-01T00:00:00Z' }, { id: ANA, banned_until: '2000-01-01T00:00:00Z' }] }, error: null }) } }
+    const r2 = await cargarReglaEnBloque(conAuth.servicio)
+    ok('Auth dice quién está desactivado (un bloqueo pasado no cuenta)', r2.persona(BEA)?.activo === false && r2.persona(ANA)?.activo === true)
+
+    const sin = await cargarReglaEnBloque(nueva({ correo_buzon_asignaciones: null, correo_buzon_bloqueos: null, correo_buzon_lectores: null }).servicio)
+    ok('sin las migraciones 255, 260 y 318 se carga igual (tablas vacías)', sin.evaluar(ANA, buzon(B_ANA, ANA), 'leer').ok && !sin.evaluar(CONTA, buzon(B_ANA, ANA), 'leer').ok)
+    const rota = nueva()
+    rota.errores.set('correo_buzon_bloqueos', { code: 'XX000', message: 'rota' })
+    ok('un fallo de verdad en los bloqueos se propaga (no se abre lo que no se pudo comprobar)', (await cargarReglaEnBloque(rota.servicio).catch((e) => e)) instanceof Error)
   }
 
   console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS\n`)

@@ -8,16 +8,26 @@ import { SIN_CACHE, registrar, requerirCorreo, respuestaDeFallo } from '@/lib/co
 import { almacenDeSecuencias } from '@/lib/correo/secuencias/almacen'
 import { inscribir, type ResultadoDeInscribir } from '@/lib/correo/secuencias/inscripcion'
 import { motorEnMarcha } from '@/lib/correo/secuencias/servidor'
-import { autorizarBuzon, cargarContextoDeRespuesta, contarEnviosRecientes, enviarDesdeBuzon } from '@/lib/correo/servidor'
+import { registrarAcceso } from '@/lib/correo/quien-servidor'
+import { autorizarBuzon, cargarContextoDeRespuesta, contarEnviosRecientes, enviarDesdeBuzon, nombreDeLaSesion } from '@/lib/correo/servidor'
 import { verificarAntesDeEnviar } from '@/lib/correo/verificacion/pago-servidor'
 import { comprobarTamañoPeticion } from '@/lib/subidas-limite'
 import { createServiceClient } from '@/lib/supabase/service'
+import { enviarConRastro } from './rastro'
 
 /**
- * ENVIAR UN CORREO DESDE MI BUZÓN.
+ * ENVIAR UN CORREO DESDE UN BUZÓN.
+ *
+ * QUIÉN PUEDE (modo 'responder' de lib/correo/acceso.ts): el dueño del buzón, o alguien a quien un administrador se lo ha ASIGNADO con «Puede responder y
+ * enviar» (migración 318). Leer un buzón (supervisión, permiso abierto a mano, asignación «solo avisos») NO deja enviar desde él.
+ *
+ * DESDE UN BUZÓN AJENO (asignado):
+ *   · ANTES de enviar se escribe una fila `accion = 'envio'` en correo_accesos (sin caché: una por envío). Si no se puede escribir, 500 y el correo NO sale.
+ *   · El mensaje guarda quién lo envió (`enviado_por`, `enviado_por_nombre`) en la misma inserción (lib/correo/servidor.ts → enviar.ts → almacen.ts).
+ *   · Los seguimientos automáticos (`secuencia`) son solo del dueño: el correo sale igual y la respuesta lleva `secuencia: { ok: false, mensaje }`.
  *
  * POST multipart/form-data:
- *   buzonId      el buzón desde el que se envía. Solo su dueño: nadie envía desde la dirección de otro
+ *   buzonId      el buzón desde el que se envía (ver arriba quién puede)
  *   para, cc     direcciones separadas por comas o saltos de línea
  *   asunto, texto
  *   respondeA    (opcional) id del mensaje al que se contesta o que se reenvía; tiene que ser del mismo buzón
@@ -66,6 +76,14 @@ function leerPeticionDeSecuencia(valor: FormDataEntryValue | null): { leadId: st
   }
 }
 
+/** El hilo del mensaje al que se contesta (para el rastro de un envío desde un buzón ajeno). Si no se puede saber, null: el rastro se escribe igual */
+async function hiloDelMensaje(service: ReturnType<typeof createServiceClient>, buzonId: string, mensajeId: string): Promise<string | null> {
+  if (!UUID.test(mensajeId)) return null
+  const { data, error } = await service.from('correo_mensajes').select('hilo_id').eq('id', mensajeId.toLowerCase()).eq('buzon_id', buzonId).maybeSingle()
+  if (error) return null
+  return ((data as { hilo_id: string | null } | null)?.hilo_id as string | null) ?? null
+}
+
 export async function POST(request: NextRequest) {
   const sesion = await requerirCorreo()
   if (sesion instanceof NextResponse) return sesion
@@ -103,7 +121,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const service = createServiceClient()
-    const auth = await autorizarBuzon(service, sesion, formulario.get('buzonId'), 'escribir')
+    const auth = await autorizarBuzon(service, sesion, formulario.get('buzonId'), 'responder')
     if (!auth.ok) return fail(auth.estado, auth.mensaje)
 
     if ((await contarEnviosRecientes(service, auth.buzon.id, Date.now() - 60_000)) >= MAX_ENVIOS_POR_MINUTO) {
@@ -125,7 +143,24 @@ export async function POST(request: NextRequest) {
       entrada.respuesta = contexto
     }
 
-    const resultado = await enviarDesdeBuzon(service, auth.buzon, entrada)
+    // Desde un buzón ajeno: quién envía (queda en el mensaje) y el rastro ANTES de que salga. Si el rastro no se escribe, no se envía
+    const autor = auth.esDueno ? null : { id: sesion.userId, nombre: await nombreDeLaSesion(service, sesion.userId) }
+    const conRastro = await enviarConRastro({
+      esDueno: auth.esDueno,
+      anotar: async () =>
+        registrarAcceso(
+          service,
+          { userId: sesion.userId, nombre: autor?.nombre ?? 'Sin nombre' },
+          auth.buzon.id,
+          'envio',
+          { id: typeof respondeA === 'string' && respondeA !== '' ? await hiloDelMensaje(service, auth.buzon.id, respondeA) : null, asunto: entrada.asunto },
+          { sinCache: true }
+        ),
+      enviar: () => enviarDesdeBuzon(service, auth.buzon, entrada, autor ? { autor } : {}),
+      alFallar: (error) => registrar('Correo · enviar: no se ha podido dejar el rastro del envío (el correo no ha salido)', error),
+    })
+    if (!conRastro.ok) return fail(conRastro.estado, conRastro.mensaje)
+    const resultado = conRastro.resultado
     if (resultado.tipo === 'error') return fail(resultado.estado, resultado.mensaje)
     const r = resultado.resultado
 
@@ -140,7 +175,10 @@ export async function POST(request: NextRequest) {
     // Con el motor apagado el cuadro de escribir no los ofrece (servidor.ts: estadoParaElCuadro) y aquí no se programa ninguno, aunque llegue la petición de un cuadro abierto desde antes:
     // ni se programa, ni se avisa de nada, ni se dice «sin seguimientos» (nadie los tiene). Solo se mira el motor cuando hay algo que decidir
     let secuencia: unknown = undefined
-    const mirarElMotor = formulario.get('secuencia') !== null || Boolean(verificacion?.sinSeguimientos)
+    // Los seguimientos automáticos son solo del dueño del buzón: desde un buzón asignado el correo ya ha salido y no se programa nada (ni se mira el motor)
+    const pideSecuencia = typeof formulario.get('secuencia') === 'string' && formulario.get('secuencia') !== ''
+    if (!auth.esDueno && pideSecuencia) secuencia = { ok: false, mensaje: 'Los seguimientos automáticos solo se programan desde tu propio buzón.' }
+    const mirarElMotor = auth.esDueno && (formulario.get('secuencia') !== null || Boolean(verificacion?.sinSeguimientos))
     const conMotor =
       mirarElMotor &&
       (await motorEnMarcha(almacenDeSecuencias(service)).catch((error) => {

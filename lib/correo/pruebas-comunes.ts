@@ -1,5 +1,5 @@
 import type { ImapFlow } from 'imapflow'
-import type { Almacen, FilaDeBuzon, FilaDeCarpeta, FilaDeMensaje, HiloBasico, RolDeCarpeta } from '@/lib/correo/almacen'
+import { insertarTolerandoSinAutor, traeAutor, type Almacen, type FilaDeBuzon, type FilaDeCarpeta, type FilaDeMensaje, type HiloBasico, type RolDeCarpeta } from '@/lib/correo/almacen'
 
 /**
  * PIEZAS PARA LAS PRUEBAS DEL CORREO: UN SERVIDOR IMAP FALSO Y UNA BASE FALSA EN MEMORIA.
@@ -189,6 +189,13 @@ export class BaseFalsa implements Almacen {
   private contador = 0
   /** Si se pone, la próxima inserción de mensaje lanza este error */
   fallarAlInsertar: Error | null = null
+  /**
+   * Simula una base sin la migración 318: una inserción con `enviado_por`/`enviado_por_nombre` falla con este código
+   * de error (42703 como Postgres o PGRST204 como PostgREST). null = la base tiene las columnas y las guarda.
+   */
+  sinColumnasDeAutor: '42703' | 'PGRST204' | null = null
+  /** Cada intento de inserción que ha llegado a la «base», con o sin campos de autor (para las comprobaciones) */
+  intentosDeInsercion: FilaDeMensaje[] = []
 
   constructor(buzon: Partial<FilaDeBuzon> = {}) {
     this.buzon = {
@@ -328,9 +335,16 @@ export class BaseFalsa implements Almacen {
       this.fallarAlInsertar = null
       throw e
     }
-    if (fila.uid !== null && this.mensajes.some((m) => m.carpeta_id === fila.carpeta_id && m.uid === fila.uid)) return false
-    this.mensajes.push({ ...fila, id: this.nuevoId('mensaje') })
-    return true
+    // La misma tolerancia que el almacén de verdad: si falta la columna, un reintento sin los campos de autor
+    return insertarTolerandoSinAutor(fila, async (f) => {
+      this.intentosDeInsercion.push({ ...f })
+      if (this.sinColumnasDeAutor && traeAutor(f)) {
+        throw new Error('No se ha podido guardar el mensaje.', { cause: { code: this.sinColumnasDeAutor, message: 'column "enviado_por" does not exist' } })
+      }
+      if (f.uid !== null && this.mensajes.some((m) => m.carpeta_id === f.carpeta_id && m.uid === f.uid)) return false
+      this.mensajes.push({ ...f, id: this.nuevoId('mensaje') })
+      return true
+    })
   }
   async noLeidosDeCarpeta(carpetaId: string, limite: number) {
     return this.mensajes

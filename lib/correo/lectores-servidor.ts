@@ -1,7 +1,22 @@
 import type { createServiceClient } from '@/lib/supabase/service'
 import { PERMISO_CORREO_SUPERVISION, PERMISO_EQUIPO_COMERCIAL } from '@/lib/config/apps'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { armarMatriz, decidirCambios, type Bloqueo, type BuzonDeLaMatriz, type CambioDeLector, type CambioReciente, type Concesion, type DatosDeLaMatriz, type PeticionDeCambio, type PersonaDeLaMatriz } from './lectores'
+import { decidirAcceso, type DecisionDeAcceso, type ModoDeAcceso, type QuienPide } from './acceso'
+import {
+  QUITALO_EN_ASIGNACIONES,
+  armarMatriz,
+  decidirCambios,
+  quitarChocaConAsignacion,
+  type AsignacionDeLaMatriz,
+  type Bloqueo,
+  type BuzonDeLaMatriz,
+  type CambioDeLector,
+  type CambioReciente,
+  type Concesion,
+  type DatosDeLaMatriz,
+  type PeticionDeCambio,
+  type PersonaDeLaMatriz,
+} from './lectores'
 
 /**
  * LOS BUZONES ABIERTOS A MANO: LEERLOS Y CAMBIARLOS — SOLO SERVIDOR.
@@ -17,6 +32,11 @@ import { armarMatriz, decidirCambios, type Bloqueo, type BuzonDeLaMatriz, type C
  * por ningún permiso. quienPide los carga con los abiertos, y la regla de acceso (lib/correo/acceso.ts) los respeta. Sin la 260 no hay ninguno y la pantalla no ofrece bloquear.
  * A diferencia de los abiertos, si la lectura de los bloqueados FALLA por otra cosa que no sea la tabla que falta, se falla también la petición: dejar leer un buzón porque no se
  * pudo comprobar que estaba bloqueado sería abrirlo.
+ *
+ * LAS ASIGNACIONES (migración 318, tabla correo_buzon_asignaciones) las escribe /api/correo/asignaciones; aquí solo se leen para la matriz y para la regla en bloque, y se
+ * quitan cuando un administrador BLOQUEA ese buzón a esa persona (asignación y bloqueo no conviven). Sin la 318 no hay ninguna.
+ *
+ * ESTE FICHERO NUNCA IMPORTA servidor.ts NI quien-servidor.ts (quien-servidor lo importa a él): solo acceso, lectores, la configuración de apps e isMissingSchema.
  */
 
 type Servicio = ReturnType<typeof createServiceClient>
@@ -76,12 +96,13 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
   const lecturas = await Promise.all([
     service.from('correo_buzones').select('id, user_id, direccion, nombre').order('direccion', { ascending: true }),
     service.from('correo_buzon_lectores').select('buzon_id, lector_id, concedido_por, concedido_at'),
-    service.from('correo_buzon_lectores_historial').select('accion, buzon_direccion, lector_nombre, hecho_por_nombre, hecho_at').order('hecho_at', { ascending: false }).limit(15),
+    leerHistorial(service),
     service.from('profiles').select('id, full_name, email, role, is_comercial, puesto').eq('role', 'employee'),
     service.from('user_app_permissions').select('user_id, app_id').in('app_id', ['correo', PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION]).eq('can_access', true),
     service.from('correo_buzon_bloqueos').select('buzon_id, lector_id, bloqueado_por, bloqueado_at'),
+    leerAsignaciones(service),
   ])
-  const [buzonesR, lectoresR, historialR, empleadosR, permisosR, bloqueosR] = lecturas
+  const [buzonesR, lectoresR, historialR, empleadosR, permisosR, bloqueosR, asignacionesL] = lecturas
   for (const r of [lectoresR, historialR]) {
     if (r.error) {
       if (isMissingSchema(r.error)) throw new FaltaMigracionDeLectores()
@@ -102,10 +123,18 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
   const filasLectores = (lectoresR.data ?? []) as Array<{ buzon_id: string; lector_id: string; concedido_por: string | null; concedido_at: string }>
   const filasBloqueos = (bloqueosDisponibles ? (bloqueosR.data ?? []) : []) as Array<{ buzon_id: string; lector_id: string; bloqueado_por: string | null; bloqueado_at: string }>
   const empleados = (empleadosR.data ?? []) as PerfilLeido[]
+  const filasAsignaciones = asignacionesL.filas
 
   // Los dueños de buzón y quienes los abrieron pueden no ser employees (un administrador): se piden aparte lo que falte
   const conocidos = new Map(empleados.map((p) => [p.id, p]))
-  const faltan = [...new Set([...buzones.map((b) => b.user_id), ...filasLectores.flatMap((f) => [f.lector_id, f.concedido_por ?? '']), ...filasBloqueos.flatMap((f) => [f.lector_id, f.bloqueado_por ?? ''])])].filter((i) => i !== '' && !conocidos.has(i))
+  const faltan = [
+    ...new Set([
+      ...buzones.map((b) => b.user_id),
+      ...filasLectores.flatMap((f) => [f.lector_id, f.concedido_por ?? '']),
+      ...filasBloqueos.flatMap((f) => [f.lector_id, f.bloqueado_por ?? '']),
+      ...filasAsignaciones.map((f) => f.persona_id),
+    ]),
+  ].filter((i) => i !== '' && !conocidos.has(i))
   if (faltan.length > 0) {
     const { data, error } = await service.from('profiles').select('id, full_name, email, role, is_comercial, puesto').in('id', faltan)
     if (error) throw new Error('No se han podido leer los dueños de los buzones.', { cause: error })
@@ -116,7 +145,7 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
   const tiene = (userId: string, app: string) => permisos.some((p) => p.user_id === userId && p.app_id === app)
 
   // Las personas de la matriz: los employees y, si alguien con un buzón abierto o bloqueado ya no lo es, también (para poder quitárselo)
-  const idsDePersonas = new Set([...empleados.map((p) => p.id), ...filasLectores.map((f) => f.lector_id), ...filasBloqueos.map((f) => f.lector_id)])
+  const idsDePersonas = new Set([...empleados.map((p) => p.id), ...filasLectores.map((f) => f.lector_id), ...filasBloqueos.map((f) => f.lector_id), ...filasAsignaciones.map((f) => f.persona_id)])
   const personas: PersonaDeLaMatriz[] = [...idsDePersonas]
     .map((id) => conocidos.get(id))
     .filter((p): p is PerfilLeido => p !== undefined)
@@ -140,15 +169,53 @@ export async function leerDatosDeLaMatriz(service: Servicio): Promise<DatosDeLaM
   const nombreDeQuien = (id: string | null): string | null => (id && conocidos.get(id) ? nombreDe(conocidos.get(id)!) : null)
   const bloqueos: Bloqueo[] = filasBloqueos.map((f) => ({ buzonId: f.buzon_id, lectorId: f.lector_id, por: nombreDeQuien(f.bloqueado_por), desde: f.bloqueado_at }))
 
-  const recientes = ((historialR.data ?? []) as Array<{ accion: CambioReciente['accion']; buzon_direccion: string; lector_nombre: string; hecho_por_nombre: string; hecho_at: string }>).map((h) => ({
+  const recientes: CambioReciente[] = ((historialR.data ?? []) as Array<{ accion: CambioReciente['accion']; buzon_direccion: string; lector_nombre: string; hecho_por_nombre: string; hecho_at: string; detalle?: string | null }>).map((h) => ({
     accion: h.accion,
     buzon: h.buzon_direccion,
     lector: h.lector_nombre,
     porQuien: h.hecho_por_nombre,
     cuando: h.hecho_at,
+    detalle: typeof h.detalle === 'string' && h.detalle.trim() !== '' ? h.detalle : null,
   }))
 
-  return { matriz: armarMatriz({ personas, buzones: buzonesMatriz, concesiones, bloqueos }), concesiones, bloqueos, bloqueosDisponibles, recientes }
+  const asignaciones: AsignacionDeLaMatriz[] = filasAsignaciones.map((f) => ({ buzonId: f.buzon_id, personaId: f.persona_id, puedeResponder: f.puede_responder === true }))
+
+  return {
+    matriz: armarMatriz({ personas, buzones: buzonesMatriz, concesiones, bloqueos, asignaciones }),
+    concesiones,
+    bloqueos,
+    bloqueosDisponibles,
+    recientes,
+    asignaciones,
+    asignacionesDisponibles: asignacionesL.disponible,
+  }
+}
+
+/**
+ * Los últimos cambios del historial, con `detalle` (migración 318) si la columna existe. Sin ella, la misma lectura de antes: la columna nueva NUNCA se pide en la misma
+ * consulta sin red (una 42703 dejaría la pantalla sin historial).
+ */
+async function leerHistorial(service: Servicio) {
+  const conDetalle = await service.from('correo_buzon_lectores_historial').select('accion, buzon_direccion, lector_nombre, hecho_por_nombre, hecho_at, detalle').order('hecho_at', { ascending: false }).limit(15)
+  const codigo = (conDetalle.error as { code?: string } | null)?.code
+  if (!conDetalle.error || (codigo !== '42703' && codigo !== 'PGRST204')) return conDetalle
+  return service.from('correo_buzon_lectores_historial').select('accion, buzon_direccion, lector_nombre, hecho_por_nombre, hecho_at').order('hecho_at', { ascending: false }).limit(15)
+}
+
+interface FilaDeAsignacion {
+  buzon_id: string
+  persona_id: string
+  puede_responder: boolean | null
+}
+
+/** Todas las asignaciones de buzón (migración 318). Sin la tabla, ninguna y `disponible: false`. Cualquier otro fallo se propaga: no se decide sobre lo que no se pudo leer */
+async function leerAsignaciones(service: Servicio): Promise<{ disponible: boolean; filas: FilaDeAsignacion[] }> {
+  const { data, error } = await service.from('correo_buzon_asignaciones').select('buzon_id, persona_id, puede_responder')
+  if (error) {
+    if (isMissingSchema(error)) return { disponible: false, filas: [] }
+    throw new Error('No se han podido leer los buzones asignados.', { cause: error })
+  }
+  return { disponible: true, filas: (data ?? []) as FilaDeAsignacion[] }
 }
 
 export interface ResultadoDeCambiar {
@@ -157,6 +224,8 @@ export interface ResultadoDeCambiar {
   quitados: number
   bloqueados: number
   desbloqueados: number
+  /** Asignaciones quitadas porque se ha bloqueado ese buzón a esa persona (migración 318) */
+  desasignados: number
   rechazados: Array<{ buzonId: string; motivo: string }>
 }
 
@@ -181,7 +250,7 @@ export async function cambiarLectores(service: Servicio, hechoPor: { id: string;
 
   const decision = decidirCambios(lector ? { id: lector.id, role: lector.role ?? '' } : null, new Map([...buzones].map(([id, b]) => [id, { dueno: b.user_id }])), peticion)
   if (!decision.ok) return decision
-  const sinCambios: ResultadoDeCambiar = { ok: true, concedidos: 0, quitados: 0, bloqueados: 0, desbloqueados: 0, rechazados: decision.rechazados }
+  const sinCambios: ResultadoDeCambiar = { ok: true, concedidos: 0, quitados: 0, bloqueados: 0, desbloqueados: 0, desasignados: 0, rechazados: decision.rechazados }
   if (decision.aplicar.length === 0) return sinCambios
 
   const deLectura = decision.aplicar.filter(esDeLectura)
@@ -207,13 +276,25 @@ export async function cambiarLectores(service: Servicio, hechoPor: { id: string;
     bloqueadosAhora = new Map(((data ?? []) as Array<{ buzon_id: string; bloqueado_por: string | null; bloqueado_at: string }>).map((f) => [f.buzon_id, { bloqueado_por: f.bloqueado_por, bloqueado_at: f.bloqueado_at }]))
   }
 
+  // Las asignaciones de esta persona en los buzones que se tocan (migración 318; sin ella, ninguna): una asignación no se quita desde aquí, y bloquear la quita antes
+  let asignadosAhora = new Map<string, { puede_responder: boolean | null }>()
+  const tocados = [...new Set([...deLectura.filter((c) => !c.leer).map((c) => c.buzonId), ...deBloqueo.filter((c) => c.bloquear).map((c) => c.buzonId)])]
+  if (tocados.length > 0) {
+    const { data, error } = await service.from('correo_buzon_asignaciones').select('buzon_id, puede_responder').eq('persona_id', peticion.lectorId).in('buzon_id', tocados)
+    if (error && !isMissingSchema(error)) throw new Error('No se han podido leer los buzones asignados.', { cause: error })
+    asignadosAhora = new Map(((error ? [] : data ?? []) as Array<{ buzon_id: string; puede_responder: boolean | null }>).map((f) => [f.buzon_id, { puede_responder: f.puede_responder }]))
+  }
+  if (quitarChocaConAsignacion(deLectura, new Set(asignadosAhora.keys()), abiertos) !== null) return { ok: false, estado: 400, error: QUITALO_EN_ASIGNACIONES }
+
   const abrir = deLectura.filter((c) => c.leer && !abiertos.has(c.buzonId)).map((c) => c.buzonId)
   const cerrar = deLectura.filter((c) => !c.leer && abiertos.has(c.buzonId)).map((c) => c.buzonId)
   const bloquear = deBloqueo.filter((c) => c.bloquear && !bloqueadosAhora.has(c.buzonId)).map((c) => c.buzonId)
   const desbloquear = deBloqueo.filter((c) => !c.bloquear && bloqueadosAhora.has(c.buzonId)).map((c) => c.buzonId)
 
+  const desasignar = bloquear.filter((id) => asignadosAhora.has(id))
+
   const nombreDelLector = lector ? nombreDe(lector) : 'Sin nombre'
-  const filaDeHistorial = (id: string, accion: CambioReciente['accion']) => ({
+  const filaDeHistorial = (id: string, accion: CambioReciente['accion'], detalle?: string) => ({
     buzon_id: id,
     buzon_direccion: buzones.get(id)?.direccion ?? '',
     lector_id: peticion.lectorId,
@@ -221,7 +302,17 @@ export async function cambiarLectores(service: Servicio, hechoPor: { id: string;
     accion,
     hecho_por: hechoPor.id,
     hecho_por_nombre: hechoPor.nombre,
+    // `detalle` es de la 318: solo se manda cuando hay algo que decir (y entonces la 318 está lanzada, porque hay asignaciones)
+    ...(detalle ? { detalle } : {}),
   })
+
+  // BLOQUEAR A QUIEN TIENE EL BUZÓN ASIGNADO: primero se le quita la asignación (es lo que QUITA acceso: se hace aunque el rastro falle, y el rastro va después)
+  if (desasignar.length > 0) {
+    const { error } = await service.from('correo_buzon_asignaciones').delete().eq('persona_id', peticion.lectorId).in('buzon_id', desasignar)
+    if (error) throw new Error('No se ha podido quitar la asignación antes de bloquear.', { cause: error })
+    const rastro = await service.from('correo_buzon_lectores_historial').insert(desasignar.map((id) => filaDeHistorial(id, 'desasignado', 'al bloquear el buzón')))
+    if (rastro.error) console.error('[correo] no se ha podido anotar que se quitó una asignación al bloquear', { codigo: (rastro.error as { code?: string }).code ?? null })
+  }
 
   // LO QUE QUITA ACCESO NO DEPENDE DE PODER ANOTARLO: quitar un permiso o bloquear un buzón no puede quedarse sin hacer porque el rastro falle. Se hace primero y el rastro va después
   if (cerrar.length > 0) {
@@ -262,5 +353,146 @@ export async function cambiarLectores(service: Servicio, hechoPor: { id: string;
     }
   }
 
-  return { ...sinCambios, concedidos: abrir.length, quitados: cerrar.length, bloqueados: bloquear.length, desbloqueados: desbloquear.length }
+  return { ...sinCambios, concedidos: abrir.length, quitados: cerrar.length, bloqueados: bloquear.length, desbloqueados: desbloquear.length, desasignados: desasignar.length }
+}
+
+/* ------------------------------------------------------------------ */
+/* La regla de acceso de TODO el equipo, en bloque                     */
+/* ------------------------------------------------------------------ */
+
+/** Lo que se sabe de una persona para decidir si se le puede avisar o encargar algo */
+export interface PersonaDeLaRegla {
+  nombre: string
+  role: string
+  /** No está desactivada en Supabase Auth (banned_until en el futuro). Si no se pudo saber, se toma por activa: una persona desactivada no puede entrar a ver nada */
+  activo: boolean
+  /** Entra a la app «Correo» con la misma lectura que requireAppAccess (lib/amazon/api.ts): un administrador siempre; el resto, con la casilla. Un partner NUNCA (requerirCorreo lo echa) */
+  appCorreo: boolean
+}
+
+export interface ReglaEnBloque {
+  /** decidirAcceso con lo que se ha cargado, sin tocar la base. Una persona sin perfil cuenta como alguien sin rol: solo lee lo suyo */
+  evaluar(personaId: string, buzon: { id: string; user_id: string }, modo: ModoDeAcceso): DecisionDeAcceso
+  persona(id: string): PersonaDeLaRegla | undefined
+  /** Todas las personas con perfil */
+  personas: string[]
+}
+
+interface PerfilDeLaRegla {
+  id: string
+  full_name: string | null
+  email: string | null
+  role: string | null
+  is_comercial: boolean | null
+}
+
+/** Una lectura que, sin la tabla de su migración, es un conjunto vacío; con cualquier otro fallo, se propaga */
+async function filasTolerantes<T>(consulta: PromiseLike<{ data: unknown; error: unknown }>, que: string): Promise<T[]> {
+  const { data, error } = await consulta
+  if (error) {
+    if (isMissingSchema(error)) return []
+    throw new Error(`No se han podido leer ${que}.`, { cause: error })
+  }
+  return (data ?? []) as T[]
+}
+
+/** Quién está desactivado en Supabase Auth. Si no se puede leer, nadie (y se apunta): es un dato que solo quita avisos, nunca abre nada */
+async function desactivados(service: Servicio, ahora: number): Promise<Set<string>> {
+  const fuera = new Set<string>()
+  try {
+    const admin = (service as unknown as { auth?: { admin?: { listUsers?: (o: { page: number; perPage: number }) => Promise<{ data: { users: Array<{ id: string; banned_until?: string | null }> } | null; error: unknown }> } } }).auth?.admin
+    if (!admin?.listUsers) return fuera
+    const { data, error } = await admin.listUsers({ page: 1, perPage: 1000 })
+    if (error || !data) {
+      console.warn('[correo] no se ha podido saber quién está desactivado: se cuenta a todos como activos')
+      return fuera
+    }
+    for (const u of data.users) {
+      const t = u.banned_until ? Date.parse(u.banned_until) : NaN
+      if (Number.isFinite(t) && t > ahora) fuera.add(u.id)
+    }
+  } catch {
+    console.warn('[correo] no se ha podido saber quién está desactivado: se cuenta a todos como activos')
+  }
+  return fuera
+}
+
+/**
+ * La regla de acceso de TODO el equipo de una vez: permisos sueltos (equipo comercial, supervisión del correo y la casilla de Correo), buzones abiertos a mano, bloqueados y
+ * asignados, y los perfiles (rol, nombre). Cinco consultas en paralelo, más la lista de Supabase Auth para saber quién está desactivado; después `evaluar` decide en memoria con
+ * decidirAcceso, la misma regla que quienPide. SIN CACHÉ: la usan la campana (solo cuando entra correo nuevo) y «a quién se puede encargar» (una vez por apertura).
+ *
+ * Sin las migraciones 255, 260 o 318, sus tablas cuentan como vacías. Cualquier otro fallo se propaga (como en quienPide: no se abre lo que no se pudo comprobar).
+ */
+export async function cargarReglaEnBloque(service: Servicio, opciones: { ahora?: number } = {}): Promise<ReglaEnBloque> {
+  const ahora = opciones.ahora ?? Date.now()
+  const [permisos, concesiones, bloqueos, asignaciones, perfiles, fuera] = await Promise.all([
+    service.from('user_app_permissions').select('user_id, app_id, can_access').in('app_id', ['correo', PERMISO_EQUIPO_COMERCIAL, PERMISO_CORREO_SUPERVISION]).eq('can_access', true),
+    filasTolerantes<{ buzon_id: string; lector_id: string }>(service.from('correo_buzon_lectores').select('buzon_id, lector_id'), 'los buzones abiertos'),
+    filasTolerantes<{ buzon_id: string; lector_id: string }>(service.from('correo_buzon_bloqueos').select('buzon_id, lector_id'), 'los buzones bloqueados'),
+    filasTolerantes<FilaDeAsignacion>(service.from('correo_buzon_asignaciones').select('buzon_id, persona_id, puede_responder'), 'los buzones asignados'),
+    service.from('profiles').select('id, full_name, email, role, is_comercial'),
+    desactivados(service, ahora),
+  ])
+  if (permisos.error) throw new Error('No se han podido leer los permisos.', { cause: permisos.error })
+  if (perfiles.error) throw new Error('No se han podido leer las personas del equipo.', { cause: perfiles.error })
+
+  const conPermiso = (app: string) => new Set(((permisos.data ?? []) as Array<{ user_id: string; app_id: string; can_access: boolean | null }>).filter((p) => p.app_id === app && p.can_access === true).map((p) => p.user_id))
+  const equipo = conPermiso(PERMISO_EQUIPO_COMERCIAL)
+  const supervision = conPermiso(PERMISO_CORREO_SUPERVISION)
+  const casillaCorreo = conPermiso('correo')
+
+  const porPersona = <F,>(filas: F[], clave: (f: F) => string, valor: (f: F) => string) => {
+    const m = new Map<string, Set<string>>()
+    for (const f of filas) {
+      const k = clave(f)
+      if (!m.has(k)) m.set(k, new Set())
+      m.get(k)!.add(valor(f))
+    }
+    return m
+  }
+  const concedidosDe = porPersona(concesiones, (f) => f.lector_id, (f) => f.buzon_id)
+  const bloqueadosDe = porPersona(bloqueos, (f) => f.lector_id, (f) => f.buzon_id)
+  const asignadosDe = porPersona(asignaciones, (f) => f.persona_id, (f) => f.buzon_id)
+  const conRespuestaDe = porPersona(asignaciones.filter((f) => f.puede_responder === true), (f) => f.persona_id, (f) => f.buzon_id)
+
+  const filasPerfil = (perfiles.data ?? []) as PerfilDeLaRegla[]
+  const perfilDe = new Map(filasPerfil.map((p) => [p.id, p]))
+  const VACIO: ReadonlySet<string> = new Set()
+
+  const quienEs = new Map<string, QuienPide>()
+  const quien = (id: string): QuienPide => {
+    let q = quienEs.get(id)
+    if (!q) {
+      const role = perfilDe.get(id)?.role ?? ''
+      const esAdmin = role === 'admin'
+      // Lo mismo que quienPide: un administrador no pasa por permisos (los lleva a false) pero sí por sus asignaciones; un partner no tiene asignaciones
+      q = {
+        userId: id,
+        role,
+        tienePermisoEquipo: !esAdmin && equipo.has(id),
+        tienePermisoCorreo: !esAdmin && supervision.has(id),
+        buzonesConcedidos: esAdmin ? VACIO : concedidosDe.get(id) ?? VACIO,
+        buzonesBloqueados: esAdmin ? VACIO : bloqueadosDe.get(id) ?? VACIO,
+        buzonesAsignados: role === 'partner' ? VACIO : asignadosDe.get(id) ?? VACIO,
+        buzonesConRespuesta: role === 'partner' ? VACIO : conRespuestaDe.get(id) ?? VACIO,
+      }
+      quienEs.set(id, q)
+    }
+    return q
+  }
+
+  return {
+    evaluar(personaId, buzon, modo) {
+      const dueno = perfilDe.get(buzon.user_id)
+      return decidirAcceso(quien(personaId), buzon, { is_comercial: dueno?.is_comercial ?? null, role: dueno?.role ?? null }, modo)
+    },
+    persona(id) {
+      const p = perfilDe.get(id)
+      if (!p) return undefined
+      const role = p.role ?? ''
+      return { nombre: nombreDe(p), role, activo: !fuera.has(id), appCorreo: role === 'admin' || (role !== 'partner' && casillaCorreo.has(id)) }
+    },
+    personas: filasPerfil.map((p) => p.id),
+  }
 }

@@ -246,6 +246,60 @@ async function main() {
     igual('se le pone su UID', base.mensajes[0].uid, 4)
   }
 
+  console.log('quién envía desde un buzón ajeno va en la misma inserción')
+  {
+    const base = new BaseFalsa()
+    const t = transporteFalso()
+    await enviarCorreo(deps(base, t, null), base.buzon, entradaBase(), { ahora: AHORA, id: 'con-autor', autor: { id: 'perfil-7', nombre: 'Lucía Gómez' } })
+    igual('una sola inserción', base.intentosDeInsercion.length, 1)
+    igual('la fila guardada lleva el autor', [base.mensajes[0].enviado_por, base.mensajes[0].enviado_por_nombre], ['perfil-7', 'Lucía Gómez'])
+    ok('no hay ninguna actualización aparte', !base.llamadas.some((l) => /anotar|update/i.test(l)))
+  }
+  {
+    const base = new BaseFalsa()
+    const t = transporteFalso()
+    await enviarCorreo(deps(base, t, null), base.buzon, entradaBase(), { ahora: AHORA, id: 'nombre-largo', autor: { id: 'perfil-8', nombre: 'x'.repeat(500) } })
+    igual('el nombre se corta a 200', base.mensajes[0].enviado_por_nombre?.length, 200)
+  }
+  {
+    const base = new BaseFalsa()
+    const t = transporteFalso()
+    await enviarCorreo(deps(base, t, null), base.buzon, entradaBase(), { ahora: AHORA, id: 'sin-autor' })
+    const fila = base.mensajes[0] as unknown as Record<string, unknown>
+    ok('sin autor la fila no trae los campos', !('enviado_por' in fila) && !('enviado_por_nombre' in fila))
+  }
+  for (const codigo of ['42703', 'PGRST204'] as const) {
+    const base = new BaseFalsa()
+    base.sinColumnasDeAutor = codigo
+    const t = transporteFalso()
+    const r = await enviarCorreo(deps(base, t, null), base.buzon, entradaBase(), { ahora: AHORA, id: `sin-318-${codigo}`, autor: { id: 'perfil-7', nombre: 'Lucía' } })
+    igual(`sin la 318 (${codigo}): dos intentos, el segundo sin autor`, base.intentosDeInsercion.map((f) => 'enviado_por' in f), [true, false])
+    igual(`sin la 318 (${codigo}): el correo se guarda y el envío no falla`, [base.mensajes.length, t.enviados.length, r.messageId], [1, 1, `sin-318-${codigo}@liberty.test`])
+  }
+  {
+    // Otro error de la base no se traga ni se reintenta
+    const base = new BaseFalsa()
+    base.fallarAlInsertar = Object.assign(new Error('No se ha podido guardar el mensaje.'), { cause: { code: '23502' } })
+    const t = transporteFalso()
+    let error: unknown = null
+    try {
+      await enviarCorreo(deps(base, t, null), base.buzon, entradaBase(), { ahora: AHORA, id: 'otro-error', autor: { id: 'perfil-7', nombre: 'Lucía' } })
+    } catch (e) {
+      error = e
+    }
+    ok('otro error se lanza como hoy', error instanceof Error)
+    igual('y no se reintenta', base.llamadas.filter((l) => l === 'insertarMensaje').length, 1)
+  }
+  {
+    // La lectura normal nunca pone autor
+    const base = new BaseFalsa()
+    const servidor = new ServidorFalso([
+      { path: 'INBOX', uidValidity: 100, mensajes: [{ uid: 1, fecha: AHORA, flags: [], fuente: crudo({ id: 'leido-1@cliente.test', de: 'carmen@cliente.test', para: 'ana@liberty.test', asunto: 'Hola', fecha: AHORA.toISOString() }) }] },
+    ])
+    await leerBuzon(servidor.cliente(), base, base.buzon, { presupuestoMs: 60_000 })
+    ok('al leer el buzón no hay campos de autor', base.mensajes.length > 0 && base.mensajes.every((m) => !('enviado_por' in m)))
+  }
+
   console.log(fallos === 0 ? '\nTODO BIEN' : `\n${fallos} FALLOS`)
   process.exit(fallos === 0 ? 0 : 1)
 }

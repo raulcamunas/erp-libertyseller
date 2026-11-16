@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Esqueleto } from '@/components/rendimiento/ui'
+import { Esqueleto } from '@/components/ui-ls'
 import { puedeSupervisarCorreoEnNavegador } from '@/lib/permisos-cliente'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
@@ -58,19 +58,13 @@ export function CorreoApp({ perfil, activa }: Props) {
     }
   }, [supabase, perfil, puedeSupervisar])
 
+  // Sin la cabecera grande de módulo (la sustituye la cabecera de 56 px de PanelCorreo). -mx-2: la Ranura mete p-6 y el correo queda a 16 px
+  // del borde en el móvil y la tableta; en el ordenador, el margen de siempre
   return (
-    <div className="space-y-3 pb-6">
-      <div>
-        <h1 className="mb-0.5 text-[22px] font-semibold leading-tight tracking-[-0.012em] text-[var(--ls-t1)]">Correo</h1>
-        <p className="max-w-3xl text-[13px] text-[var(--ls-t3)]">
-          {puedeSupervisar
-            ? 'Tu correo y el del equipo: elige arriba qué bandeja leer. Las del resto se abren en solo lectura y cada vez que miras una queda anotado.'
-            : 'Tu correo de Hostinger dentro del ERP: lee, contesta y sigue cada conversación en su hilo.'}
-        </p>
-      </div>
-
+    <div className="-mx-2 pb-6 md:pb-0 lg:mx-0">
       {puedeSupervisar === null ? (
-        <div className="rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4" aria-busy="true" aria-label="Cargando el correo">
+        // El esqueleto mientras se comprueba si supervisa (el resto lo pinta PanelCorreo con el suyo)
+        <div className="rounded-[14px] p-4 pl-14 md:border md:border-[var(--ls-linea)] md:bg-[var(--ls-sup)] md:pl-4" aria-busy="true" aria-label="Cargando el correo">
           <div className="space-y-3">
             <Esqueleto className="h-8 w-64" />
             <Esqueleto className="h-14 w-full" />

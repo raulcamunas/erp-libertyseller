@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Palmtree, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Bell, BellOff, BellRing, Boxes, CheckSquare, CirclePause, CircleSlash, Flame, Globe, HeartPulse, Mail, MailX, MessageSquare, Palmtree, UserCheck, Volume2, VolumeX, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { chatALaVista } from '@/lib/chat/dock-estado'
 import { pastillaDelChatVisible, publicarVistaPrevia } from '@/lib/chat/vista-previa'
@@ -50,6 +50,8 @@ const ICONOS_DE_AVISO: Record<string, { Icono: LucideIcon; tono: Tono }> = {
   secuencia_pausada: { Icono: CirclePause, tono: 'ambar' },
   secuencia_parada: { Icono: CircleSlash, tono: 'rojo' },
   respuesta_lead: { Icono: Flame, tono: 'verde' },
+  // Te han encargado una conversación o asignado un buzón (migración 318): lleva al hilo, o a Correo
+  correo_asignado: { Icono: UserCheck, tono: 'acc' },
   alarma_correo: { Icono: HeartPulse, tono: 'ambar' },
   web_lead: { Icono: Globe, tono: 'acc' },
   freno_stock: { Icono: AlertTriangle, tono: 'ambar' },

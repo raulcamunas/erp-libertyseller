@@ -20,7 +20,9 @@ import { colocarMensaje } from './sincronizar'
  *   3. Se COPIA a la carpeta Enviados del buzón por IMAP (SMTP no lo hace por sí solo), de modo que el webmail del
  *      proveedor lo vea igual. Si esto falla, el correo YA SALIÓ: se guarda aquí igualmente y se avisa, no se reintenta
  *      el envío (se mandaría dos veces).
- *   4. Se GUARDA en la base, en el hilo que le toca (por In-Reply-To y References, o por el asunto).
+ *   4. Se GUARDA en la base, en el hilo que le toca (por In-Reply-To y References, o por el asunto). Si lo envía alguien
+ *      que no es el dueño del buzón (`opciones.autor`), quién fue va en esa MISMA inserción (`enviado_por`); sin la
+ *      migración 318 la inserción se repite sin esas columnas y el correo se guarda igual.
  *
  * Los destinatarios, el asunto y los nombres de fichero pasan por las mismas limpiezas que lo que llega de fuera:
  * nada con saltos de línea (inyección de cabeceras) y nada con rutas.
@@ -160,11 +162,22 @@ export interface ResultadoDeEnvio {
   rechazados: string[]
 }
 
-export async function enviarCorreo(deps: DepsDeEnvio, buzon: FilaDeBuzon, entrada: EntradaDeEnvio, opciones: { ahora?: Date; id?: string } = {}): Promise<ResultadoDeEnvio> {
+/** Quién del ERP envía desde un buzón que no es suyo: queda en `enviado_por` del mensaje, en la misma inserción */
+export interface AutorDeEnvio {
+  id: string
+  nombre: string
+}
+
+export async function enviarCorreo(
+  deps: DepsDeEnvio,
+  buzon: FilaDeBuzon,
+  entrada: EntradaDeEnvio,
+  opciones: { ahora?: Date; id?: string; autor?: AutorDeEnvio } = {}
+): Promise<ResultadoDeEnvio> {
   const problema = comprobarEntrada(entrada)
   if (problema) throw new Error(MENSAJE_DE_PROBLEMA[problema])
 
-  const compuesto = await componerCorreo(buzon, entrada, opciones)
+  const compuesto = await componerCorreo(buzon, entrada, { ahora: opciones.ahora, id: opciones.id })
 
   let rechazados: string[] = []
   try {
@@ -199,7 +212,7 @@ export async function enviarCorreo(deps: DepsDeEnvio, buzon: FilaDeBuzon, entrad
 
   const colocado = await colocarMensaje(
     deps.almacen,
-    { buzon, carpetaId: carpeta.id, direccion: 'saliente', uid, leido: true, tamano: compuesto.crudo.length },
+    { buzon, carpetaId: carpeta.id, direccion: 'saliente', uid, leido: true, tamano: compuesto.crudo.length, ...(opciones.autor ? { autor: opciones.autor } : {}) },
     analizado
   )
 

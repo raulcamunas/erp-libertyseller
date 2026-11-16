@@ -1,42 +1,49 @@
 'use client'
 
-import { AlertCircle, ChevronDown, Eye, KeyRound, Mail, PenSquare, Plus, Settings, ShieldCheck, Users, Workflow } from 'lucide-react'
+import { MotionConfig, useAnimate, useReducedMotion } from 'framer-motion'
+import { AlertCircle, ArrowLeft, Eye, HelpCircle, KeyRound, Mail, PenSquare, Search, UserCheck, X, Zap } from 'lucide-react'
 import dynamic from 'next/dynamic'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { Avatar, Esqueleto } from '@/components/rendimiento/ui'
-import { ponerCorreoSinLeer } from '@/lib/avisos/contadores'
-import { apuntarCorreoEnLead } from '@/lib/correo/lead-cliente'
-import { avisarCorreoEnviadoALead, escucharPeticiones, type PeticionAlCorreo } from '@/lib/correo/peticiones'
-import { textoSinFirma } from '@/lib/correo/plantillas'
-import { borradorDe, type BorradorDeCorreo, type ModoDeRedactar } from '@/lib/correo/redactar'
-import type { BuzonVisible, HiloAbierto, HiloDeLista, MensajeDeHilo, RespuestaDeSincronizar, VistaDeCorreo } from '@/lib/correo/tipos'
-import { enviarJson, pedir } from './api'
-import { AjustesDeBuzon } from './AjustesDeBuzon'
+import { Boton, Esqueleto, FOCO } from '@/components/ui-ls'
+import { direccionCorta } from '@/lib/correo/marcas'
+import type { ModoDeRedactar } from '@/lib/correo/redactar'
+import type { BuzonVisible, Carpeta, MensajeDeHilo, VistaDeCorreo } from '@/lib/correo/tipos'
+import { cn } from '@/lib/utils'
 import { ControlesDeActualizar, EtiquetaDeActualizado } from './ActualizarCorreo'
+import { AjustesDeBuzon, type PestanaDeAjustes } from './AjustesDeBuzon'
+import { AsignarHilo } from './AsignarHilo'
+import { AyudaDeAtajos } from './AyudaDeAtajos'
+import { AVISO_FALTA_318, BarraDeBuzones } from './BarraDeBuzones'
 import { ConectarBuzon } from './ConectarBuzon'
+import type { ModoDeLista, VarianteDeBarra } from './contratos'
+import { ElegirMisCorreos } from './ElegirMisCorreos'
+import { EquipoYPermisos } from './EquipoYPermisos'
+import { filtrarEnCliente } from './lista-de-hilos'
 import { ListaDeHilos } from './ListaDeHilos'
-import { Redactar, type DetalleDeEnvio } from './Redactar'
-import { BOTON_ICONO, BOTON_PRIMARIO, BOTON_SECUNDARIO, Aviso } from './ui'
-import { VistaDeHilo } from './VistaDeHilo'
+import { Redactar } from './Redactar'
+import { Aviso } from './ui'
+import { useAtajosDeCorreo } from './useAtajosDeCorreo'
+import { useBandeja } from './useBandeja'
+import { buzonesParaEnviarDe, buzonParaRedactar, origenDeCarpeta, useCorreo, type ManosDeLista } from './useCorreo'
+import { mensajeAlQueContestar, VistaDeHilo } from './VistaDeHilo'
 import { VistaEquipo } from './VistaEquipo'
 
 /**
- * EL CORREO.
+ * EL CORREO (rediseño «Correo Pro», spec 1.2 a 1.7). ORQUESTADOR: no pide nada por su cuenta. El estado vive en useCorreo (buzones, carpeta,
+ * hilo, sincronizar, peticiones de otras apps, supervisión) y useBandeja (la lista: páginas, cursor, búsqueda y fusión de la primera página).
  *
- * El webmail de cada comercial dentro del ERP: su buzón de Hostinger (IMAP/SMTP) con sus conversaciones agrupadas en hilos,
- * búsqueda, y poder leer, contestar, reenviar y enviar con adjuntos. Quien supervisa (administrador, o con el permiso
- * «Supervisión del correo» o el de «Supervisión del equipo comercial») elige desde el selector qué bandeja del equipo
- * leer, en SOLO LECTURA, y cada vez que mira una queda anotado (el rastro lo lee solo un administrador: su dueño no lo ve).
+ *   · Ordenador (lg): tres columnas de altura fija con scroll propio: barra de buzones (248 px), lista (380 px) y el hilo, bajo una cabecera de
+ *     56 px con el buscador, «Actualizado hace…», la chuleta de atajos y Redactar (el único botón primario).
+ *   · Tableta (md): la barra se queda en un carril de iconos de 64 px y lista e hilo se reparten 40/60, también de altura fija desde md.
+ *   · Móvil: una columna por niveles (Carpetas → Lista → Hilo), SIN altura fija (hace scroll la página, por eso las cabeceras `sticky`) y con
+ *     el contenedor `overflow-x-clip` (nunca `overflow-hidden`, que rompería los sticky). Se cambia de nivel con un estado y un deslizamiento.
+ *   · Secuencias ocupa las columnas 2 y 3 (en el móvil, un nivel más) y, una vez montada, se queda montada.
+ *   · Redactar va SIEMPRE por portal a document.body: un `transform` de framer-motion en un nivel no lo vuelve relativo a ese nivel.
  *
- *   · Al abrir un buzón y después cada 30 s (mientras la pestaña se ve y «Auto» está encendido; cada minuto si Correo está oculto), la pantalla le pide al servidor que traiga
- *     los correos nuevos de ESE buzón, sea el suyo o uno ajeno que supervisa (solo lectura), y vuelve a cargar lo que se ve. El botón de actualizar lo hace al momento, también
- *     en los buzones ajenos. Una importación grande del propio buzón se trae por tramos: la pantalla insiste mientras la respuesta diga que quedan.
- *   · Un proceso automático hace lo mismo cada minuto aunque nadie tenga la pantalla abierta.
- *   · Todo lo que se ve viene de las rutas de /api/correo, que deciden qué buzón puede abrir cada persona: la pantalla solo
- *     decide qué se pinta, nunca qué se puede.
- *
- * LA DIRECCIÓN GUARDA DÓNDE ESTÁS: ?buzon=<id>&hilo=<id>. Recargar, o compartir el enlace con quien pueda abrir ese buzón, enseña lo mismo.
+ * Lo que decide ESCRIBIR (responder, marcar, destacar, redactar) es `puedeResponder`; `esMio` solo para configurar el buzón y las secuencias.
+ * Todo lo que se ve viene de /api/correo, que decide qué puede cada persona: esta pantalla solo decide qué se pinta, nunca qué se puede.
  */
 
 interface Props {
@@ -46,10 +53,7 @@ interface Props {
   esAdmin: boolean
   buzonInicial: string | null
   hiloInicial: string | null
-  /**
-   * ¿Es la aplicación que se está viendo? El correo se queda montado (oculto) mientras se trabaja en Cold Calling y se vuelve: oculto sigue
-   * trayendo correo nuevo cada minuto, pero NO toca la dirección del navegador, que en ese momento es la de la otra aplicación.
-   */
+  /** ¿Es la aplicación que se está viendo? Oculta sigue trayendo correo, pero no toca la dirección ni atiende atajos */
   activa: boolean
 }
 
@@ -57,511 +61,295 @@ interface Props {
 const PantallaDeSecuencias = dynamic(() => import('./secuencias/PantallaDeSecuencias').then((m) => m.PantallaDeSecuencias), {
   ssr: false,
   loading: () => (
-    <div className="space-y-3" aria-busy="true" aria-label="Cargando las secuencias">
+    <div className="space-y-3 p-4" aria-busy="true" aria-label="Cargando las secuencias">
       <Esqueleto className="h-24 w-full" />
       <Esqueleto className="h-52 w-full" />
     </div>
   ),
 })
 
-// «Quién ve qué» es solo para administradores: se baja la primera vez que se abre
-const PermisosDeBuzones = dynamic(() => import('./PermisosDeBuzones').then((m) => m.PermisosDeBuzones), { ssr: false })
-
-const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms))
-const EN_SEGUNDO_PLANO_MS = 60_000
-/** Cada cuánto se pone al día un buzón que se está mirando (con «Auto» encendido) */
-const A_LA_VISTA_MS = 30_000
-const CLAVE_DE_AUTO = 'correo.actualizar-solo'
 const MAX_BUZONES_POR_PERSONA = 3
 
-export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloInicial, activa }: Props) {
-  const [buzones, setBuzones] = useState<BuzonVisible[] | null>(null)
-  const [errorInicial, setErrorInicial] = useState<{ mensaje: string; faltaMigracion: boolean } | null>(null)
-  const [cifrado, setCifrado] = useState(true)
-  const [buzonId, setBuzonId] = useState<string | null>(buzonInicial)
-  const [enEquipo, setEnEquipo] = useState(false)
-  const [conectando, setConectando] = useState(false)
-  const [selectorAbierto, setSelectorAbierto] = useState(false)
-  const [ajustes, setAjustes] = useState(false)
-  // «Quién ve qué»: la tabla con la que un administrador decide qué buzones lee cada persona (solo administradores)
-  const [verPermisos, setVerPermisos] = useState(false)
-  // Los seguimientos automáticos: si se ofrece el botón, si se está viendo la pantalla y si ya se montó (una vez montada se queda, con su pestaña y su filtro)
-  const [verSecuencias, setVerSecuencias] = useState(false)
-  const [enSecuencias, setEnSecuencias] = useState(false)
-  const [secuenciasMontadas, setSecuenciasMontadas] = useState(false)
-  // La secuencia que otra aplicación (la campana de la barra lateral) ha pedido abrir; se le entrega a la pantalla de Secuencias, que la abre y la suelta
-  const [secuenciaPedida, setSecuenciaPedida] = useState<string | null>(null)
+type Ancho = 'movil' | 'tableta' | 'escritorio'
+type NivelMovil = 'carpetas' | 'lista' | 'hilo'
 
+function anchoAhora(): Ancho {
+  if (typeof window === 'undefined' || !window.matchMedia) return 'escritorio'
+  if (window.matchMedia('(min-width: 1024px)').matches) return 'escritorio'
+  if (window.matchMedia('(min-width: 768px)').matches) return 'tableta'
+  return 'movil'
+}
+
+/**
+ * Por debajo de esto la caja de Correo no da para tres columnas (248 + 380 + un hilo legible) y se pinta como en la tableta (carril de 64 px
+ * y lista/hilo al 40/60), aunque la pantalla sea de ordenador: con la barra lateral del ERP abierta, en un portátil de 1280 px a la caja le
+ * quedan ~960 px y el hilo se quedaba en 330.
+ */
+export const ANCHO_MINIMO_DE_TRES_COLUMNAS = 1040
+
+/**
+ * En qué ancho estamos: móvil (< 768 px de pantalla), tableta, o escritorio (≥ 1024 px de pantalla Y la caja de Correo con sitio para las tres
+ * columnas). Devuelve también la ref que hay que poner en la caja para medirla.
+ */
+function useAncho(): { ancho: Ancho; refCaja: (el: HTMLDivElement | null) => void } {
+  const [pantalla, setPantalla] = useState<Ancho>(anchoAhora)
+  const [caja, setCaja] = useState<number | null>(null)
+  useEffect(() => {
+    if (!window.matchMedia) return
+    const md = window.matchMedia('(min-width: 768px)')
+    const lg = window.matchMedia('(min-width: 1024px)')
+    const leer = () => setPantalla(anchoAhora())
+    md.addEventListener?.('change', leer)
+    lg.addEventListener?.('change', leer)
+    return () => {
+      md.removeEventListener?.('change', leer)
+      lg.removeEventListener?.('change', leer)
+    }
+  }, [])
+  const observador = useRef<ResizeObserver | null>(null)
+  const refCaja = useCallback((el: HTMLDivElement | null) => {
+    observador.current?.disconnect()
+    observador.current = null
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entradas) => {
+      const w = entradas[0]?.contentRect.width ?? 0
+      // Oculta (Correo montado detrás de otra app) conserva su anchura; 0 sería un salto en falso
+      if (w > 0) setCaja(Math.round(w))
+    })
+    ro.observe(el)
+    observador.current = ro
+  }, [])
+  const ancho: Ancho = pantalla === 'escritorio' && caja !== null && caja < ANCHO_MINIMO_DE_TRES_COLUMNAS ? 'tableta' : pantalla
+  return { ancho, refCaja }
+}
+
+const modoDeCarpeta = (c: Carpeta | null): ModoDeLista => (c?.tipo === 'mios' ? 'mios' : c?.tipo === 'asignados' ? 'asignados' : 'buzon')
+
+const nombreDeCarpeta = (c: Carpeta | null, b: BuzonVisible | null): string =>
+  c?.tipo === 'mios' ? 'Mis correos' : c?.tipo === 'asignados' ? 'Asignados a mí' : c?.tipo === 'equipo' ? 'Resumen del equipo' : b ? direccionCorta(b.direccion) : 'Correo'
+
+export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloInicial, activa }: Props) {
+  const { ancho, refCaja } = useAncho()
+  const movil = ancho === 'movil'
+
+  /* ---------- Filtros de la lista (se limpian al cambiar de carpeta) ---------- */
   const [vista, setVista] = useState<VistaDeCorreo>('todos')
   const [soloNoLeidos, setSoloNoLeidos] = useState(false)
   const [busqueda, setBusqueda] = useState('')
-  const [busquedaAplicada, setBusquedaAplicada] = useState('')
-  const [hilos, setHilos] = useState<HiloDeLista[]>([])
-  const [siguiente, setSiguiente] = useState<string | null>(null)
-  const [cargandoLista, setCargandoLista] = useState(false)
-  const [cargandoMas, setCargandoMas] = useState(false)
-  const [errorLista, setErrorLista] = useState<string | null>(null)
-
-  const [hiloId, setHiloId] = useState<string | null>(hiloInicial)
-  const [hilo, setHilo] = useState<HiloAbierto | null>(null)
-  const [cargandoHilo, setCargandoHilo] = useState(false)
-  const [errorHilo, setErrorHilo] = useState<string | null>(null)
-
-  const [redactando, setRedactando] = useState<BorradorDeCorreo | null>(null)
-  const [sincronizando, setSincronizando] = useState(false)
-  const [importando, setImportando] = useState<{ quedan: number } | null>(null)
-  // «Auto»: la pantalla pone al día lo que se mira cada 30 s. Encendido por defecto; lo que cada persona elige se recuerda en su navegador (solo una comodidad: sin él, encendido)
-  const [auto, setAuto] = useState(true)
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(CLAVE_DE_AUTO) === '0') setAuto(false)
-    } catch {
-      // sin almacenamiento (ventana privada, bloqueado): se queda encendido
-    }
-  }, [])
-  const cambiarAuto = useCallback(() => {
-    const nuevo = !auto
-    setAuto(nuevo)
-    try {
-      window.localStorage.setItem(CLAVE_DE_AUTO, nuevo ? '1' : '0')
-    } catch {
-      // no se pudo recordar: vale solo para esta visita
-    }
-  }, [auto])
-
-  // Lo último que se ha pedido: una respuesta lenta que llega tarde no pisa a una más reciente
-  const generacionLista = useRef(0)
-  const generacionHilo = useRef(0)
-  const paginasCargadas = useRef(1)
-  const sincronizandoAhora = useRef(false)
-  const raizSelector = useRef<HTMLDivElement>(null)
-
-  const buzon = buzones?.find((b) => b.id === buzonId) ?? null
-  const propios = buzones?.filter((b) => b.esMio) ?? []
-  // Quien lee algún buzón ajeno supervisa, venga de donde venga ese permiso (un permiso suelto, ser administrador o un buzón que un administrador le ha abierto a mano:
-  // este último el navegador no lo puede saber por su cuenta, así que se deduce de lo que el servidor ha dejado ver)
-  const supervisa = puedeSupervisar || (buzones?.some((b) => !b.esMio) ?? false)
-  const esMio = buzon?.esMio ?? false
-  const puedeEscribir = esMio && !!buzon && buzon.conectado && !buzon.credencialesInvalidas
-  const buzonRef = useRef<BuzonVisible | null>(null)
-  buzonRef.current = buzon
-
-  /* ------------------------------ los buzones ------------------------------ */
-
-  const cargarBuzones = useCallback(async (): Promise<BuzonVisible[] | null> => {
-    const r = await pedir<{ buzones: BuzonVisible[]; cifradoConfigurado: boolean }>('/api/correo/buzones')
-    if (!r.ok) {
-      setErrorInicial({ mensaje: r.mensaje, faltaMigracion: r.estado === 503 })
-      return null
-    }
-    setBuzones(r.datos.buzones)
-    setCifrado(r.datos.cifradoConfigurado)
-    // El número que va junto a «Correo» en el menú se pone al día al momento, sin esperar a la siguiente lectura por detrás
-    ponerCorreoSinLeer(r.datos.buzones.filter((b) => b.esMio).reduce((suma, b) => suma + b.resumen.hilosSinLeer, 0))
-    return r.datos.buzones
-  }, [])
-
-  // La primera carga decide dónde se aterriza: el buzón pedido en la dirección, el propio, o el resumen del equipo
-  useEffect(() => {
-    let vivo = true
-    void (async () => {
-      const lista = await cargarBuzones()
-      if (!vivo || !lista) return
-      const pedido = buzonInicial ? lista.find((b) => b.id === buzonInicial) : null
-      const mio = lista.find((b) => b.esMio)
-      if (pedido) setBuzonId(pedido.id)
-      else if (mio) setBuzonId(mio.id)
-      else {
-        setBuzonId(null)
-        if (lista.length > 0) setEnEquipo(true)
-      }
-    })()
-    return () => {
-      vivo = false
-    }
-  }, [buzonInicial, cargarBuzones])
-
-  // Si el buzón elegido desaparece (se ha desconectado y borrado), se vuelve a otro
-  useEffect(() => {
-    if (!buzones || !buzonId || buzon) return
-    const otro = buzones.find((b) => b.esMio) ?? buzones[0]
-    setBuzonId(otro ? otro.id : null)
-    setHiloId(null)
-    setHilo(null)
-  }, [buzones, buzonId, buzon])
-
-  /* ------------------------------ la lista ------------------------------ */
-
-  const cargarLista = useCallback(
-    async (modo: 'reiniciar' | 'mas' | 'silenciosa', antes: string | null = null) => {
-      if (!buzonId) return
-      const generacion = ++generacionLista.current
-      if (modo === 'reiniciar') {
-        setCargandoLista(true)
-        setErrorLista(null)
-      } else if (modo === 'mas') {
-        setCargandoMas(true)
-      }
-      const p = new URLSearchParams({ buzon: buzonId, vista })
-      if (soloNoLeidos) p.set('sinLeer', '1')
-      if (busquedaAplicada.trim().length >= 2) p.set('q', busquedaAplicada.trim())
-      if (antes) p.set('antes', antes)
-      const r = await pedir<{ hilos: HiloDeLista[]; siguiente: string | null }>(`/api/correo/hilos?${p.toString()}`)
-      if (generacion !== generacionLista.current) return
-      setCargandoLista(false)
-      setCargandoMas(false)
-      if (!r.ok) {
-        if (modo !== 'silenciosa') setErrorLista(r.mensaje)
-        return
-      }
-      if (modo === 'mas') {
-        paginasCargadas.current += 1
-        setHilos((previos) => [...previos, ...r.datos.hilos.filter((h) => !previos.some((p2) => p2.id === h.id))])
-      } else {
-        paginasCargadas.current = 1
-        setHilos(r.datos.hilos)
-      }
-      setSiguiente(r.datos.siguiente)
-    },
-    [buzonId, vista, soloNoLeidos, busquedaAplicada]
-  )
-
-  // Una actualización en segundo plano solo reemplaza la lista si la persona no ha bajado a páginas más antiguas
-  const refrescarLista = useCallback(async () => {
-    if (paginasCargadas.current === 1) await cargarLista('silenciosa')
-  }, [cargarLista])
-  // La lectura de correo nuevo no puede depender de los filtros de la lista (se relanzaría al pulsar uno): llama a la última versión por aquí
-  const refrescarListaActual = useRef(refrescarLista)
-  refrescarListaActual.current = refrescarLista
-
-  useEffect(() => {
-    const t = setTimeout(() => setBusquedaAplicada(busqueda), 350)
-    return () => clearTimeout(t)
-  }, [busqueda])
-
-  useEffect(() => {
-    if (!buzonId) {
-      setHilos([])
-      return
-    }
-    setHilos([])
-    setSiguiente(null)
-    void cargarLista('reiniciar')
-  }, [buzonId, cargarLista])
-
-  /* ------------------------------ un hilo ------------------------------ */
-
-  const abrir = useCallback(
-    async (id: string) => {
-      const generacion = ++generacionHilo.current
-      setHiloId(id)
-      setHilo(null)
-      setErrorHilo(null)
-      setCargandoHilo(true)
-      const r = await pedir<{ hilo: HiloAbierto; esMio: boolean }>(`/api/correo/hilos/${encodeURIComponent(id)}`)
-      if (generacion !== generacionHilo.current) return
-      setCargandoHilo(false)
-      if (!r.ok) {
-        setErrorHilo(r.mensaje)
-        return
-      }
-      setHilo(r.datos.hilo)
-      // Abrirlo es leerlo (solo en el buzón propio): se marca en el ERP y en el servidor de correo
-      if (r.datos.esMio && r.datos.hilo.mensajes.some((m) => !m.leido)) {
-        const m = await enviarJson(`/api/correo/hilos/${encodeURIComponent(id)}`, 'PATCH', { leido: true })
-        if (m.ok && generacion === generacionHilo.current) {
-          setHilos((previos) => previos.map((h) => (h.id === id ? { ...h, noLeidos: 0 } : h)))
-          void cargarBuzones()
-        }
-      }
-    },
-    [cargarBuzones]
-  )
-
-  // El enlace con ?hilo= abre ese hilo en cuanto se sabe cuál es el buzón
-  const hiloInicialAbierto = useRef(false)
-  useEffect(() => {
-    if (hiloInicialAbierto.current || !hiloInicial || !buzon) return
-    hiloInicialAbierto.current = true
-    void abrir(hiloInicial)
-  }, [hiloInicial, buzon, abrir])
-
-  function cerrarHilo() {
-    generacionHilo.current += 1
-    setHiloId(null)
-    setHilo(null)
-    setErrorHilo(null)
-    setCargandoHilo(false)
-  }
-
-  // La dirección refleja dónde se está, y SOLO mientras esta es la aplicación que se ve: oculta, la dirección es la de otra pantalla
-  useEffect(() => {
-    if (!activa) return
-    const url = new URL(window.location.href)
-    if (buzonId) url.searchParams.set('buzon', buzonId)
-    else url.searchParams.delete('buzon')
-    if (hiloId) url.searchParams.set('hilo', hiloId)
-    else url.searchParams.delete('hilo')
-    window.history.replaceState(window.history.state, '', url)
-  }, [activa, buzonId, hiloId])
-
-  async function destacar() {
-    if (!hilo) return
-    const nuevo = !hilo.destacado
-    setHilo({ ...hilo, destacado: nuevo })
-    setHilos((previos) => previos.map((h) => (h.id === hilo.id ? { ...h, destacado: nuevo } : h)))
-    const r = await enviarJson(`/api/correo/hilos/${encodeURIComponent(hilo.id)}`, 'PATCH', { destacado: nuevo })
-    if (!r.ok) {
-      toast.error(r.mensaje)
-      setHilo((h) => (h ? { ...h, destacado: !nuevo } : h))
-      setHilos((previos) => previos.map((h) => (h.id === hilo.id ? { ...h, destacado: !nuevo } : h)))
-    }
-  }
-
-  async function marcarNoLeido() {
-    if (!hilo) return
-    const r = await enviarJson(`/api/correo/hilos/${encodeURIComponent(hilo.id)}`, 'PATCH', { leido: false })
-    if (!r.ok) return toast.error(r.mensaje)
-    toast.success('Marcado como no leído.')
-    cerrarHilo()
-    await Promise.all([cargarBuzones(), refrescarLista()])
-  }
-
-  /* ------------------------------ traer correo nuevo ------------------------------ */
-
-  // Por qué se lee: 'inicio' al abrir el buzón (la lista acaba de cargarse), 'auto' por el reloj de la pantalla, 'manual' por el botón. Fuera del inicio, aunque esta lectura no traiga
-  // nada también se vuelve a cargar lo que se ve: el dueño o el proceso automático pueden haber traído correo entre dos lecturas
-  const sincronizar = useCallback(
-    async (motivo: 'inicio' | 'auto' | 'manual') => {
-      const manual = motivo === 'manual'
-      const inicial = buzonRef.current
-      if (!inicial || !inicial.conectado || inicial.credencialesInvalidas) return
-      if (sincronizandoAhora.current) return
-      sincronizandoAhora.current = true
-      setSincronizando(true)
-      let hubo = false
-      // El dueño trae el histórico por tramos hasta acabar; quien supervisa hace UNA pasada (solo lectura) y deja el resto al dueño y al proceso automático
-      const pasadas = inicial.esMio ? 400 : 1
-      try {
-        for (let vuelta = 0; vuelta < pasadas; vuelta += 1) {
-          if (buzonRef.current?.id !== inicial.id) break // la persona ha cambiado de buzón: esta lectura ya no es la suya
-          const r = await enviarJson<RespuestaDeSincronizar>('/api/correo/sincronizar', 'POST', { buzonId: inicial.id })
-          if (!r.ok) {
-            if (manual) toast.error(r.mensaje)
-            break
-          }
-          const d = r.datos
-          if (d.credencialesInvalidas) {
-            if (manual && !inicial.esMio && d.error) toast.error(d.error)
-            await cargarBuzones()
-            break
-          }
-          if (d.ok === false) {
-            if (manual && d.error) toast.error(d.error)
-            await cargarBuzones()
-            break
-          }
-          if (d.recienLeido) {
-            if (manual) toast.info('Ya estaba al día.')
-            break
-          }
-          if (d.ocupada) {
-            if (!inicial.esMio) {
-              if (manual) toast.info('Se está leyendo este buzón ahora mismo: en unos segundos estará al día.')
-              break
-            }
-            // Otra lectura (el proceso automático, otra pestaña) va avanzando: se espera y se vuelve a mirar
-            if (vuelta > 6) break
-            await esperar(3000)
-            continue
-          }
-          const lectura = d.lectura
-          if (!lectura) break
-          if (lectura.importados > 0) {
-            hubo = true
-            await Promise.all([cargarBuzones(), refrescarListaActual.current()])
-          }
-          if (lectura.completo || lectura.quedan === 0) {
-            setImportando(null)
-            if (manual && !hubo) toast.success('Correo al día.')
-            break
-          }
-          setImportando({ quedan: lectura.quedan })
-        }
-      } finally {
-        sincronizandoAhora.current = false
-        setSincronizando(false)
-        if (hubo) await cargarBuzones()
-      }
-      if (!hubo && motivo !== 'inicio') await Promise.all([cargarBuzones(), refrescarListaActual.current()])
-    },
-    [cargarBuzones]
-  )
-
-  // Se lee este buzón por detrás si está conectado y es mío, o si es de otra persona y esta es la pantalla que se ve (oculta no se lee el de nadie más)
-  const lee = !!buzon && buzon.conectado && !buzon.credencialesInvalidas && (buzon.esMio || activa)
-  const idDelQueLee = lee ? buzon?.id : null
-  useEffect(() => {
-    if (idDelQueLee) void sincronizar('inicio')
-  }, [idDelQueLee, sincronizar])
-  useEffect(() => {
-    if (!idDelQueLee || !auto) return
-    const intervalo = setInterval(() => {
-      if (document.visibilityState === 'visible') void sincronizar('auto')
-    }, activa ? A_LA_VISTA_MS : EN_SEGUNDO_PLANO_MS)
-    return () => clearInterval(intervalo)
-  }, [idDelQueLee, sincronizar, auto, activa])
-
-  // El resumen del equipo no lee ningún buzón: solo se vuelve a pedir lo que ya hay guardado
-  useEffect(() => {
-    if (!enEquipo || !activa || !auto) return
-    const intervalo = setInterval(() => {
-      if (document.visibilityState === 'visible') void cargarBuzones()
-    }, A_LA_VISTA_MS)
-    return () => clearInterval(intervalo)
-  }, [enEquipo, activa, auto, cargarBuzones])
-
-  // El selector de buzones se cierra al pulsar fuera o con Esc
-  useEffect(() => {
-    if (!selectorAbierto) return
-    const fuera = (e: MouseEvent) => {
-      if (raizSelector.current && !raizSelector.current.contains(e.target as Node)) setSelectorAbierto(false)
-    }
-    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && setSelectorAbierto(false)
-    document.addEventListener('mousedown', fuera)
-    document.addEventListener('keydown', tecla)
-    return () => {
-      document.removeEventListener('mousedown', fuera)
-      document.removeEventListener('keydown', tecla)
-    }
-  }, [selectorAbierto])
-
-  /* ------------------------------ acciones ------------------------------ */
-
-  function elegirBuzon(id: string) {
-    setSelectorAbierto(false)
-    setEnEquipo(false)
-    setConectando(false)
-    if (id === buzonId) return
-    cerrarHilo()
+  const [ocultarSilenciados, setOcultarSilenciados] = useState(false)
+  const limpiarFiltros = useCallback(() => {
     setVista('todos')
     setSoloNoLeidos(false)
     setBusqueda('')
-    setBusquedaAplicada('')
-    setImportando(null)
-    paginasCargadas.current = 1
-    setBuzonId(id)
-  }
+    setOcultarSilenciados(false)
+  }, [])
 
-  function verEquipo() {
-    setSelectorAbierto(false)
-    setConectando(false)
-    cerrarHilo()
-    setEnEquipo(true)
-  }
+  /* ---------- El estado ---------- */
+  const manos = useRef<ManosDeLista | null>(null)
+  const [bandejaRota, setBandejaRota] = useState(false)
+  // La banda «Falta lanzar la migración 318…»: sale al intentar algo que la necesita (Mis correos, Asignados) o si la bandeja la pide
+  const [aviso318, setAviso318] = useState(false)
+  const c = useCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloInicial, activa, lista: manos, alCambiarDeCarpeta: limpiarFiltros, bandejaRota })
+  const { buzones, carpeta } = c
 
-  function redactar(modo: ModoDeRedactar, mensaje: MensajeDeHilo | null) {
-    if (!buzon || !puedeEscribir) return
-    setRedactando(borradorDe(modo, mensaje, { miDireccion: buzon.direccion, firma: buzon.firma }))
-  }
+  const lista = useBandeja({
+    origen: c.conectando || c.enSecuencias ? null : origenDeCarpeta(carpeta),
+    vista,
+    soloNoLeidos,
+    busqueda,
+    ocultarSilenciados,
+    sondear: activa && c.auto,
+    version: c.versionDeLista,
+  })
+  manos.current = { refrescar: lista.refrescar, cambiarHilo: lista.cambiarHilo, hilos: lista.hilos }
 
-  /* ------------------------------ lo que piden otras aplicaciones ------------------------------ */
-
-  // Cold Calling («escribe a este lead») y el aviso de correo nuevo («abre este correo») dejan un encargo en lib/correo/peticiones.ts y cambian
-  // de aplicación sin recargar nada. Se guarda aquí y se atiende en cuanto hay buzones: si el correo se acaba de abrir por primera vez en la
-  // sesión, todavía se están leyendo.
-  const [peticion, setPeticion] = useState<PeticionAlCorreo | null>(null)
-  useEffect(() => escucharPeticiones(setPeticion), [])
-
+  // Sin la 318 la bandeja contesta 503: se cae a la vista por buzón (useCorreo vuelve a aterrizar) y se enseña la banda
   useEffect(() => {
-    if (!peticion || !buzones) return
-    setPeticion(null)
-
-    if (peticion.tipo === 'secuencia') {
-      setEnEquipo(false)
-      setConectando(false)
-      setSecuenciaPedida(peticion.inscripcionId)
-      abrirSecuencias()
-      return
+    if (lista.falta318) {
+      setBandejaRota(true)
+      setAviso318(true)
     }
+  }, [lista.falta318])
 
-    if (peticion.tipo === 'hilo') {
-      const destino = buzones.find((b) => b.id === peticion.buzonId)
-      if (!destino) return
-      setEnEquipo(false)
-      setConectando(false)
-      setEnSecuencias(false)
-      if (destino.id !== buzonId) elegirBuzon(destino.id)
-      void abrir(peticion.hiloId)
-      return
-    }
-
-    // Escribir: siempre desde un buzón PROPIO y conectado. Sin él, la pantalla ya está enseñando cómo conectarlo
-    const mio = (buzonId ? buzones.find((b) => b.id === buzonId && b.esMio && b.conectado && !b.credencialesInvalidas) : null) ?? buzones.find((b) => b.esMio && b.conectado && !b.credencialesInvalidas)
-    if (!mio) {
-      toast.info('Para escribir desde aquí primero conecta tu correo.')
-      return
-    }
-    setEnEquipo(false)
-    setConectando(false)
-    if (mio.id !== buzonId) elegirBuzon(mio.id)
-    const base = borradorDe('nuevo', null, { miDireccion: mio.direccion, firma: mio.firma })
-    setRedactando({ ...base, para: peticion.para, asunto: peticion.asunto ?? '', texto: peticion.texto ?? base.texto, lead: peticion.lead ?? null, generarIa: peticion.ia === true && Boolean(peticion.lead) })
-    // `elegirBuzon` y `abrir` son funciones de este mismo componente que se redefinen en cada pintado: depender de ellas relanzaría este efecto
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peticion, buzones])
-
-  async function alEnviar(hiloEnviado: string, borrador: BorradorDeCorreo, asuntoEnviado: string, detalle: DetalleDeEnvio) {
-    setRedactando(null)
-    setEnSecuencias(false)
-    // Un correo que sale desde la ficha de un lead se apunta solo en su historial (y sella su último contacto): el comercial no escribe nada
-    if (borrador.lead) {
-      const cuando = new Date().toISOString()
-      void apuntarCorreoEnLead({ leadId: borrador.lead.id, userId: yo.id, asunto: asuntoEnviado, cuando, para: detalle.para, texto: textoSinFirma(detalle.texto, buzonRef.current?.firma) }).then((hecho) => {
-        if (hecho) avisarCorreoEnviadoALead({ leadId: borrador.lead!.id, asunto: asuntoEnviado, cuando })
-      })
-    }
-    await Promise.all([cargarBuzones(), refrescarLista()])
-    void abrir(hiloEnviado)
-  }
-
-  function alConectar(nuevos: BuzonVisible[], id: string) {
-    setBuzones(nuevos)
-    setConectando(false)
-    setEnEquipo(false)
-    cerrarHilo()
-    setBuzonId(id)
-  }
-
-  // ¿Se ofrece «Secuencias»? Un administrador siempre; el resto, con el motor en marcha. Un fallo = no se ofrece: Correo funciona igual sin ello
-  const hayBuzones = buzones !== null
+  // Y se vuelve a encender sola: si una lectura de los buzones POSTERIOR a la caída dice que la 318 está (preferenciasDisponibles), la bandeja
+  // vuelve. Sin esto, la bandeja apagada no se recuperaba hasta recargar la página.
+  const { preferenciasDisponibles } = c
+  const buzonesAlRomperse = useRef<typeof buzones | undefined>(undefined)
   useEffect(() => {
-    if (!hayBuzones) return
-    let vivo = true
-    void pedir<{ visible?: boolean }>('/api/correo/secuencias/estado').then((r) => {
-      if (vivo && r.ok) setVerSecuencias(r.datos.visible === true)
+    if (!bandejaRota) {
+      buzonesAlRomperse.current = undefined
+      return
+    }
+    if (buzonesAlRomperse.current === undefined) {
+      buzonesAlRomperse.current = buzones
+      return
+    }
+    if (buzones !== buzonesAlRomperse.current && preferenciasDisponibles) {
+      setBandejaRota(false)
+      setAviso318(false)
+    }
+  }, [bandejaRota, preferenciasDisponibles, buzones])
+
+  // En «Asignados a mí» la lista ya dice cuántas hay: el número de la barra se pone al día sin pedir nada más
+  const { setAsignados } = c
+  useEffect(() => {
+    if (carpeta?.tipo === 'asignados' && !lista.cargando && !lista.error && lista.busquedaAplicada === '') setAsignados(lista.hilos.length)
+  }, [carpeta?.tipo, lista.cargando, lista.error, lista.hilos.length, lista.busquedaAplicada, setAsignados])
+
+  const buzonesPorId = useMemo(() => new Map((buzones ?? []).map((b) => [b.id, b])), [buzones])
+  const buzonAbierto = c.buzonAbierto
+  const buzonDelHilo = c.hilo ? (buzonesPorId.get(c.hilo.buzonId) ?? null) : buzonAbierto
+  const puedeResponderHilo = !!c.hilo && (c.hilo.puedeResponder || !!buzonDelHilo?.puedeResponder)
+  const paraRedactar = buzones ? buzonParaRedactar(buzones, { carpeta, buzonDelHilo: c.hilo?.buzonId ?? null }) : null
+  const buzonesParaEnviar = useMemo(() => (buzones ? buzonesParaEnviarDe(buzones) : []), [buzones])
+  const modo = modoDeCarpeta(carpeta)
+  const listando = !!origenDeCarpeta(carpeta) && !c.conectando && !c.enSecuencias
+
+  /* ---------- Paneles ---------- */
+  const [ajustes, setAjustes] = useState<{ buzonId: string; pestana: PestanaDeAjustes } | null>(null)
+  const [elegir, setElegir] = useState(false)
+  const [equipoYPermisos, setEquipoYPermisos] = useState(false)
+  const [ayuda, setAyuda] = useState(false)
+  const [asignando, setAsignando] = useState<{ hiloId: string; buzonId: string; actual: { personaId: string; nombre: string } | null } | null>(null)
+  const panelAbierto = !!ajustes || elegir || equipoYPermisos || ayuda || !!asignando || !!c.redactando
+
+  /* ---------- Niveles del móvil ---------- */
+  const [nivel, setNivel] = useState<NivelMovil>('lista')
+  const scrollDeLista = useRef(0)
+  const nivelAnterior = useRef<NivelMovil>('lista')
+  const [ambito, animar] = useAnimate<HTMLDivElement>()
+  const reducir = useReducedMotion()
+
+  const irANivel = useCallback((n: NivelMovil) => {
+    setNivel((antes) => {
+      if (antes === 'lista' && n !== 'lista' && typeof window !== 'undefined') scrollDeLista.current = window.scrollY
+      return n
     })
-    return () => {
-      vivo = false
-    }
-  }, [hayBuzones])
+  }, [])
 
-  function abrirSecuencias() {
-    setSecuenciasMontadas(true)
-    setEnSecuencias(true)
-    setSelectorAbierto(false)
+  // Abrir una conversación en el móvil la pone a la vista; cerrarla vuelve a la lista
+  useEffect(() => {
+    if (c.hiloId) irANivel('hilo')
+    else setNivel((n) => (n === 'hilo' ? 'lista' : n))
+  }, [c.hiloId, irANivel])
+
+  // El deslizamiento de 8 px con fundido (180 ms) y el scroll de la página: arriba en cada nivel, y donde estaba al volver a la lista
+  useEffect(() => {
+    if (!movil || nivelAnterior.current === nivel) {
+      nivelAnterior.current = nivel
+      return
+    }
+    const volviendo = nivel === 'lista' && nivelAnterior.current === 'hilo'
+    nivelAnterior.current = nivel
+    window.scrollTo({ top: volviendo ? scrollDeLista.current : 0 })
+    if (!reducir && ambito.current) void animar(ambito.current, { opacity: [0, 1], x: [volviendo || nivel === 'carpetas' ? -8 : 8, 0] }, { duration: 0.18, ease: 'easeOut' })
+  }, [nivel, movil, reducir, animar, ambito])
+
+  /* ---------- Acciones de la pantalla ---------- */
+  const abrirCarpeta = useCallback(
+    (destino: Carpeta) => {
+      if ((destino.tipo === 'mios' || destino.tipo === 'asignados') && !c.bandeja) {
+        // Sin la 318 no hay bandeja: se queda en el buzón abierto y se dice por qué (en el móvil, en la lista, que es donde sale la banda)
+        setAviso318(true)
+        irANivel('lista')
+        return
+      }
+      if (destino.tipo === 'secuencias') {
+        c.abrirSecuencias()
+        irANivel('lista')
+        return
+      }
+      c.cerrarHilo()
+      c.irA(destino)
+      irANivel('lista')
+    },
+    // c cambia en cada pintado; lo que se usa de él es estable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [c.abrirSecuencias, c.cerrarHilo, c.irA, c.bandeja, irANivel]
+  )
+
+  const conectar = () => {
+    const propios = buzones?.filter((b) => b.esMio).length ?? 0
+    if (propios >= MAX_BUZONES_POR_PERSONA) {
+      toast.info(`Cada persona puede conectar hasta ${MAX_BUZONES_POR_PERSONA} buzones.`)
+      return
+    }
+    c.cerrarHilo()
+    c.setConectando(true)
+    irANivel('lista')
   }
+
+  const redactarNuevo = () => c.abrirRedactar('nuevo', null, { buzonId: paraRedactar?.id ?? null })
+  const responder = (m: ModoDeRedactar, mensaje: MensajeDeHilo, textoInicial?: string) => c.abrirRedactar(m, mensaje, { textoInicial })
+  const abrirAsignar = (hiloId: string) => {
+    const enLista = lista.hilos.find((h) => h.id === hiloId)
+    const abierto = c.hilo?.id === hiloId ? c.hilo : null
+    const buzonId = abierto?.buzonId ?? enLista?.buzonId
+    if (!buzonId) return
+    const actual = abierto?.asignacion ? { personaId: abierto.asignacion.personaId, nombre: abierto.asignacion.nombre } : enLista?.asignadoA ? { personaId: enLista.asignadoA.id, nombre: enLista.asignadoA.nombre } : null
+    setAsignando({ hiloId, buzonId, actual })
+  }
+
+  /* ---------- Atajos de teclado ---------- */
+  const visibles = useMemo(
+    () => filtrarEnCliente(lista.hilos, { busqueda: lista.busquedaAplicada, vista, soloNoLeidos, ocultarSilenciados, modo, seleccionado: c.hiloId }),
+    [lista.hilos, lista.busquedaAplicada, vista, soloNoLeidos, ocultarSilenciados, modo, c.hiloId]
+  )
+  const [marcado, setMarcado] = useState<string | null>(null)
+  const mover = (paso: 1 | -1) => {
+    if (visibles.length === 0) return
+    const actual = c.hiloId ?? marcado
+    const i = actual ? visibles.findIndex((h) => h.id === actual) : -1
+    const siguiente = visibles[Math.min(visibles.length - 1, Math.max(0, i === -1 ? 0 : i + paso))]
+    if (!siguiente) return
+    if (movil) setMarcado(siguiente.id)
+    else void c.abrir(siguiente.id)
+  }
+  const objetivo = c.hilo ? mensajeAlQueContestar(c.hilo.mensajes) : null
+  const enfocarBuscador = () => {
+    const campos = Array.from(document.querySelectorAll<HTMLInputElement>('[data-buscador-correo]'))
+    const visible = campos.find((e) => e.offsetParent !== null)
+    visible?.focus()
+    visible?.select()
+  }
+  useAtajosDeCorreo({
+    activa: activa && !panelAbierto && !!buzones,
+    puedeResponder: puedeResponderHilo,
+    hiloAbierto: !!c.hilo,
+    manejadores: {
+      siguiente: () => mover(1),
+      anterior: () => mover(-1),
+      abrir: () => {
+        if (marcado) void c.abrir(marcado)
+      },
+      volver: () => {
+        if (c.hiloId) c.cerrarHilo()
+        else if (movil && nivel === 'lista') irANivel('carpetas')
+      },
+      redactar: paraRedactar ? redactarNuevo : undefined,
+      responder: objetivo && puedeResponderHilo ? () => responder('responder', objetivo) : undefined,
+      'responder-todos': objetivo && puedeResponderHilo ? () => responder('responder-todos', objetivo) : undefined,
+      reenviar: objetivo && puedeResponderHilo ? () => responder('reenviar', objetivo) : undefined,
+      destacar: c.hilo && puedeResponderHilo ? () => void c.destacar(c.hilo!.id, !c.hilo!.destacado) : undefined,
+      'no-leido': c.hilo && puedeResponderHilo ? () => void c.marcarLeido(c.hilo!.id, false) : undefined,
+      silenciar: c.hilo && c.preferenciasDisponibles ? () => void c.silenciarHilo(c.hilo!.id, c.hilo!.silenciado.hilo ? 'quitar' : 'siempre') : undefined,
+      buscar: listando ? enfocarBuscador : undefined,
+      'ir-mis-correos': c.bandeja ? () => abrirCarpeta({ tipo: 'mios' }) : undefined,
+      'ir-asignados': c.bandeja && c.asignados > 0 ? () => abrirCarpeta({ tipo: 'asignados' }) : undefined,
+      ayuda: () => setAyuda(true),
+    },
+  })
 
   /* ------------------------------ qué se pinta ------------------------------ */
 
-  if (errorInicial) {
-    return errorInicial.faltaMigracion ? (
+  if (c.errorInicial) {
+    return c.errorInicial.faltaMigracion ? (
       <Aviso titulo="Falta preparar la base de datos">
         Hay que lanzar la migración <span className="font-mono text-[var(--ls-t1)]">236_correo.sql</span> en el editor SQL de Supabase. Hasta entonces el correo no puede guardar ni leer nada.
       </Aviso>
     ) : (
       <Aviso titulo="No se ha podido abrir el correo">
-        {errorInicial.mensaje}{' '}
+        {c.errorInicial.mensaje}{' '}
         <button type="button" onClick={() => window.location.reload()} className="underline underline-offset-2 hover:text-[var(--ls-t1)]">
           Recargar
         </button>
@@ -569,279 +357,536 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
     )
   }
 
-  if (buzones === null) {
+  if (buzones === null) return <EsqueletoDeCorreo />
+
+  const sinBuzonPropio = !buzones.some((b) => b.esMio)
+  /* Sin buzón propio y sin nadie a quien supervisar: lo primero es conectar el correo, en una tarjeta centrada */
+  if (buzones.length === 0 || (sinBuzonPropio && !c.supervisa && !carpeta)) {
     return (
-      <div className="rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4" aria-busy="true" aria-label="Cargando el correo">
-        <div className="space-y-3">
-          <Esqueleto className="h-8 w-64" />
-          <Esqueleto className="h-14 w-full" />
-          <Esqueleto className="h-14 w-full" />
-          <Esqueleto className="h-14 w-full" />
-        </div>
+      <div className="mx-auto max-w-2xl space-y-3 px-2 py-6 md:py-10">
+        <AvisoDeCifrado visible={!c.cifrado} />
+        <ConectarBuzon nombre={yo.nombre} esAdmin={esAdmin} cifradoConfigurado={c.cifrado} onConectado={c.alConectar} />
       </div>
     )
   }
 
-  const sinBuzonPropio = propios.length === 0
-  const mostrarConectar = conectando || (sinBuzonPropio && !supervisa) || (sinBuzonPropio && buzones.length === 0)
+  /* ---------- Piezas ---------- */
 
-  /* Sin buzón propio y sin nadie a quien supervisar: lo primero es conectar el correo */
-  if (mostrarConectar) {
-    return (
-      <div className="mx-auto max-w-2xl space-y-3">
-        {!cifrado && (
-          <Aviso titulo="Falta configurar el cifrado en el servidor">
-            El servidor no tiene la clave con la que se cifran las contraseñas (<span className="font-mono text-[var(--ls-t1)]">AMAZON_TOKEN_KEY</span>), así que de momento no puede guardar la de ningún buzón. Avisa a Liberty Seller.
-          </Aviso>
-        )}
-        <ConectarBuzon nombre={yo.nombre} esAdmin={esAdmin} onConectado={alConectar} />
-        {conectando && (
-          <button type="button" onClick={() => setConectando(false)} className={BOTON_SECUNDARIO}>
-            Volver
-          </button>
-        )}
-      </div>
-    )
-  }
+  const barra = (variante: VarianteDeBarra) => (
+    <BarraDeBuzones
+      variante={variante}
+      buzones={buzones}
+      carpeta={c.enSecuencias ? { tipo: 'secuencias' } : (carpeta ?? { tipo: 'equipo' })}
+      onCarpeta={abrirCarpeta}
+      sinLeerAsignados={c.asignados}
+      sinLeerMios={c.sinLeerMios}
+      supervisa={c.supervisa}
+      esAdmin={esAdmin}
+      verSecuencias={c.verSecuencias}
+      onElegir={() => setElegir(true)}
+      onSilenciar={(id, d) => void c.silenciarBuzon(id, d)}
+      onAlternarMisCorreos={(id) => void c.alternarMisCorreos(id)}
+      onAjustes={(id) => setAjustes({ buzonId: id, pestana: 'general' })}
+      onConectar={conectar}
+      onResumen={() => abrirCarpeta({ tipo: 'equipo' })}
+      onEquipoYPermisos={() => setEquipoYPermisos(true)}
+      preferenciasDisponibles={c.bandeja}
+      vista={carpeta?.tipo === 'mios' ? vista : undefined}
+      onVista={
+        c.bandeja
+          ? (v) => {
+              setVista(v)
+              setSoloNoLeidos(false)
+            }
+          : undefined
+      }
+      onRedactar={variante === 'movil' && paraRedactar ? redactarNuevo : undefined}
+    />
+  )
 
-  const total = buzones.length
-  const sinLeerEnOtros = buzones.filter((b) => b.id !== buzonId).reduce((suma, b) => suma + b.resumen.hilosSinLeer, 0)
-
-  const selector = (
-    <div ref={raizSelector} className="relative min-w-0">
-      <button
-        type="button"
-        onClick={() => setSelectorAbierto((v) => !v)}
-        aria-expanded={selectorAbierto}
-        aria-haspopup="listbox"
-        disabled={total <= 1 && !supervisa && propios.length >= MAX_BUZONES_POR_PERSONA}
-        className="flex h-8 max-w-full items-center gap-2 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-1.5 pr-2 text-left transition-colors hover:border-[var(--ls-linea2)]"
-      >
-        {enEquipo ? (
-          <>
-            <Users className="ml-0.5 h-4 w-4 shrink-0 text-[var(--ls-acc)]" aria-hidden />
-            <span className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]">Resumen del equipo</span>
-          </>
-        ) : buzon ? (
-          <>
-            <Avatar id={buzon.propietario.id} nombre={buzon.propietario.nombre} tamano={22} />
-            <span className="min-w-0 truncate text-[12.5px] text-[var(--ls-t1)]">
-              <span className="font-medium">{buzon.esMio ? 'Mi correo' : buzon.propietario.nombre}</span>
-              <span className="ml-1.5 hidden text-[var(--ls-t4)] sm:inline">{buzon.direccion}</span>
-            </span>
-          </>
-        ) : (
-          <span className="text-[12.5px] text-[var(--ls-t3)]">Elige un buzón</span>
-        )}
-        {sinLeerEnOtros > 0 && <span className="rounded-full bg-[var(--ls-acc-graf)] px-1.5 text-[10px] font-semibold leading-[15px] text-[var(--ls-acc-tinta)]">{sinLeerEnOtros}</span>}
-        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-[var(--ls-t4)] transition-transform ${selectorAbierto ? 'rotate-180' : ''}`} aria-hidden />
-      </button>
-      {selectorAbierto && (
-        <div role="listbox" aria-label="Buzones" className="absolute left-0 top-full z-30 mt-1.5 max-h-[60dvh] w-[min(92vw,380px)] overflow-y-auto rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] py-1 shadow-2xl shadow-black/50">
-          {propios.length > 0 && <p className="px-3 pb-1 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">Mis buzones</p>}
-          {propios.map((b) => (
-            <ElementoDeBuzon key={b.id} b={b} activo={!enEquipo && b.id === buzonId} onElegir={() => elegirBuzon(b.id)} />
-          ))}
-          {buzones.some((b) => !b.esMio) && (
-            <>
-              <p className="px-3 pb-1 pt-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">Equipo · solo lectura</p>
-              {buzones
-                .filter((b) => !b.esMio)
-                .map((b) => (
-                  <ElementoDeBuzon key={b.id} b={b} activo={!enEquipo && b.id === buzonId} onElegir={() => elegirBuzon(b.id)} />
-                ))}
-            </>
-          )}
-          <div className="mt-1 border-t border-[var(--ls-linea)] pt-1">
-            {supervisa && (
-              <button type="button" onClick={verEquipo} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
-                <Users className="h-4 w-4 text-[var(--ls-t4)]" aria-hidden /> Resumen del equipo
-              </button>
-            )}
-            {propios.length < MAX_BUZONES_POR_PERSONA && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectorAbierto(false)
-                  setConectando(true)
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]"
-              >
-                <Plus className="h-4 w-4 text-[var(--ls-t4)]" aria-hidden /> {sinBuzonPropio ? 'Conectar mi correo' : 'Conectar otro buzón'}
-              </button>
-            )}
-          </div>
-        </div>
+  const bandas = (
+    <>
+      {aviso318 && !c.bandeja && (
+        <Banda
+          tono="ambar"
+          icono={AlertCircle}
+          accion={
+            <button type="button" onClick={() => setAviso318(false)} aria-label="Cerrar el aviso" className={cn('inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)]', FOCO)}>
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          }
+        >
+          {AVISO_FALTA_318}. Mientras, cada buzón se abre por separado.
+        </Banda>
       )}
+      {carpeta?.tipo === 'buzon' && buzonAbierto && <BandasDelBuzon buzon={buzonAbierto} esAdmin={esAdmin} onAjustes={(pestana) => setAjustes({ buzonId: buzonAbierto.id, pestana })} />}
+    </>
+  )
+
+  const listaDeHilos = (
+    <ListaDeHilos
+      hilos={lista.hilos}
+      cargando={lista.cargando || (!carpeta && !c.conectando)}
+      cargandoMas={lista.cargandoMas}
+      hayMas={lista.hayMas}
+      onCargarMas={lista.cargarMas}
+      seleccionado={c.hiloId ?? marcado}
+      onElegir={(id) => {
+        setMarcado(null)
+        void c.abrir(id)
+      }}
+      vista={vista}
+      onVista={setVista}
+      soloNoLeidos={soloNoLeidos}
+      onSoloNoLeidos={setSoloNoLeidos}
+      busqueda={busqueda}
+      onBusqueda={setBusqueda}
+      resumen={carpeta?.tipo === 'buzon' ? (buzonAbierto?.resumen ?? null) : null}
+      importando={carpeta?.tipo === 'buzon' && buzonAbierto?.esMio ? c.importando : null}
+      error={lista.error}
+      modo={modo}
+      buzonesPorId={buzonesPorId}
+      onSilenciar={(id, d) => void c.silenciarHilo(id, d)}
+      onAlternarLeido={(id, leido) => void c.marcarLeido(id, leido)}
+      onDestacar={(id, v) => void c.destacar(id, v)}
+      nuevos={lista.nuevos}
+      ocultarSilenciados={ocultarSilenciados}
+      onOcultarSilenciados={setOcultarSilenciados}
+      onAsignar={c.bandeja ? abrirAsignar : undefined}
+      esAdmin={esAdmin}
+      onElegirMisCorreos={c.bandeja ? () => setElegir(true) : undefined}
+      onResumen={c.supervisa ? () => abrirCarpeta({ tipo: 'equipo' }) : undefined}
+      titulo={nombreDeCarpeta(carpeta, buzonAbierto)}
+      onAtras={() => irANivel('carpetas')}
+      onRedactar={paraRedactar ? redactarNuevo : undefined}
+      sinBuscador
+    />
+  )
+
+  const vistaDeHilo = (
+    <VistaDeHilo
+      hilo={c.hilo}
+      cargando={c.cargandoHilo}
+      error={c.errorHilo}
+      buzon={buzonDelHilo}
+      puedeResponder={puedeResponderHilo}
+      esMio={puedeResponderHilo}
+      yoId={yo.id}
+      esAdmin={esAdmin}
+      onAtras={c.cerrarHilo}
+      onDestacar={() => c.hilo && void c.destacar(c.hilo.id, !c.hilo.destacado)}
+      onMarcarNoLeido={() => c.hilo && void c.marcarLeido(c.hilo.id, false)}
+      onSilenciarHilo={(d) => c.hilo && void c.silenciarHilo(c.hilo.id, d)}
+      onSilenciarRemitente={(d) => void c.silenciarRemitente(d)}
+      onAsignar={() => c.hilo && abrirAsignar(c.hilo.id)}
+      onHecho={() => void c.hecho()}
+      onResponder={responder}
+      onRespuestaEnviada={(hiloId) => {
+        void c.abrir(hiloId, { sinEsqueleto: true })
+        void Promise.all([lista.refrescar(), c.cargarBuzones()])
+      }}
+    />
+  )
+
+  const conectarAqui = (
+    <div className="mx-auto w-full max-w-2xl space-y-3 p-0 md:p-6">
+      <AvisoDeCifrado visible={!c.cifrado} />
+      <ConectarBuzon nombre={yo.nombre} esAdmin={esAdmin} variante="tarjeta" cifradoConfigurado={c.cifrado} onConectado={c.alConectar} onVolver={() => c.setConectando(false)} />
     </div>
   )
 
-  return (
+  const resumen = <VistaEquipo buzones={buzones} onAbrir={(id) => abrirCarpeta({ tipo: 'buzon', buzonId: id })} />
+
+  const secuencias = c.secuenciasMontadas && (
+    <div className={c.enSecuencias ? 'min-w-0 flex-1 md:min-h-0 md:overflow-y-auto md:overscroll-contain md:p-4 lg:p-5' : 'hidden'}>
+      <PantallaDeSecuencias onVolver={c.cerrarSecuencias} visible={activa && c.enSecuencias} abrirId={c.secuenciaPedida} onAbierta={c.soltarSecuenciaPedida} />
+    </div>
+  )
+
+  const redactar =
+    c.redactando &&
+    typeof document !== 'undefined' &&
+    (() => {
+      const r = c.redactando
+      const b = buzonesPorId.get(r.buzonId)
+      if (!b) return null
+      return createPortal(
+        <Redactar
+          buzon={b}
+          yoId={yo.id}
+          esAdmin={esAdmin}
+          borrador={r.borrador}
+          onCerrar={c.cerrarRedactar}
+          onEnviado={(id, asunto, detalle) => void c.alEnviar(id, asunto, detalle, { borrador: r.borrador, buzonId: r.buzonId })}
+          buzonesParaEnviar={buzonesParaEnviar}
+          onCambiarBuzon={c.cambiarBuzonDeRedactar}
+        />,
+        document.body
+      )
+    })()
+
+  const ajustesDe = ajustes ? buzonesPorId.get(ajustes.buzonId) : undefined
+  const paneles = (
     <>
-      {/* Con las Secuencias a la vista la bandeja se oculta sin desmontarla (como hace el ERP con sus apps): conserva el hilo abierto, la búsqueda y el scroll */}
-      <div className={`flex flex-col overflow-hidden rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] ${enSecuencias ? 'pointer-events-none invisible h-0 min-h-0 border-0' : 'h-[calc(100dvh-10.5rem)] min-h-[540px]'}`} aria-hidden={enSecuencias ? true : undefined}>
-        <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-[var(--ls-linea)] px-3 py-1.5">
-          <div className="flex min-w-0 items-center gap-2">
-            {selector}
-            {verSecuencias && (
-              <button type="button" onClick={abrirSecuencias} className={BOTON_SECUNDARIO} title="Los seguimientos automáticos: qué sale hoy, la cola de leads y cómo va cada uno">
-                <Workflow className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Secuencias
-              </button>
-            )}
-            {esAdmin && (
-              <button type="button" onClick={() => setVerPermisos(true)} className={BOTON_SECUNDARIO} title="Qué buzones puede leer cada persona del equipo (solo administradores)">
-                <ShieldCheck className="h-3.5 w-3.5 text-[var(--ls-acc)]" aria-hidden /> Quién ve qué
-              </button>
-            )}
-          </div>
-          {!enEquipo && buzon && (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <EtiquetaDeActualizado ultimoSyncAt={buzon.ultimoSyncAt} sincronizando={sincronizando} conectado={buzon.conectado} />
-              <ControlesDeActualizar
-                onActualizar={() => void sincronizar('manual')}
-                actualizando={sincronizando}
-                deshabilitado={!buzon.conectado || buzon.credencialesInvalidas}
-                titulo={!buzon.conectado ? 'Este buzón está desconectado' : esMio ? 'Buscar correos nuevos' : 'Buscar correos nuevos en este buzón (solo lectura)'}
-                auto={auto}
-                onAuto={cambiarAuto}
-              />
-              {(esMio || esAdmin) && (
-                <button type="button" onClick={() => setAjustes(true)} className={BOTON_ICONO} title="Ajustes del buzón" aria-label="Ajustes del buzón">
-                  <Settings className="h-4 w-4" aria-hidden />
-                </button>
-              )}
-              {esMio && (
-                <button type="button" onClick={() => redactar('nuevo', null)} disabled={!puedeEscribir} className={BOTON_PRIMARIO}>
-                  <PenSquare className="h-4 w-4" aria-hidden /> Redactar
-                </button>
-              )}
-            </div>
-          )}
-          {enEquipo && (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <ControlesDeActualizar onActualizar={() => void cargarBuzones()} titulo="Volver a cargar el resumen del equipo" auto={auto} onAuto={cambiarAuto} />
-              {sinBuzonPropio && (
-                <button type="button" onClick={() => setConectando(true)} className={BOTON_SECUNDARIO}>
-                  <Mail className="h-3.5 w-3.5" aria-hidden /> Conectar mi correo
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {enEquipo ? (
-          <VistaEquipo buzones={buzones} onAbrir={elegirBuzon} />
-        ) : buzon ? (
-          <>
-            {!esMio && (
-              <p className="flex items-center gap-2 border-b border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-e-ambar)_10%,transparent)] px-3 py-1.5 text-[12px] text-[var(--ls-t2)]" role="status">
-                <Eye className="h-3.5 w-3.5 shrink-0 text-[var(--ls-e-ambar)]" aria-hidden />
-                <span>
-                  Estás mirando el buzón de <strong className="font-semibold text-[var(--ls-t1)]">{buzon.propietario.nombre}</strong> en solo lectura. Queda anotado que lo has abierto.
-                </span>
-              </p>
-            )}
-            {esMio && buzon.credencialesInvalidas && <AvisoDeContrasena onAbrir={() => setAjustes(true)} />}
-            {esMio && !buzon.conectado && (
-              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 py-2 text-[12.5px] text-[var(--ls-t2)]">
-                Este buzón está desconectado: no llegan correos nuevos ni se puede enviar. Lo ya importado sigue aquí.
-                <button type="button" onClick={() => setAjustes(true)} className="font-medium text-[var(--ls-acc)] underline underline-offset-2">
-                  Volver a conectarlo
-                </button>
-              </p>
-            )}
-            {esMio && buzon.conectado && !buzon.credencialesInvalidas && buzon.ultimoError && (
-              <p className="flex items-center gap-2 border-b border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 py-1.5 text-[12px] text-[var(--ls-e-ambar)]" role="status">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden /> {buzon.ultimoError}
-              </p>
-            )}
-
-            <div className="flex min-h-0 flex-1">
-              <aside className={`${hiloId ? 'hidden md:flex' : 'flex'} min-h-0 w-full shrink-0 flex-col border-r border-[var(--ls-linea)] md:w-[340px] xl:w-[380px]`}>
-                <ListaDeHilos
-                  hilos={hilos}
-                  cargando={cargandoLista}
-                  cargandoMas={cargandoMas}
-                  hayMas={siguiente !== null}
-                  onMas={() => void cargarLista('mas', siguiente)}
-                  seleccionado={hiloId}
-                  onElegir={(id) => void abrir(id)}
-                  vista={vista}
-                  onVista={(v) => setVista(v)}
-                  soloNoLeidos={soloNoLeidos}
-                  onSoloNoLeidos={setSoloNoLeidos}
-                  busqueda={busqueda}
-                  onBusqueda={setBusqueda}
-                  resumen={buzon.resumen}
-                  importando={esMio ? importando : null}
-                  error={errorLista}
-                />
-              </aside>
-              <section className={`${hiloId ? 'flex' : 'hidden md:flex'} min-h-0 min-w-0 flex-1 flex-col`}>
-                <VistaDeHilo hilo={hilo} cargando={cargandoHilo} error={errorHilo} esMio={puedeEscribir} onAtras={cerrarHilo} onDestacar={() => void destacar()} onNoLeido={() => void marcarNoLeido()} onResponder={redactar} />
-              </section>
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-8 text-center text-[13px] text-[var(--ls-t3)]">Elige un buzón arriba para ver sus correos.</div>
-        )}
-      </div>
-
-      {secuenciasMontadas && (
-        <div className={enSecuencias ? '' : 'hidden'}>
-          <PantallaDeSecuencias onVolver={() => setEnSecuencias(false)} visible={activa && enSecuencias} abrirId={secuenciaPedida} onAbierta={() => setSecuenciaPedida(null)} />
-        </div>
-      )}
-
-      {redactando && buzon && <Redactar buzon={buzon} yoId={yo.id} esAdmin={esAdmin} borrador={redactando} onCerrar={() => setRedactando(null)} onEnviado={(id, asunto, detalle) => void alEnviar(id, redactando, asunto, detalle)} />}
-      {verPermisos && (
-        <PermisosDeBuzones
-          onCerrar={() => {
-            setVerPermisos(false)
-            // Lo que se haya abierto o cerrado cambia lo que ven los demás, no lo que ve un administrador; aun así se vuelve a leer por si cambió el selector
-            void cargarBuzones()
-          }}
-        />
-      )}
-      {ajustes && buzon && (
+      {redactar}
+      {ajustesDe && (
         <AjustesDeBuzon
-          buzon={buzon}
-          esMio={esMio}
+          buzon={ajustesDe}
+          esMio={ajustesDe.esMio}
           verAccesos={esAdmin}
           onCambio={(nuevos) => {
-            setBuzones(nuevos)
-            setAjustes(false)
+            c.ponerBuzones(nuevos)
+            setAjustes(null)
           }}
-          onCerrar={() => setAjustes(false)}
+          onBuzonesAlDia={c.ponerBuzones}
+          onCerrar={() => setAjustes(null)}
+          onEquipoYPermisos={
+            esAdmin
+              ? () => {
+                  setAjustes(null)
+                  setEquipoYPermisos(true)
+                }
+              : undefined
+          }
+          preferenciasDisponibles={c.bandeja}
+          pestanaInicial={ajustes?.pestana}
+        />
+      )}
+      <ElegirMisCorreos abierto={elegir} onCambio={setElegir} buzones={buzones} disponible={c.bandeja} onGuardar={c.guardarPreferencias} />
+      {esAdmin && (
+        <EquipoYPermisos
+          abierto={equipoYPermisos}
+          onCambio={(abierto) => {
+            setEquipoYPermisos(abierto)
+            // Lo que se asigne, abra o cierre cambia lo que ven los demás (y «Mis correos» de quien se lo asigne a sí mismo)
+            if (!abierto) void c.cargarBuzones()
+          }}
+          yoId={yo.id}
+        />
+      )}
+      <AyudaDeAtajos abierto={ayuda} onCambio={setAyuda} />
+      {asignando && (
+        <AsignarHilo
+          abierto
+          onCambio={(abierto) => !abierto && setAsignando(null)}
+          hiloId={asignando.hiloId}
+          buzonId={asignando.buzonId}
+          actual={asignando.actual}
+          yoId={yo.id}
+          onAsignado={(a) => c.alAsignarHilo(asignando.hiloId, a)}
         />
       )}
     </>
   )
-}
 
-function ElementoDeBuzon({ b, activo, onElegir }: { b: BuzonVisible; activo: boolean; onElegir: () => void }) {
+  /* ---------- «Actualizado hace…», el botón y Auto (en la cabecera; en el móvil, al pie de Carpetas) ---------- */
+  const actualizadoDe = carpeta?.tipo === 'buzon' ? buzonAbierto : null
+  const ultimoDeMisCorreos =
+    carpeta?.tipo === 'mios' || carpeta?.tipo === 'asignados'
+      ? (buzones
+          .filter((b) => b.esMio && b.enMisCorreos && b.ultimoSyncAt)
+          .map((b) => b.ultimoSyncAt as string)
+          .sort()
+          .pop() ?? null)
+      : null
+  const verActualizar = listando || carpeta?.tipo === 'equipo'
+
+
+  const etiquetaDeActualizado = (clase?: string) =>
+    (actualizadoDe || ultimoDeMisCorreos) && (
+      <EtiquetaDeActualizado
+        className={clase}
+        ultimoSyncAt={actualizadoDe ? actualizadoDe.ultimoSyncAt : ultimoDeMisCorreos}
+        sincronizando={c.sincronizando}
+        conectado={actualizadoDe ? actualizadoDe.conectado : true}
+      />
+    )
+  const controlesDeActualizar = (
+    <ControlesDeActualizar
+      onActualizar={carpeta?.tipo === 'equipo' ? () => void c.cargarBuzones() : c.actualizar}
+      actualizando={c.sincronizando}
+      deshabilitado={!!actualizadoDe && (!actualizadoDe.conectado || actualizadoDe.credencialesInvalidas)}
+      titulo={
+        carpeta?.tipo === 'equipo'
+          ? 'Volver a cargar el resumen del equipo'
+          : actualizadoDe
+            ? !actualizadoDe.conectado
+              ? 'Este buzón está desconectado'
+              : actualizadoDe.puedeResponder
+                ? 'Buscar correos nuevos'
+                : 'Buscar correos nuevos en este buzón (solo lectura)'
+            : 'Buscar correos nuevos en tus buzones'
+      }
+      auto={c.auto}
+      onAuto={c.cambiarAuto}
+    />
+  )
+
+  /* ---------- Móvil: niveles ---------- */
+  if (movil) {
+    const enLista = nivel === 'lista'
+    return (
+      <MotionConfig reducedMotion="user">
+        <div ref={ambito} className="overflow-x-clip">
+          {nivel === 'carpetas' && (
+            <>
+              {barra('movil')}
+              {/* «Actualizado hace…», actualizar y Auto también en el móvil: al pie de Carpetas */}
+              {verActualizar && (
+                <div className="mb-6 flex items-center justify-between gap-2 rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] py-1.5 pl-3 pr-1.5">
+                  <span className="min-w-0 truncate text-[12.5px] text-[var(--ls-t3)]">{etiquetaDeActualizado() || 'Correo'}</span>
+                  {controlesDeActualizar}
+                </div>
+              )}
+            </>
+          )}
+          <div className={enLista ? '' : 'hidden'}>
+            {c.enSecuencias ? (
+              <CabeceraDeNivel titulo="Secuencias" icono={Zap} onAtras={() => irANivel('carpetas')} />
+            ) : c.conectando ? (
+              <>
+                <CabeceraDeNivel titulo={sinBuzonPropio ? 'Conectar mi correo' : 'Conectar otro buzón'} onAtras={() => c.setConectando(false)} />
+                {conectarAqui}
+              </>
+            ) : carpeta?.tipo === 'equipo' ? (
+              <>
+                <CabeceraDeNivel titulo="Resumen del equipo" onAtras={() => irANivel('carpetas')} />
+                {resumen}
+              </>
+            ) : (
+              <>
+                {bandas}
+                {listaDeHilos}
+              </>
+            )}
+          </div>
+          {/* Secuencias: siempre en el mismo sitio, montada y oculta cuando no se ve (conserva su pestaña y su filtro) */}
+          <div className={enLista && c.enSecuencias ? '' : 'hidden'}>{secuencias}</div>
+          <div className={nivel === 'hilo' ? '' : 'hidden'}>{vistaDeHilo}</div>
+        </div>
+        {paneles}
+      </MotionConfig>
+    )
+  }
+
+  /* ---------- Tableta y ordenador: columnas de altura fija ---------- */
   return (
-    <button type="button" role="option" aria-selected={activo} onClick={onElegir} className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${activo ? 'bg-[var(--ls-sel)]' : 'hover:bg-[var(--ls-sup2)]'}`}>
-      <Avatar id={b.propietario.id} nombre={b.propietario.nombre} tamano={26} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] font-medium text-[var(--ls-t1)]">{b.esMio ? 'Mi correo' : b.propietario.nombre}</span>
-        <span className="block truncate text-[11.5px] text-[var(--ls-t4)]">{b.direccion}</span>
-      </span>
-      {(!b.conectado || b.credencialesInvalidas) && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[var(--ls-e-ambar)]" aria-label={b.credencialesInvalidas ? 'Contraseña rechazada' : 'Desconectado'} />}
-      {b.resumen.hilosSinLeer > 0 && <span className="rounded-full bg-[var(--ls-acc-graf)] px-1.5 text-[10px] font-semibold leading-[15px] text-[var(--ls-acc-tinta)]">{b.resumen.hilosSinLeer}</span>}
-    </button>
+    <MotionConfig reducedMotion="user">
+      {/* md: main pt-16 + Ranura p-6 (arriba y abajo) = 7rem. lg: main sin relleno + Ranura p-8 = 4rem (medido en la vista previa: sin scroll de página) */}
+      <div ref={refCaja} className="flex h-[calc(100dvh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)] lg:h-[calc(100dvh-4rem)]">
+        {/* ---------- Cabecera de 56 px ---------- */}
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--ls-linea)] px-3 lg:gap-3 lg:px-4">
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] bg-[var(--ls-acc-suave)] text-[var(--ls-acc)]" aria-hidden>
+              <Mail className="h-[18px] w-[18px]" />
+            </span>
+            <h1 className="hidden text-[16px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)] lg:block">Correo</h1>
+          </div>
+          {listando ? (
+            <BuscadorDeCabecera valor={busqueda} onCambio={setBusqueda} sitio={nombreDeCarpeta(carpeta, buzonAbierto)} />
+          ) : (
+            <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-[var(--ls-t2)]">{c.enSecuencias ? 'Secuencias' : c.conectando ? 'Conectar un buzón' : nombreDeCarpeta(carpeta, buzonAbierto)}</p>
+          )}
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {verActualizar && (
+              <>
+                {etiquetaDeActualizado('hidden xl:inline-flex')}
+                {controlesDeActualizar}
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setAyuda(true)}
+              aria-label="Atajos de teclado"
+              title="Atajos de teclado (?)"
+              className={cn('hidden h-9 w-9 items-center justify-center rounded-[10px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)] lg:inline-flex', FOCO)}
+            >
+              <HelpCircle className="h-[18px] w-[18px]" aria-hidden />
+            </button>
+            <Boton variante="primario" icono={PenSquare} onClick={redactarNuevo} disabled={!paraRedactar} title={paraRedactar ? 'Redactar (c)' : 'No puedes enviar desde ninguno de tus buzones'}>
+              Redactar
+            </Boton>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1">
+          {/* ---------- Columna 1: barra (carril en la tableta) ---------- */}
+          <div className={cn('flex min-h-0 shrink-0 flex-col border-r border-[var(--ls-linea)]', ancho === 'tableta' ? 'w-16' : 'w-[248px]')}>{barra(ancho === 'tableta' ? 'carril' : 'columna')}</div>
+
+          {/* ---------- Columnas 2 y 3 ---------- */}
+          <div className="flex min-h-0 min-w-0 flex-1">
+            {secuencias}
+            {!c.enSecuencias &&
+              (c.conectando ? (
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{conectarAqui}</div>
+              ) : carpeta?.tipo === 'equipo' ? (
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col p-3 lg:p-4">{resumen}</div>
+              ) : (
+                <>
+                  <section aria-label="Conversaciones" className={cn('flex min-h-0 shrink-0 flex-col border-r border-[var(--ls-linea)]', ancho === 'tableta' ? 'w-[40%]' : 'w-[380px] min-w-[320px]')}>
+                    {bandas}
+                    <div className="min-h-0 flex-1">{listaDeHilos}</div>
+                  </section>
+                  <section aria-label="Conversación abierta" className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    {vistaDeHilo}
+                  </section>
+                </>
+              ))}
+          </div>
+        </div>
+      </div>
+      {paneles}
+    </MotionConfig>
   )
 }
 
-function AvisoDeContrasena({ onAbrir }: { onAbrir: () => void }) {
+/* ------------------------------------------------------------------ */
+/* Piezas pequeñas                                                     */
+/* ------------------------------------------------------------------ */
+
+function EsqueletoDeCorreo() {
   return (
-    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-e-ambar)_10%,transparent)] px-3 py-2 text-[12.5px] text-[var(--ls-t2)]" role="alert">
-      <span className="flex items-center gap-2">
-        <KeyRound className="h-4 w-4 shrink-0 text-[var(--ls-e-ambar)]" aria-hidden /> El servidor de correo ha rechazado tu contraseña, así que no llegan correos nuevos ni puedes enviar.
-      </span>
-      <button type="button" onClick={onAbrir} className="font-medium text-[var(--ls-acc)] underline underline-offset-2">
-        Escribirla otra vez
+    <div className="overflow-hidden rounded-[14px] md:border md:border-[var(--ls-linea)] md:bg-[var(--ls-sup)]" aria-busy="true" aria-label="Cargando el correo">
+      <div className="hidden h-14 items-center gap-3 border-b border-[var(--ls-linea)] px-4 md:flex">
+        <Esqueleto className="h-8 w-8" />
+        <Esqueleto className="h-8 w-72" />
+        <Esqueleto className="ml-auto h-9 w-28" />
+      </div>
+      <div className="flex">
+        <div className="hidden w-[248px] space-y-2 border-r border-[var(--ls-linea)] p-3 lg:block">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Esqueleto key={i} className="h-9 w-full" />
+          ))}
+        </div>
+        <div className="flex-1 space-y-1 p-2 pl-14 md:pl-2 lg:max-w-[380px]">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-2 py-3">
+              <Esqueleto redondo className="h-9 w-9 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Esqueleto className="h-3 w-2/5" />
+                <Esqueleto className="h-2.5 w-4/5" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AvisoDeCifrado({ visible }: { visible: boolean }) {
+  if (!visible) return null
+  return (
+    <Aviso titulo="Falta configurar el cifrado en el servidor">
+      El servidor no tiene la clave con la que se cifran las contraseñas (<span className="font-mono text-[var(--ls-t1)]">AMAZON_TOKEN_KEY</span>), así que de momento no puede guardar la de ningún buzón. Avisa a Liberty Seller.
+    </Aviso>
+  )
+}
+
+/** El buscador de la cabecera (desde md). En el móvil va detrás de la lupa de la lista */
+function BuscadorDeCabecera({ valor, onCambio, sitio }: { valor: string; onCambio: (t: string) => void; sitio: string }) {
+  return (
+    <label className="relative min-w-0 max-w-[520px] flex-1">
+      <span className="sr-only">Buscar en {sitio}</span>
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ls-t4)]" aria-hidden />
+      <input
+        type="search"
+        value={valor}
+        onChange={(e) => onCambio(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation()
+            if (valor) onCambio('')
+            else e.currentTarget.blur()
+          }
+        }}
+        placeholder={`Buscar en ${sitio}…`}
+        enterKeyHint="search"
+        data-buscador-correo=""
+        className="h-9 w-full rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-9 pr-16 text-base text-[var(--ls-t1)] outline-none transition-[border-color,box-shadow] placeholder:text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--ls-acc-graf)_22%,transparent)] lg:text-[13.5px] [&::-webkit-search-cancel-button]:hidden"
+      />
+      {valor ? (
+        <button
+          type="button"
+          onClick={() => onCambio('')}
+          aria-label="Borrar la búsqueda"
+          className={cn('absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[8px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)]', FOCO)}
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      ) : (
+        <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-1.5 text-[11px] font-medium leading-[18px] text-[var(--ls-t4)] lg:inline-block">
+          /
+        </kbd>
+      )}
+    </label>
+  )
+}
+
+/** Cabecera pegajosa de un nivel del móvil (Resumen, Secuencias, Conectar): el hueco de la hamburguesa y «←» después */
+function CabeceraDeNivel({ titulo, icono: Icono, onAtras }: { titulo: string; icono?: typeof Mail; onAtras: () => void }) {
+  return (
+    <div className="sticky top-0 z-20 flex h-14 items-center gap-1 bg-[var(--ls-fondo)] pl-14 lg:pl-0">
+      <button type="button" onClick={onAtras} aria-label="Volver" className={cn('-ml-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--ls-t2)] active:bg-[var(--ls-sup3)]', FOCO)}>
+        <ArrowLeft className="h-5 w-5" aria-hidden />
       </button>
-    </p>
+      {Icono && <Icono className="h-4 w-4 shrink-0 text-[var(--ls-acc)]" aria-hidden />}
+      <h2 className="min-w-0 flex-1 truncate text-[17px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">{titulo}</h2>
+    </div>
+  )
+}
+
+function Banda({ tono, icono: Icono, children, accion }: { tono: 'ambar' | 'rojo' | 'azul'; icono: typeof Mail; children: ReactNode; accion?: ReactNode }) {
+  const color = tono === 'rojo' ? 'var(--ls-e-rojo)' : tono === 'azul' ? 'var(--ls-e-azul)' : 'var(--ls-e-ambar)'
+  return (
+    <div
+      role={tono === 'rojo' ? 'alert' : 'status'}
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--ls-linea)] px-3 py-2 text-[12.5px] leading-snug text-[var(--ls-t2)]"
+      style={{ background: `color-mix(in srgb, ${color} 10%, transparent)` }}
+    >
+      <span className="flex min-w-0 flex-1 items-start gap-2">
+        <Icono className="mt-[1px] h-4 w-4 shrink-0" style={{ color }} aria-hidden />
+        <span className="min-w-0">{children}</span>
+      </span>
+      {accion}
+    </div>
+  )
+}
+
+/** Lo que hay que saber del buzón abierto: de quién es (supervisión o asignado) y si algo falla. Lo que falla, solo a quien puede arreglarlo */
+function BandasDelBuzon({ buzon, esAdmin, onAjustes }: { buzon: BuzonVisible; esAdmin: boolean; onAjustes: (pestana: PestanaDeAjustes) => void }) {
+  const enlace = (texto: string, pestana: PestanaDeAjustes) => (
+    <button type="button" onClick={() => onAjustes(pestana)} className={cn('font-medium text-[var(--ls-acc)] underline underline-offset-2', FOCO)}>
+      {texto}
+    </button>
+  )
+  return (
+    <>
+      {!buzon.esMio && buzon.asignado && (
+        <Banda tono="azul" icono={UserCheck}>
+          <strong className="font-semibold text-[var(--ls-t1)]">Asignado a ti</strong> · lo que lees y envías queda anotado.
+        </Banda>
+      )}
+      {!buzon.esMio && !buzon.asignado && (
+        <Banda tono="ambar" icono={Eye}>
+          Buzón de <strong className="font-semibold text-[var(--ls-t1)]">{buzon.propietario.nombre || 'otra persona'}</strong>: <strong className="font-semibold text-[var(--ls-t1)]">solo lectura</strong> · queda anotado.
+        </Banda>
+      )}
+      {buzon.esMio && buzon.credencialesInvalidas && (
+        <Banda tono="rojo" icono={KeyRound} accion={enlace('Volver a poner la contraseña', 'conexion')}>
+          El servidor de correo ha rechazado tu contraseña: no llegan correos nuevos ni puedes enviar.
+        </Banda>
+      )}
+      {buzon.esMio && !buzon.conectado && (
+        <Banda tono="ambar" icono={AlertCircle} accion={enlace('Reconectar', 'conexion')}>
+          Este buzón está desconectado: no llegan correos nuevos ni se puede enviar. Lo ya importado sigue aquí.
+        </Banda>
+      )}
+      {(buzon.esMio || esAdmin) && buzon.conectado && !buzon.credencialesInvalidas && buzon.ultimoError && (
+        <Banda tono="ambar" icono={AlertCircle} accion={enlace(buzon.esMio ? 'Ajustes' : 'Ver o desconectar', buzon.esMio ? 'general' : 'conexion')}>
+          {buzon.ultimoError}
+        </Banda>
+      )}
+    </>
   )
 }

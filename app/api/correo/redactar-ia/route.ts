@@ -17,8 +17,10 @@ import {
   guardarBorrador,
   redaccionesRecientes,
 } from '@/lib/correo/ia-servidor'
-import { SIN_CACHE, requerirCorreo, respuestaDeFallo, textoDe } from '@/lib/correo/rutas'
-import { autorizarBuzon } from '@/lib/correo/servidor'
+import { registrarAcceso } from '@/lib/correo/quien-servidor'
+import { SIN_CACHE, registrar, requerirCorreo, respuestaDeFallo, textoDe } from '@/lib/correo/rutas'
+import { autorizarBuzon, nombreDeLaSesion } from '@/lib/correo/servidor'
+import { leerConRastro } from './rastro'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -26,7 +28,9 @@ import { createServiceClient } from '@/lib/supabase/service'
  *
  * POST application/json:
  *   leadId       el lead al que se escribe. Se lee con la SESIÓN de quien pide: si no es suyo ni supervisa, no existe para él
- *   buzonId      el buzón desde el que va a salir (propio: de él se sacan los correos que ya se cruzaron con ese lead)
+ *   buzonId      el buzón desde el que va a salir: el propio o uno asignado con «Puede responder y enviar» (de él se sacan los correos que ya se
+ *                cruzaron con ese lead). Si no es suyo, leer esos correos deja ANTES su rastro ('busqueda' en correo_accesos); sin rastro, no se
+ *                redacta (./rastro.ts)
  *   indicaciones (opcional) lo que quiere que diga o cambie: «más corto», «menciona que le llamé»…
  *   anterior     (opcional) { asunto, texto } del borrador que quiere cambiar
  *   versionId    (opcional) la versión de la IA del primer borrador de este correo: al redactar de nuevo se mantiene (ver más abajo)
@@ -78,7 +82,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const service = createServiceClient()
-    const auth = await autorizarBuzon(service, sesion, cuerpo.buzonId, 'escribir')
+    // Redactar es escribir desde el buzón: el dueño, o quien lo tiene asignado con «Puede responder y enviar» (modo 'responder' de acceso.ts)
+    const auth = await autorizarBuzon(service, sesion, cuerpo.buzonId, 'responder')
     if (!auth.ok) return fail(auth.estado, auth.mensaje)
 
     const uso = await redaccionesRecientes(service, sesion.userId)
@@ -90,10 +95,19 @@ export async function POST(request: NextRequest) {
     if (!lead) return fail(404, 'No se encuentra ese lead, o no es tuyo.')
     if (esPartnerParaIa(lead)) return fail(409, MENSAJE_PARTNER_SIN_IA)
 
-    const [notas, llamadasLeidas, correos, ganadores] = await Promise.all([
+    // Los correos del lead en ESE buzón: si es ajeno (asignado), es leerlo, y deja rastro antes; sin rastro no se lee ni se redacta
+    const deLosCorreos = await leerConRastro({
+      porSupervision: auth.porSupervision,
+      anotar: async () => registrarAcceso(service, { userId: sesion.userId, nombre: await nombreDeLaSesion(service, sesion.userId) }, auth.buzon.id, 'busqueda', null),
+      leer: () => cargarCorreosDelLead(service, auth.buzon.id, direccionesDeLead(lead)),
+      alFallar: (error) => registrar('Correo · redactar con IA: sin rastro de la lectura del buzón ajeno, no se redacta', error),
+    })
+    if (!deLosCorreos.ok) return fail(deLosCorreos.estado, deLosCorreos.mensaje)
+    const correos = deLosCorreos.resultado
+
+    const [notas, llamadasLeidas, ganadores] = await Promise.all([
       cargarNotas(sesion.supabase, leadId),
       cargarLlamadas(sesion.supabase, leadId),
-      cargarCorreosDelLead(service, auth.buzon.id, direccionesDeLead(lead)),
       cargarGanadores(service),
     ])
     // Si acaba de colgar y su grabación aún no está transcrita, se espera un poco a que llegue (y se avisa si no llega)

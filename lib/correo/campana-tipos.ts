@@ -8,7 +8,11 @@
  * llevarte al sitio al pulsarlos (migración 251).
  */
 
-export const TIPOS_DE_AVISO_DE_CORREO = ['correo_nuevo', 'correo_rebote', 'secuencia_pausada', 'secuencia_parada', 'respuesta_lead'] as const
+/**
+ * 'correo_asignado' (migración 318): te han encargado una conversación, o un administrador te ha asignado un buzón (o se lo ha asignado a
+ * alguien en el tuyo). Nunca se silencia, igual que los rebotes, las respuestas de secuencia y los avisos de secuencia.
+ */
+export const TIPOS_DE_AVISO_DE_CORREO = ['correo_nuevo', 'correo_rebote', 'secuencia_pausada', 'secuencia_parada', 'respuesta_lead', 'correo_asignado'] as const
 export type TipoDeAvisoDeCorreo = (typeof TIPOS_DE_AVISO_DE_CORREO)[number]
 
 export const esTipoDeAvisoDeCorreo = (tipo: unknown): tipo is TipoDeAvisoDeCorreo => typeof tipo === 'string' && (TIPOS_DE_AVISO_DE_CORREO as readonly string[]).includes(tipo)
@@ -24,6 +28,26 @@ export interface DatosDeAviso {
   direccion?: string
   /** Qué entendió la IA de una respuesta (interesado, pide_info…) */
   clase?: string
+  /** correo_asignado: quién ha asignado */
+  porId?: string
+  porNombre?: string
+  /** correo_asignado: te han encargado un hilo, te han asignado un buzón, o se lo han asignado a alguien en tu buzón */
+  motivo?: MotivoDeAsignacion
+}
+
+/** Por qué llega un aviso 'correo_asignado' */
+export type MotivoDeAsignacion = 'hilo' | 'buzon' | 'buzon_dueno'
+
+/**
+ * Los datos de un aviso 'correo_asignado'. Con buzón y hilo lleva a la conversación; con solo el buzón, a Correo (lo lee destinoDeAvisoDeCorreo,
+ * que ya mira buzonId e hiloId).
+ */
+export interface DatosDeAvisoDeAsignacion {
+  buzonId: string
+  hiloId?: string
+  porId: string
+  porNombre: string
+  motivo: MotivoDeAsignacion
 }
 
 /** A dónde lleva un aviso al pulsarlo */

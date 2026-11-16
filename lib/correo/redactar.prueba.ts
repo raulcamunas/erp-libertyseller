@@ -28,6 +28,8 @@ const mensaje = (extra: Partial<MensajeDeHilo> = {}): MensajeDeHilo => ({
   leido: true,
   automatico: false,
   messageId: 'm1@cliente.test',
+  // enviadoPor es opcional (migración 318): un mensaje de siempre no lo trae
+  enviadoPor: null,
   ...extra,
 })
 

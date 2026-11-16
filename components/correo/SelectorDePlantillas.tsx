@@ -6,7 +6,9 @@ import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { CAMPOS_DE_PLANTILLA, nombreNormalizado, type PlantillaDeCorreo } from '@/lib/correo/plantillas'
 import { createClient } from '@/lib/supabase/client'
-import { BOTON_SECUNDARIO, CAMPO } from './ui'
+import { cn } from '@/lib/utils'
+import { Boton, FOCO, TACTIL, TACTIL_CUADRADO } from '@/components/ui-ls'
+import { CAMPO } from './ui'
 
 /**
  * LAS PLANTILLAS DENTRO DEL MENSAJE: usar una con un clic y guardar lo escrito como plantilla.
@@ -106,14 +108,17 @@ export function SelectorDePlantillas({ yoId, esAdmin, actual, onAplicar, onInser
           setAbierto(false)
         }}
         title={[p.asunto && `Asunto: ${p.asunto}`, p.texto.slice(0, 200)].filter(Boolean).join('\n')}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12.5px] text-[var(--ls-t1)] outline-none transition-colors hover:bg-[var(--ls-sup3)] focus-visible:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)]"
+        className={cn(
+          'flex min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 py-2 text-left text-[14px] text-[var(--ls-t1)] outline-none transition-colors hover:bg-[var(--ls-sup2)] focus-visible:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)] lg:py-1.5 lg:text-[13px]',
+          TACTIL,
+        )}
       >
         {p.user_id === null ? <Users className="h-3.5 w-3.5 shrink-0 text-[var(--ls-t4)]" aria-label="Del equipo" /> : <BookText className="h-3.5 w-3.5 shrink-0 text-[var(--ls-t4)]" aria-hidden />}
         <span className="min-w-0 flex-1 truncate">{p.nombre}</span>
       </button>
       {puedeTocar(p) &&
         (confirmaBorrar === p.id ? (
-          <button type="button" onClick={() => void borrar(p.id)} disabled={borrando === p.id} className="h-7 shrink-0 rounded-[6px] px-2 text-[11.5px] font-medium text-[var(--ls-e-rojo)] hover:bg-[var(--ls-sup3)]">
+          <button type="button" onClick={() => void borrar(p.id)} disabled={borrando === p.id} className={cn('h-8 shrink-0 rounded-[10px] px-2.5 text-[12.5px] font-medium text-[var(--ls-e-rojo)] hover:bg-[color-mix(in_srgb,var(--ls-e-rojo)_12%,transparent)]', TACTIL, FOCO)}>
             {borrando === p.id ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : '¿Borrar?'}
           </button>
         ) : (
@@ -121,7 +126,12 @@ export function SelectorDePlantillas({ yoId, esAdmin, actual, onAplicar, onInser
             type="button"
             onClick={() => setConfirmaBorrar(p.id)}
             aria-label={`Borrar la plantilla ${p.nombre}`}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--ls-t4)] opacity-0 transition-opacity hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-e-rojo)] focus-visible:opacity-100 group-hover:opacity-100"
+            // En una pantalla táctil no hay «pasar el ratón»: la papelera se ve siempre
+            className={cn(
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-[var(--ls-t4)] opacity-0 transition-opacity hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-e-rojo)] focus-visible:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100',
+              TACTIL_CUADRADO,
+              FOCO,
+            )}
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -132,9 +142,9 @@ export function SelectorDePlantillas({ yoId, esAdmin, actual, onAplicar, onInser
   return (
     <Popover open={abierto} onOpenChange={setAbierto}>
       <PopoverTrigger asChild>
-        <button type="button" className={BOTON_SECUNDARIO} aria-haspopup="dialog">
-          <BookText className="h-3.5 w-3.5" aria-hidden /> Plantillas
-        </button>
+        <Boton variante="fantasma" icono={BookText} aria-haspopup="dialog" aria-label="Plantillas" title="Plantillas" className="px-2.5 [@media(pointer:coarse)]:min-w-[44px]">
+          <span className="hidden md:inline">Plantillas</span>
+        </Boton>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -142,29 +152,29 @@ export function SelectorDePlantillas({ yoId, esAdmin, actual, onAplicar, onInser
         sideOffset={8}
         collisionPadding={12}
         // Por encima del cuadro del mensaje (z-[60]). Y el teclado no sube hasta el cuadro: Esc cierra esto, no el mensaje entero
-        className="z-[80] w-[min(340px,calc(100vw-1.5rem))] rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-0 text-[var(--ls-t2)] shadow-2xl"
+        className="z-[80] w-[min(360px,calc(100vw-1.5rem))] overflow-hidden rounded-[14px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-0 text-[var(--ls-t2)] shadow-[var(--ls-sombra-3)]"
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <div className="max-h-[260px] overflow-y-auto p-1.5">
+        <div className="max-h-[min(300px,45dvh)] overflow-y-auto overscroll-contain p-1.5">
           {plantillas === null ? (
-            <p className="flex items-center gap-2 px-2 py-2 text-[12px] text-[var(--ls-t4)]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Cargando…
+            <p className="flex items-center gap-2 px-2.5 py-2.5 text-[12.5px] text-[var(--ls-t4)]" role="status">
+              <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Cargando…
             </p>
           ) : error ? (
-            <p className="px-2 py-2 text-[12px] leading-snug text-[var(--ls-e-ambar)]">{error}</p>
+            <p className="px-2.5 py-2.5 text-[12.5px] leading-snug text-[var(--ls-e-ambar)]">{error}</p>
           ) : plantillas.length === 0 ? (
-            <p className="px-2 py-2 text-[12px] leading-snug text-[var(--ls-t4)]">Todavía no hay ninguna. Escribe un mensaje y guárdalo abajo como plantilla.</p>
+            <p className="px-2.5 py-2.5 text-[12.5px] leading-snug text-[var(--ls-t3)]">Todavía no hay ninguna. Escribe un mensaje y guárdalo abajo como plantilla.</p>
           ) : (
             <>
               {mias.length > 0 && (
                 <>
-                  <p className="px-2 pb-0.5 pt-1 text-[10.5px] font-semibold text-[var(--ls-t4)]">Mis plantillas</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t3)]">Mis plantillas</p>
                   <ul>{mias.map(fila)}</ul>
                 </>
               )}
               {delEquipo.length > 0 && (
                 <>
-                  <p className="px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold text-[var(--ls-t4)]">Del equipo</p>
+                  <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t3)]">Del equipo</p>
                   <ul>{delEquipo.map(fila)}</ul>
                 </>
               )}
@@ -172,8 +182,8 @@ export function SelectorDePlantillas({ yoId, esAdmin, actual, onAplicar, onInser
           )}
         </div>
 
-        <div className="space-y-2 border-t border-[var(--ls-linea)] p-2.5">
-          <p className="text-[11px] font-semibold text-[var(--ls-t3)]">Guardar lo escrito como plantilla</p>
+        <div className="space-y-2.5 border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-sup2)_45%,transparent)] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t3)]">Guardar lo escrito como plantilla</p>
           <div className="flex gap-1.5">
             <input
               value={nombre}
@@ -187,29 +197,33 @@ export function SelectorDePlantillas({ yoId, esAdmin, actual, onAplicar, onInser
               maxLength={80}
               placeholder="Nombre: «Apertura de canal»"
               aria-label="Nombre de la plantilla"
-              className={`${CAMPO} !h-8 !text-[12.5px]`}
+              className={CAMPO}
             />
-            <button type="button" onClick={() => void guardar()} disabled={guardando || !nombre.trim()} className={`${BOTON_SECUNDARIO} !px-2.5`}>
-              {guardando ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plus className="h-3.5 w-3.5" aria-hidden />} Guardar
-            </button>
+            <Boton variante="secundario" icono={Plus} cargando={guardando} onClick={() => void guardar()} disabled={!nombre.trim()} className="h-11 lg:h-9">
+              Guardar
+            </Boton>
           </div>
           {esAdmin && (
-            <label className="flex w-fit cursor-pointer select-none items-center gap-1.5 text-[11.5px] text-[var(--ls-t3)]">
-              <input type="checkbox" checked={paraElEquipo} onChange={(e) => setParaElEquipo(e.target.checked)} className="h-3 w-3 accent-[var(--ls-acc-graf)]" />
+            <label className={cn('flex w-fit cursor-pointer select-none items-center gap-2 text-[12.5px] text-[var(--ls-t2)]', TACTIL)}>
+              <input type="checkbox" checked={paraElEquipo} onChange={(e) => setParaElEquipo(e.target.checked)} className="h-4 w-4 accent-[var(--ls-acc-graf)]" />
               Para todo el equipo
               {paraElEquipo && <Check className="h-3 w-3 text-[var(--ls-acc)]" aria-hidden />}
             </label>
           )}
           <div className="space-y-1">
-            <p className="text-[11px] leading-snug text-[var(--ls-t4)]">Campos que se rellenan solos. Pulsa uno para escribirlo donde está el cursor:</p>
-            <div className="flex flex-wrap gap-1">
+            <p className="text-[11.5px] leading-snug text-[var(--ls-t3)]">Campos que se rellenan solos. Pulsa uno para escribirlo donde está el cursor:</p>
+            <div className="flex flex-wrap gap-1.5">
               {CAMPOS_DE_PLANTILLA.map((c) => (
                 <button
                   key={c.clave}
                   type="button"
                   onClick={() => onInsertarCampo(c.etiqueta)}
                   title={c.ayuda}
-                  className="rounded-[5px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-acc-graf)] hover:text-[var(--ls-t1)]"
+                  className={cn(
+                    'inline-flex items-center rounded-full border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2.5 py-1 font-mono text-[11.5px] text-[var(--ls-t2)] transition-colors hover:border-[var(--ls-acc-graf)] hover:text-[var(--ls-t1)]',
+                    TACTIL,
+                    FOCO,
+                  )}
                 >
                   {c.etiqueta}
                 </button>

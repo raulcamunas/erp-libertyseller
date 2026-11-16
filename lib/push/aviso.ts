@@ -36,6 +36,12 @@ export function urlDeAviso(a: Pick<AvisoParaPush, 'type' | 'datos' | 'related_cl
   if (a.type === 'web_lead') return '/dashboard/web-leads'
   if (a.type === 'freno_stock' || a.type === 'fallo_stock') return '/dashboard/amazon-api'
   if (a.type === 'alarma_correo' || a.type === 'correo_nuevo' || a.type === 'respuesta_lead') return '/dashboard/correo'
+  // «Te han encargado esta conversación» / «te han asignado este buzón»: a la conversación si se sabe cuál; si no, a Correo (como la campana)
+  if (a.type === 'correo_asignado') {
+    const { buzonId, hiloId } = (a.datos ?? {}) as { buzonId?: unknown; hiloId?: unknown }
+    const esId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+    return esId(buzonId) && esId(hiloId) ? `/dashboard/correo?buzon=${buzonId.toLowerCase()}&hilo=${hiloId.toLowerCase()}` : '/dashboard/correo'
+  }
   if (a.type === 'fba_alerta' || a.type === 'fba_resumen') return '/dashboard/remesas/alertas'
   if (a.type === 'factura_impagada') {
     const id = (d as { facturaId?: unknown } | null)?.facturaId

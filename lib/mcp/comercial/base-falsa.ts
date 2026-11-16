@@ -5,7 +5,7 @@ import type { Servicio } from '../contexto'
  * No se importa desde la aplicación: solo desde los `.prueba.ts` de esta carpeta.
  *
  * Imita la parte del cliente de Supabase que usan estas herramientas (solo lectura): from/select (con count y head)/eq/neq/gt/gte/lt/lte/in/is/not/ilike/or/
- * order/range/limit/maybeSingle/single y rpc; y, para probar lo que escribe poco (los lectores de correo), insert (con claves únicas) y delete. Es ESTRICTA en lo que pilla errores de verdad: `select('a, b')` devuelve SOLO esas columnas (como PostgREST), así que
+ * order/range/limit/maybeSingle/single y rpc; y, para probar lo que escribe poco (lectores y asignaciones de correo), insert (con claves únicas), update, upsert (con onConflict) y delete. Es ESTRICTA en lo que pilla errores de verdad: `select('a, b')` devuelve SOLO esas columnas (como PostgREST), así que
  * un campo que se lee sin pedirlo sale `undefined` en la prueba; y con `columnas` por tabla, una columna que no existe da el 42703 que daría la base.
  *
  * Lo que NO imita: la semántica fina de Postgres (collation, husos horarios, índices). Eso se comprueba contra la base real, en solo lectura.
@@ -75,8 +75,10 @@ class Consulta implements PromiseLike<{ data: unknown; error: ErrorFalso | null;
   private contar = false
   private soloCabecera = false
   private modo: 'lista' | 'uno' | 'quizas' = 'lista'
-  private operacion: 'select' | 'insert' | 'delete' = 'select'
+  private operacion: 'select' | 'insert' | 'delete' | 'update' | 'upsert' = 'select'
   private nuevas: Fila[] = []
+  private cambios: Fila = {}
+  private conflicto: string[] = []
 
   constructor(
     private readonly tabla: string,
@@ -93,6 +95,17 @@ class Consulta implements PromiseLike<{ data: unknown; error: ErrorFalso | null;
   }
   delete(): this {
     this.operacion = 'delete'
+    return this
+  }
+  update(cambios: Fila): this {
+    this.operacion = 'update'
+    this.cambios = cambios
+    return this
+  }
+  upsert(valores: Fila | Fila[], opciones?: { onConflict?: string }): this {
+    this.operacion = 'upsert'
+    this.nuevas = Array.isArray(valores) ? valores : [valores]
+    this.conflicto = (opciones?.onConflict ?? 'id').split(',').map((c) => c.trim()).filter(Boolean)
     return this
   }
 
@@ -203,6 +216,18 @@ class Consulta implements PromiseLike<{ data: unknown; error: ErrorFalso | null;
       }
       return { data: null, error: null, count: null }
     }
+    if (this.operacion === 'update') {
+      for (const f of this.filas) if (this.filtros.every((x) => x.pred(f))) Object.assign(f, structuredClone(this.cambios))
+      return { data: null, error: null, count: null }
+    }
+    if (this.operacion === 'upsert') {
+      for (const nueva of this.nuevas) {
+        const previa = this.filas.find((f) => this.conflicto.every((c) => comparar(f[c], nueva[c]) === 0))
+        if (previa) Object.assign(previa, structuredClone(nueva))
+        else this.filas.push(structuredClone(nueva))
+      }
+      return { data: null, error: null, count: null }
+    }
     if (this.operacion === 'delete') {
       const quitar = this.filas.filter((f) => this.filtros.every((x) => x.pred(f)))
       for (const f of quitar) this.filas.splice(this.filas.indexOf(f), 1)
@@ -279,6 +304,14 @@ export function crearBaseFalsa(datos: Record<string, Fila[] | null>, opciones: O
       delete: () => {
         peticiones.push(`${tabla}.delete`)
         return new Consulta(tabla, tablas.has(tabla) ? tablas.get(tabla)! : null, opciones, errores).delete()
+      },
+      update: (cambios: Fila) => {
+        peticiones.push(`${tabla}.update`)
+        return new Consulta(tabla, tablas.has(tabla) ? tablas.get(tabla)! : null, opciones, errores).update(cambios)
+      },
+      upsert: (valores: Fila | Fila[], op?: { onConflict?: string }) => {
+        peticiones.push(`${tabla}.upsert`)
+        return new Consulta(tabla, tablas.has(tabla) ? tablas.get(tabla)! : null, opciones, errores).upsert(valores, op)
       },
     }),
     rpc: (nombre: string, args: Record<string, unknown> = {}) => {

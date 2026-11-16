@@ -11,8 +11,11 @@ import { createServiceClient } from '@/lib/supabase/service'
  * GET ?buzon=<id>&vista=todos|recibidos|enviados|destacados|pendientes&sinLeer=1&q=<texto>&antes=<fecha>&limite=<n>
  *
  * Su dueño la ve siempre; un administrador, un partner o quien supervisa el equipo comercial la ve según la regla de
- * lib/correo/acceso.ts, y cada vez que alguien mira un buzón ajeno queda una fila en correo_accesos. Si no se puede
- * dejar esa fila, no se enseña nada: se cierra en vez de abrir.
+ * lib/correo/acceso.ts (también quien lo tiene ASIGNADO), y cada vez que alguien mira un buzón ajeno queda una fila en correo_accesos. Si no se
+ * puede dejar esa fila, no se enseña nada: se cierra en vez de abrir.
+ *
+ * Cada fila es un HiloDeLista enriquecido: su `buzonId`, si quien mira la tiene `silenciado` (el hilo o su remitente) y `asignadoA` (la persona
+ * encargada). Eso va en consultas aparte y tolerantes (enriquecer-servidor.ts): sin la migración 318 la lista sale igual, sin silencios ni encargadas.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest) {
       await registrarAcceso(service, { userId: sesion.userId, nombre: await nombreDeLaSesion(service, sesion.userId) }, auth.buzon.id, busqueda ? 'busqueda' : 'lista')
     }
 
-    const lista = await listarHilos(service, auth.buzon.id, { vista, soloNoLeidos: p.get('sinLeer') === '1', busqueda, antes, limite })
+    const lista = await listarHilos(service, auth.buzon.id, { vista, soloNoLeidos: p.get('sinLeer') === '1', busqueda, antes, limite, userId: sesion.userId })
     return NextResponse.json(lista, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFallo('Correo · hilos: fallo', error)

@@ -70,6 +70,8 @@ export interface ContextoDeColocacion {
   uid: number | null
   leido: boolean
   tamano: number | null
+  /** Quién del ERP lo envía desde un buzón que no es suyo. Solo lo pone el envío; la lectura normal nunca */
+  autor?: { id: string; nombre: string }
 }
 
 export interface ResultadoDeColocar {
@@ -105,6 +107,7 @@ export function filaDeMensaje(ctx: ContextoDeColocacion, hiloId: string, m: Mens
     leido: ctx.leido,
     adjuntos: m.adjuntos,
     tamano: ctx.tamano,
+    ...(ctx.autor ? { enviado_por: ctx.autor.id, enviado_por_nombre: ctx.autor.nombre.slice(0, 200) } : {}),
   }
 }
 

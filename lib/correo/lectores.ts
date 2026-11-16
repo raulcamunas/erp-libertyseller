@@ -21,6 +21,11 @@ import { UUID, decidirAcceso, type QuienPide } from './acceso'
  * por dónde lo vería SIN el bloqueo (para saber qué pasa el día que se lo quiten) y `bloqueado` dice si hoy lo tiene cerrado.
  *
  * Es solo LECTURA y cada vez que alguien mira un buzón que no es suyo queda anotado: abrirlo no da permiso para escribir desde él, ni para desconectarlo.
+ *
+ * Y desde la migración 318, UNA QUINTA VÍA: ASIGNADO. Un administrador asigna un buzón a una persona para que lo trabaje (pestaña «Asignaciones»): lo lee, le avisa y,
+ * si la asignación lo dice, envía desde él. Aquí se ve (`asignado`, y `via: 'asignado'` cuando es lo único que se lo abre) pero NO se quita desde la matriz: un «quitar»
+ * sobre una celda cuya única vía es la asignación se rechaza con «Quítalo en Asignaciones». Bloquear sí se puede: el servidor quita antes la asignación (y lo anota como
+ * «desasignado»). Asignación y bloqueo no conviven.
  */
 
 export interface PersonaDeLaMatriz {
@@ -59,7 +64,16 @@ export interface Concesion {
   desde: string
 }
 
-export type ViaDeAcceso = 'suyo' | 'permiso' | 'concedido' | 'nada'
+/** Por dónde lo lee, de más a menos: suyo, un permiso de supervisión, abierto a mano, asignado por un administrador (318), o nada */
+export type ViaDeAcceso = 'suyo' | 'permiso' | 'concedido' | 'asignado' | 'nada'
+
+/** Un buzón que un administrador ha asignado a una persona (tabla correo_buzon_asignaciones, migración 318) */
+export interface AsignacionDeLaMatriz {
+  buzonId: string
+  personaId: string
+  /** Además de leer, puede responder y enviar desde él */
+  puedeResponder: boolean
+}
 
 /** Un buzón que un administrador le ha bloqueado a una persona (tabla correo_buzon_bloqueos, migración 260) */
 export interface Bloqueo {
@@ -78,6 +92,13 @@ export interface CeldaDeAcceso {
   concedido: boolean
   /** Un administrador le ha bloqueado este buzón: hoy NO lo lee, sea cual sea `via` */
   bloqueado: boolean
+  /**
+   * Un administrador se lo ha ASIGNADO (migración 318). Opcional para no romper a quien arma celdas a mano: ausente = no.
+   * Si es lo único que se lo abre, `via` es 'asignado' y «No ve» no se ofrece (se quita en Asignaciones).
+   */
+  asignado?: boolean
+  /** Con la asignación, si además puede responder y enviar */
+  puedeResponder?: boolean
 }
 
 export interface FilaDeLaMatriz {
@@ -95,14 +116,35 @@ export interface Matriz {
   filas: FilaDeLaMatriz[]
 }
 
-export function celdaDe(persona: PersonaDeLaMatriz, buzon: BuzonDeLaMatriz, concedido: boolean, bloqueado = false): CeldaDeAcceso {
-  // El suyo no se bloquea: el dueño siempre lee el suyo
-  if (buzon.dueno.id === persona.id) return { via: 'suyo', concedido: false, bloqueado: false }
-  // ¿Lo abre ya un permiso de supervisión? Se pregunta a la regla de verdad, SIN contar lo abierto a mano, para no repetirla aquí
+export function celdaDe(
+  persona: PersonaDeLaMatriz,
+  buzon: BuzonDeLaMatriz,
+  concedido: boolean,
+  bloqueado = false,
+  asignacion: { puedeResponder: boolean } | null = null,
+): CeldaDeAcceso {
+  // El suyo no se bloquea ni se asigna: el dueño siempre lee el suyo
+  if (buzon.dueno.id === persona.id) return { via: 'suyo', concedido: false, bloqueado: false, asignado: false, puedeResponder: false }
+  const asignado = asignacion !== null
+  const extra = { asignado, puedeResponder: asignado && asignacion.puedeResponder }
+  // ¿Lo abre ya un permiso de supervisión? Se pregunta a la regla de verdad, SIN contar lo abierto a mano ni lo asignado, para no repetirla aquí
   const quien: QuienPide = { userId: persona.id, role: persona.role, tienePermisoEquipo: persona.permisoEquipo, tienePermisoCorreo: persona.permisoCorreo }
   const porPermiso = decidirAcceso(quien, { user_id: buzon.dueno.id, id: buzon.id }, { is_comercial: buzon.dueno.esComercial, role: buzon.dueno.role }, 'leer').ok
-  if (porPermiso) return { via: 'permiso', concedido, bloqueado }
-  return { via: concedido ? 'concedido' : 'nada', concedido, bloqueado }
+  if (porPermiso) return { via: 'permiso', concedido, bloqueado, ...extra }
+  return { via: concedido ? 'concedido' : asignado ? 'asignado' : 'nada', concedido, bloqueado, ...extra }
+}
+
+/** Lo que se le dice a quien intenta quitar desde la matriz una lectura que solo da una asignación */
+export const QUITALO_EN_ASIGNACIONES = 'Quítalo en Asignaciones.'
+
+/**
+ * ¿Algún «quitar» (`leer: false`) de la petición cae sobre un buzón que esa persona solo lee porque lo tiene ASIGNADO? Entonces la petición se rechaza
+ * (400 «Quítalo en Asignaciones»): una asignación no se quita desde la matriz. Si además lo tiene abierto a mano, quitar cierra lo abierto a mano y vale.
+ * Devuelve el primer buzón que choca, o null.
+ */
+export function quitarChocaConAsignacion(cambios: readonly CambioDeLector[], asignados: ReadonlySet<string>, concedidos: ReadonlySet<string>): string | null {
+  for (const c of cambios) if (c.leer === false && asignados.has(c.buzonId) && !concedidos.has(c.buzonId)) return c.buzonId
+  return null
 }
 
 /**
@@ -110,11 +152,19 @@ export function celdaDe(persona: PersonaDeLaMatriz, buzon: BuzonDeLaMatriz, conc
  * supervisión aunque haya perdido la casilla (para poder ver y quitar lo que le queda). Un administrador no sale (lee todo y no hay nada que decidir) ni un partner o un cliente
  * (no entran al correo del ERP). Por nombre.
  */
-export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; buzones: readonly BuzonDeLaMatriz[]; concesiones: readonly Concesion[]; bloqueos?: readonly Bloqueo[] }): Matriz {
+export function armarMatriz(entrada: {
+  personas: readonly PersonaDeLaMatriz[]
+  buzones: readonly BuzonDeLaMatriz[]
+  concesiones: readonly Concesion[]
+  bloqueos?: readonly Bloqueo[]
+  /** Migración 318. Sin ella, ninguna */
+  asignaciones?: readonly AsignacionDeLaMatriz[]
+}): Matriz {
   const abiertos = new Set(entrada.concesiones.map((c) => `${c.lectorId}|${c.buzonId}`))
   const cerrados = new Set((entrada.bloqueos ?? []).map((b) => `${b.lectorId}|${b.buzonId}`))
-  // Quien tiene algo abierto o bloqueado sale aunque haya perdido la casilla de Correo: para poder ver y quitar lo que le queda
-  const conAlgo = new Set([...entrada.concesiones.map((c) => c.lectorId), ...(entrada.bloqueos ?? []).map((b) => b.lectorId)])
+  const asignadas = new Map((entrada.asignaciones ?? []).map((a) => [`${a.personaId}|${a.buzonId}`, { puedeResponder: a.puedeResponder }]))
+  // Quien tiene algo abierto, bloqueado o asignado sale aunque haya perdido la casilla de Correo: para poder ver y quitar lo que le queda
+  const conAlgo = new Set([...entrada.concesiones.map((c) => c.lectorId), ...(entrada.bloqueos ?? []).map((b) => b.lectorId), ...(entrada.asignaciones ?? []).map((a) => a.personaId)])
   const buzones = [...entrada.buzones].sort((a, b) => a.dueno.nombre.localeCompare(b.dueno.nombre, 'es') || a.direccion.localeCompare(b.direccion, 'es'))
 
   const filas = entrada.personas
@@ -124,10 +174,11 @@ export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; b
       let leidos = 0
       let bloqueados = 0
       for (const b of buzones) {
-        const c = celdaDe(persona, b, abiertos.has(`${persona.id}|${b.id}`), cerrados.has(`${persona.id}|${b.id}`))
+        const clave = `${persona.id}|${b.id}`
+        const c = celdaDe(persona, b, abiertos.has(clave), cerrados.has(clave), asignadas.get(clave) ?? null)
         celdas[b.id] = c
         if (c.bloqueado) bloqueados += 1
-        else if (c.via === 'permiso' || c.via === 'concedido') leidos += 1
+        else if (c.via === 'permiso' || c.via === 'concedido' || c.via === 'asignado') leidos += 1
       }
       return { persona, celdas, leidos, bloqueados }
     })
@@ -137,12 +188,20 @@ export function armarMatriz(entrada: { personas: readonly PersonaDeLaMatriz[]; b
 }
 
 /** Un cambio ya hecho, para la lista de «últimos cambios» de la pantalla */
+export type AccionDelHistorial = 'concedido' | 'quitado' | 'bloqueado' | 'desbloqueado' | 'asignado' | 'desasignado' | 'responde' | 'solo_avisos'
+
+/**
+ * Un cambio ya hecho, para la lista de «últimos cambios» de la pantalla. Desde la migración 318 el historial cuenta también las asignaciones: 'asignado',
+ * 'desasignado', 'responde' (ahora puede responder) y 'solo_avisos' (ya no puede responder, solo lee y le avisa).
+ */
 export interface CambioReciente {
-  accion: 'concedido' | 'quitado' | 'bloqueado' | 'desbloqueado'
+  accion: AccionDelHistorial
   buzon: string
   lector: string
   porQuien: string
   cuando: string
+  /** Lo que cambió, en una palabra o una frase corta (columna `detalle` de la 318). null sin la migración o si no hay nada que añadir */
+  detalle: string | null
 }
 
 /** Lo que contesta la ruta /api/correo/lectores y pinta la pantalla */
@@ -155,6 +214,10 @@ export interface DatosDeLaMatriz {
   bloqueosDisponibles: boolean
   /** Los últimos cambios, del más nuevo al más viejo */
   recientes: CambioReciente[]
+  /** Los buzones asignados (migración 318). Vacío sin ella (ver `asignacionesDisponibles`) */
+  asignaciones?: AsignacionDeLaMatriz[]
+  /** false = falta lanzar la migración 318 */
+  asignacionesDisponibles?: boolean
 }
 
 /* ------------------------------------------------------------------ */
@@ -259,13 +322,14 @@ export const esDeComercial = (b: BuzonDeLaMatriz): boolean => b.dueno.esComercia
 const delGrupo = (b: BuzonDeLaMatriz, grupo: GrupoDeBuzones): boolean => (grupo === 'administrativos' ? esDeAdministrativo(b) : esDeComercial(b))
 
 /**
- * Los buzones de un grupo que se le pueden BLOQUEAR a esta persona desde su fila: no el suyo, solo los que hoy lee de verdad (por un permiso o abiertos a mano: bloquear uno que
- * no lee no cambia nada) y que aún no tiene bloqueados.
+ * Los buzones de un grupo que se le pueden BLOQUEAR a esta persona desde su fila: no el suyo, solo los que hoy lee de verdad por un permiso o abiertos a mano (bloquear uno que
+ * no lee no cambia nada) y que aún no tiene bloqueados. Los que solo lee por una ASIGNACIÓN no entran: un atajo de golpe no quita asignaciones (eso se hace a propósito, celda a celda
+ * o en Asignaciones), ni siquiera si además lo lee por un permiso. Sin asignaciones, la misma lógica de antes de la 318.
  */
 export function paraBloquear(fila: FilaDeLaMatriz, buzones: readonly BuzonDeLaMatriz[], grupo: GrupoDeBuzones): BuzonDeLaMatriz[] {
   return buzones.filter((b) => {
     const c = fila.celdas[b.id]
-    return !!c && delGrupo(b, grupo) && c.via !== 'suyo' && !c.bloqueado && (c.via === 'permiso' || c.via === 'concedido')
+    return !!c && delGrupo(b, grupo) && c.via !== 'suyo' && !c.bloqueado && c.asignado !== true && (c.via === 'permiso' || c.via === 'concedido')
   })
 }
 

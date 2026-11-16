@@ -22,6 +22,15 @@ const buzon = (id: string, extra: Partial<BuzonVisible> = {}): BuzonVisible => (
   desdeFecha: '2026-08-01T00:00:00Z',
   firma: null,
   resumen: { hilos: 0, hilosSinLeer: 0, sinLeer: 0, esperandoRespuesta: 0, ultimoMensajeAt: null },
+  // Los de la migración 318: por defecto, el buzón propio de siempre (responde, en «Mis correos», sin silenciar ni asignar)
+  puedeResponder: extra.esMio ?? true,
+  asignado: false,
+  enMisCorreos: extra.esMio ?? true,
+  orden: null,
+  silenciado: false,
+  silenciadoHasta: null,
+  asignaciones: [],
+  hilosSinLeerMios: 0,
   ...extra,
 })
 
@@ -34,6 +43,10 @@ console.log('\n=== elegirMiBuzon ===')
   ok('quien supervisa ve los de otros pero NUNCA escribe desde ellos', ajenos.tipo === 'sin-buzon')
   const mezcla = elegirMiBuzon([buzon('luis', { esMio: false }), buzon('ana'), buzon('eva', { esMio: false })])
   ok('entre los de otros, elige el propio', mezcla.tipo === 'listo' && mezcla.buzon.id === 'ana')
+  const asignado = elegirMiBuzon([buzon('daniela', { esMio: false, asignado: true, puedeResponder: true, enMisCorreos: true })])
+  ok('uno ASIGNADO con respuesta tampoco: Cold Calling, Keepa y Cuentas solo salen del propio', asignado.tipo === 'sin-buzon')
+  const asignadoYPropio = elegirMiBuzon([buzon('daniela', { esMio: false, asignado: true, puedeResponder: true }), buzon('ana')])
+  ok('con uno asignado y el propio, elige el propio', asignadoYPropio.tipo === 'listo' && asignadoYPropio.buzon.id === 'ana')
   const sinConectar = elegirMiBuzon([buzon('ana', { conectado: false })])
   ok('uno propio sin contraseña guardada: sin-buzon', sinConectar.tipo === 'sin-buzon')
   const roto = elegirMiBuzon([buzon('ana', { credencialesInvalidas: true })])

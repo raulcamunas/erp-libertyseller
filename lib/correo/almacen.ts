@@ -83,6 +83,49 @@ export interface FilaDeMensaje {
   leido: boolean
   adjuntos: AdjuntoFicha[]
   tamano: number | null
+  /** Quién del ERP lo envió desde un buzón que no es suyo (migración 318). Solo en ese caso; la lectura nunca lo pone */
+  enviado_por?: string
+  /** Su nombre en ese momento, para el rastro aunque luego cambie o se borre el perfil (migración 318) */
+  enviado_por_nombre?: string
+}
+
+/** Las dos columnas de la migración 318 que puede llevar una fila de mensaje */
+export const COLUMNAS_DE_AUTOR = ['enviado_por', 'enviado_por_nombre'] as const
+
+/** true si la fila trae alguno de los campos de autor */
+export function traeAutor(fila: FilaDeMensaje): boolean {
+  return COLUMNAS_DE_AUTOR.some((c) => fila[c] !== undefined)
+}
+
+/** La misma fila sin los campos de autor (para guardarla en una base sin la migración 318) */
+export function sinAutor(fila: FilaDeMensaje): FilaDeMensaje {
+  const copia = { ...fila }
+  for (const c of COLUMNAS_DE_AUTOR) delete copia[c]
+  return copia
+}
+
+/**
+ * true si el error dice que falta una columna: 42703 (Postgres, «column does not exist») o PGRST204 (PostgREST, «no
+ * encuentra la columna en la caché del esquema»). Mira el error y su `cause`, porque el almacén envuelve los errores.
+ */
+export function esFaltaDeColumna(error: unknown): boolean {
+  const codigo = (e: unknown) => (e && typeof e === 'object' ? (e as { code?: unknown }).code : undefined)
+  const c = codigo(error) ?? codigo(error instanceof Error ? error.cause : undefined)
+  return c === '42703' || c === 'PGRST204'
+}
+
+/**
+ * Inserta una fila de mensaje con `insertar` y, si la base aún no tiene las columnas de autor (sin la 318) y la fila
+ * las traía, lo reintenta UNA vez sin ellas: el correo ya ha salido y no puede quedarse sin guardar por el rastro.
+ * Cualquier otro error se lanza tal cual. La usan el almacén de verdad y la base falsa de las pruebas.
+ */
+export async function insertarTolerandoSinAutor<T>(fila: FilaDeMensaje, insertar: (f: FilaDeMensaje) => Promise<T>): Promise<T> {
+  try {
+    return await insertar(fila)
+  } catch (error) {
+    if (!traeAutor(fila) || !esFaltaDeColumna(error)) throw error
+    return insertar(sinAutor(fila))
+  }
 }
 
 export type CambiosDeBuzon = Partial<Pick<FilaDeBuzon, 'ultimo_sync_at' | 'ultimo_intento_at' | 'ultimo_error' | 'fallos_seguidos' | 'credenciales_invalidas' | 'historico_completo'>>
@@ -266,12 +309,14 @@ export function almacenSupabase(service: Servicio): Almacen {
     },
 
     async insertarMensaje(fila) {
-      const { data, error } = await service
-        .from('correo_mensajes')
-        .upsert(fila, { onConflict: 'carpeta_id,uid', ignoreDuplicates: true })
-        .select('id')
-      if (error) throw fallo('No se ha podido guardar el mensaje.', error)
-      return (data ?? []).length > 0
+      return insertarTolerandoSinAutor(fila, async (f) => {
+        const { data, error } = await service
+          .from('correo_mensajes')
+          .upsert(f, { onConflict: 'carpeta_id,uid', ignoreDuplicates: true })
+          .select('id')
+        if (error) throw fallo('No se ha podido guardar el mensaje.', error)
+        return (data ?? []).length > 0
+      })
     },
 
     async noLeidosDeCarpeta(carpetaId, limite) {

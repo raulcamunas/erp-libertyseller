@@ -1,6 +1,8 @@
 import type { AvisoDeCorreo } from '@/lib/correo/avisos'
 import {
   avisoDeAccionDeOtro,
+  avisoDeAsignacionDeBuzon,
+  avisoDeAsignacionDeHilo,
   avisoDeCorreoNuevo,
   avisoDeEnvioFallido,
   avisoDeReboteDeSecuencia,
@@ -51,7 +53,7 @@ function main() {
   {
     const r = { ...correo, id: '00000000-0000-4000-8000-0000000000f2', de: 'Mail Delivery Subsystem', asunto: 'Delivery Status Notification (Failure)', rebote: true }
     const a = avisoDeCorreoNuevo(U, r, { direccion: 'hola@tienda.es', motivo: 'inexistente' })
-    ok('es un aviso de rebote con la dirección y por qué', a.tipo === 'correo_rebote' && a.titulo === 'Un correo no se ha entregado' && a.mensaje === 'El correo a hola@tienda.es ha rebotado: esa dirección no existe o no admite correo. Busca otra dirección.', a.mensaje)
+    ok('es un aviso de rebote con la dirección y por qué', a.tipo === 'correo_rebote' && a.titulo === 'Un correo tuyo no se ha entregado' && a.mensaje === 'El correo a hola@tienda.es ha rebotado: esa dirección no existe o no admite correo. Busca otra dirección.', a.mensaje)
     ok('lleva la dirección en los datos, y a su conversación', a.datos.direccion === 'hola@tienda.es' && a.datos.hiloId === HILO && a.clave === `msg:${r.id}`)
     const politica = avisoDeCorreoNuevo(U, r, { direccion: 'hola@tienda.es', motivo: 'rechazo_de_politica' })
     ok('un rechazo por política no dice que la dirección esté mal', politica.mensaje.includes('spam o política') && !politica.mensaje.includes('Busca otra'), politica.mensaje)
@@ -59,6 +61,21 @@ function main() {
     ok('un fallo pasajero lo cuenta como tal', pasajero.mensaje.includes('lleno') && !pasajero.mensaje.includes('Busca otra'), pasajero.mensaje)
     const sinDireccion = avisoDeCorreoNuevo(U, r, null)
     ok('si no se sabe a quién iba, lo dice sin inventar', sinDireccion.mensaje.startsWith('Un correo tuyo ha rebotado') && sinDireccion.datos.direccion === undefined && !('direccion' in sinDireccion.datos), JSON.stringify(sinDireccion))
+    const alQueEnvio = avisoDeCorreoNuevo('00000000-0000-4000-8000-0000000000a2', r, { direccion: 'hola@tienda.es', motivo: 'inexistente' }, { enviadoDesde: 'daniela@libertyseller.es' })
+    ok('a quien envió desde un buzón ajeno: «Un correo que enviaste desde <dirección> no se ha entregado», con la misma clave y a su conversación', alQueEnvio.titulo === 'Un correo que enviaste desde daniela@libertyseller.es no se ha entregado' && alQueEnvio.tipo === 'correo_rebote' && alQueEnvio.clave === `msg:${r.id}` && alQueEnvio.mensaje.startsWith('El correo a hola@tienda.es ha rebotado') && alQueEnvio.datos.hiloId === HILO, `${alQueEnvio.titulo} | ${alQueEnvio.mensaje}`)
+    const alQueEnvioSinDir = avisoDeCorreoNuevo('00000000-0000-4000-8000-0000000000a2', r, null, { enviadoDesde: 'daniela@libertyseller.es' })
+    ok('y si no se sabe a quién iba, no le dice «tuyo» a quien no es el dueño', alQueEnvioSinDir.mensaje.startsWith('El correo ha rebotado') && !alQueEnvioSinDir.mensaje.includes('tuyo'), alQueEnvioSinDir.mensaje)
+    const sinContenidoNoAfecta = avisoDeCorreoNuevo(U, r, null, { sinContenidoEn: 'x@l.es' })
+    ok('un rebote nunca pasa a «sin contenido»: sigue siendo un rebote', sinContenidoNoAfecta.tipo === 'correo_rebote')
+  }
+
+  console.log('\n=== un correo nuevo SIN contenido (quien solo sigue el buzón, o el rastro no se pudo escribir) ===')
+  {
+    const a = avisoDeCorreoNuevo(U, correo, null, { sinContenidoEn: 'jose@libertyseller.es' })
+    ok('dice «Correo nuevo en <dirección>», sin remitente', a.titulo === 'Correo nuevo en jose@libertyseller.es' && !a.titulo.includes('Marta'), a.titulo)
+    ok('ni asunto ni vista previa en el texto', !a.mensaje.includes('Propuesta') && !a.mensaje.includes('jueves') && a.mensaje.length > 0, a.mensaje)
+    ok('la misma clave del correo y lleva a su conversación (el contenido, al abrirla)', a.clave === `msg:${MSG}` && a.tipo === 'correo_nuevo' && JSON.stringify(a.datos) === JSON.stringify({ buzonId: BUZON, hiloId: HILO, mensajeId: MSG }))
+    ok('sin dirección (vacía) cae al aviso normal', avisoDeCorreoNuevo(U, correo, null, { sinContenidoEn: '  ' }).titulo === 'Correo nuevo de Marta López')
   }
 
   console.log('\n=== lo que pasa con un seguimiento ===')
@@ -111,6 +128,43 @@ function main() {
     ok('un lead sin secuencia también tiene aviso', sinInscripcion?.datos.inscripcionId === undefined && !('inscripcionId' in (sinInscripcion?.datos ?? {})))
   }
 
+  console.log('\n=== te han encargado una conversación (correo_asignado, motivo hilo) ===')
+  {
+    const PATRICIA = '00000000-0000-4000-8000-0000000000a3'
+    const RAUL = '00000000-0000-4000-8000-0000000000a4'
+    const cuando = '2026-11-16T10:00:00.000Z'
+    const a = avisoDeAsignacionDeHilo({ userId: PATRICIA, buzonId: BUZON, hiloId: HILO, porId: RAUL, porNombre: 'Raúl', asunto: 'Presupuesto Q4', nota: 'Contéstale hoy', asignadoAt: cuando })!
+    ok('tipo correo_asignado para la encargada, con quién y qué', a.tipo === 'correo_asignado' && a.userId === PATRICIA && a.titulo === 'Raúl te ha encargado una conversación' && a.mensaje === 'Presupuesto Q4 — «Contéstale hoy»', `${a.titulo} | ${a.mensaje}`)
+    ok('clave asig:hilo:<hilo>:<epoch>', a.clave === `asig:hilo:${HILO}:${Date.parse(cuando)}`, a.clave)
+    ok('los datos: buzón, hilo, quién y por qué', JSON.stringify(a.datos) === JSON.stringify({ buzonId: BUZON, hiloId: HILO, porId: RAUL, porNombre: 'Raúl', motivo: 'hilo' }), JSON.stringify(a.datos))
+    ok('lleva a la conversación', JSON.stringify(destinoDeAvisoDeCorreo(a.tipo, a.datos)) === JSON.stringify({ tipo: 'hilo', buzonId: BUZON, hiloId: HILO }))
+    const otraVez = avisoDeAsignacionDeHilo({ userId: PATRICIA, buzonId: BUZON, hiloId: HILO, porId: RAUL, porNombre: 'Raúl', asignadoAt: '2026-11-16T11:00:00.000Z' })!
+    ok('quitar y volver a asignar es otra clave (vuelve a avisar)', otraVez.clave !== a.clave && otraVez.mensaje === '(sin asunto)')
+    ok('no se avisa a quien se la encarga a sí misma', avisoDeAsignacionDeHilo({ userId: RAUL, buzonId: BUZON, hiloId: HILO, porId: RAUL, porNombre: 'Raúl', asignadoAt: cuando }) === null)
+  }
+
+  console.log('\n=== te han asignado un buzón / han asignado tu buzón (correo_asignado, motivo buzon y buzon_dueno) ===')
+  {
+    const PATRICIA = '00000000-0000-4000-8000-0000000000a3'
+    const RAUL = '00000000-0000-4000-8000-0000000000a4'
+    const DANIELA = '00000000-0000-4000-8000-0000000000a5'
+    const cuando = '2026-11-16T10:00:00.000Z'
+    const base = { buzonId: BUZON, direccion: 'daniela@libertyseller.es', duenoId: DANIELA, personaId: PATRICIA, personaNombre: 'Patricia', porId: RAUL, porNombre: 'Raúl', puedeResponder: true, asignadoAt: cuando }
+    const persona = avisoDeAsignacionDeBuzon({ ...base, para: 'persona' })!
+    ok('a la persona: «Raúl te ha asignado daniela@… (puedes responder)»', persona.userId === PATRICIA && persona.tipo === 'correo_asignado' && persona.titulo === 'Raúl te ha asignado daniela@libertyseller.es (puedes responder)', persona.titulo)
+    ok('su clave asig:buzon:<buzón>:<persona>:<epoch> y motivo buzon', persona.clave === `asig:buzon:${BUZON}:${PATRICIA}:${Date.parse(cuando)}` && persona.datos.motivo === 'buzon' && persona.datos.porId === RAUL && persona.datos.porNombre === 'Raúl' && persona.datos.buzonId === BUZON && !('hiloId' in persona.datos), JSON.stringify(persona))
+    ok('sin hilo, lleva a Correo', destinoDeAvisoDeCorreo(persona.tipo, persona.datos)?.tipo === 'correo')
+    const dueno = avisoDeAsignacionDeBuzon({ ...base, para: 'dueno' })!
+    ok('al dueño: «Raúl ha dado a Patricia acceso para responder desde tu buzón»', dueno.userId === DANIELA && dueno.titulo === 'Raúl ha dado a Patricia acceso para responder desde tu buzón' && dueno.datos.motivo === 'buzon_dueno', dueno.titulo)
+    ok('la clave del dueño es la misma con :dueno (dos avisos distintos)', dueno.clave === `${persona.clave}:dueno`)
+    const soloAvisos = avisoDeAsignacionDeBuzon({ ...base, para: 'persona', puedeResponder: false })!
+    ok('sin respuesta no dice «puedes responder»', !soloAvisos.titulo.includes('responder') && soloAvisos.mensaje.includes('Solo lectura'), soloAvisos.titulo)
+    ok('al dueño, sin respuesta, solo «acceso a tu buzón»', avisoDeAsignacionDeBuzon({ ...base, para: 'dueno', puedeResponder: false })!.titulo === 'Raúl ha dado a Patricia acceso a tu buzón')
+    ok('un administrador que se lo asigna a sí mismo no se avisa a sí mismo', avisoDeAsignacionDeBuzon({ ...base, personaId: RAUL, personaNombre: 'Raúl', para: 'persona' }) === null)
+    ok('pero al dueño sí le llega que Raúl se lo ha asignado', avisoDeAsignacionDeBuzon({ ...base, personaId: RAUL, personaNombre: 'Raúl', para: 'dueno' })?.userId === DANIELA)
+    ok('si quien asigna es el dueño, no se avisa a sí mismo', avisoDeAsignacionDeBuzon({ ...base, porId: DANIELA, para: 'dueno' }) === null)
+  }
+
   console.log('\n=== no repetir ===')
   {
     const a = avisoDeCorreoNuevo(U, correo)
@@ -122,7 +176,7 @@ function main() {
 
   console.log('\n=== los tipos y a dónde llevan ===')
   {
-    ok('hay cinco tipos y se reconocen', TIPOS_DE_AVISO_DE_CORREO.length === 5 && TIPOS_DE_AVISO_DE_CORREO.every(esTipoDeAvisoDeCorreo) && !esTipoDeAvisoDeCorreo('web_lead') && !esTipoDeAvisoDeCorreo(null))
+    ok('hay seis tipos (con correo_asignado) y se reconocen', TIPOS_DE_AVISO_DE_CORREO.length === 6 && esTipoDeAvisoDeCorreo('correo_asignado') && TIPOS_DE_AVISO_DE_CORREO.every(esTipoDeAvisoDeCorreo) && !esTipoDeAvisoDeCorreo('web_lead') && !esTipoDeAvisoDeCorreo(null))
     ok('un correo nuevo lleva a su conversación', JSON.stringify(destinoDeAvisoDeCorreo('correo_nuevo', { buzonId: BUZON, hiloId: HILO })) === JSON.stringify({ tipo: 'hilo', buzonId: BUZON, hiloId: HILO }))
     ok('una respuesta de un lead también', destinoDeAvisoDeCorreo('respuesta_lead', { buzonId: BUZON, hiloId: HILO, inscripcionId: INSC })?.tipo === 'hilo')
     ok('un seguimiento pausado o parado lleva a su secuencia', JSON.stringify(destinoDeAvisoDeCorreo('secuencia_pausada', { buzonId: BUZON, inscripcionId: INSC })) === JSON.stringify({ tipo: 'secuencia', inscripcionId: INSC }) && destinoDeAvisoDeCorreo('secuencia_parada', { buzonId: BUZON, hiloId: HILO, inscripcionId: INSC })?.tipo === 'secuencia')
@@ -130,6 +184,7 @@ function main() {
     ok('sin datos lleva a Correo', destinoDeAvisoDeCorreo('correo_nuevo', null)?.tipo === 'correo' && destinoDeAvisoDeCorreo('correo_nuevo', {})?.tipo === 'correo' && destinoDeAvisoDeCorreo('secuencia_pausada', 'basura')?.tipo === 'correo')
     ok('un identificador que no es un UUID no se da por bueno', destinoDeAvisoDeCorreo('correo_nuevo', { buzonId: 'x', hiloId: '../../etc' })?.tipo === 'correo' && destinoDeAvisoDeCorreo('secuencia_pausada', { inscripcionId: '123' })?.tipo === 'correo')
     ok('un tipo que no es de correo no lleva a ningún sitio de aquí', destinoDeAvisoDeCorreo('web_lead', { buzonId: BUZON, hiloId: HILO }) === null && destinoDeAvisoDeCorreo('alarma_correo', {}) === null)
+    ok('correo_asignado de un hilo lleva a su conversación; de un buzón, a Correo', destinoDeAvisoDeCorreo('correo_asignado', { buzonId: BUZON, hiloId: HILO, motivo: 'hilo' })?.tipo === 'hilo' && destinoDeAvisoDeCorreo('correo_asignado', { buzonId: BUZON, motivo: 'buzon' })?.tipo === 'correo' && destinoDeAvisoDeCorreo('correo_asignado', { buzonId: BUZON, motivo: 'buzon_dueno' })?.tipo === 'correo')
     ok('los identificadores en mayúsculas se normalizan', (destinoDeAvisoDeCorreo('correo_nuevo', { buzonId: BUZON.toUpperCase(), hiloId: HILO.toUpperCase() }) as { buzonId: string }).buzonId === BUZON)
   }
 

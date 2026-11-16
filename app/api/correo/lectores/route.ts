@@ -10,10 +10,18 @@ import { createServiceClient } from '@/lib/supabase/service'
 /**
  * QUIÉN VE QUÉ BUZÓN — SOLO PARA ADMINISTRADORES («managers»).
  *
- * GET   la matriz de personas por buzón: qué lee cada persona y por qué (suyo, un permiso de supervisión, abierto a mano o nada), qué buzones tiene bloqueados y los últimos cambios.
+ * GET   la matriz de personas por buzón: qué lee cada persona y por qué (suyo, un permiso de supervisión, abierto a mano, ASIGNADO o nada), qué buzones tiene bloqueados y
+ *       los últimos cambios (también los de asignaciones: asignado, desasignado, responde, solo avisos).
  * POST  { lectorId, cambios: [{ buzonId, leer } | { buzonId, bloquear }] } sobre UNA persona: abre (leer: true) o cierra (leer: false) un buzón a mano, o lo BLOQUEA
  *       (bloquear: true: no lo lee por ningún permiso) o le quita el bloqueo (bloquear: false). Solo lectura: abrir un buzón no deja escribir desde él.
  *       Devuelve lo que se ha hecho y la matriz ya al día.
+ *
+ * ASIGNACIONES (migración 318). Una asignación no se quita desde aquí: un «quitar» (leer: false) sobre una celda cuya única vía es 'asignado' se rechaza con 400
+ * «Quítalo en Asignaciones» (POST /api/correo/asignaciones). BLOQUEAR a quien tiene el buzón asignado sí se puede: primero se le quita la asignación (queda
+ * `desasignado` en el historial) y luego se bloquea. Esa regla vive en lib/correo/lectores.ts y lectores-servidor.ts; esta ruta solo la propaga.
+ *
+ * NO HAY CACHÉ QUE INVALIDAR: quién recibe los avisos (destinatariosDeAvisos) se calcula en bloque cada vez que llega correo nuevo, así que un cambio de aquí cuenta
+ * desde el correo siguiente.
  *
  * NO ES UN AJUSTE DE PANTALLA: es quien decide qué correos ven los empleados. Se comprueba aquí que quien llama es administrador (a cualquier otro, «no existe»,
  * igual que si la ruta no estuviera) y la regla de qué abre cada permiso sigue estando en lib/correo/acceso.ts. Cada apertura deja su rastro (correo_buzon_lectores_historial) y,
@@ -64,7 +72,8 @@ export async function POST(request: NextRequest) {
     const r = await cambiarLectores(service, { id: sesion.userId, nombre }, valida.peticion)
     if (!r.ok) return fail(r.estado, r.error)
     const datos = await leerDatosDeLaMatriz(service)
-    return NextResponse.json({ concedidos: r.concedidos, quitados: r.quitados, bloqueados: r.bloqueados, desbloqueados: r.desbloqueados, rechazados: r.rechazados, ...datos }, { headers: SIN_CACHE })
+    // Todo lo que cuenta cambiarLectores (concedidos, quitados, bloqueados, desbloqueados, desasignados, rechazados…) viaja tal cual, con la matriz ya al día
+    return NextResponse.json({ ...r, ...datos }, { headers: SIN_CACHE })
   } catch (error) {
     if (error instanceof FaltaMigracionDeLectores) return fail(503, FALTA_MIGRACION_LECTORES)
     if (error instanceof FaltaMigracionDeBloqueos) return fail(503, FALTA_MIGRACION_BLOQUEOS)

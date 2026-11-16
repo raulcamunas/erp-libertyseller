@@ -21,6 +21,9 @@ igual('un chat sin canal válido abre el chat', urlDeAviso(n('mention', { app: '
 igual('el chat llega a quien eligió «solo tareas»', leToca('tareas', n('comment', { app: 'chat', canalId: C })), true)
 igual('un id raro no se mete en la dirección', urlDeAviso(n('task_updated', { app: 'tareas-clientes', clienteId: '../x', tareaId: T })), '/dashboard/tareas-clientes/mi-dia')
 igual('el resto de tipos como la campana', [urlDeAviso(n('web_lead')), urlDeAviso(n('freno_stock')), urlDeAviso(n('alarma_correo')), urlDeAviso(n('fba_alerta')), urlDeAviso(n('otro'))], ['/dashboard/web-leads', '/dashboard/amazon-api', '/dashboard/correo', '/dashboard/remesas/alertas', '/dashboard'])
+igual('correo_asignado de un hilo lleva a esa conversación', urlDeAviso(n('correo_asignado', { buzonId: C, hiloId: T, motivo: 'hilo' })), `/dashboard/correo?buzon=${C}&hilo=${T}`)
+igual('correo_asignado de un buzón (sin hilo) lleva a Correo', urlDeAviso(n('correo_asignado', { buzonId: C, motivo: 'buzon' })), '/dashboard/correo')
+igual('correo_asignado con ids raros o sin datos no los mete en la dirección', [urlDeAviso(n('correo_asignado', { buzonId: '../x', hiloId: T })), urlDeAviso(n('correo_asignado', null))], ['/dashboard/correo', '/dashboard/correo'])
 igual('con cliente de CRM', urlDeAviso(n('otro', null, { related_client_id: 'abc' })), '/dashboard/clients/abc')
 
 igual('«tareas» solo deja pasar lo de tareas', [leToca('tareas', n('task_assigned')), leToca('tareas', n('otro', { app: 'tareas-clientes' })), leToca('tareas', n('correo_nuevo')), leToca('todo', n('correo_nuevo'))], [true, true, false, true])

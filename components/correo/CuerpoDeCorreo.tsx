@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { hayQueReenviar } from '@/lib/correo/atajos'
 import { documentoDeCorreo, documentoDeTexto, type FondoDeCorreo } from '@/lib/correo/html'
 
 /**
@@ -19,6 +20,9 @@ import { documentoDeCorreo, documentoDeTexto, type FondoDeCorreo } from '@/lib/c
  * `allow-same-origin` está puesto A PROPÓSITO y solo para poder medir el alto del contenido y ajustar el marco (si no, cada
  * correo largo sería un cuadro con su propia barra de desplazamiento). Es seguro justamente porque NO se da `allow-scripts`:
  * sin poder ejecutar nada, el contenido no puede tocar la página; es la combinación de las dos la que no se debe hacer nunca.
+ *
+ * Gracias a ese mismo `allow-same-origin`, la pantalla escucha las teclas DENTRO del marco y reenvía a la ventana las de los atajos de Correo
+ * (TECLAS_DE_ATAJO de lib/correo/atajos.ts): con el foco en el correo, «j», «r» o «Esc» siguen funcionando. El correo sigue sin poder ejecutar nada.
  */
 
 interface Props {
@@ -48,6 +52,31 @@ export function CuerpoDeCorreo({ html, texto, imagenesDeFuera, fondo }: Props) {
       const alto = Math.max(d.documentElement.scrollHeight, d.body ? d.body.scrollHeight : 0)
       setAlto(Math.min(ALTO_MAXIMO, Math.max(ALTO_MINIMO, alto)))
     }
+    // Los atajos de teclado con el foco DENTRO del correo: el iframe se queda sus teclas y la ventana no se entera. Se reenvía a `window` un
+    // KeyboardEvent nuevo, solo para las teclas de los atajos (TECLAS_DE_ATAJO, sin ⌘/Ctrl/Alt): el resto (copiar, buscar en la página…) no se toca
+    let documentoEscuchado: Document | null = null
+    const reenviarTecla = (e: KeyboardEvent) => {
+      if (!hayQueReenviar(e)) return
+      const copia = new KeyboardEvent('keydown', {
+        key: e.key,
+        code: e.code,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        repeat: e.repeat,
+        bubbles: true,
+        cancelable: true,
+      })
+      window.dispatchEvent(copia)
+      // Si la pantalla lo ha usado (preventDefault), el navegador no hace lo suyo dentro del marco («/» abre la búsqueda rápida en Firefox)
+      if (copia.defaultPrevented) e.preventDefault()
+    }
+    const dejarDeEscuchar = () => {
+      documentoEscuchado?.removeEventListener('keydown', reenviarTecla)
+      documentoEscuchado = null
+    }
+
     const alCargar = () => {
       medir()
       observador?.disconnect()
@@ -55,6 +84,11 @@ export function CuerpoDeCorreo({ html, texto, imagenesDeFuera, fondo }: Props) {
       if (d && d.documentElement && typeof ResizeObserver !== 'undefined') {
         observador = new ResizeObserver(medir)
         observador.observe(d.documentElement)
+      }
+      dejarDeEscuchar()
+      if (d) {
+        d.addEventListener('keydown', reenviarTecla)
+        documentoEscuchado = d
       }
     }
 
@@ -66,6 +100,7 @@ export function CuerpoDeCorreo({ html, texto, imagenesDeFuera, fondo }: Props) {
       iframe.removeEventListener('load', alCargar)
       window.removeEventListener('resize', medir)
       observador?.disconnect()
+      dejarDeEscuchar()
     }
   }, [documento])
 

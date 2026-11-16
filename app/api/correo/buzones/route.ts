@@ -7,15 +7,17 @@ import { dominioDe, limpiarNombre, normalizarDireccion } from '@/lib/correo/dire
 import { PREAJUSTES, diasDeHistoricoValidos, proveedorPorMx, validarServidor, type IdProveedor, type Servidor } from '@/lib/correo/proveedores'
 import { servidoresMx } from '@/lib/correo/red'
 import { FALLO_GENERICO, SIN_CACHE, requerirCorreo, respuestaDeFallo, resumenDeLectura } from '@/lib/correo/rutas'
-import { buzonesVisibles, estadoHttpDe, nombreDeLaSesion, sincronizarBuzonPorId, type ResultadoDeSincronizacion } from '@/lib/correo/servidor'
+import { buzonesVisibles, buzonesVisiblesConCuentas, estadoHttpDe, nombreDeLaSesion, sincronizarBuzonPorId, type ResultadoDeSincronizacion } from '@/lib/correo/servidor'
+import type { RespuestaDeBuzones } from '@/lib/correo/tipos'
 import { leerCuerpoConTope } from '@/lib/subidas-limite'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
  * LOS BUZONES: LISTARLOS Y CONECTAR EL PROPIO.
  *
- * GET   · los buzones que esta sesión puede ver: los suyos y, si supervisa, los del equipo comercial (o todos, si
- *         es administrador). Cada uno con sus cifras. Nunca lleva contraseñas ni datos de conexión.
+ * GET   · RespuestaDeBuzones: los buzones que esta sesión puede leer (los suyos, los ASIGNADOS y, si supervisa, los del equipo), cada uno
+ *         con sus cifras y lo de quien mira («Mis correos», silencio, si puede responder), más `sinLeerMios` (el número del menú, sin lo
+ *         silenciado) y `preferenciasDisponibles` (false si falta la migración 318). Nunca lleva contraseñas ni datos de conexión.
  * POST  · { direccion, password, nombre?, proveedor?, desdeDias?, imap?, smtp? } conecta (o vuelve a conectar) el buzón
  *         de quien llama: comprueba la contraseña contra el servidor de correo (IMAP y SMTP), la guarda cifrada y
  *         empieza a traer los correos. Cada persona conecta SOLO el suyo: no hay forma de conectar el de otra.
@@ -36,8 +38,9 @@ export async function GET() {
   if (sesion instanceof NextResponse) return sesion
 
   try {
-    const buzones = await buzonesVisibles(createServiceClient(), sesion)
-    return NextResponse.json({ buzones, cifradoConfigurado: hasTokenKey() }, { headers: SIN_CACHE })
+    const { buzones, sinLeerMios, preferenciasDisponibles } = await buzonesVisiblesConCuentas(createServiceClient(), sesion)
+    const respuesta: RespuestaDeBuzones = { buzones, cifradoConfigurado: hasTokenKey(), sinLeerMios, preferenciasDisponibles }
+    return NextResponse.json(respuesta, { headers: SIN_CACHE })
   } catch (error) {
     return respuestaDeFallo('Correo · buzones: fallo', error)
   }
