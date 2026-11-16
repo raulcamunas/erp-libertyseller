@@ -11,6 +11,7 @@ import { fechaCorta, semanaIso } from './envios-propuestos'
 import { registrarEnHistorial } from './historial'
 import { validarAjustesIa, type RecalcularAjuste } from './ia-plan'
 import { mercadoDeRemesa } from './medidas-cliente'
+import { configAlertasDesdeFila } from './plan-cliente'
 import { leerTodo } from './paginar'
 import { faltaLaTabla } from './planificacion'
 import { planificarSku, plazoDelCliente, redondearACaja, sumarDias } from './planificador'
@@ -475,8 +476,28 @@ async function lineasDeRemesas(service: Servicio, ids: string[]): Promise<Map<st
   return mapa
 }
 
+/**
+ * El transporte del plazo de los clientes sin pasada: el manual (`fba_alertas_config`) o el de partida, calculado con
+ * `plazoDelCliente` sin medidas (la regla de respaldo del plan). Para «dudoso» en «Hoy».
+ */
+async function transportesDeRespaldo(service: Servicio, clientes: string[], hoy: string): Promise<Record<string, number | null>> {
+  const salida: Record<string, number | null> = {}
+  if (clientes.length === 0) return salida
+  const filas = new Map<string, Record<string, unknown>>()
+  for (let i = 0; i < clientes.length; i += 100) {
+    const { data, error } = await service.from('fba_alertas_config').select('*').in('client_id', clientes.slice(i, i + 100))
+    if (error) {
+      if (faltaLaTabla(error)) break
+      throw error
+    }
+    for (const f of (data ?? []) as Array<Record<string, unknown>>) filas.set(String(f.client_id), f)
+  }
+  for (const id of clientes) salida[id] = plazoDelCliente(configAlertasDesdeFila(filas.get(id) ?? null), null, hoy, { transporteUrgenteDias: null }).transporte
+  return salida
+}
+
 /** La última pasada de cada cliente (calidad, plazo, moneda y líneas). Vacío sin la 316 */
-async function ultimasPasadas(service: Servicio, clientes: string[] | null, clienteId: string | null): Promise<Array<{ clienteId: string; calidad: CalidadDatos | null; plazo: PlazoEtapas | null; moneda: string; lineas: LineaPlan[] }>> {
+async function ultimasPasadas(service: Servicio, clientes: string[] | null, clienteId: string | null): Promise<Array<{ clienteId: string; calidad: CalidadDatos | null; plazo: PlazoEtapas | null; transporteMediano: number | null; moneda: string; lineas: LineaPlan[] }>> {
   let q = service.from('fba_plan_ultima').select('id, client_id, calidad, resumen')
   if (clienteId) q = q.eq('client_id', clienteId)
   else if (clientes) q = q.in('client_id', clientes)
@@ -498,11 +519,14 @@ async function ultimasPasadas(service: Servicio, clientes: string[] | null, clie
   return ultimas.map((u) => {
     const resumen = objetoONulo<{ moneda?: string }>(u.resumen)
     const p = detalle.get(u.id)
-    const plazo = objetoONulo<PlazoEtapas>(p?.plazo)
+    const plazo = objetoONulo<PlazoEtapas & { _pasada?: { medidas?: { transporteMediano?: unknown } } }>(p?.plazo)
+    const mediano = plazo?._pasada?.medidas?.transporteMediano
     return {
       clienteId: u.client_id,
       calidad: objetoONulo<CalidadDatos>(u.calidad),
       plazo: plazo && typeof plazo.transporte === 'number' ? plazo : null,
+      // El transporte medido con el que el plan dijo «dudoso» (envío → primer Receipt), guardado en la pasada
+      transporteMediano: typeof mediano === 'number' && Number.isFinite(mediano) ? mediano : null,
       moneda: resumen?.moneda || 'EUR',
       lineas: lista<LineaPlan>(p?.lineas),
     }
@@ -567,11 +591,17 @@ export async function pendientesDeSesion(
     clienteNombre: nombres.get(p.clienteId) ?? 'Cliente',
     calidad: p.calidad,
     lineas: p.lineas,
-    transporteMediano: p.plazo && p.plazo.origen?.transporte === 'medido' ? p.plazo.transporte : null,
+    // La misma regla que el plan (`transporteParaDudoso`): el medido y, si no hay, el transporte del plazo SIEMPRE (manual o de
+    // partida). Antes solo se pasaba si era medido y el umbral se quedaba en 30: «Hoy» daba por perdido lo que el plan esperaba
+    transporteMediano: p.transporteMediano ?? (p.plazo && p.plazo.origen?.transporte === 'medido' ? p.plazo.transporte : null),
+    transportePlazo: p.plazo?.transporte ?? null,
     moneda: p.moneda,
   }))
-  // Los clientes sin pasada no tienen calidad que contar, pero sus remesas sí dan trabajo
-  return pendientes({ hoy, envios, remesas, clientes })
+  // Los clientes sin pasada no tienen calidad que contar, pero sus remesas sí dan trabajo. Su «dudoso» usa el plazo manual o el
+  // de partida (la misma regla de respaldo que el plan sin medida)
+  const sinPasada = [...new Set(filasRemesas.map((r) => r.client_id))].filter((id) => !porCliente.has(id))
+  const transporteSinPlan = await transportesDeRespaldo(service, sinPasada, hoy)
+  return pendientes({ hoy, envios, remesas, clientes, transporteSinPlan })
 }
 
 /* =============================================================================================

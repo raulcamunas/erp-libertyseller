@@ -1,5 +1,6 @@
 'use client'
 
+import { transporteParaDudoso } from '@/lib/fba/llegadas'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Package } from 'lucide-react'
 import { EstadoVacio } from '@/components/ui-ls'
@@ -84,7 +85,8 @@ export function SeccionEnvios({
   // El plan: ritmo de cada referencia y transporte mediano (para «Envío dudoso»)
   const { plan } = usePlan(cliente.id, { todas: true })
   const ritmoPlan = useMemo(() => (plan && plan.lineas.length > 0 ? ritmosDelPlan(plan.lineas) : null), [plan])
-  const transporteMediano = esPlanDeAgencia(plan) ? plan.medidas.transporteMediano : null
+  // La regla del plan para «dudoso» (`transporteParaDudoso`): el medido y, sin medida, el transporte del plazo (manual o de partida)
+  const transporteMediano = esPlanDeAgencia(plan) ? transporteParaDudoso(plan.medidas.transporteMediano, plan.plazo.transporte) : null
 
   /** Días de stock de cada envío, para señalar en la lista los que se agotan pronto (su propio ritmo) */
   const diasCobertura = useMemo(() => {

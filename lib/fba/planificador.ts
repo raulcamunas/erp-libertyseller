@@ -533,7 +533,10 @@ export const planificarSku: FnPlanificarSku = (e, hoy, plazo, ajustes, medidas, 
   // D8 · Solo es «agotado largo» si de verdad lleva más de 76 días agotada. Si el último stock es reciente (pocos días con stock en
   // las ventanas de 14/30/90), se planifica normal con el ritmo de ese periodo (confianza baja) y la frase lo dice
   const agotadaHace = ritmo.origen === 'ultimo_periodo' && ritmo.ultimoPeriodoHasta ? diasEntre(ritmo.ultimoPeriodoHasta, hoy) : null
-  if (ritmo.origen === 'ultimo_periodo' && (agotadaHace === null || agotadaHace > DIAS_AGOTADO_LARGO)) {
+  // Tampoco se propone si el ritmo viene de un periodo ANTERIOR a las ventanas (ventas90 = 0) aunque haya tenido stock 14 días o más en esos 90: ese stock no vendió
+  // nada, y el ritmo del respaldo sale de ventas viejas (Creative Toys: 5 colores de CT69731 con 0 ventas en 90 días salían como «tarde»)
+  const sinVentasConStock = ritmo.origen === 'ultimo_periodo' && (ritmo.ventas90 ?? 0) === 0 && (ritmo.diasConStock90 ?? 0) >= 14
+  if (ritmo.origen === 'ultimo_periodo' && (agotadaHace === null || agotadaHace > DIAS_AGOTADO_LARGO || sinVentasConStock)) {
     const hasta = ritmo.ultimoPeriodoHasta ? ` hasta el ${fechaCorta(ritmo.ultimoPeriodoHasta)}` : ''
     const ud = ritmo.base ?? ritmo.previsto
     const vendia = ud !== null && ud !== undefined && ud > 0 ? `vendía ${ritmoTexto(ud)} ud/día en el último periodo con stock${hasta}` : `sin ventas recientes`

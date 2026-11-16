@@ -1,4 +1,4 @@
-import { esEnvioDudoso, llegadasDeSku, type EntradaLlegadas } from './llegadas'
+import { caminoEsDudoso, esEnvioDudoso, llegadaPrevistaDeCamino, llegadasDeSku, transporteParaDudoso, type EntradaLlegadas } from './llegadas'
 import type { PlazoEtapas } from './plan-tipos'
 
 let fallos = 0
@@ -167,6 +167,18 @@ console.log('\n=== Remesa «lista» con el envío ya creado en Amazon (inboundWo
     comprometido: [{ remesaId: 'rb', nombre: null, estado: 'borrador', fechaEnvio: null, diasParada: 1, unidades: 50 }],
   }))
   ok('un borrador no tiene envío en Amazon: el entrante sigue sin remesa', b.entranteSinRemesa, 50)
+}
+
+console.log('\nRegla única de «dudoso» y de la llegada (plan, «Hoy», Resumen global y detalle del envío)')
+{
+  ok('transporte para dudoso: el medido manda', transporteParaDudoso(10, 45), 10)
+  ok('sin medida: el del plazo (manual o de partida)', transporteParaDudoso(null, 45), 45)
+  ok('sin nada: null (umbral 30)', transporteParaDudoso(null, null), null)
+  ok('Portico: 35 días sin recibir con transporte manual 45 → no dudoso', caminoEsDudoso({ fechaEnvio: '2026-10-11', recibidas: 0 }, HOY, null, 45), false)
+  ok('el mismo con transporte medido 10 → dudoso', caminoEsDudoso({ fechaEnvio: '2026-10-11', recibidas: 0 }, HOY, 10, 45), true)
+  ok('RECEIVING: hoy + recepción', llegadaPrevistaDeCamino({ estadoAmazon: 'receiving', fechaEnvio: '2026-10-01' }, HOY, { transporte: 45, recepcion: 5 }), '2026-11-20')
+  ok('IN_TRANSIT: salida + transporte', llegadaPrevistaDeCamino({ estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-10-11' }, HOY, { transporte: 45, recepcion: 5 }), '2026-11-25')
+  ok('sin salida: hoy + transporte + recepción', llegadaPrevistaDeCamino({ estadoAmazon: 'WORKING', fechaEnvio: null }, HOY, { transporte: 10, recepcion: 5 }), '2026-11-30')
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN' : `\n${fallos} FALLOS`)

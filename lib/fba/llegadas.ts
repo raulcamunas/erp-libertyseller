@@ -97,6 +97,50 @@ export function esEnvioDudoso(edadDias: number, recibidas: number, transporteMed
   return edadDias > umbral
 }
 
+/**
+ * El transporte con el que se mide si un envío es dudoso. UNA sola regla para el plan, los Pendientes de «Hoy», el Resumen
+ * global y el detalle de un envío: el transporte mediano medido (primer Receipt) y, si no hay medida, el del plazo (manual o
+ * de partida). Antes cada pantalla usaba el suyo: Portico (transporte manual 45 d) con un envío de 35 días no era dudoso en el
+ * plan (umbral 112) y sí en «Hoy» y en el Resumen (umbral 30), que decían «el plan no lo cuenta» cuando sí lo contaba. Puro.
+ */
+export function transporteParaDudoso(transporteMediano: number | null | undefined, transportePlazo: number | null | undefined): number | null {
+  const valido = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0
+  if (valido(transporteMediano)) return transporteMediano
+  if (valido(transportePlazo)) return transportePlazo
+  return null
+}
+
+/** Estados de Amazon en los que el envío ya está en el almacén (recibiendo) */
+export const ESTADOS_AMAZON_RECIBIENDO = ['RECEIVING', 'CHECKED_IN']
+
+/**
+ * Cuándo llega un envío de camino (la misma regla en el plan y en el Resumen global): si Amazon ya lo está recibiendo,
+ * hoy + recepción; si salió, max(salida + transporte, hoy + recepción); sin fecha de salida, hoy + transporte + recepción. Puro.
+ */
+export function llegadaPrevistaDeCamino(
+  r: { estadoAmazon: string | null; fechaEnvio: string | null },
+  hoy: string,
+  plazo: Pick<PlazoEtapas, 'transporte' | 'recepcion'>,
+): string {
+  const estado = (r.estadoAmazon ?? '').toUpperCase()
+  const transporte = entero(plazo.transporte)
+  const recepcion = entero(plazo.recepcion)
+  if (ESTADOS_AMAZON_RECIBIENDO.includes(estado)) return sumarDias(hoy, recepcion)
+  if (r.fechaEnvio && esFecha(r.fechaEnvio)) return maxFecha(sumarDias(r.fechaEnvio, transporte), sumarDias(hoy, recepcion))
+  return sumarDias(hoy, transporte + recepcion)
+}
+
+/** ¿Es dudoso un envío de camino? La regla única: edad desde la salida, recibidas del envío entero y `transporteParaDudoso`. Puro. */
+export function caminoEsDudoso(
+  r: { fechaEnvio: string | null; recibidas: number | null },
+  hoy: string,
+  transporteMediano: number | null | undefined,
+  transportePlazo: number | null | undefined,
+): boolean {
+  if (!r.fechaEnvio || !esFecha(r.fechaEnvio)) return false
+  return esEnvioDudoso(diasEntre(r.fechaEnvio, hoy), Math.max(0, r.recibidas ?? 0), transporteParaDudoso(transporteMediano, transportePlazo))
+}
+
 /* ------------------------------------------------------------------ */
 /* Llegadas de una referencia                                          */
 /* ------------------------------------------------------------------ */
@@ -165,7 +209,7 @@ export function llegadasDeSku(entrada: EntradaLlegadas): ResultadoLlegadas {
   const recepcion = entero(plazo.recepcion)
   const preparacion = entero(plazo.preparacion)
   // Para el umbral de «dudoso»: el medido; si no hay, el del plazo (Portico tarda 60 días y no es dudoso a los 31)
-  const transporteDudoso = entrada.transporteMediano !== null && entrada.transporteMediano > 0 ? entrada.transporteMediano : transporte > 0 ? transporte : null
+  const transporteDudoso = transporteParaDudoso(entrada.transporteMediano, transporte)
 
   const llegadas: LlegadaPrevista[] = []
   const descartadas: LlegadaDescartada[] = []

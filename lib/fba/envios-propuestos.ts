@@ -462,8 +462,12 @@ function conLasPropias(c: EnvioPropuestoCalculado, g: EnvioGuardadoMinimo): Envi
   return { ...c, lineas: [...c.lineas, ...(extra as unknown as LineaPlan[])], unidades: c.unidades + unidadesDe(extra) }
 }
 
-/** La clave del envío aparte con las referencias que no caben en uno ya hablado o en preparación de la misma semana */
-export const claveAparte = (clave: string): string => `${clave}:2`
+/**
+ * La clave del envío aparte con las referencias que no caben en uno ya hablado o en preparación de la misma semana: `:2`, y si
+ * ese aparte también se habla y aparecen más, `:3`… (la base siempre es la de la semana)
+ */
+export const claveAparte = (clave: string, n = 2): string => `${clave.replace(/:\d+$/, '')}:${n}`
+const MAX_APARTES = 5
 
 /**
  * Un calculado con solo algunas de sus líneas (las mismas cifras que `resumirEnvio`, sin recalcular fechas): para separar las
@@ -547,25 +551,33 @@ export const reconciliarEnvios: FnReconciliarEnvios = (guardados, recientesCerra
   // 3 · Lo que el plan de hoy pide y no está en lo hablado ni en la remesa del envío emparejado: va en un envío aparte con clave
   // derivada. Si no, una referencia nueva de la misma semana que un envío hablado o en preparación se quedaba sin envío (el índice
   // único solo deja un activo por clave, y convertir usa lo hablado): un SKU «urgente» que nadie podía convertir.
+  // Si el aparte también está hablado y aparecen más referencias, van a `:3`, y así (como mucho MAX_APARTES).
   const procesar: EnvioPropuestoCalculado[] = []
-  for (const c of ordenados) {
-    const g = pareja.get(c)
-    const estado = g ? estadoEf.get(g.id) : undefined
-    const fijos = g && estado !== 'nuevo' && g.skusFijos ? new Set(g.skusFijos) : null
-    const nuevas = fijos ? c.lineas.filter((l) => l.cantidad > 0 && !fijos.has(l.sku)) : []
-    if (!g || !fijos || nuevas.length === 0) { procesar.push(c); continue }
-    const quedan = c.lineas.filter((l) => !nuevas.includes(l))
-    const c1 = envioConLineas(c, quedan, c.clave)
-    pareja.delete(c)
-    pareja.set(c1, g)
-    procesar.push(c1)
-    const nota = estado === 'en_preparacion'
-      ? 'Referencias que el plan pide y no van en la remesa que ya se está preparando esta semana'
-      : 'Referencias que el plan pide y no están en lo hablado con el cliente para esta semana'
-    const c2 = envioConLineas(c, nuevas, claveAparte(c.clave), nota)
-    const g2 = activos.find((x) => !usados.has(x.id) && x.clave === c2.clave)
-    if (g2) { usados.add(g2.id); pareja.set(c2, g2) }
-    procesar.push(c2)
+  for (const original of ordenados) {
+    let c = original
+    for (let n = 2; ; n++) {
+      const g = pareja.get(c)
+      const estado = g ? estadoEf.get(g.id) : undefined
+      const fijos = g && estado !== 'nuevo' && g.skusFijos ? new Set(g.skusFijos) : null
+      const nuevas = fijos ? c.lineas.filter((l) => l.cantidad > 0 && !fijos.has(l.sku)) : []
+      if (!g || !fijos || nuevas.length === 0 || n > MAX_APARTES + 1) { procesar.push(c); break }
+      const quedan = c.lineas.filter((l) => !nuevas.includes(l))
+      const c1 = envioConLineas(c, quedan, c.clave)
+      pareja.delete(c)
+      pareja.set(c1, g)
+      procesar.push(c1)
+      const nota = estado === 'en_preparacion'
+        ? 'Referencias que el plan pide y no van en la remesa que ya se está preparando esta semana'
+        : 'Referencias que el plan pide y no están en lo hablado con el cliente para esta semana'
+      // La primera clave de aparte LIBRE: si la que toca ya la tiene un activo que se ha emparejado con otra cosa (p. ej. el base está «enviado» y el :2 sigue
+      // «hablado» con C mientras el plan pide C y D), insertarla chocaría con el índice único (23505) y D se quedaría sin envío propuesto en todas las pasadas
+      while (activos.some((x) => usados.has(x.id) && x.clave === claveAparte(original.clave, n))) n++
+      if (n > MAX_APARTES + 1) { procesar.push(c); break }
+      const c2 = envioConLineas(c, nuevas, claveAparte(original.clave, n), nota)
+      const g2 = activos.find((x) => !usados.has(x.id) && x.clave === c2.clave)
+      if (g2) { usados.add(g2.id); pareja.set(c2, g2) }
+      c = c2
+    }
   }
 
   // Cuarentena: descartados de < 14 días con la misma clave

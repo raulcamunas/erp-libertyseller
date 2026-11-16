@@ -41,6 +41,7 @@ import type {
 } from './plan-tipos'
 import type { EstadoRemesa } from './flujo'
 import { columnaDe } from './tablero-propuestas'
+import { esEnvioDudoso, transporteParaDudoso } from './llegadas'
 
 /* =============================================================================================
  * Utilidades (fechas en días «YYYY-MM-DD», cifras en español)
@@ -208,8 +209,13 @@ export interface ClienteParaPendientes {
   calidad: CalidadDatos | null
   /** Todas las líneas del último plan (para entrantes sin remesa, modelos y agotados) */
   lineas: LineaPlan[]
-  /** Transporte mediano medido (para «dudoso»); null = de partida */
+  /** Transporte mediano medido (para «dudoso»); null = sin medida */
   transporteMediano: number | null
+  /**
+   * Transporte del plazo de la pasada (manual, medido o de partida). Sin medida, «dudoso» se mide con este: la misma regla que
+   * el plan (`transporteParaDudoso`). Antes solo se pasaba si era medido y el umbral se quedaba en 30 días.
+   */
+  transportePlazo?: number | null
   moneda: Moneda
 }
 
@@ -220,6 +226,8 @@ export interface EntradaPendientes {
   clientes: ClienteParaPendientes[]
   /** Por defecto `PLAZO_RECLAMACION_DIAS` */
   plazoReclamacionDias?: number
+  /** Transporte del plazo (manual o de partida) de los clientes SIN pasada, para «dudoso» con la misma regla de respaldo */
+  transporteSinPlan?: Record<string, number | null>
 }
 
 const ORDEN_GRAVEDAD = { alta: 0, media: 1, baja: 2 } as const
@@ -230,10 +238,9 @@ const nombreRemesa = (r: Pick<RemesaParaPendientes, 'nombre' | 'referenciaEnvio'
     ? `${r.referenciaEnvio}${r.fechaEnvio ? ` (salió el ${diaCorto(r.fechaEnvio)})` : ''}`
     : r.nombre || (r.fechaEnvio ? `la remesa del ${diaCorto(r.fechaEnvio)}` : 'la remesa')
 
-/** Dudoso (D3): lleva más de max(30, 2,5 × transporte) días y Amazon no ha recibido nada */
-function dudoso(edadDias: number, recibidas: number | null, transporteMediano: number | null): boolean {
-  if ((recibidas ?? 0) > 0) return false
-  return edadDias > Math.max(30, 2.5 * (transporteMediano ?? 0))
+/** Dudoso (D3): la regla del plan (`esEnvioDudoso` con `transporteParaDudoso`), para que «Hoy» no diga otra cosa que el plan */
+function dudoso(edadDias: number, recibidas: number | null, transporte: number | null): boolean {
+  return esEnvioDudoso(edadDias, Math.max(0, recibidas ?? 0), transporte)
 }
 
 /** Una línea agotada que vende (V = 0 con ventas en 30 días): lo único que se avisa aunque el plan sea provisional */
@@ -321,7 +328,7 @@ function tareaDeEnvioPropuesto(e: EnvioPropuestoGuardado, hoy: string): TareaPen
   return null
 }
 
-function tareasDeRemesa(r: RemesaParaPendientes, c: ClienteParaPendientes | undefined, hoy: string, plazoReclamacion: number): TareaPendiente[] {
+function tareasDeRemesa(r: RemesaParaPendientes, c: ClienteParaPendientes | undefined, hoy: string, plazoReclamacion: number, transporteSinPlan: number | null = null): TareaPendiente[] {
   const salida: TareaPendiente[] = []
   const base = {
     clienteId: r.clienteId,
@@ -397,7 +404,7 @@ function tareasDeRemesa(r: RemesaParaPendientes, c: ClienteParaPendientes | unde
     // envío dudoso (D3): SHIPPED o IN_TRANSIT sin nada recibido desde hace demasiado
     if (r.estado === 'enviada' && (amz === 'SHIPPED' || amz === 'IN_TRANSIT') && r.fechaEnvio) {
       const edad = diasEntreDias(r.fechaEnvio, hoy)
-      const t = c?.transporteMediano ?? null
+      const t = c ? transporteParaDudoso(c.transporteMediano, c.transportePlazo) : transporteParaDudoso(null, transporteSinPlan)
       if (dudoso(edad, r.recibidas, t)) {
         salida.push({
           ...base,
@@ -408,7 +415,8 @@ function tareasDeRemesa(r: RemesaParaPendientes, c: ClienteParaPendientes | unde
           detalle:
             `Lleva ${plural(edad, 'día', 'días')} en ${amz} con 0 de ${ud(r.enviadas)} recibidas` +
             (t != null ? ` (lo normal son ${t} días de transporte)` : '') +
-            '. El plan no lo cuenta como stock que llega: confirma que salió y, si se ha perdido, reclámalo.',
+            (c ? '. El plan no lo cuenta como stock que llega' : '') +
+            ': confirma que salió y, si se ha perdido, reclámalo.',
           euros: null,
           moneda: null,
           diasRestantes: null,
@@ -660,7 +668,7 @@ export function pendientes(entrada: EntradaPendientes): TareaPendiente[] {
     const t = tareaDeEnvioPropuesto(e, hoy)
     if (t) tareas.push(t)
   }
-  for (const r of entrada.remesas) tareas.push(...tareasDeRemesa(r, clientes.get(r.clienteId), hoy, plazo))
+  for (const r of entrada.remesas) tareas.push(...tareasDeRemesa(r, clientes.get(r.clienteId), hoy, plazo, entrada.transporteSinPlan?.[r.clienteId] ?? null))
   for (const c of entrada.clientes) tareas.push(...tareasDeCliente(c))
 
   return tareas.sort((a, b) =>

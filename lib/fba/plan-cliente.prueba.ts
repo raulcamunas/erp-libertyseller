@@ -28,7 +28,7 @@ import type { ComprometidoRemesa } from './llegadas'
 import type { LineaPlan, PlanCliente } from './plan-tipos'
 import type { FotoPlanReal, ClienteFoto } from '../../scripts/fba-foto-pruebas'
 import { elegirLectura } from './lectura-elegida'
-import { filtrarLineas, lineasConLasPropias, planDesdePasada, plazoParaGuardar, reconciliarCliente } from './plan-datos'
+import { elegirMercadoListings, filtrarLineas, lineasConLasPropias, planDesdePasada, plazoParaGuardar, reconciliarCliente, skusSinStockEn } from './plan-datos'
 import { reaplicarAjustes } from './envios-propuestos-servidor'
 import { esNoComprable } from './planificador'
 import { roturaDeLinea, rompeEn } from './rotura-linea'
@@ -175,6 +175,33 @@ console.log('Creative Toys (entrante sin remesa, envío dudoso)')
   }
   ok('Creative Toys: el envío dudoso sale en «de camino» marcado', p.enCamino.some((e) => e.dudoso), p.enCamino.map((e) => [e.nombre, e.dudoso]))
   ok('Creative Toys: la lectura es la de APJ6 (más reciente y con historia)', p.calidad.mercado === 'APJ6JRA9NG5V4', p.calidad.mercado)
+}
+
+console.log('Creative Toys: un agotado sin fila en el mercado de la lectura (IT) toma la ficha de ES')
+{
+  // La foto: libro en APJ6 (IT) y los listings en ES. WM01550 agotado en ES y DISCOVERABLE (no comprable): sin fila en IT
+  const c = cliente('Creative Toys')
+  const filas = c.listings.map((l) => (l.sku === 'WM01550'
+    ? { ...l, fba_quantity: 0, fba_fulfillable_quantity: 0, fba_inbound_quantity: 0, listing_status: ['DISCOVERABLE'] }
+    : l))
+  const e = entradaDeFoto(c, { listings: filas.map((l) => listingDesdeFila(l)), mercadoListings: 'A1RKKUPIHCS9HS' })
+  ok('la foto no trae ninguna fila en APJ6 (el caso del hallazgo)', !e.listings.some((l) => l.marketplaceId === 'APJ6JRA9NG5V4'))
+  const p = planificarCliente(e).plan
+  const w = linea(p, 'WM01550')
+  ok('WM01550 agotado sin fila en IT lleva el precio de ES', w.precio === 25.99, w.precio)
+  ok('WM01550 lleva FNSKU y ASIN de la fila de ES', w.fnsku === 'X002NDTZWJ' && !!w.asin, { fnsku: w.fnsku, asin: w.asin })
+  ok('Creative Toys: ninguna referencia que vende sin precio (calidad.sinPrecio = 0)', p.calidad.sinPrecio === 0, p.calidad.sinPrecio)
+  ok('el stock no sale de la fila de ES sin stock (D11)', w.vendibles === 0, w.vendibles)
+  // Selección de los SKU que necesitan la ficha de otro mercado y del mercado de los listings
+  const r = skusSinStockEn(filas, ['WM01550', 'WM40297'], 'APJ6JRA9NG5V4')
+  ok('sin fila en IT ⇒ se piden sus filas de otros mercados sin filtrar por stock', r.sinFila.join() === 'WM01550,WM40297' && r.sinStock.join() === 'WM01550,WM40297', r)
+  ok('mercado de los listings: IT sin ninguno ⇒ el predeterminado (ES)', elegirMercadoListings(new Map([['APJ6JRA9NG5V4', 0], ['A1RKKUPIHCS9HS', 102]]), 'APJ6JRA9NG5V4', 'A1RKKUPIHCS9HS') === 'A1RKKUPIHCS9HS')
+  ok('mercado de los listings: Yo By Yolanda (1 en IT, 18 en ES) ⇒ ES', elegirMercadoListings(new Map([['APJ6JRA9NG5V4', 1], ['A1RKKUPIHCS9HS', 18]]), 'APJ6JRA9NG5V4', 'A1RKKUPIHCS9HS') === 'A1RKKUPIHCS9HS')
+  ok('mercado de los listings: sin predeterminado ⇒ el que más tiene', elegirMercadoListings(new Map([['APJ6JRA9NG5V4', 0], ['A13V1IB3VIYZZH', 5], ['A1PA6795UKMFR9', 9]]), 'APJ6JRA9NG5V4', null) === 'A1PA6795UKMFR9')
+  // D1 no se anula: hayBuyable se mira en ES (donde están los listings), y un SKU con stock y sin BUYABLE sale «no comprable»
+  const filasD1 = c.listings.map((l) => (l.sku === 'WM40297' ? { ...l, listing_status: ['DISCOVERABLE'] } : l))
+  const pD1 = planificarCliente(entradaDeFoto(c, { listings: filasD1.map((l) => listingDesdeFila(l)), mercadoListings: 'A1RKKUPIHCS9HS', hayBuyableEnCliente: null })).plan
+  ok('libro en IT y listings en ES: WM40297 con stock y sin BUYABLE ⇒ no_comprable (D1 sigue viva)', linea(pD1, 'WM40297').fuera === 'no_comprable', linea(pD1, 'WM40297').fuera)
 }
 
 /* ------------------------------ ShoesF ------------------------------ */

@@ -342,5 +342,22 @@ console.log('\n=== orden global ===')
   ok('lo de gravedad baja al final', t[t.length - 1].gravedad === 'baja')
 }
 
+console.log('\n=== «dudoso» con la regla del plan (Portico: transporte manual 45 d, sin medida) ===')
+{
+  // IN_TRANSIT desde hace 35 días sin nada recibido. El plan (umbral max(30, 2,5 × 45) = 112) lo cuenta como stock que llega
+  const portico = remesa('po', { clienteId: 'c3', clienteNombre: 'Portico', estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-10-11', enviadas: 120, recibidas: 0 })
+  const conPlan = pendientes({ hoy: HOY, envios: [], remesas: [portico], clientes: [cliente({ clienteId: 'c3', clienteNombre: 'Portico', transporteMediano: null, transportePlazo: 45 })] })
+  ok('con pasada: «Hoy» no lo da por dudoso (lo mismo que el plan)', !conPlan.some((x) => x.tipo === 'envio_dudoso'), conPlan.map((x) => x.tipo).join())
+  const sinPlan = pendientes({ hoy: HOY, envios: [], remesas: [portico], clientes: [], transporteSinPlan: { c3: 45 } })
+  ok('sin pasada: el plazo manual también manda (regla de respaldo)', !sinPlan.some((x) => x.tipo === 'envio_dudoso'))
+  const sinNada = pendientes({ hoy: HOY, envios: [], remesas: [portico], clientes: [] })
+  const d = sinNada.find((x) => x.tipo === 'envio_dudoso')
+  ok('sin plazo ninguno: umbral 30 → dudoso', !!d)
+  ok('sin pasada no se dice «el plan no lo cuenta» (no hay plan)', !!d && !/El plan no lo cuenta/.test(d.detalle), d?.detalle)
+  const viejo = pendientes({ hoy: HOY, envios: [], remesas: [remesa('po2', { clienteId: 'c3', estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-07-01', enviadas: 10, recibidas: 0 })], clientes: [cliente({ clienteId: 'c3', transporteMediano: null, transportePlazo: 45 })] })
+  const v = viejo.find((x) => x.tipo === 'envio_dudoso')
+  ok('a los 137 días (> 112) sí es dudoso, y lo dice con el transporte del plazo', !!v && /lo normal son 45 días/.test(v.detalle) && /El plan no lo cuenta/.test(v.detalle), v?.detalle)
+}
+
 console.log(fallos === 0 ? `\nTODO BIEN (${comprobaciones} comprobaciones)\n` : `\n${fallos} FALLOS de ${comprobaciones} comprobaciones\n`)
 if (fallos > 0) process.exit(1)

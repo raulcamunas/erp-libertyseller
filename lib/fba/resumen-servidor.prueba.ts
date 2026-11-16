@@ -1,9 +1,11 @@
 import {
+  caminoDeRemesa,
   calidadDesdeLectura,
   claveDeResumen,
   domingoDe,
   kpisDeEnvios,
   llegadaPrevistaDe,
+  plazoDeCamino,
   prioridadesDeLineas,
   resumenDesdeAlertas,
   salidasPorSemana,
@@ -143,6 +145,29 @@ console.log('\n=== clave de la memoria (D32) ===')
 ok('ordenada: el orden de los permitidos no cambia la clave', claveDeResumen(['b', 'a'], HOY) === claveDeResumen(['a', 'b'], HOY))
 ok('todos ≠ una lista', claveDeResumen(null, HOY) !== claveDeResumen(['a'], HOY))
 ok('cambia con el día', claveDeResumen(null, HOY) !== claveDeResumen(null, '2026-11-16'))
+
+console.log('\n«De camino» con la regla del plan (Portico: transporte manual 45 d, sin medida)')
+{
+  // Lo que guardó la pasada: plazo con transporte 45 (manual) y sin transporte medido
+  const pasada = { plazo: { preparacion: 7, transporte: 45, recepcion: 7, margen: 7, _pasada: { medidas: { transporteMediano: null } } } }
+  const plazo = plazoDeCamino(pasada, undefined, 12) // el «medido» con llegada_at del Resumen ya no manda si hay pasada
+  ok('con pasada: el plazo de la pasada', plazo.transporte === 45 && plazo.recepcion === 7 && plazo.transporteMediano === null, JSON.stringify(plazo))
+  const c = caminoDeRemesa({ estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-10-11', recibidas: 0 }, HOY, plazo)
+  ok('IN_TRANSIT de 35 días sin recibir: NO dudoso (umbral 112, como el plan)', !c.dudoso)
+  ok('llega el 25 nov (salida + 45)', c.llegadaPrevista === '2026-11-25', c.llegadaPrevista)
+  const rec = caminoDeRemesa({ estadoAmazon: 'RECEIVING', fechaEnvio: '2026-10-01', recibidas: 3 }, HOY, plazo)
+  ok('RECEIVING: hoy + recepción (como el plan, no la llegada_at)', rec.llegadaPrevista === '2026-11-22', rec.llegadaPrevista)
+  const sin = plazoDeCamino(null, { transporte: 45, recepcion: null }, null)
+  ok('sin pasada: transporte manual y recepción de partida', sin.transporte === 45 && sin.recepcion === 7 && sin.transporteMediano === null)
+  ok('sin pasada con plazo manual: tampoco dudoso', !caminoDeRemesa({ estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-10-11', recibidas: 0 }, HOY, sin).dudoso)
+  const partida = plazoDeCamino(null, undefined, null)
+  // De partida 18 → umbral max(30, 45) = 45, como el plan sin medida: 35 días todavía no, 50 sí
+  ok('sin pasada ni manual: de partida (18), umbral 45', partida.transporte === 18
+    && !caminoDeRemesa({ estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-10-11', recibidas: 0 }, HOY, partida).dudoso
+    && caminoDeRemesa({ estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-09-26', recibidas: 0 }, HOY, partida).dudoso)
+  const medido = plazoDeCamino({ plazo: { transporte: 45, recepcion: 7, _pasada: { medidas: { transporteMediano: 10 } } } }, undefined, null)
+  ok('con transporte medido en la pasada, manda el medido (umbral 30)', caminoDeRemesa({ estadoAmazon: 'IN_TRANSIT', fechaEnvio: '2026-10-11', recibidas: 0 }, HOY, medido).dudoso)
+}
 
 console.log(fallos === 0 ? '\nTODO BIEN' : `\n${fallos} FALLOS`)
 if (fallos > 0) process.exit(1)

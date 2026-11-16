@@ -22,7 +22,7 @@ import { cuentaParaRotura, roturaDeLinea, rompeEn } from './rotura-linea'
 import { ajustesDesdeFila, type FilaReposicionConfig } from './ajustes-reposicion'
 import { agruparEnvios } from './envios-propuestos'
 import { MERCADO_ESPANA, stockEntreMercados } from './lectura-elegida'
-import { llegadasDeSku, esEnvioDudoso, type ComprometidoRemesa, type EnvioHablado } from './llegadas'
+import { caminoEsDudoso, ESTADOS_AMAZON_RECIBIENDO, llegadaPrevistaDeCamino, llegadasDeSku, type ComprometidoRemesa, type EnvioHablado } from './llegadas'
 import { cajaDeducida, medirCadencia, medirRecepcion, medirTransporte, mercadoDeRemesa } from './medidas-cliente'
 import { modeloDesdeSku, patronesDeCliente } from './modelo-sku'
 import {
@@ -288,7 +288,7 @@ export function configAlertasDesdeFila(f: Record<string, unknown> | null | undef
 export const DIAS_ATRASO_PROVISIONAL = 7
 /** Estados de Amazon en los que un envío ya no viene de camino */
 export const ESTADOS_AMAZON_MUERTOS = ['CLOSED', 'CANCELLED', 'DELETED', 'ERROR']
-export const ESTADOS_AMAZON_RECIBIENDO = ['RECEIVING', 'CHECKED_IN']
+export { ESTADOS_AMAZON_RECIBIENDO }
 /** Motivos que no son «rotura» (no cuentan en roturas ni en la primera rotura) */
 /** Merma por encima de esto (sobre lo vendido) sale en la calidad (D12) */
 const MERMA_AVISO = 0.05
@@ -855,18 +855,14 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
 
   /* ---------- envíos de camino ---------- */
   const enCamino: EnCamino[] = enCaminoRemesas.map((r) => {
-    const estadoAmazon = (r.estadoAmazon ?? '').toUpperCase()
     const fechaEnvio = r.fechaEnvio ? r.fechaEnvio.slice(0, 10) : null
     const recibidas = Math.max(0, entero(r.recibidas))
-    let llegadaPrevista: string | null
-    if (ESTADOS_AMAZON_RECIBIENDO.includes(estadoAmazon)) llegadaPrevista = sumarDias(hoy, plazo.recepcion)
-    else if (fechaEnvio) llegadaPrevista = maxFecha(sumarDias(fechaEnvio, plazo.transporte), sumarDias(hoy, plazo.recepcion))
-    else llegadaPrevista = sumarDias(hoy, plazo.transporte + plazo.recepcion)
-    const transporteDudoso = medidas.transporteMediano ?? plazo.transporte
+    // La misma regla que «Hoy» y el Resumen global (llegadas.ts): no puede haber una pantalla que diga otra cosa
+    const llegadaPrevista = llegadaPrevistaDeCamino({ estadoAmazon: r.estadoAmazon, fechaEnvio }, hoy, plazo)
     return {
       remesaId: r.id, nombre: r.nombre ?? 'Envío', referenciaEnvio: r.referenciaEnvio, estadoAmazon: r.estadoAmazon,
       fechaEnvio, llegadaPrevista, unidades: Math.max(0, entero(r.unidades)), recibidas,
-      dudoso: fechaEnvio ? esEnvioDudoso(diasEntre(fechaEnvio, hoy), recibidas, transporteDudoso) : false,
+      dudoso: caminoEsDudoso({ fechaEnvio, recibidas }, hoy, medidas.transporteMediano, plazo.transporte),
     }
   }).sort((a, b) => (a.llegadaPrevista ?? '').localeCompare(b.llegadaPrevista ?? '') || a.remesaId.localeCompare(b.remesaId))
 

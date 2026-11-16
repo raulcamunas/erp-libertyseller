@@ -77,19 +77,30 @@ function Cuenta({ n, activa }: { n: number; activa: boolean }) {
   )
 }
 
-export function Pestanas<T extends string | number>({ opciones, valor, onCambio, etiqueta, className, acento, idPanel }: Comunes<T> & { acento?: Modulo | string; idPanel?: string }) {
+export function Pestanas<T extends string | number>({ opciones, valor, onCambio, etiqueta, className, acento, idPanel, envolver = false }: Comunes<T> & {
+  acento?: Modulo | string
+  idPanel?: string
+  /**
+   * Las pestañas que no caben bajan a otra fila en vez de quedar fuera, a la derecha, en una barra sin barra de desplazamiento (con
+   * ratón solo se llegaba con mayúsculas + rueda). Para barras con muchas pestañas en una columna estrecha. El subrayado sigue a
+   * la pestaña en su fila.
+   */
+  envolver?: boolean
+}) {
   const grupo = useId()
   const { alPulsarTecla, registrar, botones } = useTeclado(opciones, valor, onCambio)
   const barra = useRef<HTMLDivElement>(null)
   // EL SUBRAYADO se coloca midiendo la pestaña elegida (offsetLeft/offsetWidth dentro de la barra) y se desliza con transform. Antes era un layoutId de
   // framer-motion dentro de cada botón: en una barra con scroll horizontal calculaba mal el origen y saltaba, y como asomaba 1 px por debajo (encima del
   // border-b) el overflow de la barra lo recortaba y solo se veía el brillo borroso (15 nov 2026, Marketing).
-  const [linea, setLinea] = useState<{ x: number; w: number } | null>(null)
+  const [linea, setLinea] = useState<{ x: number; w: number; y: number } | null>(null)
   const [deslizar, setDeslizar] = useState(false)
   const medir = useCallback(() => {
     const b = botones.current.get(valor)
     if (!b) return setLinea(null)
-    setLinea((prev) => (prev && prev.x === b.offsetLeft && prev.w === b.offsetWidth ? prev : { x: b.offsetLeft, w: b.offsetWidth }))
+    // `y`: el borde de abajo de la pestaña (solo cuenta al envolver, cuando puede estar en la primera fila)
+    const y = b.offsetTop + b.offsetHeight
+    setLinea((prev) => (prev && prev.x === b.offsetLeft && prev.w === b.offsetWidth && prev.y === y ? prev : { x: b.offsetLeft, w: b.offsetWidth, y }))
   }, [botones, valor])
   useLayoutSeguro(() => {
     medir()
@@ -133,16 +144,20 @@ export function Pestanas<T extends string | number>({ opciones, valor, onCambio,
         aria-label={etiqueta}
         onKeyDown={alPulsarTecla}
         // La raya de abajo es una sombra interior y no un border-b: así el subrayado se pinta ENCIMA de ella, dentro de la barra, y el overflow no lo recorta
-        className={cn('ls-sin-barra relative flex max-w-full items-end gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--ls-linea)]', className)}
+        className={cn(
+          'ls-sin-barra relative flex max-w-full items-end gap-1 shadow-[inset_0_-1px_0_var(--ls-linea)]',
+          envolver ? 'flex-wrap overflow-visible' : 'overflow-x-auto overflow-y-hidden',
+          className,
+        )}
         style={{ ['--ls-acento' as string]: colorDeAcento(acento) }}
       >
         {linea && (
           <span
             aria-hidden
-            className={cn('pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full motion-reduce:transition-none', deslizar && 'transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]')}
+            className={cn('pointer-events-none absolute left-0 h-[2px] rounded-full motion-reduce:transition-none', envolver ? 'top-0' : 'bottom-0', deslizar && 'transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]')}
             style={{
               width: Math.max(0, linea.w - 16),
-              transform: `translateX(${linea.x + 8}px)`,
+              transform: envolver ? `translate(${linea.x + 8}px, ${linea.y - 2}px)` : `translateX(${linea.x + 8}px)`,
               background: 'var(--ls-acento)',
               boxShadow: '0 -1px 8px color-mix(in srgb, var(--ls-acento) 55%, transparent)',
             }}

@@ -470,6 +470,17 @@ console.log('\n=== Exceso coherente con la simulación y con un mínimo ===')
   ok('sobran ~5 ud (menos de 30 días de ventas y < 5 €/mes) → stock de sobra, sin consejo', poco.fuera === 'stock_de_sobra' && !/promoción|retirada/.test(poco.porque), [poco.fuera, poco.porque])
 }
 
+console.log('\n=== D8b · con stock 14+ días en 90 y 0 ventas en esos 90: no se propone (respaldo de un periodo anterior) ===')
+{
+  // Creative Toys CT69731-*-N: 16-18 días con stock en los 90, 0 ventas; el ritmo de 0,08 ud/día venía de ventas anteriores a esos 90 días
+  const r = ritmoBase(0.08, { origen: 'ultimo_periodo', confianza: 'baja', ultimoPeriodoHasta: sumarDias(HOY, -72), r14: null, r30: null, r60: null, r90: null, ventas90: 0, ventas30: 0, ventas180: 2, diasConStock90: 17 })
+  const l = plan(entrada({ vendibles: 0, ritmo: r, ventas90: 0 }))
+  ok('no se propone enviar: agotado_largo («¿se repone?»)', l.fuera === 'agotado_largo' && l.cantidad === 0, [l.fuera, l.cantidad, l.porque])
+  // Con menos de 14 días con stock en los 90 sigue siendo el caso de arriba (sin evidencia de que no venda): se planifica
+  const poco = plan(entrada({ vendibles: 0, ritmo: ritmoBase(0.2, { origen: 'ultimo_periodo', confianza: 'baja', ultimoPeriodoHasta: sumarDias(HOY, -10), r14: null, r30: null, r60: null, r90: null, ventas90: 0, ventas30: 0, ventas180: 5, diasConStock90: 6 }), ventas90: 0 }))
+  ok('con 6 días con stock en 90 no lo corta esta regla', poco.fuera !== 'agotado_largo', [poco.fuera, poco.porque])
+}
+
 console.log('\n=== D8 · agotada hace poco (pocos días con stock en 90) no es «agotado largo» ===')
 {
   // ShoesF FBA939229-38: stock hasta hace 10 días, 3 ventas en 30 días, menos de 12 días con stock en 30 → ninguna ventana

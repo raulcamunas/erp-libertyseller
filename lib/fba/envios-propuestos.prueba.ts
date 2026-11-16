@@ -1,4 +1,4 @@
-import { agruparEnvios, claveDeEnvio, reconciliarEnvios, semanaIso } from './envios-propuestos'
+import { agruparEnvios, avisoRemesasSinSalir, claveAparte, claveDeEnvio, reconciliarEnvios, semanaIso } from './envios-propuestos'
 import { ajustarPorModelo } from './planificador'
 import type {
   AjustesReposicion, Confianza, EnvioGuardadoMinimo, EnvioPropuestoCalculado, EstadoEnvioPropuesto, LineaPlan,
@@ -459,6 +459,53 @@ console.log('\n=== convertir y la pasada: una fila recién reclamada no es huér
   ok('a los 30 s no pasa a hablado', r.huerfanosAHablado.length === 0 && r.actualizar.length === 0, JSON.stringify(r.huerfanosAHablado))
   const viejo = reconciliarEnvios([recien], [], [calculado(W49, [['A', 50]])], HOY, { completo: true, ahora: '2026-11-15T10:20:00Z' })
   ok('a los 20 min sí', viejo.huerfanosAHablado.join() === 'c1')
+}
+
+console.log('\n=== una referencia nueva en la semana de un envío ya hablado o en preparación ===')
+{
+  // Hablado W49 con A y B (aceptadas). El plan de hoy pide A, B y C en W49 ⇒ C va en un envío aparte que se puede convertir
+  const hablado = guardado('g1', 'hablado', W49, [['A', 40], ['B', 50]], { skusFijos: ['A', 'B'] })
+  const r = reconciliarEnvios([hablado], [], [calculado(W49, [['A', 40], ['B', 50], ['C', 24]], 'urgente')], HOY, COMPLETO)
+  ok('se inserta un envío nuevo con C', r.insertar.length === 1 && r.insertar[0].lineas.map((l) => l.sku).join() === 'C', JSON.stringify(r.insertar.map((e) => e.lineas.map((l) => l.sku))))
+  ok('…con clave derivada «:2» (no choca con el índice único)', r.insertar[0]?.clave === claveAparte(claveDeEnvio('cli1', 'conn1', W49)) && r.insertar[0]?.clave.endsWith(':2'), r.insertar[0]?.clave)
+  ok('…con su prioridad y una nota que dice por qué va aparte', r.insertar[0]?.prioridad === 'urgente' && /no están en lo hablado/.test(r.insertar[0]?.porque[0] ?? ''), r.insertar[0]?.porque[0])
+  ok('el hablado se actualiza sin C (no se duplica)', r.actualizar.length === 1 && r.actualizar[0].id === 'g1' && !r.actualizar[0].calculado.lineas.some((l) => l.sku === 'C'))
+  // En preparación: igual, y la remesa no se toca
+  const prep = guardado('p1', 'en_preparacion', W49, [['A', 40], ['B', 50]], { skusFijos: ['A', 'B'], remesaId: 'r1' })
+  const rp = reconciliarEnvios([prep], [], [calculado(W49, [['A', 40], ['B', 50], ['C', 24]])], HOY, COMPLETO)
+  ok('en preparación: C va aparte y la remesa no se toca', rp.insertar.length === 1 && rp.insertar[0].lineas[0]?.sku === 'C' && rp.actualizar.length === 0 && /remesa que ya se está preparando/.test(rp.insertar[0].porque[0] ?? ''))
+  // Al día siguiente ya existe el aparte «nuevo»: se actualiza, no se inserta otro
+  const aparte = guardado('g2', 'nuevo', W49, [['C', 24]], { clave: claveAparte(claveDeEnvio('cli1', 'conn1', W49)) })
+  const r2 = reconciliarEnvios([hablado, aparte], [], [calculado(W49, [['A', 40], ['B', 50], ['C', 30]])], HOY, COMPLETO)
+  ok('el aparte que ya existe se actualiza (no se inserta otro)', r2.insertar.length === 0 && r2.actualizar.some((a) => a.id === 'g2' && a.calculado.lineas[0]?.sku === 'C'))
+  // Y si el aparte también se habla y aparece D: D va a «:3»
+  const aparteHablado = { ...aparte, estado: 'hablado' as const, skusFijos: ['C'] }
+  const r3 = reconciliarEnvios([hablado, aparteHablado], [], [calculado(W49, [['A', 40], ['B', 50], ['C', 24], ['D', 12]])], HOY, COMPLETO)
+  ok('aparte hablado y aparece D ⇒ D va en «:3»', r3.insertar.length === 1 && r3.insertar[0].lineas[0]?.sku === 'D' && r3.insertar[0].clave.endsWith(':3'), JSON.stringify(r3.insertar.map((e) => [e.clave, e.lineas.map((l) => l.sku)])))
+  // La clave «:2» ya la tiene un activo emparejado con otra cosa (el base está «enviado»; el :2 sigue «hablado» con C): D no puede insertarse con «:2» (23505)
+  const base2 = claveAparte(claveDeEnvio('cli1', 'conn1', W49))
+  const aparte2Hablado = guardado('g2', 'hablado', W49, [['C', 24]], { clave: base2, skusFijos: ['C'] })
+  const r4 = reconciliarEnvios([aparte2Hablado], [], [calculado(W49, [['C', 24], ['D', 12]], 'urgente')], HOY, COMPLETO)
+  ok('base enviado y :2 hablado con C, el plan pide C+D ⇒ D no se inserta con la clave :2', r4.insertar.length === 1 && r4.insertar[0].lineas[0]?.sku === 'D' && r4.insertar[0].clave !== base2, JSON.stringify(r4.insertar.map((e) => [e.clave, e.lineas.map((l) => l.sku)])))
+  ok('…y el :2 hablado se actualiza sin cambiar de clave', r4.actualizar.some((a) => a.id === 'g2'))
+  // Sin lo aceptado (skusFijos null) convertir usa «lineas», que la pasada reescribe: C entra en el mismo envío
+  const sinAceptadas = reconciliarEnvios([guardado('g1', 'hablado', W49, [['A', 40], ['B', 50]])], [], [calculado(W49, [['A', 40], ['B', 50], ['C', 24]])], HOY, COMPLETO)
+  ok('hablado sin aceptadas: C entra en sus líneas, sin aparte', sinAceptadas.insertar.length === 0 && sinAceptadas.actualizar[0]?.calculado.lineas.some((l) => l.sku === 'C'))
+}
+
+console.log('\n=== aviso de remesas sin salir (no prometer «añádelo ahí») ===')
+{
+  const rem = (estado: string) => [{ remesaId: 'r1', nombre: 'Reposición de octubre', estado, fechaEnvio: '2026-10-30', unidades: 4 }]
+  const enc = avisoRemesasSinSalir([
+    linea('A', W49, 17, { remesasSinSalir: rem('encajando') } as Partial<LineaPlan>),
+    linea('B', W49, 8, { remesasSinSalir: rem('encajando') } as Partial<LineaPlan>),
+    linea('C', W49, 12),
+  ])
+  ok('encajando: una frase por envío, que dice que no admite líneas', enc.length === 1 && /«Reposición de octubre» \(encajando, sale ~30 oct\) ya lleva 2 de estas referencias y no admite más líneas: estas 25 ud irían en otra remesa/.test(enc[0]), enc[0])
+  ok('…y no dice «añádelo ahí»', !/añád/i.test(enc.join(' ')))
+  const bor = avisoRemesasSinSalir([linea('A', W49, 17, { remesasSinSalir: rem('borrador') } as Partial<LineaPlan>)])
+  ok('borrador: sí se puede sumar editando sus líneas', /en borrador.*editando sus líneas/.test(bor[0] ?? ''), bor[0])
+  ok('sin remesas sin salir: nada', avisoRemesasSinSalir([linea('A', W49, 17)]).length === 0)
 }
 
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien${fallos ? ` · ${fallos} FALLAN` : ''} (recalcular llamado ${llamadasRecalcular} veces)`)

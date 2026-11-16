@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { sigueVivo } from './inbound-estados'
 import { leerLibroDiario } from './libro-diario'
-import { esEnvioDudoso } from './llegadas'
+import { caminoEsDudoso, llegadaPrevistaDeCamino } from './llegadas'
 import { medirTransporte, mercadoDeRemesa } from './medidas-cliente'
 import { leerTodo } from './paginar'
 import { stockEntreMercados } from './lectura-elegida'
@@ -296,6 +296,50 @@ export function llegadaPrevistaDe(r: { fechaEnvio: string | null; llegadaAt: str
   return porTransporte > minima ? porTransporte : minima
 }
 
+/** El plazo con el que el Resumen dice «dudoso» y la llegada de un envío de camino de un cliente */
+export interface PlazoDeCamino {
+  transporte: number
+  recepcion: number
+  /** Transporte medido (envío → primer Receipt); null = sin medida */
+  transporteMediano: number | null
+}
+
+/**
+ * El plazo de camino de un cliente. Con pasada, el que el plan guardó (plazo y medidas de `plazo._pasada`): así el Resumen dice
+ * lo mismo que el plan. Sin pasada, la regla de respaldo del plan: transporte manual > medido > de partida, recepción manual o
+ * de partida. Puro.
+ */
+export function plazoDeCamino(
+  pasada: { plazo: unknown } | null | undefined,
+  manual: { transporte: number | null; recepcion: number | null } | undefined,
+  medido: number | null,
+): PlazoDeCamino {
+  const p = pasada?.plazo && typeof pasada.plazo === 'object' ? (pasada.plazo as Record<string, unknown>) : null
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null)
+  if (p && num(p.transporte) !== null && num(p.recepcion) !== null) {
+    const extra = p._pasada && typeof p._pasada === 'object' ? (p._pasada as { medidas?: { transporteMediano?: unknown } }) : null
+    return { transporte: num(p.transporte)!, recepcion: num(p.recepcion)!, transporteMediano: num(extra?.medidas?.transporteMediano) }
+  }
+  return {
+    transporte: manual?.transporte ?? medido ?? TRANSPORTE_PARTIDA,
+    recepcion: manual?.recepcion ?? RECEPCION_PARTIDA,
+    transporteMediano: medido,
+  }
+}
+
+/** Llegada prevista y «dudoso» de un envío de camino: las funciones del plan (llegadas.ts), con el plazo de `plazoDeCamino`. Puro. */
+export function caminoDeRemesa(
+  r: { estadoAmazon: string | null; fechaEnvio: string | null; recibidas: number },
+  hoy: string,
+  plazo: PlazoDeCamino,
+): { llegadaPrevista: string; dudoso: boolean } {
+  const fechaEnvio = r.fechaEnvio ? String(r.fechaEnvio).slice(0, 10) : null
+  return {
+    llegadaPrevista: llegadaPrevistaDeCamino({ estadoAmazon: r.estadoAmazon, fechaEnvio }, hoy, plazo),
+    dudoso: caminoEsDudoso({ fechaEnvio, recibidas: r.recibidas }, hoy, plazo.transporteMediano, plazo.transporte),
+  }
+}
+
 /* ================================================================== */
 /* Lecturas                                                            */
 /* ================================================================== */
@@ -321,6 +365,7 @@ async function enParalelo<T, R>(items: T[], n: number, tarea: (x: T) => Promise<
 }
 
 interface FilaPlanUltima {
+  id?: string
   client_id: string
   connection_id: string | null
   calculado_at: string
@@ -477,7 +522,7 @@ export async function calcularResumenGlobal(service: Servicio, permitidos: strin
   {
     const { data, error } = await service
       .from('fba_plan_ultima')
-      .select('client_id, connection_id, calculado_at, estado, resumen, calidad')
+      .select('id, client_id, connection_id, calculado_at, estado, resumen, calidad')
       .in('client_id', ids)
     if (error) {
       if (!faltaLaTabla(error)) throw error
@@ -596,24 +641,38 @@ export async function calcularResumenGlobal(service: Servicio, permitidos: strin
     transporteMedidoDe.set(id, medirTransporte((remesasDe.get(id) ?? []).map((r) => ({ fechaEnvio: r.fecha_envio, primerReceipt: r.llegada_at }))))
   }
 
+  // El plazo que guardó la pasada (plazo y transporte medido con el primer Receipt) de los clientes con envíos de camino: el
+  // Resumen dice «dudoso» y la llegada con lo mismo que el plan. Sin pasada, la regla de respaldo (manual o de partida)
+  const pasadaDe = new Map<string, { plazo: unknown }>()
+  if (migracion316) {
+    const conCamino = [...new Set(vivas.map((r) => r.client_id))]
+    const idsPasada = conCamino.map((c) => planes.get(c)?.id).filter((x): x is string => !!x)
+    const filas = await enTrozos(idsPasada, async (t) => {
+      const { data, error } = await service.from('fba_plan_pasadas').select('client_id, plazo').in('id', t)
+      if (error) {
+        if (faltaLaTabla(error)) return []
+        throw error
+      }
+      return (data ?? []) as Array<{ client_id: string; plazo: unknown }>
+    })
+    for (const f of filas) pasadaDe.set(f.client_id, f)
+  }
+
   const enCamino: EnCaminoDeCliente[] = vivas
     .map((r) => {
       const s = sumaDe.get(r.id) ?? { unidades: 0, recibidas: 0 }
-      const medido = transporteMedidoDe.get(r.client_id) ?? null
-      const manual = plazoManual.get(r.client_id)
-      const transporte = manual?.transporte ?? medido ?? TRANSPORTE_PARTIDA
-      const recepcion = manual?.recepcion ?? RECEPCION_PARTIDA
-      const edad = r.fecha_envio ? diasEntre(r.fecha_envio, hoy) : Number.NaN
+      const plazo = plazoDeCamino(pasadaDe.get(r.client_id), plazoManual.get(r.client_id), transporteMedidoDe.get(r.client_id) ?? null)
+      const camino = caminoDeRemesa({ estadoAmazon: r.estado_amazon, fechaEnvio: r.fecha_envio, recibidas: s.recibidas }, hoy, plazo)
       return {
         remesaId: r.id,
         nombre: r.nombre ?? 'Envío sin nombre',
         referenciaEnvio: r.referencia_envio,
         estadoAmazon: r.estado_amazon,
         fechaEnvio: r.fecha_envio ? String(r.fecha_envio).slice(0, 10) : null,
-        llegadaPrevista: llegadaPrevistaDe({ fechaEnvio: r.fecha_envio, llegadaAt: r.llegada_at }, hoy, transporte, recepcion),
+        llegadaPrevista: camino.llegadaPrevista,
         unidades: s.unidades,
         recibidas: s.recibidas,
-        dudoso: esEnvioDudoso(edad, s.recibidas, medido),
+        dudoso: camino.dudoso,
         clienteId: r.client_id,
         clienteNombre: nombres.get(r.client_id) ?? 'Cliente',
       }

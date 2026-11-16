@@ -87,7 +87,9 @@ export function PestanasEnvio({
 
   return (
     <section aria-label="Desglose del envío" className="flex min-w-0 flex-col gap-3">
-      {/* Con 9 pestañas en la columna de un portátil (1440 px con la barra lateral: ~784 px) los iconos y el relleno sacaban «Historial» fuera de la vista; por debajo de 2xl se aprieta para que se vean todas las de siempre */}
+      {/* Con 9 pestañas en la columna de un portátil (1440 px con la barra lateral: ~784 px) «Referencias», «Historial» y «Amazon (API)»
+          quedaban fuera, a la derecha, sin barra de desplazamiento. Por debajo de 2xl se aprieta (sin iconos) y, si aun así no caben,
+          las que sobran bajan a otra fila (`envolver`): ninguna pestaña de siempre se queda sin ver */}
       <Pestanas
         etiqueta="Desglose del envío"
         acento="remesas"
@@ -95,6 +97,7 @@ export function PestanasEnvio({
         valor={activa}
         onCambio={setPestana}
         idPanel={idPanel}
+        envolver
         className="gap-0.5 [&_[role=tab]]:px-2.5 max-2xl:[&_[role=tab]_svg]:hidden"
       />
 
