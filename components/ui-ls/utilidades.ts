@@ -75,7 +75,7 @@ export function leerVariacion(actual: number | null | undefined, anterior: numbe
 
 /** «12,4 %» con coma española; sin signo (la flecha ya lo dice). */
 export const porcentajeCorto = (proporcion: number): string =>
-  `${Math.abs(proporcion * 100).toLocaleString('es-ES', { maximumFractionDigits: Math.abs(proporcion) < 0.1 ? 1 : 0 })} %`
+  `${Math.abs(proporcion * 100).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: 'always' })}\u00a0%`
 
 /* ------------------------------------------------------------------ */
 /* Avatar                                                              */
@@ -193,6 +193,6 @@ export const proporcionSegura = (valor: number, maximo = 1): number => {
 }
 
 /** Formateadores de siempre, en español. */
-export const formatoEntero = (n: number) => Math.round(n).toLocaleString('es-ES')
+export const formatoEntero = (n: number) => Math.round(n).toLocaleString('es-ES', { useGrouping: 'always' })
 export const formatoEuros = (n: number, decimales = 0) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: decimales, minimumFractionDigits: decimales })
 export const formatoPorcentaje = (proporcion: number, decimales = 1) => `${(proporcion * 100).toLocaleString('es-ES', { maximumFractionDigits: decimales, minimumFractionDigits: decimales })} %`

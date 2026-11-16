@@ -59,7 +59,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
         { etiqueta: 'Pedidos', formato: undefined, valor: entero(calculo.t.pedidos), a: calculo.t.pedidos, b: calculo.a.pedidos, mejor: 'sube' as const, serie: calculo.sa.map((p) => p.pedidos), color: COLOR_ESTADO.violeta },
         { etiqueta: 'Clics', formato: undefined, valor: entero(calculo.t.clics), a: calculo.t.clics, b: calculo.a.clics, mejor: 'neutro' as const, serie: calculo.sa.map((p) => p.clics), color: COLOR_ESTADO.cian },
         { etiqueta: 'CPC medio', formato: (n: number) => dinero(n, moneda), valor: dinero(calculo.t.cpc, moneda), a: calculo.t.cpc, b: calculo.a.cpc, mejor: 'baja' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.gasto / p.clics : 0)), color: COLOR_ESTADO.azul },
-        { etiqueta: 'Conversión (pedidos ÷ clics)', formato: (n: number) => porcentaje(n), valor: porcentaje(calculo.t.cvr), a: calculo.t.cvr, b: calculo.a.cvr, mejor: 'sube' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.pedidos / p.clics : 0)), color: COLOR_ESTADO.verde },
+        { etiqueta: 'Conversión', formato: (n: number) => porcentaje(n), valor: porcentaje(calculo.t.cvr), a: calculo.t.cvr, b: calculo.a.cvr, mejor: 'sube' as const, serie: calculo.sa.map((p) => (p.clics > 0 ? p.pedidos / p.clics : 0)), color: COLOR_ESTADO.verde },
       ]
     : null
 
@@ -97,7 +97,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
       )}
 
       {/* ------- las cifras (kit: cifra que cuenta, variación frente al periodo anterior y sparkline diaria) ------- */}
-      <FilaDeKpis minimo={180}>
+      <FilaDeKpis columnas="sm:grid-cols-2 lg:grid-cols-4">
         {(kpis ?? Array.from({ length: 8 }, () => null)).map((k, i) => (
           <KpiDelKit
             key={i}

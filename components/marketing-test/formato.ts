@@ -3,15 +3,15 @@
 export const dinero = (n: number | null | undefined, moneda: string | null, decimales = 2): string => {
   if (n == null || Number.isNaN(n)) return '—'
   try {
-    return n.toLocaleString('es-ES', { style: 'currency', currency: moneda || 'EUR', minimumFractionDigits: decimales, maximumFractionDigits: decimales })
+    return n.toLocaleString('es-ES', { style: 'currency', currency: moneda || 'EUR', minimumFractionDigits: decimales, maximumFractionDigits: decimales, useGrouping: 'always' })
   } catch {
     return `${n.toLocaleString('es-ES', { minimumFractionDigits: decimales, maximumFractionDigits: decimales })} ${moneda ?? ''}`.trim()
   }
 }
 
-export const porcentaje = (n: number | null | undefined, decimales = 1): string => (n == null || Number.isNaN(n) ? '—' : `${(n * 100).toLocaleString('es-ES', { minimumFractionDigits: decimales, maximumFractionDigits: decimales })} %`)
+export const porcentaje = (n: number | null | undefined, decimales = 1): string => (n == null || Number.isNaN(n) ? '—' : `${(n * 100).toLocaleString('es-ES', { minimumFractionDigits: decimales, maximumFractionDigits: decimales, useGrouping: 'always' })} %`)
 
-export const entero = (n: number | null | undefined): string => (n == null || Number.isNaN(n) ? '—' : Math.round(n).toLocaleString('es-ES'))
+export const entero = (n: number | null | undefined): string => (n == null || Number.isNaN(n) ? '—' : Math.round(n).toLocaleString('es-ES', { useGrouping: 'always' }))
 
 export const decimal = (n: number | null | undefined, decimales = 2): string => (n == null || Number.isNaN(n) ? '—' : n.toLocaleString('es-ES', { minimumFractionDigits: decimales, maximumFractionDigits: decimales }))
 

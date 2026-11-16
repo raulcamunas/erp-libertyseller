@@ -21,7 +21,7 @@ ok('anterior 0 = sin comparar', leerVariacion(5, 0).proporcion === null)
 ok('sin anterior = sin comparar', leerVariacion(5, null).proporcion === null && leerVariacion(null, 5).tono === 'gris')
 ok('igual = gris', leerVariacion(100, 100).direccion === 'igual' && leerVariacion(100, 100).tono === 'gris')
 ok('anterior negativo: mejora se lee como sube', leerVariacion(-50, -100).direccion === 'sube')
-ok('porcentaje corto', porcentajeCorto(0.123) === '12 %' && porcentajeCorto(-0.054) === '5,4 %', `${porcentajeCorto(0.123)} | ${porcentajeCorto(-0.054)}`)
+ok('porcentaje corto', porcentajeCorto(0.123) === '12,3\u00a0%' && porcentajeCorto(-0.054) === '5,4\u00a0%' && porcentajeCorto(0.16) === '16,0\u00a0%', `${porcentajeCorto(0.123)} | ${porcentajeCorto(-0.054)}`)
 
 console.log('\n=== avatar ===')
 ok('dos palabras', iniciales('Raúl Camuñas') === 'RC')

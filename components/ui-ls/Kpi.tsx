@@ -69,7 +69,7 @@ export function Variacion({ actual, anterior, mejor = 'sube', className }: { act
   const Icono = l.direccion === 'sube' ? ArrowUpRight : l.direccion === 'baja' ? ArrowDownRight : Minus
   return (
     <span
-      className={cn('inline-flex h-[20px] items-center gap-[2px] rounded-full px-[6px] text-[11.5px] font-semibold tabular-nums', className)}
+      className={cn('inline-flex h-[20px] shrink-0 items-center gap-[2px] whitespace-nowrap rounded-full px-[6px] text-[11.5px] font-semibold tabular-nums', className)}
       style={{ color, background: mezcla(color, 13) }}
       title="Frente al periodo anterior de la misma duración"
     >
@@ -176,15 +176,16 @@ export function Kpi({ etiqueta, valor, formato = formatoEntero, anterior, mejor 
 }
 
 /** Fila de KPIs: rejilla que se reparte sola desde sm; en el móvil, carrusel horizontal con imán y un trozo del siguiente a la vista. */
-export function FilaDeKpis({ children, className, minimo = 190 }: { children: ReactNode; className?: string; minimo?: number }) {
+export function FilaDeKpis({ children, className, minimo = 190, columnas }: { children: ReactNode; className?: string; minimo?: number; columnas?: string }) {
   return (
     <div
       className={cn(
         'ls-sin-barra -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:overflow-visible sm:px-0 sm:pb-0',
         '[&>*]:w-[76%] [&>*]:shrink-0 [&>*]:snap-start sm:[&>*]:w-auto',
+        columnas,
         className,
       )}
-      style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${minimo}px, 1fr))` }}
+      style={columnas ? undefined : { gridTemplateColumns: `repeat(auto-fit, minmax(${minimo}px, 1fr))` }}
     >
       {Children.toArray(children)}
     </div>
