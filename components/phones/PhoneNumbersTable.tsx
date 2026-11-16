@@ -7,6 +7,7 @@ import { Check, Copy, Pencil, Phone, Plus, Search, Trash2, X } from 'lucide-reac
 import { Avatar, Boton, CabeceraDeModulo, Confirmacion, EstadoVacio, Segmentado, TACTIL_CUADRADO } from '@/components/ui-ls'
 import { cn } from '@/lib/utils'
 import { formatoTelefono, separarNumeros } from './formato'
+import { CuentasRinkel } from './CuentasRinkel'
 
 /**
  * TELÉFONOS: el registro interno de los números que usamos y para qué es cada uno (solo dirección).
@@ -21,6 +22,7 @@ export interface PhoneNumber {
   phone: string
   client: string | null
   other_use: string | null
+  pin?: string | null
   notes: string | null
   position: number | null
 }
@@ -29,6 +31,7 @@ interface PhoneNumbersTableProps {
   initialRows: PhoneNumber[]
 }
 
+type Pestana = 'numeros' | 'rinkel'
 type Filtro = 'todos' | 'cliente' | 'uso' | 'libres'
 
 const CAMPO =
@@ -123,6 +126,7 @@ export function PhoneNumbersTable({ initialRows }: PhoneNumbersTableProps) {
   const [rows, setRows] = useState(initialRows)
   const [search, setSearch] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('todos')
+  const [pestana, setPestana] = useState<Pestana>('numeros')
   const [nuevo, setNuevo] = useState<string | null>(null)
   const [borrando, setBorrando] = useState<PhoneNumber | null>(null)
 
@@ -208,11 +212,31 @@ export function PhoneNumbersTable({ initialRows }: PhoneNumbersTableProps) {
         titulo="Teléfonos"
         subtitulo="Los números que usamos y para qué es cada uno."
         acciones={
-          <Boton variante="primario" icono={Plus} onClick={addRow}>
-            Añadir número
-          </Boton>
+          pestana === 'numeros' ? (
+            <Boton variante="primario" icono={Plus} onClick={addRow}>
+              Añadir número
+            </Boton>
+          ) : undefined
         }
       />
+
+      <div className="mb-4">
+        <Segmentado<Pestana>
+          etiqueta="Sección"
+          tamano="sm"
+          valor={pestana}
+          onCambio={setPestana}
+          opciones={[
+            { id: 'numeros', texto: 'Números' },
+            { id: 'rinkel', texto: 'Cuentas de Rinkel' },
+          ]}
+        />
+      </div>
+
+      {pestana === 'rinkel' ? (
+        <CuentasRinkel />
+      ) : (
+        <>
 
       {/* Buscar y filtrar */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -267,8 +291,9 @@ export function PhoneNumbersTable({ initialRows }: PhoneNumbersTableProps) {
       ) : (
         <div className="overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)]">
           {/* Rótulos de columna: solo en el ordenador (en el móvil cada número es una tarjeta con sus rótulos) */}
-          <div className="hidden grid-cols-[minmax(250px,1.1fr)_minmax(0,1fr)_minmax(0,1.2fr)_40px] gap-3 border-b border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-4 py-[10px] text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--ls-t4)] lg:grid">
+          <div className="hidden grid-cols-[minmax(250px,1.1fr)_120px_minmax(0,1fr)_minmax(0,1.2fr)_40px] gap-3 border-b border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-4 py-[10px] text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--ls-t4)] lg:grid">
             <span>Teléfono</span>
+            <span>PIN</span>
             <span>Cliente</span>
             <span>Otro uso</span>
             <span className="sr-only">Acciones</span>
@@ -279,7 +304,7 @@ export function PhoneNumbersTable({ initialRows }: PhoneNumbersTableProps) {
               <li
                 key={r.id}
                 className={cn(
-                  'group grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-3 py-3 transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_60%,transparent)] lg:grid-cols-[minmax(250px,1.1fr)_minmax(0,1fr)_minmax(0,1.2fr)_40px] lg:items-center lg:gap-3 lg:px-4 lg:py-[10px]',
+                  'group grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 px-3 py-3 transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_60%,transparent)] lg:grid-cols-[minmax(250px,1.1fr)_120px_minmax(0,1fr)_minmax(0,1.2fr)_40px] lg:items-center lg:gap-3 lg:px-4 lg:py-[10px]',
                   nuevo === r.id && 'bg-[color-mix(in_srgb,var(--ls-acc-graf)_7%,transparent)]',
                 )}
               >
@@ -288,15 +313,20 @@ export function PhoneNumbersTable({ initialRows }: PhoneNumbersTableProps) {
                 </div>
 
                 {/* En el móvil la papelera va arriba a la derecha, junto al número; en el ordenador, en su columna */}
-                <div className="col-start-2 row-start-1 flex items-start lg:col-start-4 lg:justify-end">{botonBorrar(r)}</div>
+                <div className="col-start-2 row-start-1 flex items-start lg:col-start-5 lg:justify-end">{botonBorrar(r)}</div>
 
                 <div className="col-span-2 flex min-w-0 items-center gap-2 lg:col-span-1 lg:col-start-2 lg:row-start-1">
+                  <span className="w-[54px] shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-[var(--ls-t4)] lg:hidden">PIN</span>
+                  <CampoTexto etiqueta="PIN" valor={r.pin ?? null} onGuardar={(v) => save(r.id, { pin: v })} />
+                </div>
+
+                <div className="col-span-2 flex min-w-0 items-center gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1">
                   <span className="w-[54px] shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-[var(--ls-t4)] lg:hidden">Cliente</span>
                   {r.client ? <Avatar nombre={r.client} tamano={26} className="shrink-0" /> : <span aria-hidden className="w-[26px] shrink-0 lg:hidden" />}
                   <CampoTexto etiqueta="Cliente" valor={r.client} onGuardar={(v) => save(r.id, { client: v })} />
                 </div>
 
-                <div className="col-span-2 flex min-w-0 items-center gap-2 lg:col-span-1 lg:col-start-3 lg:row-start-1">
+                <div className="col-span-2 flex min-w-0 items-center gap-2 lg:col-span-1 lg:col-start-4 lg:row-start-1">
                   <span className="w-[54px] shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-[var(--ls-t4)] lg:hidden">Uso</span>
                   {/* Mismo sangrado que el avatar de la fila de arriba, para que los dos textos empiecen a la misma altura en el móvil */}
                   <span aria-hidden className="w-[26px] shrink-0 lg:hidden" />
@@ -319,6 +349,8 @@ export function PhoneNumbersTable({ initialRows }: PhoneNumbersTableProps) {
       <p className="mt-3 flex items-center gap-[6px] text-[12px] text-[var(--ls-t4)]">
         <Check className="h-[13px] w-[13px]" aria-hidden /> Los cambios se guardan solos al salir de cada casilla. Intro guarda; Esc deshace el número.
       </p>
+        </>
+      )}
 
       <Confirmacion
         abierto={!!borrando}
