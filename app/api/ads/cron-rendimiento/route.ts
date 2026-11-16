@@ -4,12 +4,14 @@ import { avanzar, cuentasASincronizar, cuentasConTrabajo } from '@/lib/ads/sincr
 import { avanzarVentas, ventasConTrabajo } from '@/lib/ads/ventas-totales'
 import { esSinMigracion } from '@/lib/ads/cuenta'
 import { textoDeError } from '@/lib/sistema/error-texto'
-import { cuentasDelMotorConTrabajo, pasoDelMotor } from '@/lib/ads/motor-cron'
+import { cuentasDelMotorConTrabajo, pasoDelMotor, type CuentaDelMotor } from '@/lib/ads/motor-cron'
 import { pasoHizoAlgo } from '@/lib/ads/motor-calculo'
-import type { CuentaParaSincronizar } from '@/lib/ads/sincronizar'
 
-/** Un paso del motor en cada cuenta con trabajo, dentro del presupuesto de tiempo. `hizoAlgo` = algo que merezca una fila en el registro */
-async function correrMotor(delMotor: CuentaParaSincronizar[], arranque: number) {
+/**
+ * Un paso del motor en cada cuenta con trabajo, dentro del presupuesto de tiempo. `hizoAlgo` = algo que merezca una fila en el registro.
+ * Cada cuenta lleva su modo (en «agente» la generación de pujas va con los ajustes del agente). El agente PPC NO corre aquí: tiene su proceso (`ads-agente`).
+ */
+async function correrMotor(delMotor: CuentaDelMotor[], arranque: number) {
   const motor = { cuentas: 0, nuevas: 0, aplicadas: 0, fallidas: 0 }
   const errores: string[] = []
   let sinTiempo = 0
@@ -20,7 +22,7 @@ async function correrMotor(delMotor: CuentaParaSincronizar[], arranque: number) 
       continue
     }
     try {
-      const r = await pasoDelMotor(c)
+      const r = await pasoDelMotor(c, c.modo)
       motor.cuentas += 1
       motor.nuevas += r.nuevas
       motor.aplicadas += r.aplicadas
@@ -42,6 +44,7 @@ async function correrMotor(delMotor: CuentaParaSincronizar[], arranque: number) 
  * pasado 3 horas. No espera a Amazon nunca (lib/ads/sincronizar.ts). Solo LEE de Amazon.
  *
  * Además hace la parte automática del MOTOR de optimización de las cuentas que lo tengan encendido (lib/ads/motor-cron.ts): términos de búsqueda una vez al día, propuestas y, en autopiloto, negativas.
+ * En las cuentas con el agente PPC solo PREPARA las propuestas del día (con los ajustes del agente): las aplica el agente desde su propio proceso (/api/ads/cron-agente).
  *
  * Si no hay nada que hacer —lo normal—, contesta sin abrir fila en el registro de procesos: serían 700 filas al día para decir «nada».
  */

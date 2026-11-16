@@ -62,8 +62,11 @@ export interface ContextoDeReglas {
   estimados?: UmbralesEstimados
 }
 
-/** «pausar» necesita la migración 305 para poder guardarse (sin ella, el motor la calcula pero no la guarda y lo dice) */
-export type TipoDePropuesta = 'negativizar' | 'promover' | 'puja' | 'presupuesto' | 'pausar'
+/**
+ * «pausar» necesita la migración 305 para poder guardarse (sin ella, el motor la calcula pero no la guarda y lo dice). «pausar-campana» (315) solo la crea el agente PPC cuando un producto se queda
+ * sin stock: pausa la campaña entera (deshacer = volver a activarla si sigue pausada).
+ */
+export type TipoDePropuesta = 'negativizar' | 'promover' | 'puja' | 'presupuesto' | 'pausar' | 'pausar-campana'
 
 export interface Propuesta {
   tipo: TipoDePropuesta

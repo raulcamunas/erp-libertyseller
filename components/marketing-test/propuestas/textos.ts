@@ -16,7 +16,9 @@ export function queHace(p: Propuesta): string {
     case 'presupuesto':
       return `Cambiar el presupuesto diario de ${n2(p.valorActual)} a ${n2(p.valorNuevo)} en ${p.campaignNombre}`
     case 'pausar':
-      return `Pausar «${p.termino}» en ${p.campaignNombre}`
+      return p.objetivoTipo === 'anuncio' ? `Pausar el anuncio de ${p.asin ?? p.termino} en ${p.campaignNombre} (sin stock)` : `Pausar «${p.termino}» en ${p.campaignNombre}`
+    case 'pausar-campana':
+      return `Pausar la campaña ${p.campaignNombre} (sin stock)`
     default:
       return p.esAsin ? `Atacar la ficha ${p.termino.toUpperCase()} en ${p.haciaCampaignNombre ?? 'ATAQUE ASIN'} y excluirla de ${p.campaignNombre}` : `Añadir «${p.termino}» (exacta) a ${p.haciaCampaignNombre ?? '—'} y excluirlo de ${p.campaignNombre}`
   }
@@ -27,14 +29,15 @@ const sube = (p: Propuesta) => (p.valorNuevo ?? 0) >= (p.valorActual ?? 0)
 export function nombreDePropuesta(p: Propuesta): string {
   if (p.tipo === 'negativizar') return p.esAsin ? 'Excluir ASIN' : 'Excluir'
   if (p.tipo === 'promover') return p.esAsin ? 'Atacar ASIN' : 'Cosechar a exacta'
-  if (p.tipo === 'pausar') return 'Pausar'
+  if (p.tipo === 'pausar') return p.objetivoTipo === 'anuncio' ? 'Pausar anuncio' : 'Pausar'
+  if (p.tipo === 'pausar-campana') return 'Pausar campaña'
   if (p.tipo === 'presupuesto') return sube(p) ? 'Subir presupuesto' : 'Bajar presupuesto'
   return sube(p) ? 'Subir puja' : 'Bajar puja'
 }
 
 /** Lo que recorta gasto en rojo/ámbar, lo que lo amplía en verde, el presupuesto en azul */
 export function tonoDePropuesta(p: Propuesta): TonoEstado {
-  if (p.tipo === 'negativizar' || p.tipo === 'pausar') return 'rojo'
+  if (p.tipo === 'negativizar' || p.tipo === 'pausar' || p.tipo === 'pausar-campana') return 'rojo'
   if (p.tipo === 'promover') return 'verde'
   if (p.tipo === 'presupuesto') return 'azul'
   return sube(p) ? 'verde' : 'ambar'
@@ -61,6 +64,7 @@ export const ESTADO_DE_PROPUESTA: Record<string, { texto: string; tono: TonoEsta
   error: { texto: 'Error', tono: 'rojo' },
   caducada: { texto: 'Caducada', tono: 'gris' },
   obsoleta: { texto: 'Obsoleta', tono: 'gris' },
+  ensayada: { texto: 'Ensayada (agente)', tono: 'cian' },
 }
 
 /** ¿Se quedó colgada una reserva? (el proceso murió a mitad de aplicar: puede estar aplicada en Amazon) */

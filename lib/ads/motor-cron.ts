@@ -11,15 +11,23 @@
  *   · generar ya no depende de que el informe lo recoja el proceso en esa misma pasada: se compara ads_terminos_sync.ultimo_ok_at con generado_at (migración 311).
  *     Sin la 311 se hace lo de antes (generar al recoger), que ahora basta porque la pantalla ya no recoge informes;
  *   · si falla la fase 3 (pujas, pausas, presupuesto) se dice en el registro, no solo en la consola.
+ *
+ * Desde el 15 nov 2026 (agente PPC):
+ *   · `cuentasDelMotorConTrabajo` devuelve el modo de cada cuenta y la ruta se lo pasa a `pasoDelMotor` (antes no llegaba: el modo «agente» no se enteraba de nada);
+ *   · en modo «agente», la fase 3 genera con los ajustes del agente (`ajustesParaPujas`: posturas, presión del día, ritmo, rampa, marca, efectos abiertos, puja máxima).
+ *     Si leerlos falla, ESE DÍA no se generan pujas (se dice en el registro): sin ajustes, las reglas de siempre subirían sin los frenos del agente;
+ *   · el piloto automático solo corre en «autopiloto». Lo que aplica el agente lo aplica su propio proceso (`ads-agente`, lib/ads/agente/agente-cron.ts), no este.
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { cuentasASincronizar, debeEmpezar, type CuentaParaSincronizar } from './sincronizar'
 import { avanzarTerminos, INTERVALO_TERMINOS_MS } from './terminos'
-import { generarPropuestas, modosConMotor, pilotoAutomatico, TOPE_DIARIO_AUTOPILOTO } from './motor'
+import { generarPropuestas, leerModo, modosConMotor, pilotoAutomatico, TOPE_DIARIO_AUTOPILOTO, type ModoDelMotor } from './motor'
 import { generarPropuestasDePujaYPresupuesto } from './motor-pujas'
 import { inicioDelDiaEnEspana, motorTieneTrabajo, tocaGenerar } from './motor-calculo'
+import { ajustesParaPujas } from './agente/ajustes-servidor'
+import type { AjustesDelAgenteParaPujas } from './agente/tipos'
 
 /** null = sin comprobar; false = sin la columna generado_at (migración 311) */
 let hayGeneradoAt: boolean | null = null
@@ -42,8 +50,11 @@ async function leerSyncs(ids: string[]): Promise<FilaSync[]> {
   return (data ?? []) as FilaSync[]
 }
 
-/** Las cuentas con el motor encendido que ahora mismo tienen algo que hacer. Barato: unas pocas consultas pequeñas, sin tocar Amazon */
-export async function cuentasDelMotorConTrabajo(): Promise<CuentaParaSincronizar[]> {
+/** Una cuenta del motor con su modo (para no volver a leerlo en cada paso) */
+export type CuentaDelMotor = CuentaParaSincronizar & { modo: ModoDelMotor }
+
+/** Las cuentas con el motor encendido que ahora mismo tienen algo que hacer, con su modo. Barato: unas pocas consultas pequeñas, sin tocar Amazon */
+export async function cuentasDelMotorConTrabajo(): Promise<CuentaDelMotor[]> {
   const modos = await modosConMotor()
   if (modos.size === 0) return []
   const cuentas = (await cuentasASincronizar()).filter((c) => modos.has(c.id))
@@ -63,18 +74,20 @@ export async function cuentasDelMotorConTrabajo(): Promise<CuentaParaSincronizar
   const hoyPor = new Map<string, number>()
   for (const r of aplicadasHoy) hoyPor.set(r.perfil_id, (hoyPor.get(r.perfil_id) ?? 0) + 1)
   const ahora = Date.now()
-  return cuentas.filter((c) => {
-    const e = por.get(c.id)
-    return motorTieneTrabajo({
-      modo: modos.get(c.id) ?? 'apagado',
-      esperandoTerminos: e?.estado === 'esperando',
-      tocaPedirTerminos: debeEmpezar({ ultimoOkAt: e?.ultimo_ok_at ? Date.parse(e.ultimo_ok_at) : null, pedidoAt: e?.pedido_at ? Date.parse(e.pedido_at) : null, hayError: Boolean(e?.error), ahora, forzar: false }, INTERVALO_TERMINOS_MS),
-      tocaGenerar: hayGeneradoAt === true && tocaGenerar(e?.ultimo_ok_at ?? null, e?.generado_at ?? null),
-      negativasPendientes: conPendientes.has(c.id),
-      aplicadasHoyAuto: hoyPor.get(c.id) ?? 0,
-      topeAuto: TOPE_DIARIO_AUTOPILOTO,
+  return cuentas
+    .filter((c) => {
+      const e = por.get(c.id)
+      return motorTieneTrabajo({
+        modo: modos.get(c.id) ?? 'apagado',
+        esperandoTerminos: e?.estado === 'esperando',
+        tocaPedirTerminos: debeEmpezar({ ultimoOkAt: e?.ultimo_ok_at ? Date.parse(e.ultimo_ok_at) : null, pedidoAt: e?.pedido_at ? Date.parse(e.pedido_at) : null, hayError: Boolean(e?.error), ahora, forzar: false }, INTERVALO_TERMINOS_MS),
+        tocaGenerar: hayGeneradoAt === true && tocaGenerar(e?.ultimo_ok_at ?? null, e?.generado_at ?? null),
+        negativasPendientes: conPendientes.has(c.id),
+        aplicadasHoyAuto: hoyPor.get(c.id) ?? 0,
+        topeAuto: TOPE_DIARIO_AUTOPILOTO,
+      })
     })
-  })
+    .map((c) => ({ ...c, modo: modos.get(c.id) ?? ('apagado' as ModoDelMotor) }))
 }
 
 export interface PasoDelMotor {
@@ -104,8 +117,12 @@ async function hayQueGenerar(perfilId: string, accionDeTerminos: string): Promis
   return tocaGenerar(s?.ultimo_ok_at ?? null, s?.generado_at ?? null)
 }
 
-/** Un paso del motor en una cuenta: términos → propuestas → piloto automático */
-export async function pasoDelMotor(cuenta: CuentaParaSincronizar, modo?: string): Promise<PasoDelMotor> {
+/**
+ * Un paso del motor en una cuenta: términos → propuestas → piloto automático. `modo`: el de la cuenta (cuentasDelMotorConTrabajo lo trae); si no viene, se lee.
+ * En modo «agente» la fase 3 va con los ajustes del agente; el piloto automático, solo en «autopiloto».
+ */
+export async function pasoDelMotor(cuenta: CuentaParaSincronizar, modo?: ModoDelMotor): Promise<PasoDelMotor> {
+  const elModo: ModoDelMotor = modo ?? (await leerModo(cuenta.id))
   const t = await avanzarTerminos(cuenta)
   const errores: string[] = []
   let nuevas = 0
@@ -113,22 +130,37 @@ export async function pasoDelMotor(cuenta: CuentaParaSincronizar, modo?: string)
   if (await hayQueGenerar(cuenta.id, t.accion)) {
     nuevas = (await generarPropuestas(cuenta)).nuevas
     generado = true
+    // En modo agente, los ajustes del agente (una vez al día, con la generación). Si fallan, hoy no hay pujas: sin ellos subirían sin sus frenos
+    let ajustes: AjustesDelAgenteParaPujas | undefined
+    let sinPujasHoy = false
+    if (elModo === 'agente') {
+      try {
+        ajustes = await ajustesParaPujas(cuenta.id, Date.now())
+      } catch (e) {
+        const texto = e instanceof Error ? e.message : String(e)
+        console.error(`[ads] ajustes del agente de ${cuenta.id}:`, texto)
+        errores.push(`agente: sin ajustes, hoy no se proponen pujas (${texto.slice(0, 120)})`)
+        sinPujasHoy = true
+      }
+    }
     // Fase 3: pujas y presupuesto, con la misma cadencia diaria. Si falla, lo de arriba ya está guardado y se dice en el registro
-    try {
-      const r = await generarPropuestasDePujaYPresupuesto(cuenta)
-      nuevas += r.pujas + r.presupuestos + r.pausas
-    } catch (e) {
-      const texto = e instanceof Error ? e.message : String(e)
-      console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, texto)
-      errores.push(`pujas y presupuesto: ${texto.slice(0, 120)}`)
+    if (!sinPujasHoy) {
+      try {
+        const r = await generarPropuestasDePujaYPresupuesto(cuenta, ajustes)
+        nuevas += r.pujas + r.presupuestos + r.pausas
+      } catch (e) {
+        const texto = e instanceof Error ? e.message : String(e)
+        console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, texto)
+        errores.push(`pujas y presupuesto: ${texto.slice(0, 120)}`)
+      }
     }
     await marcarGenerado(cuenta.id)
   }
   if (t.accion === 'error' && t.detalle) errores.push(`términos: ${t.detalle.slice(0, 120)}`)
   let aplicadas = 0
   let fallidas = 0
-  // pilotoAutomatico vuelve a leer el modo; si quien llama ya sabe que no es autopiloto, se ahorra la consulta
-  if (modo === undefined || modo === 'autopiloto') {
+  // Solo en autopiloto (pilotoAutomatico vuelve a leer el modo por si ha cambiado entre medias). En «agente» aplica el agente desde su proceso
+  if (elModo === 'autopiloto') {
     const r = await pilotoAutomatico(cuenta)
     aplicadas = r.aplicadas
     fallidas = r.fallidas

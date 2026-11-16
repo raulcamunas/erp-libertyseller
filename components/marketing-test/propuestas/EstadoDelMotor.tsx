@@ -8,12 +8,16 @@ import type { EstadoDelMotor as Estado } from '@/lib/ads/motor-estado'
 import type { EstadoDeTerminos } from '@/lib/ads/terminos'
 import { entero } from '../formato'
 
+/** Los modos que se eligen AQUÍ. El modo «agente» no está: se enciende y se apaga desde la pestaña «Agente» (el servidor rechaza ponerlo desde aquí) */
 export const MODOS: Array<{ id: ModoDelMotor; nombre: string; texto: string; aplica: boolean; tono: TonoEstado }> = [
   { id: 'apagado', nombre: 'Apagado', texto: 'No lee nada ni propone nada.', aplica: false, tono: 'gris' },
   { id: 'sugiere', nombre: 'Solo sugiere', texto: 'Propone y lo enseña aquí. No toca Amazon.', aplica: false, tono: 'azul' },
   { id: 'aprueba', nombre: 'Aprueba y aplica', texto: 'Aplica lo que una persona aprueba. Todo se deshace.', aplica: true, tono: 'verde' },
   { id: 'autopiloto', nombre: 'Autopiloto de negativas', texto: 'Excluye solo lo que gasta sin vender, con tope diario.', aplica: true, tono: 'naranja' },
 ]
+
+/** Cómo se enseña el modo «agente» (no se elige aquí) */
+export const MODO_AGENTE: (typeof MODOS)[number] = { id: 'agente', nombre: 'Agente PPC', texto: 'El agente decide y aplica solo, con topes, rampa y freno.', aplica: true, tono: 'verde' }
 
 const fechaCorta = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })
 const hora = (iso: string) => new Date(iso).toLocaleString('es-ES', { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -47,7 +51,8 @@ export function EstadoDelMotor({
   onRevisar: () => void
   irA: (pestana: string) => void
 }) {
-  const actual = MODOS.find((m) => m.id === modo) ?? MODOS[0]
+  const esAgente = modo === 'agente'
+  const actual = esAgente ? MODO_AGENTE : (MODOS.find((m) => m.id === modo) ?? MODOS[0])
   const proceso = motor?.proceso
   const tonoProceso: TonoEstado = proceso?.apagado ? 'gris' : proceso?.ok === false ? 'rojo' : proceso?.ultimaAt ? 'verde' : 'gris'
 
@@ -64,34 +69,48 @@ export function EstadoDelMotor({
         </Insignia>
       }
     >
-      {/* ---- el modo ---- */}
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" role="radiogroup" aria-label="Modo del motor">
-        {MODOS.map((m) => {
-          const activo = m.id === modo
-          const bloqueadoPorFirma = m.aplica && !firmada
-          const desactivado = !esAdmin || ocupado !== null || bloqueadoPorFirma
-          return (
-            <button
-              key={m.id}
-              type="button"
-              role="radio"
-              aria-checked={activo}
-              disabled={desactivado && !activo}
-              onClick={() => !activo && !desactivado && onModo(m.id)}
-              title={!esAdmin ? 'Solo un administrador cambia el modo del motor.' : bloqueadoPorFirma ? 'Para aplicar cambios, la ficha de cuenta tiene que estar firmada.' : m.texto}
-              className={`group relative min-h-[64px] overflow-hidden rounded-[12px] border px-3 py-[10px] text-left transition-[background,border-color,transform] duration-200 ${TACTIL} ${activo ? 'border-transparent' : 'border-[var(--ls-linea)] bg-[var(--ls-sup2)] enabled:hover:-translate-y-[1px] enabled:hover:border-[var(--ls-linea2)]'} disabled:cursor-not-allowed disabled:opacity-55`}
-              style={activo ? { background: `linear-gradient(160deg, ${mezcla(COLOR_ESTADO[m.tono], 22)}, ${mezcla(COLOR_ESTADO[m.tono], 6)})`, boxShadow: `inset 0 0 0 1px ${mezcla(COLOR_ESTADO[m.tono], 45)}` } : undefined}
-            >
-              <span className="flex items-center gap-[6px] text-[13px] font-semibold" style={{ color: activo ? COLOR_ESTADO[m.tono] : 'var(--ls-t1)' }}>
-                {bloqueadoPorFirma || (!esAdmin && !activo) ? <Lock className="h-3 w-3" aria-hidden /> : null}
-                {m.nombre}
-              </span>
-              <span className="mt-[2px] block text-[11.5px] leading-[1.35] text-[var(--ls-t3)]">{m.texto}</span>
-            </button>
-          )
-        })}
-      </div>
-      {!esAdmin && <p className="mt-2 flex items-center gap-[6px] text-[12px] text-[var(--ls-t3)]"><ShieldCheck className="h-3 w-3" aria-hidden /> Cambiar el modo, la ficha y los umbrales es cosa de un administrador. Tú puedes aplicar, ensayar y descartar propuestas.</p>}
+      {/* ---- el modo (con el agente encendido no hay selector: lo gobierna su pestaña) ---- */}
+      {esAgente ? (
+        <div className="flex flex-col gap-2 rounded-[12px] border px-3 py-[10px] sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: mezcla(COLOR_ESTADO.verde, 40), background: mezcla(COLOR_ESTADO.verde, 8) }}>
+          <p className="flex min-w-0 items-start gap-2 text-[12.5px] leading-[1.45] text-[var(--ls-t2)]">
+            <Bot className="mt-[2px] h-4 w-4 shrink-0" style={{ color: COLOR_ESTADO.verde }} aria-hidden />
+            <span>
+              <strong className="text-[var(--ls-t1)]">Modo agente: lo gobierna la pestaña Agente.</strong> El agente aplica él mismo estas propuestas; las que retiene esperan a una persona. Para cambiar de modo, apágalo desde allí.
+            </span>
+          </p>
+          <Boton variante="secundario" tamano="sm" icono={Bot} onClick={() => irA('agente')}>
+            Ir al agente
+          </Boton>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" role="radiogroup" aria-label="Modo del motor">
+          {MODOS.map((m) => {
+            const activo = m.id === modo
+            const bloqueadoPorFirma = m.aplica && !firmada
+            const desactivado = !esAdmin || ocupado !== null || bloqueadoPorFirma
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="radio"
+                aria-checked={activo}
+                disabled={desactivado && !activo}
+                onClick={() => !activo && !desactivado && onModo(m.id)}
+                title={!esAdmin ? 'Solo un administrador cambia el modo del motor.' : bloqueadoPorFirma ? 'Para aplicar cambios, la ficha de cuenta tiene que estar firmada.' : m.texto}
+                className={`group relative min-h-[64px] overflow-hidden rounded-[12px] border px-3 py-[10px] text-left transition-[background,border-color,transform] duration-200 ${TACTIL} ${activo ? 'border-transparent' : 'border-[var(--ls-linea)] bg-[var(--ls-sup2)] enabled:hover:-translate-y-[1px] enabled:hover:border-[var(--ls-linea2)]'} disabled:cursor-not-allowed disabled:opacity-55`}
+                style={activo ? { background: `linear-gradient(160deg, ${mezcla(COLOR_ESTADO[m.tono], 22)}, ${mezcla(COLOR_ESTADO[m.tono], 6)})`, boxShadow: `inset 0 0 0 1px ${mezcla(COLOR_ESTADO[m.tono], 45)}` } : undefined}
+              >
+                <span className="flex items-center gap-[6px] text-[13px] font-semibold" style={{ color: activo ? COLOR_ESTADO[m.tono] : 'var(--ls-t1)' }}>
+                  {bloqueadoPorFirma || (!esAdmin && !activo) ? <Lock className="h-3 w-3" aria-hidden /> : null}
+                  {m.nombre}
+                </span>
+                <span className="mt-[2px] block text-[11.5px] leading-[1.35] text-[var(--ls-t3)]">{m.texto}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {!esAdmin && !esAgente && <p className="mt-2 flex items-center gap-[6px] text-[12px] text-[var(--ls-t3)]"><ShieldCheck className="h-3 w-3" aria-hidden /> Cambiar el modo, la ficha y los umbrales es cosa de un administrador. Tú puedes aplicar, ensayar y descartar propuestas.</p>}
       {!firmada && (
         <p className="mt-2 text-[12.5px]" style={{ color: COLOR_ESTADO.ambar }}>
           La ficha de cuenta no está firmada: el motor propone, pero no se puede aplicar nada (sí ensayar).{' '}

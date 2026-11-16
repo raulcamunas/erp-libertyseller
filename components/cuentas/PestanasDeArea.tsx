@@ -79,6 +79,7 @@ const MODO: Record<ResumenPpc['modo'], { texto: string; tono: 'gris' | 'azul' | 
   sugiere: { texto: 'Solo sugiere', tono: 'azul' },
   aprueba: { texto: 'Aprueba', tono: 'violeta' },
   autopiloto: { texto: 'Piloto automático', tono: 'verde' },
+  agente: { texto: 'Agente PPC', tono: 'verde' },
 }
 
 const TIPOS_DE_PROPUESTA: Array<[keyof ResumenPpc['porTipo'], string]> = [

@@ -2,7 +2,8 @@
  * AMAZON ADS · EL LOG DE CAMBIOS: CURSOR, FILTROS Y CSV. PURO (lo usan la ruta y la pantalla; tiene sus pruebas en log-calculo.prueba.ts).
  */
 
-export const ORIGENES_DE_LOG = ['estructura', 'automatico', 'manual', 'ensayo'] as const
+/** «agente» (migración 315): lo hizo el agente PPC solo. Sin la 315 se apunta como «automatico» con «[AGENTE]» delante del motivo */
+export const ORIGENES_DE_LOG = ['estructura', 'automatico', 'manual', 'ensayo', 'agente'] as const
 export type OrigenDeLog = (typeof ORIGENES_DE_LOG)[number]
 
 /** El cursor de la paginación: la última fila vista (creado_at, id). Va en la URL como texto opaco */
@@ -135,7 +136,7 @@ export function logACsv(filas: readonly FilaParaCsv[]): string {
       filaCsv([
         fechaEspana(f.creadoAt),
         ETIQUETA_ORIGEN[f.origen as OrigenDeLog] ?? f.origen,
-        f.usuario ?? (f.origen === 'automatico' ? 'Motor' : ''),
+        f.usuario ?? quienSinPersona(f.origen, f.motivo),
         f.nombreCampana,
         f.campaignId,
         f.entidad,
@@ -161,4 +162,11 @@ export const ETIQUETA_ORIGEN: Record<OrigenDeLog, string> = {
   automatico: 'Motor (autopiloto)',
   manual: 'Persona',
   ensayo: 'Ensayo',
+  agente: 'Agente PPC',
+}
+
+/** «Quién» de una entrada sin persona: el agente (también el respaldo sin la 315: «automatico» con «[AGENTE]» en el motivo), el motor o nadie */
+export function quienSinPersona(origen: string, motivo?: string | null): string {
+  if (origen === 'agente' || (origen === 'automatico' && /^\[AGENTE\]/.test(motivo ?? ''))) return 'Agente PPC'
+  return origen === 'automatico' ? 'Motor' : ''
 }

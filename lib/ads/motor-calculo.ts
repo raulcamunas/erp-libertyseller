@@ -165,14 +165,27 @@ export function planificarPropuestas(a: {
 
 export { clave as claveDePropuesta }
 
+/**
+ * LA CUARENTENA de generarPropuestas: lo pendiente y lo resuelto desde `desde` (las caducadas no cuentan) → claves «campaña|término|tipo» que no se vuelven a proponer.
+ * Una ENSAYADA (el agente en ensayo) lleva resuelta_at, así que cuenta igual que una aplicada: en ensayo no se repite cada día lo mismo. Al pasar a activo se le
+ * quita resuelta_at (estado-servidor, sacarEnsayadasDeLaCuarentena) y deja de contar: lo que el ensayo vio necesario se vuelve a proponer y se aplica.
+ */
+export function clavesEnCuarentena(previas: ReadonlyArray<{ campaign_id: string; termino: string; tipo: string; estado: string; resuelta_at?: string | null }>, desde: string): Set<string> {
+  return new Set(previas.filter((r) => r.estado !== 'caducada' && (r.estado === 'pendiente' || (r.resuelta_at ?? '') >= desde)).map((r) => clave(r.campaign_id, r.termino, r.tipo)))
+}
+
 /* ------------------------------------------------------------------ */
 /* Los candados de «aplicar»                                           */
 /* ------------------------------------------------------------------ */
 
 export interface EntradaDeAplicar {
-  modo: 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto'
-  /** ¿Lo aplica el piloto automático (y no una persona)? */
+  modo: 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto' | 'agente'
+  /** ¿Lo aplica el piloto automático o el agente (y no una persona)? */
   automatica: boolean
+  /** 'agente' = lo aplica el agente PPC (exige el modo «agente») */
+  origen?: 'agente'
+  /** Un término «Revisar» que la IA del agente ha clasificado con confianza (otro producto, intención mala): el agente puede negativizarlo */
+  revisarAprobadoPorIa?: boolean
   tipo: TipoDePropuesta
   estado: string
   fichaFirmada: boolean
@@ -195,18 +208,24 @@ export interface EntradaDeAplicar {
  * Devuelve el motivo en español si no.
  */
 export function decidirSiSePuedeAplicar(e: EntradaDeAplicar): { ok: true } | { ok: false; motivo: string } {
-  if (e.modo !== 'aprueba' && e.modo !== 'autopiloto') return { ok: false, motivo: 'La cuenta está en modo «solo sugiere» o apagada: enciende «Aprueba y aplica» para poder aplicar propuestas.' }
-  if (e.automatica && e.modo !== 'autopiloto') return { ok: false, motivo: 'La cuenta no está en autopiloto.' }
-  if (e.automatica && e.tipo !== 'negativizar') return { ok: false, motivo: 'El piloto automático solo negativiza: cosechar un término, pausar o cambiar pujas y presupuestos necesita aprobación.' }
-  // Excluir un ASIN es una segmentación negativa por PRODUCTO (otra llamada a Amazon); hasta que se haya visto funcionar en una cuenta real, la aprueba siempre una persona
-  if (e.automatica && e.revisar) return { ok: false, motivo: 'Un término marcado para revisar (sin relación aparente con el producto) lo decide siempre una persona.' }
-  if (e.automatica && e.esAsin) return { ok: false, motivo: 'El piloto automático no excluye fichas de producto (ASIN): apruébalo a mano.' }
+  if (e.modo !== 'aprueba' && e.modo !== 'autopiloto' && e.modo !== 'agente') return { ok: false, motivo: 'La cuenta está en modo «solo sugiere» o apagada: enciende «Aprueba y aplica» para poder aplicar propuestas.' }
+  if (e.automatica && e.origen === 'agente') {
+    // EL AGENTE PPC: solo en modo agente. Aplica todo tipo de cambio (sus topes, rampa y guardarraíles van fuera, en aplicar-servidor), salvo un «Revisar» que la IA no haya aprobado
+    if (e.modo !== 'agente') return { ok: false, motivo: 'La cuenta no está en modo agente: el agente PPC no aplica nada.' }
+    if (e.revisar && !e.revisarAprobadoPorIa) return { ok: false, motivo: 'Un término marcado para revisar solo lo aplica el agente si la IA lo ha clasificado con confianza; si no, lo decide una persona.' }
+  } else {
+    if (e.automatica && e.modo !== 'autopiloto') return { ok: false, motivo: 'La cuenta no está en autopiloto.' }
+    if (e.automatica && e.tipo !== 'negativizar') return { ok: false, motivo: 'El piloto automático solo negativiza: cosechar un término, pausar o cambiar pujas y presupuestos necesita aprobación.' }
+    // Excluir un ASIN es una segmentación negativa por PRODUCTO (otra llamada a Amazon); hasta que se haya visto funcionar en una cuenta real, la aprueba siempre una persona
+    if (e.automatica && e.revisar) return { ok: false, motivo: 'Un término marcado para revisar (sin relación aparente con el producto) lo decide siempre una persona.' }
+    if (e.automatica && e.esAsin) return { ok: false, motivo: 'El piloto automático no excluye fichas de producto (ASIN): apruébalo a mano.' }
+  }
   if (!e.fichaFirmada) return { ok: false, motivo: 'La ficha de cuenta no está firmada.' }
   if (!partesDeNombre(e.campaignNombre)) return { ok: false, motivo: 'Esa campaña no sigue la nomenclatura del SOP: el motor no la toca.' }
   if (e.estado !== 'pendiente' && e.estado !== 'aprobada' && e.estado !== 'error') return { ok: false, motivo: `Esa propuesta ya está ${e.estado}.` }
   if (e.tipo === 'negativizar' && e.esAsin && !e.adGroupId) return { ok: false, motivo: 'No se sabe en qué grupo de anuncios apareció este ASIN: exclúyelo a mano en Amazon (segmentación negativa por productos).' }
   if (e.tipo === 'promover' && (!e.haciaCampaignId || !e.haciaAdGroupId)) return { ok: false, motivo: `No se puede aplicar: este producto no tiene campaña ${e.haciaRol ?? 'de destino'} con un grupo de anuncios activo. Créala primero (pestaña «Crear campañas»).` }
-  if (e.aplicadasHoy >= e.topeDiario) return { ok: false, motivo: `Tope diario alcanzado (${e.topeDiario} cambios ${e.automatica ? 'del piloto automático' : 'aplicados hoy'} en esta cuenta).` }
+  if (e.aplicadasHoy >= e.topeDiario) return { ok: false, motivo: `Tope diario alcanzado (${e.topeDiario} cambios ${e.automatica ? (e.origen === 'agente' ? 'del agente' : 'del piloto automático') : 'aplicados hoy'} en esta cuenta).` }
   return { ok: true }
 }
 
@@ -216,7 +235,7 @@ export function decidirSiSePuedeAplicar(e: EntradaDeAplicar): { ok: true } | { o
  */
 export function decidirEnsayo(e: EntradaDeAplicar): { ok: true; avisos: string[] } | { ok: false; motivo: string } {
   const avisos: string[] = []
-  if (e.modo !== 'aprueba' && e.modo !== 'autopiloto') avisos.push('De verdad no se podría aplicar todavía: la cuenta está en «solo sugiere» o apagada.')
+  if (e.modo !== 'aprueba' && e.modo !== 'autopiloto' && e.modo !== 'agente') avisos.push('De verdad no se podría aplicar todavía: la cuenta está en «solo sugiere» o apagada.')
   if (!e.fichaFirmada) avisos.push('De verdad no se podría aplicar todavía: la ficha de cuenta no está firmada.')
   if (e.aplicadasHoy >= e.topeDiario) avisos.push(`Hoy ya se ha llegado al tope diario (${e.topeDiario}).`)
   const r = decidirSiSePuedeAplicar({ ...e, modo: 'aprueba', automatica: false, fichaFirmada: true, aplicadasHoy: 0 })
@@ -226,6 +245,78 @@ export function decidirEnsayo(e: EntradaDeAplicar): { ok: true; avisos: string[]
 /* ------------------------------------------------------------------ */
 /* Antes de aplicar una puja o un presupuesto: ¿sigue igual en Amazon? */
 /* ------------------------------------------------------------------ */
+
+/**
+ * La puja de partida de lo cosechado (promover): el CPC que ya pagaba (gasto ÷ clics), o 0,20 sin clics. Con `pujaMaxima` (el agente) nunca pasa de ella.
+ * null si no se puede calcular (gasto o clics que no son números, o un tope inválido): quien llama no crea nada.
+ */
+export function pujaDePromover(metricas: { clics?: unknown; gasto?: unknown } | null | undefined, pujaMaxima?: number | null): number | null {
+  const clics = Number(metricas?.clics ?? 0)
+  const gasto = Number(metricas?.gasto ?? 0)
+  if (!Number.isFinite(clics) || !Number.isFinite(gasto)) return null
+  const cpc = clics > 0 ? gasto / clics : 0.2
+  if (!Number.isFinite(cpc) || !(cpc > 0)) return null
+  if (pujaMaxima != null) {
+    if (!Number.isFinite(pujaMaxima) || !(pujaMaxima > 0)) return null
+    return Math.min(cpc, pujaMaxima)
+  }
+  return cpc
+}
+
+/* ------------------------------------------------------------------ */
+/* Reintentos tras un fallo de transporte al ESCRIBIR                   */
+/* ------------------------------------------------------------------ */
+
+/** El prefijo del `error` de una propuesta que volvió a pendiente tras un fallo de transporte (aplicar-servidor: volverAPendiente) */
+export const PREFIJO_REINTENTO = 'Reintento (Amazon no ha contestado)'
+
+/** PURO. El texto del `error` de un reintento; con el valor que se intentó escribir (puja/presupuesto) para reconocerlo luego en Amazon */
+export function textoDeReintento(error: string, valorIntentado: number | null): string {
+  const intentado = valorIntentado != null && Number.isFinite(valorIntentado) ? ` · intentado ${Math.round(valorIntentado * 100) / 100}` : ''
+  return `${PREFIJO_REINTENTO}${intentado}: ${error}`.slice(0, 500)
+}
+
+/** PURO. ¿La propuesta viene de un reintento por transporte? */
+export function esReintentoDeTransporte(error: string | null | undefined): boolean {
+  return typeof error === 'string' && error.startsWith(PREFIJO_REINTENTO)
+}
+
+/** PURO. El valor que se intentó escribir en el intento que falló (null si no consta) */
+export function valorIntentadoDelReintento(error: string | null | undefined): number | null {
+  if (!esReintentoDeTransporte(error)) return null
+  const m = /^Reintento \(Amazon no ha contestado\) · intentado (-?\d+(?:\.\d+)?):/.exec(error as string)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * PURO. Puja o presupuesto: el valor releído en Amazon ya NO es el de partida. Si la propuesta viene de un reintento por transporte y lo que hay es lo que el
+ * agente intentó escribir (el `intentado` del error, o el valor nuevo de ahora), el cambio SÍ llegó a Amazon: se resuelve como «aplicada» (cuenta en topes,
+ * abre su efecto, el freno lo puede deshacer), no como obsoleta. Si no consta el valor de partida, no se puede deshacer: no se confirma.
+ */
+export function confirmaReintento(p: { error: string | null; valorActual: number | null; valorNuevo: number | null }, valorAhora: number | null): boolean {
+  if (!esReintentoDeTransporte(p.error) || p.valorActual == null || valorAhora == null) return false
+  if (valorSigueIgual(p.valorActual, valorAhora)) return false
+  const intentado = valorIntentadoDelReintento(p.error)
+  return (intentado != null && valorSigueIgual(intentado, valorAhora)) || (p.valorNuevo != null && valorSigueIgual(p.valorNuevo, valorAhora))
+}
+
+/** PURO. Pausa de campaña o de anuncio: tras un reintento por transporte, si ya está PAUSED es que la pausa llegó → «aplicada» (no obsoleta) */
+export function confirmaPausaDeReintento(error: string | null, estadoAhora: string | null): boolean {
+  return esReintentoDeTransporte(error) && estadoAhora === 'PAUSED'
+}
+
+/**
+ * PURO. Qué hacer con una propuesta del agente cuya ESCRITURA ha fallado por transporte:
+ *   - 429: Amazon la ha rechazado sin aplicarla → pendiente (se reintenta en la pasada siguiente).
+ *   - puja, presupuesto, pausas: pendiente; la pasada siguiente RELEE Amazon antes de escribir y, si ya está el valor, la confirma (confirmaReintento).
+ *   - promover / negativizar con tiempo agotado, red o 5xx: puede estar CREADA en Amazon; reintentar a ciegas daría DUPLICATE y la dejaría viva sin
+ *     propuesta «aplicada» que la deshaga → se retiene para una persona.
+ */
+export function queHacerTrasFalloDeTransporte(tipo: string, httpStatus: number | null): 'reintentar' | 'retener' {
+  if (httpStatus === 429) return 'reintentar'
+  if (tipo === 'promover' || tipo === 'negativizar') return 'retener'
+  return 'reintentar'
+}
 
 /** ¿El valor de AHORA en Amazon es el que tenía la propuesta? (al céntimo). Sin valor de partida guardado no se puede comprobar: se da por bueno */
 export function valorSigueIgual(esperado: number | null, actual: number | null): boolean {
@@ -271,7 +362,8 @@ export interface EstadoDeCuentaDelMotor {
 
 /**
  * PURO. ¿Tiene ESTA cuenta algo que hacer en esta pasada del proceso? Antes, una cuenta en «sugiere» con negativas pendientes contaba como trabajo y abría una fila
- * del registro cada 2 minutos para nada (717 al día). Las pendientes solo son trabajo en AUTOPILOTO y con tope por gastar.
+ * del registro cada 2 minutos para nada (717 al día). Las pendientes solo son trabajo en AUTOPILOTO y con tope por gastar. En modo AGENTE, como en «aprueba»: las
+ * pendientes las aplica el agente PPC desde su propio proceso (cron-agente), no este.
  */
 export function motorTieneTrabajo(e: EstadoDeCuentaDelMotor): boolean {
   if (e.modo === 'apagado') return false
@@ -298,10 +390,39 @@ export function inicioDelDiaEnEspana(ahora: number): string {
  */
 export function proximoPasoDelMotor(e: { modo: string; terminosAt: string | null; generadoAt: string | null; esperandoInforme: boolean; hayGeneradoAt: boolean; intervaloMs: number; ahora: number }): { texto: string; cuando: string | null } {
   if (e.modo === 'apagado') return { texto: 'El motor está apagado: no lee términos ni propone nada.', cuando: null }
-  if (e.esperandoInforme) return { texto: 'Amazon está preparando el informe de términos; el proceso de fondo lo recoge y genera las propuestas en cuanto esté.', cuando: null }
+  if (e.esperandoInforme) return { texto: `Amazon está preparando el informe de términos; el proceso de fondo lo recoge y genera las propuestas en cuanto esté${e.modo === 'agente' ? ' (y el agente PPC las aplica solo)' : ''}.`, cuando: null }
   if (e.hayGeneradoAt && tocaGenerar(e.terminosAt, e.generadoAt)) return { texto: 'Hay un informe de términos nuevo: el proceso de fondo genera las propuestas en la próxima pasada (cada 2 minutos).', cuando: null }
   if (!e.terminosAt) return { texto: 'Todavía no hay informe de términos: el proceso de fondo lo pide en la próxima pasada.', cuando: null }
   const siguiente = Date.parse(e.terminosAt) + e.intervaloMs
-  const texto = e.modo === 'autopiloto' ? 'Siguiente lectura de términos y propuestas; mientras, el autopiloto aplica negativas hasta su tope diario.' : 'Siguiente lectura de términos y propuestas.'
+  const texto =
+    e.modo === 'autopiloto'
+      ? 'Siguiente lectura de términos y propuestas; mientras, el autopiloto aplica negativas hasta su tope diario.'
+      : e.modo === 'agente'
+        ? 'Siguiente lectura de términos y propuestas; el agente PPC las aplica solo, con sus topes (pestaña «Agente»).'
+        : 'Siguiente lectura de términos y propuestas.'
   return { texto, cuando: new Date(Math.max(siguiente, e.ahora)).toISOString() }
+}
+
+/* ------------------------------------------------------------------ */
+/* Caché de «¿está la columna de la migración?»                         */
+/* ------------------------------------------------------------------ */
+
+/** Un `false` (falta la columna) se vuelve a mirar pasado esto: así se nota la migración recién lanzada sin redesplegar */
+export const RECOMPROBAR_COLUMNA_MS = 5 * 60_000
+export interface CacheDeColumna { valor: boolean | null; at: number }
+/** Códigos de columna o tabla inexistente (PostgREST y Postgres) */
+const CODIGOS_DE_ESQUEMA = new Set(['PGRST204', '42703', 'PGRST205', '42P01'])
+
+/** ¿Hay que volver a preguntar a la base? `true` se recuerda siempre; `false` caduca; sin dato, sí */
+export function hayQueComprobarColumna(c: CacheDeColumna, ahora: number): boolean {
+  if (c.valor === true) return false
+  if (c.valor === null) return true
+  return ahora - c.at >= RECOMPROBAR_COLUMNA_MS
+}
+
+/** Qué guardar tras consultar la columna. Un error que NO es de esquema (red, tiempo agotado…) se relanza y no se guarda nada */
+export function resultadoDeComprobarColumna(error: { code?: string; message?: string } | null, ahora: number): CacheDeColumna {
+  if (!error) return { valor: true, at: ahora }
+  if (error.code && CODIGOS_DE_ESQUEMA.has(error.code)) return { valor: false, at: ahora }
+  throw new Error(error.message ?? 'Error de la base de datos al comprobar las columnas de ads_propuestas')
 }

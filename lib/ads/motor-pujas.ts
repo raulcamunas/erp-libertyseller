@@ -7,6 +7,11 @@
  *   · Presupuesto: el gasto de los últimos 7 días de cada campaña (ads_rendimiento_diario) contra su presupuesto de hoy.
  * Cuarentena: una segmentación con una propuesta de puja pendiente o resuelta hace menos de «días entre cambios de puja» (ficha) no se vuelve a tocar; una campaña, lo mismo con «horas entre subidas».
  * Solo campañas activas con la nomenclatura del SOP y de productos con ACoS objetivo fijado.
+ *
+ * EN MODO AGENTE (con `ajustes` del agente PPC, lib/ads/agente/): cada producto baja contra SU objetivo efectivo (con postura) y sus umbrales ya combinados; la presión del día de cada campaña
+ * (R2/R3) se suma con combinarAjustes, siempre acotada. Toda SUBIDA tiene que pasar subidaPermitida (contra el objetivo BASE) y no pasar de la puja máxima; no hay subidas si la cuenta o el producto
+ * no las permiten, ni en campañas o términos de marca (que bajan contra la mitad del objetivo). Lo que tiene un efecto abierto (sin medir) no se toca, los presupuestos los decide el agente (R1/R4)
+ * y un producto en lanzamiento solo pausa con el doble de muestra. Sin `ajustes`, todo como siempre.
  */
 
 import { todasLasFilas } from './paginar'
@@ -22,6 +27,9 @@ import { partesDeNombre } from './reglas'
 import { proponerPausas, proponerPresupuestos, proponerPujas, type SegmentacionParaReglas } from './reglas-pujas'
 import { CLAUSULA_AUTO, textoDeExpresion } from './segmentaciones-calculo'
 import type { CuentaParaSincronizar } from './sincronizar'
+import type { UmbralesEstimados } from './umbrales'
+import { combinarAjustes, esTextoDeMarca, subidaPermitida } from './agente/objetivos-calculo'
+import { AGENTE, type AjustesDelAgenteParaPujas, type Presion } from './agente/tipos'
 
 const DIA_MS = 86_400_000
 const VENTANA_PUJAS_DIAS = 14
@@ -45,7 +53,7 @@ async function listar<T>(cuenta: CuentaParaSincronizar, ruta: string, tipo: stri
 /** Lo que deja una propuesta en su motivo cuando el precio del producto es el ticket medio de Ads */
 const notaDePrecio = (precio: number | null) => (precio ? ` · precio estimado ${precio.toFixed(2).replace('.', ',')} (ticket medio de Ads)` : '')
 
-export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSincronizar): Promise<{ pujas: number; presupuestos: number; pausas: number; omitido?: string; sinMigracionPausas?: boolean }> {
+export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSincronizar, ajustes?: AjustesDelAgenteParaPujas): Promise<{ pujas: number; presupuestos: number; pausas: number; omitido?: string; sinMigracionPausas?: boolean }> {
   const service = createServiceClient()
   // Sin la migración 298 no hay dónde guardarlas
   const sonda = await service.from('ads_objetivos_diario').select('perfil_id').eq('perfil_id', cuenta.id).limit(1)
@@ -96,6 +104,11 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
     if (c.campo?.startsWith('presupuesto')) {
       if (c.creado_at >= desdePresupuesto && c.campaign_id) campanasBloqueadas.add(c.campaign_id)
     } else if (c.entidad_id && c.creado_at >= desdePuja) bloqueadas.add(c.entidad_id)
+  }
+  // Modo agente: lo que tiene un efecto abierto (aún sin su medición provisional) no se toca; medir un cambio encima de otro no dice nada
+  if (ajustes) {
+    for (const id of ajustes.bloqueadasPorEfecto) bloqueadas.add(id)
+    for (const id of ajustes.campanasBloqueadasPorEfecto) campanasBloqueadas.add(id)
   }
 
   // ---- pujas: estado vivo + métricas de 14 días ----
@@ -150,55 +163,68 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   let pujas = 0
   let pausas = 0
   let sinMigracionPausas = false
-  for (const [asin, segs] of porAsin) {
+  for (const [asin, todas] of porAsin) {
     const o = objetivoDe.get(asin)
     if (!o) continue
-    // Primero lo que se pausa (pasa el tope sin venta): a eso no se le propone además bajar la puja
-    const pausadas = new Set<string>()
-    for (const pa of proponerPausas(segs, { cpaObjetivo: o.cpaObjetivo, muestraMinimaClics: ficha.muestraMinimaClics, umbrales })) {
-      pausadas.add(pa.objetivoId)
-      if (sinMigracionPausas) continue
-      const { error } = await service.from('ads_propuestas').insert({
-        perfil_id: cuenta.id,
-        tipo: 'pausar',
-        asin,
-        termino: pa.texto.slice(0, 300),
-        campaign_id: pa.campaignId,
-        campaign_nombre: pa.campaignName,
-        ad_group_id: pa.adGroupId || null,
-        desde_rol: partesDeNombre(pa.campaignName)?.rol ?? null,
-        motivo: pa.motivo + notaDePrecio(o.precioEstimado),
-        metricas: { ...pa.metricas, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
-        objetivo_id: pa.objetivoId,
-        objetivo_tipo: pa.objetivoTipo,
-      })
-      if (!error) pausas += 1
-      // 23514 = la base todavía no admite el tipo «pausar» (falta la migración 305): se sigue con lo demás y se dice
-      else if (error.code === '23514') sinMigracionPausas = true
-      else if (error.code !== '23505') throw error
-    }
-    const sinPausar = segs.filter((x) => !pausadas.has(x.id))
-    for (const pr of proponerPujas(sinPausar, { acosObjetivoPct: o.acosObjetivoPct, cpaObjetivo: o.cpaObjetivo, cambioPujaPct: ficha.cambioPujaPct, muestraMinimaClics: ficha.muestraMinimaClics, umbrales })) {
-      const { error } = await service.from('ads_propuestas').insert({
-        perfil_id: cuenta.id,
-        tipo: 'puja',
-        asin,
-        termino: pr.texto.slice(0, 300),
-        campaign_id: pr.campaignId,
-        campaign_nombre: pr.campaignName,
-        ad_group_id: pr.adGroupId || null,
-        desde_rol: partesDeNombre(pr.campaignName)?.rol ?? null,
-        motivo: pr.motivo + notaDePrecio(o.precioEstimado),
-        metricas: { ...pr.metricas, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
-        objetivo_id: pr.objetivoId,
-        objetivo_tipo: pr.objetivoTipo,
-        valor_actual: pr.pujaActual,
-        valor_nuevo: pr.pujaNueva,
-      })
-      if (!error) pujas += 1
-      else if (error.code !== '23505') throw error
+    for (const g of gruposDelAgente(todas, asin, ajustes)) {
+      const segs = g.segs
+      // Sin ajustes, un solo grupo con lo de siempre. Con ellos, el objetivo para BAJAR del grupo (marca = la mitad) y el CPA a la misma escala
+      const pg = g.parametros ?? { acosObjetivoPct: o.acosObjetivoPct, cpaObjetivo: o.cpaObjetivo, umbrales }
+      const cpaGrupo = g.parametros ? o.cpaObjetivo * (pg.acosObjetivoPct / o.acosObjetivoPct) : o.cpaObjetivo
+      // Primero lo que se pausa (pasa el tope sin venta): a eso no se le propone además bajar la puja
+      const pausadas = new Set<string>()
+      for (const pa of proponerPausas(segs, { cpaObjetivo: cpaGrupo, muestraMinimaClics: ficha.muestraMinimaClics, umbrales: pg.umbrales })) {
+        // Un producto en lanzamiento solo pausa con el doble de muestra (aún está aprendiendo)
+        if (g.lanzamiento && pa.metricas.clics < AGENTE.LANZAMIENTO_PAUSA_X_MUESTRA * (ajustes?.muestraMinimaClics ?? ficha.muestraMinimaClics)) continue
+        pausadas.add(pa.objetivoId)
+        if (sinMigracionPausas) continue
+        const { error } = await service.from('ads_propuestas').insert({
+          perfil_id: cuenta.id,
+          tipo: 'pausar',
+          asin,
+          termino: pa.texto.slice(0, 300),
+          campaign_id: pa.campaignId,
+          campaign_nombre: pa.campaignName,
+          ad_group_id: pa.adGroupId || null,
+          desde_rol: partesDeNombre(pa.campaignName)?.rol ?? null,
+          motivo: pa.motivo + notaDePrecio(o.precioEstimado),
+          metricas: { ...pa.metricas, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
+          objetivo_id: pa.objetivoId,
+          objetivo_tipo: pa.objetivoTipo,
+        })
+        if (!error) pausas += 1
+        // 23514 = la base todavía no admite el tipo «pausar» (falta la migración 305): se sigue con lo demás y se dice
+        else if (error.code === '23514') sinMigracionPausas = true
+        else if (error.code !== '23505') throw error
+      }
+      const sinPausar = segs.filter((x) => !pausadas.has(x.id))
+      for (const crudo of proponerPujas(sinPausar, { acosObjetivoPct: pg.acosObjetivoPct, cpaObjetivo: cpaGrupo, cambioPujaPct: ficha.cambioPujaPct, muestraMinimaClics: ficha.muestraMinimaClics, umbrales: pg.umbrales })) {
+        const pr = ajustes ? filtrarSubidaDelAgente(crudo, g, ajustes) : crudo
+        if (!pr) continue
+        const { error } = await service.from('ads_propuestas').insert({
+          perfil_id: cuenta.id,
+          tipo: 'puja',
+          asin,
+          termino: pr.texto.slice(0, 300),
+          campaign_id: pr.campaignId,
+          campaign_nombre: pr.campaignName,
+          ad_group_id: pr.adGroupId || null,
+          desde_rol: partesDeNombre(pr.campaignName)?.rol ?? null,
+          motivo: pr.motivo + notaDePrecio(o.precioEstimado),
+          metricas: { ...pr.metricas, ...(o.precioEstimado ? { precioEstimado: o.precioEstimado } : {}) },
+          objetivo_id: pr.objetivoId,
+          objetivo_tipo: pr.objetivoTipo,
+          valor_actual: pr.pujaActual,
+          valor_nuevo: pr.pujaNueva,
+        })
+        if (!error) pujas += 1
+        else if (error.code !== '23505') throw error
+      }
     }
   }
+
+  // En modo agente los presupuestos los decide el agente (R1/R4 con el uso de hoy): aquí no se proponen
+  if (ajustes?.presupuestosLosHaceElAgente) return { pujas, presupuestos: 0, pausas, ...(sinMigracionPausas ? { sinMigracionPausas } : {}) }
 
   // ---- presupuesto: últimos 7 días contra el presupuesto de hoy ----
   const desde7 = desplazar(hasta, -6)
@@ -239,11 +265,86 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   return { pujas, presupuestos, pausas, ...(sinMigracionPausas ? { sinMigracionPausas } : {}) }
 }
 
+/* ------------------------------------------------------------------ */
+/* Modo agente: grupos por presión y marca, y el filtro de las subidas */
+/* ------------------------------------------------------------------ */
+
+interface GrupoDelAgente {
+  segs: SegmentacionParaReglas[]
+  /** null = sin ajustes del agente (todo como siempre) */
+  parametros: { acosObjetivoPct: number; umbrales: UmbralesEstimados } | null
+  acosParaSubir: number | null
+  sinSubidas: boolean
+  marca: string | null
+  pujaMaxima: number | null
+  lanzamiento: boolean
+}
+
+/**
+ * Las segmentaciones de un producto repartidas por lo que cambia sus parámetros: la presión del día de su campaña y si son de MARCA (campaña de marca o texto con la marca). Sin ajustes, un solo
+ * grupo sin parámetros (lo de siempre). Un ASIN que el agente no trae en porAsin baja con su objetivo de siempre y NO sube (sin margen conocido no se escala).
+ */
+function gruposDelAgente(segs: SegmentacionParaReglas[], asin: string, ajustes: AjustesDelAgenteParaPujas | undefined): GrupoDelAgente[] {
+  if (!ajustes) return [{ segs, parametros: null, acosParaSubir: null, sinSubidas: false, marca: null, pujaMaxima: null, lanzamiento: false }]
+  const pa = ajustes.porAsin[asin] ?? ajustes.porAsin[asin.toUpperCase()]
+  if (!pa) return [{ segs, parametros: null, acosParaSubir: null, sinSubidas: true, marca: null, pujaMaxima: null, lanzamiento: false }]
+  const deMarca = new Set(ajustes.campanasDeMarca)
+  const grupos = new Map<string, GrupoDelAgente>()
+  for (const s of segs) {
+    const presion: Presion | null = ajustes.presion[s.campaignId] ?? null
+    const marca = deMarca.has(s.campaignId) || esTextoDeMarca(s.texto, pa.marca)
+    const clave = `${presion ?? ''}|${marca ? 1 : 0}`
+    let g = grupos.get(clave)
+    if (!g) {
+      // La presión se suma a los umbrales del producto (ya con su postura): combinarAjustes con «mantener» solo añade la presión y vuelve a acotar
+      const umbrales = presion
+        ? combinarAjustes(pa.umbrales, { postura: 'mantener', presion, objetivoBase: pa.acosParaSubir, equilibrioPct: null, soloDefensivo: pa.soloDefensivo, esMarca: false, cuentaPequena: ajustes.cuentaPequena, sinSubidasCuenta: ajustes.sinSubidas }).umbrales
+        : pa.umbrales
+      g = {
+        segs: [],
+        parametros: { acosObjetivoPct: Math.round(pa.acosParaBajar * (marca ? AGENTE.MARCA_ACOS_X : 1) * 100) / 100, umbrales },
+        acosParaSubir: pa.acosParaSubir,
+        sinSubidas: ajustes.sinSubidas || pa.sinSubidas || marca,
+        marca: pa.marca,
+        pujaMaxima: pa.pujaMaxima,
+        lanzamiento: pa.fase === 'lanzamiento',
+      }
+      grupos.set(clave, g)
+    }
+    g.segs.push(s)
+  }
+  return [...grupos.values()]
+}
+
+/**
+ * Una propuesta de puja en modo agente: las BAJADAS pasan tal cual; una SUBIDA solo si el grupo permite subir, pasa subidaPermitida (contra el objetivo BASE, con la muestra mínima) y no pasa
+ * de la puja máxima (si la pasa se recorta; si recortada ya no sube, fuera), y si una subida de la misma segmentación no empeoró ni se deshizo hace poco (subidasVetadas).
+ * Las subidas que pasan llevan `metricas.agente = true`. En una campaña con ajuste de ubicación > 100 % se marca como rara (métrica `ubicacionAlta`). null = descartada.
+ */
+function filtrarSubidaDelAgente<T extends { direccion: 'subir' | 'bajar'; objetivoId: string; campaignId: string; texto: string; pujaActual: number; pujaNueva: number; motivo: string; metricas: { clics: number; gasto: number; ventas: number; pedidos: number } }>(pr: T, g: GrupoDelAgente, ajustes: AjustesDelAgenteParaPujas): (T & { metricas: T['metricas'] & { ubicacionAlta?: boolean; agente?: true } }) | null {
+  if (pr.direccion !== 'subir') return pr
+  // Una subida de esta segmentación empeoró o se deshizo sola hace poco: no se repite (bajar sí)
+  if (ajustes.subidasVetadas?.includes(pr.objetivoId)) return null
+  if (g.sinSubidas || g.acosParaSubir == null || !g.parametros) return null
+  if (esTextoDeMarca(pr.texto, g.marca)) return null
+  if (!subidaPermitida(pr.metricas, g.acosParaSubir, g.parametros.umbrales, ajustes.muestraMinimaClics)) return null
+  let pujaNueva = pr.pujaNueva
+  let motivo = pr.motivo
+  if (g.pujaMaxima != null && pujaNueva > g.pujaMaxima) {
+    pujaNueva = Math.round(g.pujaMaxima * 100) / 100
+    if (pujaNueva - pr.pujaActual < 0.02) return null
+    motivo += ` · recortada a la puja máxima (${pujaNueva.toFixed(2).replace('.', ',')})`
+  }
+  const ubicacionAlta = ajustes.campanasConUbicacionAlta.includes(pr.campaignId)
+  // `agente: true`: la subida ha pasado ESTE filtro (decidirPropuesta retiene toda subida de puja sin la marca: p. ej. las del motor en «aprueba» mientras el agente estaba frenado)
+  return { ...pr, pujaNueva, motivo, metricas: { ...pr.metricas, agente: true as const, ...(ubicacionAlta ? { ubicacionAlta: true } : {}) } }
+}
+
 /** Los cambios de puja, estado y presupuesto hechos A MANO (o por el motor) que Amazon aceptó desde `desde`. Sin la 311 no hay entidad_id: solo sirven los de presupuesto */
 async function cambiosAManoRecientes(perfilId: string, desde: string): Promise<Array<{ campaign_id: string | null; entidad_id: string | null; campo: string | null; creado_at: string }>> {
   const service = createServiceClient()
   const pedir = (columnas: string) =>
-    todasLasFilas((a, b) => service.from('ads_cambios_log').select(columnas).eq('perfil_id', perfilId).eq('ok', true).in('origen', ['manual', 'automatico']).in('accion', ['cambiar', 'pausar', 'activar']).gte('creado_at', desde).order('creado_at').order('id').range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: { code?: string; message?: string } | null }>, 10_000)
+    todasLasFilas((a, b) => service.from('ads_cambios_log').select(columnas).eq('perfil_id', perfilId).eq('ok', true).in('origen', ['manual', 'automatico', 'agente']).in('accion', ['cambiar', 'pausar', 'activar']).gte('creado_at', desde).order('creado_at').order('id').range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: { code?: string; message?: string } | null }>, 10_000)
   let r = await pedir('campaign_id, entidad_id, campo, motivo, creado_at')
   if (r.error) r = await pedir('campaign_id, campo, motivo, creado_at')
   if (r.error) return []

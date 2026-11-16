@@ -340,3 +340,31 @@ export async function leerPresupuestoActual(cuenta: { conexionId: string; profil
   const b = res.campaigns?.[0]?.budget?.budget
   return typeof b === 'number' ? b : null
 }
+
+/* ------------------------------------------------------------------ */
+/* Estado de una campaña y de un anuncio (el agente PPC: pausar por falta de stock y reactivar)  */
+/* ------------------------------------------------------------------ */
+
+/** Pausa o activa una campaña entera (PUT /sp/campaigns). El 207 se comprueba con `aislar`. El log lo escribe quien llama */
+export async function ponerEstadoDeCampana(cuenta: { conexionId: string; profileId: number }, campaignId: string, estado: 'ENABLED' | 'PAUSED'): Promise<void> {
+  const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/campaigns', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_CAMPANA), cuerpo: { campaigns: [{ campaignId, state: estado }] } })
+  aislar(res, 'campaigns')
+}
+
+/** El estado que tiene AHORA una campaña en Amazon (ENABLED, PAUSED, ARCHIVED…). null = no la encuentra. Solo LEE */
+export async function leerEstadoDeCampana(cuenta: { conexionId: string; profileId: number }, campaignId: string): Promise<string | null> {
+  const res = await llamarAds<{ campaigns?: Array<{ state?: string }> }>(cuenta.conexionId, '/sp/campaigns/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_CAMPANA), cuerpo: { campaignIdFilter: { include: [campaignId] }, maxResults: 10 } })
+  return res.campaigns?.[0]?.state ?? null
+}
+
+/** Pausa o activa UN anuncio (el productAd de un ASIN en una campaña con varios): PUT /sp/productAds. El 207 se comprueba con `aislar` */
+export async function ponerEstadoDeAnuncio(cuenta: { conexionId: string; profileId: number }, adId: string, estado: 'ENABLED' | 'PAUSED'): Promise<void> {
+  const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/productAds', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_ANUNCIO), cuerpo: { productAds: [{ adId, state: estado }] } })
+  aislar(res, 'productAds')
+}
+
+/** El estado que tiene AHORA un anuncio en Amazon. null = no lo encuentra. Solo LEE */
+export async function leerEstadoDeAnuncio(cuenta: { conexionId: string; profileId: number }, adId: string): Promise<string | null> {
+  const res = await llamarAds<{ productAds?: Array<{ state?: string }> }>(cuenta.conexionId, '/sp/productAds/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_ANUNCIO), cuerpo: { adIdFilter: { include: [adId] }, maxResults: 10 } })
+  return res.productAds?.[0]?.state ?? null
+}

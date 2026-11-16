@@ -7,11 +7,11 @@ import { Boton, EstadoVacio, Insignia, PanelLateral, Segmentado, TablaAdaptable,
 import { CAMPO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import type { EntradaDeLog } from '@/lib/ads/log'
 import type { ProductoDeAds } from '@/lib/ads/cuenta'
-import { ETIQUETA_ORIGEN, type OrigenDeLog } from '@/lib/ads/log-calculo'
+import { ETIQUETA_ORIGEN, quienSinPersona, type OrigenDeLog } from '@/lib/ads/log-calculo'
 import { textoParaPegar } from '@/lib/ads/log-sop'
 import { llamar } from './llamar'
 
-const TONO_ORIGEN: Record<OrigenDeLog, TonoEstado> = { automatico: 'naranja', estructura: 'violeta', manual: 'azul', ensayo: 'cian' }
+const TONO_ORIGEN: Record<OrigenDeLog, TonoEstado> = { automatico: 'naranja', estructura: 'violeta', manual: 'azul', ensayo: 'cian', agente: 'verde' }
 
 const PERIODOS = [
   { id: '1', texto: 'Hoy', dias: 1 },
@@ -265,7 +265,7 @@ export function PestanaLog({ perfilId, irA }: { perfilId: string; irA?: (pestana
         cabecera: 'Quién',
         ancho: '130px',
         movil: 'dato',
-        celda: (e) => <span className="truncate text-[var(--ls-t2)]">{e.usuario ?? (e.origen === 'automatico' ? 'Motor' : '—')}</span>,
+        celda: (e) => <span className="truncate text-[var(--ls-t2)]">{e.usuario ?? (quienSinPersona(e.origen, e.motivo) || '—')}</span>,
       },
       {
         id: 'resultado',
@@ -490,7 +490,7 @@ function Pastilla({ texto, quitar }: { texto: string; quitar: () => void }) {
 function DetalleDeEntrada({ e, cargando }: { e: EntradaDeLog; cargando: boolean }) {
   const filas: Array<[string, React.ReactNode]> = [
     ['Origen', ETIQUETA_ORIGEN[e.origen] ?? e.origen],
-    ['Quién', e.usuario ?? (e.origen === 'automatico' ? 'Motor (autopiloto)' : '—')],
+    ['Quién', e.usuario ?? (e.origen === 'automatico' && quienSinPersona(e.origen, e.motivo) === 'Motor' ? 'Motor (autopiloto)' : quienSinPersona(e.origen, e.motivo) || '—')],
     ['Campaña', e.nombreCampana ?? '—'],
     ['ID de campaña', e.campaignId ?? '—'],
     ['ID en Amazon', e.entidadId ?? '—'],

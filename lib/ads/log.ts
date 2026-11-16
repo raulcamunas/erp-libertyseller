@@ -9,7 +9,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { condicionDeCursor, cursorATexto, finDeDia, textoDeBusqueda, type CursorDeLog, type FiltrosDeLog, type OrigenDeLog } from './log-calculo'
-import { enEnsayo, propuestaDelRastro, recortarParaLog, tomarLlamadasNuevas, type LlamadaAds } from './rastro'
+import { enEnsayo, origenDelRastro, propuestaDelRastro, recortarParaLog, tomarLlamadasNuevas, type LlamadaAds } from './rastro'
 
 export type { OrigenDeLog } from './log-calculo'
 
@@ -64,6 +64,8 @@ export interface NuevaEntradaDeLog {
 let hay311: boolean | null = null
 /** Sin la 311 el origen «ensayo» no pasa el CHECK: se apunta como «manual» con «[ENSAYO]» delante del motivo */
 let admiteEnsayo: boolean | null = null
+/** Sin la 315 el origen «agente» no pasa el CHECK: se apunta como «automatico» con «[AGENTE]» delante del motivo */
+let admiteAgente: boolean | null = null
 
 const faltaColumna = (e: { code?: string; message?: string } | null) => !!e && (e.code === 'PGRST204' || e.code === '42703' || (isMissingSchema(e) && /propuesta_id|entidad_id|peticion|respuesta|http_status|request_id/.test(e.message ?? '')))
 
@@ -81,14 +83,16 @@ export function columnasDeLlamadas(llamadas: readonly LlamadaAds[] | undefined):
  * y, si aun así falla, lo deja en el registro del servidor. Devuelve si se ha guardado (para que quien llama pueda avisar de un cambio sin rastro).
  */
 export async function anotarCambio(entrada: NuevaEntradaDeLog): Promise<boolean> {
-  // Dentro de un rastro (rastro.ts): las llamadas a Amazon que aún no tienen entrada, la propuesta que se aplica y, en ensayo, el origen «ensayo» siempre
+  // Dentro de un rastro (rastro.ts): las llamadas a Amazon que aún no tienen entrada, la propuesta que se aplica y, en ensayo, el origen «ensayo» siempre.
+  // En un rastro del agente PPC, lo «automático» que se apunte dentro (la pausa de segmentaciones.ts, el guardado de la propuesta…) es del agente
   const e: NuevaEntradaDeLog = {
     ...entrada,
     llamadas: entrada.llamadas ?? tomarLlamadasNuevas(),
     propuestaId: entrada.propuestaId ?? propuestaDelRastro(),
-    origen: enEnsayo() ? 'ensayo' : entrada.origen,
+    origen: enEnsayo() ? 'ensayo' : entrada.origen === 'automatico' && origenDelRastro() === 'agente' ? 'agente' : entrada.origen,
   }
   const esEnsayo = e.origen === 'ensayo'
+  const esAgente = e.origen === 'agente'
   const base = {
     perfil_id: e.perfilId,
     producto_id: e.productoId ?? null,
@@ -100,13 +104,15 @@ export async function anotarCambio(entrada: NuevaEntradaDeLog): Promise<boolean>
     valor_anterior: e.valorAnterior ?? null,
     valor_nuevo: e.valorNuevo ?? null,
     motivo: e.motivo ?? null,
-    origen: esEnsayo && admiteEnsayo === false ? 'manual' : e.origen,
+    origen: esEnsayo && admiteEnsayo === false ? 'manual' : esAgente && admiteAgente === false ? 'automatico' : e.origen,
     ok: e.ok ?? true,
     // Con la 311 la respuesta completa va en «respuesta»; el texto del error se recorta menos que antes
     error: e.error ? e.error.slice(0, 2000) : null,
-    usuario_id: e.userId ?? null,
+    // `||`, no `??`: un usuario '' (UUID vacía) daba 22P02 y la entrada se PERDÍA (pasaba en cada pausa automática)
+    usuario_id: e.userId || null,
   }
   if (esEnsayo && admiteEnsayo === false) base.motivo = `[ENSAYO] ${base.motivo ?? ''}`.trim()
+  if (esAgente && admiteAgente === false) base.motivo = `[AGENTE] ${base.motivo ?? ''}`.trim()
   const extra = { propuesta_id: e.propuestaId ?? null, entidad_id: e.entidadId ?? null, ...columnasDeLlamadas(e.llamadas) }
 
   for (let intento = 0; intento < 3; intento += 1) {
@@ -126,6 +132,13 @@ export async function anotarCambio(entrada: NuevaEntradaDeLog): Promise<boolean>
         admiteEnsayo = false
         base.origen = 'manual'
         base.motivo = `[ENSAYO] ${base.motivo ?? ''}`.trim()
+        continue
+      }
+      // 23514 = el CHECK de origen todavía no admite «agente» (falta la 315)
+      if (error.code === '23514' && esAgente && base.origen === 'agente') {
+        admiteAgente = false
+        base.origen = 'automatico'
+        base.motivo = `[AGENTE] ${base.motivo ?? ''}`.trim()
         continue
       }
       if (intento === 2) console.error('Ads: no se ha podido anotar el cambio en el log:', error.message, JSON.stringify(base).slice(0, 500))
@@ -150,10 +163,10 @@ export async function anotarEnLote(entradas: readonly NuevaEntradaDeLog[]): Prom
     valor_anterior: e.valorAnterior ?? null,
     valor_nuevo: e.valorNuevo ?? null,
     motivo: e.motivo ?? null,
-    origen: e.origen === 'ensayo' ? 'manual' : e.origen,
+    origen: e.origen === 'ensayo' ? 'manual' : e.origen === 'agente' && admiteAgente === false ? 'automatico' : e.origen,
     ok: e.ok ?? true,
     error: e.error ? e.error.slice(0, 2000) : null,
-    usuario_id: e.userId ?? null,
+    usuario_id: e.userId || null,
     propuesta_id: e.propuestaId ?? null,
     entidad_id: e.entidadId ?? null,
   }))
@@ -164,6 +177,12 @@ export async function anotarEnLote(entradas: readonly NuevaEntradaDeLog[]): Prom
       if (error && faltaColumna(error)) {
         hay311 = false
         ;({ error } = await createServiceClient().from('ads_cambios_log').insert(trozo.map(({ propuesta_id: _p, entidad_id: _e, ...resto }) => resto)))
+      }
+      // Sin la 315 el origen «agente» no pasa el CHECK: el lote se reintenta como «automatico» con «[AGENTE]» en el motivo
+      if (error && error.code === '23514' && trozo.some((f) => f.origen === 'agente')) {
+        admiteAgente = false
+        const respaldo = trozo.map((f) => (f.origen === 'agente' ? { ...f, origen: 'automatico', motivo: `[AGENTE] ${f.motivo ?? ''}`.trim() } : f))
+        ;({ error } = await createServiceClient().from('ads_cambios_log').insert(hay311 === false ? respaldo.map(({ propuesta_id: _p, entidad_id: _e, ...resto }) => resto) : respaldo))
       }
       if (error) {
         console.error('Ads: no se ha podido anotar el lote en el log:', error.message)

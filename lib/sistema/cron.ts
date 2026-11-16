@@ -191,7 +191,24 @@ export const TAREAS_CRON = [
     cadaMinutos: 2,
     que:
       'Cada 3 horas trae de Amazon Ads el gasto, las ventas y los clics por día y campaña de cada cuenta de anunciante en uso, y los guarda para que Marketing Test se abra al instante. ' +
-      'Vuelve a leer los últimos 14 días cada vez porque Amazon corrige las ventas atribuidas. Solo lee: no toca nada en la cuenta del cliente.',
+      'Vuelve a leer los últimos 14 días cada vez porque Amazon corrige las ventas atribuidas y, en las cuentas con el motor encendido, prepara las propuestas del día ' +
+      '(las escribe en Amazon el agente o una persona, no esta tarea; solo en «piloto automático» aplica ella misma las negativas).',
+  },
+  {
+    /**
+     * CADA 5 MINUTOS, EL AGENTE PPC (lib/ads/agente/agente-cron.ts).
+     *
+     * En las cuentas con el agente encendido da hasta 3 pasos por cuenta (vigilar el gasto de hoy, aplicar, objetivos, cerebro con IA, resumen, efectos, términos de la semana,
+     * calibrar) con 240 s por pasada. Va en su propio proceso, y no dentro de `ads-rendimiento`, porque el cerebro y las aplicaciones no caben en 90 s y porque ESCRIBE en Amazon.
+     * Solo abre fila en el registro cuando hace algo (aplicar, ensayar, retener, deshacer, frenar, avisar o un error).
+     */
+    id: 'ads-agente',
+    nombre: 'Agente PPC de Amazon Ads',
+    ruta: '/api/ads/cron-agente',
+    cadaMinutos: 5,
+    que:
+      'Cada 5 minutos, en las cuentas con el agente PPC encendido: mira el gasto de hoy contra los presupuestos, decide y APLICA cambios en Amazon Ads (negativas, pujas, presupuestos, pausas) ' +
+      'con topes y freno, mide lo que hizo y avisa en #notificaciones-erp. ESCRIBE en la cuenta del cliente.',
   },
   {
     /**
@@ -528,6 +545,8 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
+  // El agente PPC escribe en Amazon y vigila el gasto del día: no puede pasar más de media hora sin correr aunque la base vaya justa
+  'ads-agente': { prioridad: 'normal', ayunoMaxMin: 30 },
   'seo-lecturas': { prioridad: 'baja', ayunoMaxMin: 12 * 60 },
   'seo-competencia': { prioridad: 'baja', ayunoMaxMin: 24 * 60 },
   'stock-verificacion': { prioridad: 'normal' },

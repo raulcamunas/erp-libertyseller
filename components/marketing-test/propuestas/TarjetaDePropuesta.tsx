@@ -35,7 +35,8 @@ export const TarjetaDePropuesta = memo(function TarjetaDePropuesta({ p, moneda, 
   const m = p.metricas
   const tono = tonoDePropuesta(p)
   const color = COLOR_ESTADO[tono]
-  const estado = ESTADO_DE_PROPUESTA[p.estado]
+  // Con respaldo: un estado que la pantalla aún no conoce no rompe la tarjeta
+  const estado = ESTADO_DE_PROPUESTA[p.estado] ?? { texto: p.estado, tono: 'gris' as const }
   const impacto = impactoDe(p)
   const colgada = reservaColgada(p, minutosReservaColgada)
   const titulo = p.tipo === 'presupuesto' ? 'Presupuesto diario' : p.esAsin ? p.termino.toUpperCase() : p.termino
@@ -63,6 +64,16 @@ export const TarjetaDePropuesta = memo(function TarjetaDePropuesta({ p, moneda, 
                 Revisar
               </Insignia>
             )}
+            {p.origen === 'agente' && (
+              <Insignia tono="verde" tamano="sm" variante="contorno" title="La ha creado el agente PPC">
+                Agente
+              </Insignia>
+            )}
+            {p.retenidaMotivo && p.estado === 'pendiente' && (
+              <Insignia tono="ambar" tamano="sm" variante="suave" title={p.retenidaMotivo}>
+                Retenida
+              </Insignia>
+            )}
             {m.precioEstimado != null && (
               <Insignia tono="gris" tamano="sm" variante="contorno" title={`El producto no tiene precio en su ficha: se usa el ticket medio de Ads (${decimal(m.precioEstimado)}). Ponle el precio en Productos para afinar.`}>
                 Precio estimado
@@ -71,7 +82,7 @@ export const TarjetaDePropuesta = memo(function TarjetaDePropuesta({ p, moneda, 
             {historial && estado && (
               <Insignia tono={estado.tono} tamano="sm" variante="suave" vivo={p.estado === 'aplicando' || p.estado === 'aprobada'}>
                 {estado.texto}
-                {p.automatica ? ' · autopiloto' : ''}
+                {p.automatica ? (p.origen === 'agente' || p.agenteAt ? ' · agente' : ' · autopiloto') : ''}
               </Insignia>
             )}
           </div>

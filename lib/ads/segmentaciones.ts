@@ -174,7 +174,8 @@ export interface ContextoDeCambio {
   cuenta: { id: string; conexionId: string; profileId: number }
   campaignId: string
   nombreCampana: string | null
-  userId: string
+  /** null = no hay persona (el motor o el agente PPC): el log lo guarda sin usuario (antes llegaba '' y la entrada se perdía) */
+  userId: string | null
 }
 
 const fmt = (n: number | null | undefined) => (n == null ? null : n.toFixed(2).replace('.', ','))
@@ -199,7 +200,7 @@ export async function cambiarPuja(ctx: ContextoDeCambio, o: { tipo: TipoDeObjeti
 }
 
 /** Pausa o activa una keyword o una segmentación */
-export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean; motivo?: string; origen?: 'manual' | 'automatico' }): Promise<void> {
+export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean; motivo?: string; origen?: 'manual' | 'automatico' | 'agente' }): Promise<void> {
   return enRastro(async () => {
   const state = o.activar ? 'ENABLED' : 'PAUSED'
   const entidad = o.tipo === 'keyword' ? 'keyword' : 'target'

@@ -32,7 +32,7 @@ export interface TareaDeHoy {
 }
 
 export interface EstadoParaHoy {
-  modo: 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto'
+  modo: 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto' | 'agente'
   firmada: boolean
   terminos: { actualizadoAt: string | null; filas: number; sincronizando: boolean; error: string | null }
   sinAcos: Array<{ asin: string; resumen: string }>
@@ -52,6 +52,8 @@ const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno
 export function filtroDe(p: Pick<PropuestaParaHoy, 'tipo' | 'estado' | 'valorActual' | 'valorNuevo'>): Exclude<FiltroDePropuestas, 'todas'> {
   if (p.estado === 'error') return 'error'
   if (p.tipo === 'puja') return (p.valorNuevo ?? 0) >= (p.valorActual ?? 0) ? 'subir-puja' : 'bajar-puja'
+  // La pausa de una campaña entera (el agente, por falta de stock) va con las pausas
+  if (p.tipo === 'pausar-campana') return 'pausar'
   return p.tipo
 }
 
@@ -69,6 +71,11 @@ export function resumenDeHoy(propuestas: readonly PropuestaParaHoy[], e: EstadoP
 
   if (e.modo === 'apagado') {
     return { tareas: [{ id: 'apagado', prioridad: 'info', titulo: 'El motor está apagado en esta cuenta', detalle: 'Ponlo en «Solo sugiere» para que lea los términos y proponga cambios sin tocar nada en Amazon.' }], gastoSinVentaRecuperable: 0, pendientes: 0 }
+  }
+
+  // En modo agente las propuestas las aplica el agente PPC solo: lo que queda aquí pendiente es lo que retuvo para una persona
+  if (e.modo === 'agente') {
+    tareas.push({ id: 'agente', prioridad: 'info', titulo: 'El agente PPC aplica solo', detalle: 'El agente aplica solo: aquí solo quedan las retenidas (lo que prefiere que decida una persona) y lo que aún no ha mirado. Su día a día está en la pestaña «Agente».' })
   }
 
   // ---- lo que impide al motor ver la cuenta entera ----

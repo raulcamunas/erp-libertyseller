@@ -16,6 +16,12 @@
  *      de producto) ni términos marcados «Revisar» (posibles irrelevantes): eso lo decide una persona. Pujas, pausas y presupuesto, siempre con aprobación.
  *   5. TODO SE ANOTA EN EL LOG y todo lo aplicado se puede DESHACER: se guardan los identificadores de lo creado en Amazon.
  *   6. Un término que ya se propuso o se resolvió hace menos de 14 días no se vuelve a proponer (cuarentena: un cambio cada vez y con ventana de lectura).
+ *
+ * ============ EL MODO «AGENTE» (migración 315) ============
+ *
+ *   El agente PPC (lib/ads/agente/) aplica SOLO, por este mismo camino (aplicarPropuesta con `origen: 'agente'`), con sus topes, rampa y guardarraíles fuera de aquí. Solo se enciende desde la
+ *   pestaña «Agente» (guardarModo con `desdeAgente`); cambiar el modo por otro camino lo APAGA. En ensayo las propuestas quedan «ensayadas» (con resuelta_at: cuentan para la cuarentena hasta que el agente pasa a activo).
+ *   Todo lo del agente se escribe solo si existe la 315 (columnasAgente); sin ella el agente no puede llegar aquí (no hay tabla ads_agente).
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
@@ -32,8 +38,12 @@ import {
   crearNegativaDeProducto,
   crearSegmentacionDeProducto,
   gruposActivosDe,
+  leerEstadoDeAnuncio,
+  leerEstadoDeCampana,
   leerPresupuestoActual,
   leerPujaActual,
+  ponerEstadoDeAnuncio,
+  ponerEstadoDeCampana,
   ponerPresupuesto,
   ponerPuja,
 } from './escritura'
@@ -41,7 +51,7 @@ import { anotarEnLote } from './log'
 import { conRastro } from './rastro'
 import { todasLasFilas } from './paginar'
 import { objetivosDesdeAcos, precioParaMotor, ticketsMedios } from './margen'
-import { decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, planificarPropuestas, valorSigueIgual, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
+import { clavesEnCuarentena, confirmaPausaDeReintento, confirmaReintento, decidirEnsayo, esReintentoDeTransporte, decidirSiSePuedeAplicar, hayQueComprobarColumna, inicioDelDiaEnEspana, motivoDeObsoleta, planificarPropuestas, pujaDePromover, resultadoDeComprobarColumna, valorSigueIgual, type CacheDeColumna, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
 import { asinDeCampana } from './productos-agrupar'
 import { esAsin, normalizarTexto, palabrasDe, partesDeNombre, type ObjetivosParaReglas, type TipoDePropuesta } from './reglas'
 import { cambiarEstado } from './segmentaciones'
@@ -49,11 +59,14 @@ import { cvrsDeCuenta, leerUmbrales } from './umbrales-cuenta'
 import { leerTerminos } from './terminos'
 import type { CuentaParaSincronizar } from './sincronizar'
 import type { Rol } from './estructura'
+import { FALTA_MIGRACION_315, type FilaDePropuestaDelAgente } from './agente/tipos'
+import { clasificarSubidasPendientes } from './agente/guardarrailes-calculo'
 
 export { guardarUmbrales, leerUmbrales } from './umbrales-cuenta'
 
-export type ModoDelMotor = 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto'
-export const MODOS: readonly ModoDelMotor[] = ['apagado', 'sugiere', 'aprueba', 'autopiloto']
+/** «agente» (315): el agente PPC aplica solo. Se enciende SOLO desde la pestaña «Agente» */
+export type ModoDelMotor = 'apagado' | 'sugiere' | 'aprueba' | 'autopiloto' | 'agente'
+export const MODOS: readonly ModoDelMotor[] = ['apagado', 'sugiere', 'aprueba', 'autopiloto', 'agente']
 
 /** El piloto automático aplica como mucho esto por cuenta y día */
 export const TOPE_DIARIO_AUTOPILOTO = 5
@@ -64,8 +77,11 @@ export const DIAS_PARA_CADUCAR = 14
 
 const DIA_MS = 86_400_000
 
-/** «aplicando» (311) o «aprobada» (sin la 311) = reclamada por quien la aplica; «obsoleta» (311) = el valor de Amazon ya no era el de la propuesta */
-export type EstadoDePropuesta = 'pendiente' | 'aprobada' | 'aplicando' | 'aplicada' | 'descartada' | 'deshecha' | 'error' | 'caducada' | 'obsoleta'
+/**
+ * «aplicando» (311) o «aprobada» (sin la 311) = reclamada por quien la aplica; «obsoleta» (311) = el valor de Amazon ya no era el de la propuesta;
+ * «ensayada» (315) = el agente en ensayo la recorrió sin escribir (lleva resuelta_at: cuenta para las cuarentenas mientras dura el ensayo; al pasar a activo se le quita)
+ */
+export type EstadoDePropuesta = 'pendiente' | 'aprobada' | 'aplicando' | 'aplicada' | 'descartada' | 'deshecha' | 'error' | 'caducada' | 'obsoleta' | 'ensayada'
 
 export interface Propuesta {
   id: string
@@ -82,7 +98,7 @@ export interface Propuesta {
   haciaAdGroupId: string | null
   negativizarEnOrigen: boolean
   motivo: string
-  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number; precioEstimado?: number; revisar?: boolean; cvrPct?: number }
+  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number; precioEstimado?: number; revisar?: boolean; cvrPct?: number; concordancia?: 'NEGATIVE_EXACT'; ubicacionAlta?: boolean }
   /** El término es un ASIN (ficha de producto): se excluye y se ataca como segmentación por producto */
   esAsin: boolean
   /** Puja y presupuesto (migración 298): la segmentación, su tipo y el valor antes y después */
@@ -95,18 +111,53 @@ export interface Propuesta {
   automatica: boolean
   creadaAt: string
   resueltaAt: string | null
+  /** Migración 315 (sin ella: 'motor' y null). Quién la creó: el motor (reglas diarias) o el agente (vigilar: presupuestos y stock) */
+  origen: 'motor' | 'agente'
+  /** El agente la ha dejado para una persona (y por qué) */
+  retenidaMotivo: string | null
+  /** Lo que dijo la IA del agente de una propuesta rara */
+  iaDecision: 'aplicar' | 'retener' | null
+  iaMotivo: string | null
+  /** Cuándo la aplicó o ensayó el agente (topes del día) */
+  agenteAt: string | null
 }
 
 const COLUMNAS_BASE = 'id, tipo, asin, termino, campaign_id, campaign_nombre, ad_group_id, desde_rol, hacia_rol, hacia_campaign_id, hacia_campaign_nombre, hacia_ad_group_id, negativizar_en_origen, motivo, metricas, estado, error, automatica, creada_at, resuelta_at, aplicada'
 /** Con las columnas de puja y presupuesto (migración 298). Sin ella se lee lo de antes */
 const COLUMNAS = `${COLUMNAS_BASE}, objetivo_id, objetivo_tipo, valor_actual, valor_nuevo`
-let hay298: boolean | null = null
-async function columnas(): Promise<string> {
-  if (hay298 === null) {
-    const { error } = await createServiceClient().from('ads_propuestas').select('objetivo_id').limit(1)
-    hay298 = !error
+/** Con las del agente PPC (migración 315) */
+const COLUMNAS_315 = `${COLUMNAS}, origen, retenida_motivo, retenida_at, ia_decision, ia_motivo, agente_at`
+/*
+ * Caché de «¿está la columna?» (cacheDeColumna en motor-calculo.ts): `true` se recuerda para siempre; `false` solo si el error es de
+ * columna/tabla inexistente, y se vuelve a mirar a los 5 min (nota la migración recién lanzada sin redesplegar). Cualquier otro error
+ * (red, tiempo agotado…) NO se guarda y se relanza: un fallo pasajero ya no deja el proceso creyendo que falta la 315 hasta el despliegue.
+ */
+const hay298: CacheDeColumna = { valor: null, at: 0 }
+const hay315: CacheDeColumna = { valor: null, at: 0 }
+async function comprobarColumna(c: CacheDeColumna, columna: string): Promise<boolean> {
+  const ahora = Date.now()
+  if (hayQueComprobarColumna(c, ahora)) {
+    const { error } = await createServiceClient().from('ads_propuestas').select(columna).limit(1)
+    const r = resultadoDeComprobarColumna(error, ahora)
+    c.valor = r.valor
+    c.at = r.at
   }
-  return hay298 ? COLUMNAS : COLUMNAS_BASE
+  return c.valor === true
+}
+async function columnas(): Promise<string> {
+  if (!(await comprobarColumna(hay298, 'objetivo_id'))) return COLUMNAS_BASE
+  return (await columnasAgente()) ? COLUMNAS_315 : COLUMNAS
+}
+
+/** ¿Están las columnas del agente en ads_propuestas (migración 315)? `true` se recuerda; `false` solo si falta la columna y se recomprueba a los 5 min; otro error se relanza */
+export async function columnasAgente(): Promise<boolean> {
+  return comprobarColumna(hay315, 'agente_at')
+}
+
+/** El error de una escritura del agente sin la 315 (columna o CHECK) → el texto de siempre; cualquier otro, tal cual */
+function errorDelAgente(e: { code?: string; message?: string }): Error {
+  if (e.code === '23514' || e.code === 'PGRST204' || e.code === '42703' || isMissingSchema(e)) return new Error(FALTA_MIGRACION_315)
+  return new Error(e.message ?? 'Error de la base de datos')
 }
 
 function deFila(f: Record<string, unknown>): Propuesta {
@@ -136,6 +187,11 @@ function deFila(f: Record<string, unknown>): Propuesta {
     automatica: Boolean(f.automatica),
     creadaAt: f.creada_at as string,
     resueltaAt: (f.resuelta_at as string | null) ?? null,
+    origen: f.origen === 'agente' ? 'agente' : 'motor',
+    retenidaMotivo: (f.retenida_motivo as string | null) ?? null,
+    iaDecision: f.ia_decision === 'aplicar' || f.ia_decision === 'retener' ? f.ia_decision : null,
+    iaMotivo: (f.ia_motivo as string | null) ?? null,
+    agenteAt: (f.agente_at as string | null) ?? null,
   }
 }
 
@@ -150,17 +206,46 @@ export async function leerModo(perfilId: string): Promise<ModoDelMotor> {
   return MODOS.includes(m as ModoDelMotor) ? (m as ModoDelMotor) : 'apagado'
 }
 
-/** Cambia el modo. Aplicar cosas (aprueba, autopiloto) exige la ficha de cuenta firmada */
-export async function guardarModo(perfilId: string, modo: ModoDelMotor, userId: string): Promise<void> {
+/**
+ * Cambia el modo. Aplicar cosas (aprueba, autopiloto, agente) exige la ficha de cuenta firmada.
+ * «agente» solo se pone desde la pestaña «Agente» (`desdeAgente`). Cualquier OTRO modo puesto por otro camino apaga el agente de la cuenta (si estaba encendido) y lo apunta en su línea de tiempo:
+ * así el agente nunca sigue «encendido» con el motor en otro modo.
+ */
+export async function guardarModo(perfilId: string, modo: ModoDelMotor, userId: string, opciones?: { desdeAgente?: boolean }): Promise<void> {
   if (!MODOS.includes(modo)) throw new Error('Ese modo no existe.')
-  if (modo === 'aprueba' || modo === 'autopiloto') {
+  if (modo === 'agente' && !opciones?.desdeAgente) throw new Error('El modo agente se enciende desde la pestaña «Agente».')
+  if (modo === 'aprueba' || modo === 'autopiloto' || modo === 'agente') {
     const ficha = await leerFicha(perfilId)
     if (!ficha.firmadaAt) throw new Error('Para que el motor pueda aplicar cambios, la ficha de cuenta tiene que estar firmada (pestaña «Ficha de cuenta»).')
   }
   const anterior = await leerModo(perfilId)
   const { error } = await createServiceClient().from('ads_motor_config').upsert({ perfil_id: perfilId, modo, updated_by: userId, updated_at: new Date().toISOString() }, { onConflict: 'perfil_id' })
-  if (error) throw error
-  await anotarCambio({ perfilId, entidad: 'motor', accion: 'cambiar', campo: 'modo del motor automático', valorAnterior: anterior, valorNuevo: modo, motivo: 'Lo cambia un administrador desde PPC · Amazon Ads', origen: 'manual', userId })
+  if (error) {
+    // 23514 = el CHECK de modo aún no admite «agente» (falta la 315)
+    if (modo === 'agente' && error.code === '23514') throw new Error(FALTA_MIGRACION_315)
+    throw error
+  }
+  await anotarCambio({ perfilId, entidad: 'motor', accion: 'cambiar', campo: 'modo del motor automático', valorAnterior: anterior, valorNuevo: modo, motivo: opciones?.desdeAgente ? 'Lo cambia el agente PPC (pestaña «Agente»)' : 'Lo cambia un administrador desde PPC · Amazon Ads', origen: 'manual', userId })
+  if (modo !== 'agente' && !opciones?.desdeAgente) await apagarAgenteSiEstaba(perfilId, modo)
+}
+
+const NOMBRE_DE_MODO: Record<ModoDelMotor, string> = { apagado: 'apagado', sugiere: '«Solo sugiere»', aprueba: '«Aprueba y aplica»', autopiloto: '«Piloto automático»', agente: '«Agente»' }
+
+/** Si la cuenta tiene el agente encendido (ensayo, activo o frenado), lo apaga y anota el evento «apagado». Sin la 315 no hay agente: no hace nada. Nunca lanza */
+async function apagarAgenteSiEstaba(perfilId: string, modo: ModoDelMotor): Promise<void> {
+  try {
+    const service = createServiceClient()
+    const { data, error } = await service.from('ads_agente').update({ estado: 'apagado', updated_at: new Date().toISOString() }).eq('perfil_id', perfilId).neq('estado', 'apagado').select('perfil_id')
+    if (error) {
+      if (!isMissingSchema(error)) console.error('Ads: no se ha podido apagar el agente al cambiar el modo', perfilId, error.message)
+      return
+    }
+    if (!data || data.length === 0) return
+    const { error: e2 } = await service.from('ads_agente_eventos').insert({ perfil_id: perfilId, tipo: 'apagado', titulo: `Apagado al cambiar el modo del motor a ${NOMBRE_DE_MODO[modo]}`, detalle: 'El modo del motor se ha cambiado fuera de la pestaña «Agente»: el agente deja de aplicar.' })
+    if (e2 && !isMissingSchema(e2)) console.error('Ads: no se ha podido anotar el apagado del agente', perfilId, e2.message)
+  } catch (e) {
+    console.error('Ads: no se ha podido apagar el agente al cambiar el modo', perfilId, e instanceof Error ? e.message : e)
+  }
 }
 
 /** El modo de cada cuenta con el motor encendido (una consulta para todas) */
@@ -190,8 +275,10 @@ export interface ObjetivoDeProducto extends ObjetivosParaReglas {
 
 export interface ObjetivosDeCuenta {
   porAsin: Map<string, ObjetivoDeProducto | null>
-  /** Productos sin ACoS objetivo fijado */
+  /** Productos sin ACoS objetivo fijado (ni humano ni automático del agente) */
   sinAcos: Array<{ asin: string; resumen: string }>
+  /** Productos sin ACoS humano que usan el AUTOMÁTICO congelado del agente PPC (ads_agente_objetivos, 315) */
+  automaticos: Array<{ asin: string; resumen: string; acosObjetivoPct: number; fuente: string; detalle: string | null; soloDefensivo: boolean }>
   /** Productos con ACoS objetivo pero sin precio ni ventas de las que estimarlo: el motor no puede decidir nada de ellos */
   sinPrecio: Array<{ asin: string; resumen: string }>
   /** Productos cuyo precio es el ticket medio de Ads */
@@ -232,20 +319,24 @@ async function ventasDeCampanas(perfilId: string): Promise<{ tickets: Map<string
  * marcado como estimación). Sin ACoS o sin ninguno de los dos precios, el producto no se evalúa y la pantalla lo dice en «Qué hacer hoy».
  */
 export async function objetivosDeCuenta(perfilId: string, ficha: FichaDeCuenta): Promise<ObjetivosDeCuenta> {
-  const [productos, { tickets, conGasto }] = await Promise.all([productosDeCuenta(perfilId), ventasDeCampanas(perfilId)])
+  const [productos, { tickets, conGasto }, automaticos] = await Promise.all([productosDeCuenta(perfilId), ventasDeCampanas(perfilId), objetivosAutomaticos(perfilId)])
   const conFicha = new Set(productos.map((p) => p.asin.toUpperCase()))
-  const salida: ObjetivosDeCuenta = { porAsin: new Map(), sinAcos: [], sinPrecio: [], conPrecioEstimado: [], palabras: new Map(), sinFicha: [...conGasto].filter((a) => !conFicha.has(a)).sort() }
+  const salida: ObjetivosDeCuenta = { porAsin: new Map(), sinAcos: [], automaticos: [], sinPrecio: [], conPrecioEstimado: [], palabras: new Map(), sinFicha: [...conGasto].filter((a) => !conFicha.has(a)).sort() }
   for (const p of productos) {
     const asin = p.asin.toUpperCase()
     const resumen = p.resumen || asin
     salida.palabras.set(asin, palabrasDe(`${p.resumen && p.resumen !== asin ? p.resumen : ''} ${p.titulo ?? ''}`))
-    if (p.acosObjetivoPct == null) {
+    // El humano manda; sin él, el automático CONGELADO del agente (nunca pisa uno humano)
+    const auto = p.acosObjetivoPct == null ? automaticos.get(asin) : undefined
+    const acosObjetivo = p.acosObjetivoPct ?? auto?.acosObjetivoPct ?? null
+    if (acosObjetivo == null) {
       salida.sinAcos.push({ asin, resumen })
       salida.porAsin.set(asin, null)
       continue
     }
+    if (auto) salida.automaticos.push({ asin, resumen, ...auto })
     const precio = precioParaMotor(p.precio, tickets.get(asin))
-    const o = precio ? objetivosDesdeAcos(precio.precio, p.acosObjetivoPct, ficha.gastoSinVentaX) : null
+    const o = precio ? objetivosDesdeAcos(precio.precio, acosObjetivo, ficha.gastoSinVentaX) : null
     if (!precio || !o) {
       salida.sinPrecio.push({ asin, resumen })
       salida.porAsin.set(asin, null)
@@ -253,6 +344,21 @@ export async function objetivosDeCuenta(perfilId: string, ficha: FichaDeCuenta):
     }
     if (precio.estimado) salida.conPrecioEstimado.push({ asin, resumen, precio: precio.precio })
     salida.porAsin.set(asin, { acosObjetivoPct: o.acosObjetivoPct, gastoMaximoSinVenta: o.gastoMaximoSinVenta, cpaObjetivo: o.cpaObjetivo, precio: precio.precio, precioEstimado: precio.estimado })
+  }
+  return salida
+}
+
+/** Los ACoS objetivo AUTOMÁTICOS (congelados) del agente PPC por ASIN. Sin la 315 (o si falla la lectura), ninguno: como antes */
+async function objetivosAutomaticos(perfilId: string): Promise<Map<string, { acosObjetivoPct: number; fuente: string; detalle: string | null; soloDefensivo: boolean }>> {
+  const salida = new Map<string, { acosObjetivoPct: number; fuente: string; detalle: string | null; soloDefensivo: boolean }>()
+  const { data, error } = await createServiceClient().from('ads_agente_objetivos').select('asin, acos_objetivo_pct, fuente, detalle, solo_defensivo').eq('perfil_id', perfilId)
+  if (error) {
+    if (!isMissingSchema(error)) console.error('Ads: no se han podido leer los objetivos automáticos del agente', perfilId, error.message)
+    return salida
+  }
+  for (const r of (data ?? []) as Array<{ asin: string; acos_objetivo_pct: number | string; fuente: string; detalle: string | null; solo_defensivo: boolean }>) {
+    const acos = Number(r.acos_objetivo_pct)
+    if (Number.isFinite(acos) && acos > 0) salida.set(r.asin.toUpperCase(), { acosObjetivoPct: acos, fuente: r.fuente, detalle: r.detalle ?? null, soloDefensivo: Boolean(r.solo_defensivo) })
   }
   return salida
 }
@@ -338,7 +444,8 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
   // Paginado: con más de 1.000 propuestas recientes PostgREST cortaba en silencio y se repetían propuestas
   const { data: previas, error: ePrevias } = await todasLasFilas((a, b) => service.from('ads_propuestas').select('id, campaign_id, termino, tipo, estado, resuelta_at').eq('perfil_id', cuenta.id).or(`estado.eq.pendiente,resuelta_at.gte.${desdeCuarentena}`).order('id').range(a, b))
   if (ePrevias) throw ePrevias
-  const yaHay = new Set(((previas ?? []) as Array<{ campaign_id: string; termino: string; tipo: string; estado: string }>).filter((r) => r.estado !== 'caducada').map((r) => `${r.campaign_id}|${r.termino.trim().toLowerCase()}|${r.tipo}`))
+  // Las ENSAYADAS del agente llevan resuelta_at: cuentan igual (motor-calculo.clavesEnCuarentena, con su prueba)
+  const yaHay = clavesEnCuarentena((previas ?? []) as Array<{ campaign_id: string; termino: string; tipo: string; estado: string; resuelta_at: string | null }>, desdeCuarentena)
 
   const plan = planificarPropuestas({
     terminos,
@@ -472,6 +579,8 @@ export interface ContextoDeAplicar {
   modo: ModoDelMotor
   fichaFirmada: boolean
   aplicadasHoy: number
+  /** El agente PPC lleva sus propios topes por clase (fuera de aquí): pasa Number.MAX_SAFE_INTEGER. Sin él, el de siempre (autopiloto o manual) */
+  topeDiario?: number
 }
 
 export async function contextoDeAplicar(perfilId: string, automatica: boolean): Promise<ContextoDeAplicar> {
@@ -479,10 +588,12 @@ export async function contextoDeAplicar(perfilId: string, automatica: boolean): 
   return { modo, fichaFirmada: Boolean(ficha.firmadaAt), aplicadasHoy: hoy }
 }
 
-function entradaDeAplicar(c: ContextoDeAplicar, p: Propuesta, automatica: boolean) {
+function entradaDeAplicar(c: ContextoDeAplicar, p: Propuesta, automatica: boolean, agente?: { origen?: 'agente'; iaAprueba?: boolean }) {
   return {
     modo: c.modo,
     automatica,
+    origen: agente?.origen,
+    revisarAprobadoPorIa: Boolean(agente?.iaAprueba),
     tipo: p.tipo,
     estado: p.estado,
     fichaFirmada: c.fichaFirmada,
@@ -494,12 +605,12 @@ function entradaDeAplicar(c: ContextoDeAplicar, p: Propuesta, automatica: boolea
     esAsin: p.esAsin,
     revisar: Boolean(p.metricas.revisar),
     aplicadasHoy: c.aplicadasHoy,
-    topeDiario: automatica ? TOPE_DIARIO_AUTOPILOTO : TOPE_DIARIO_MANUAL,
+    topeDiario: c.topeDiario ?? (automatica ? TOPE_DIARIO_AUTOPILOTO : TOPE_DIARIO_MANUAL),
   }
 }
 
-export function decidirConContexto(c: ContextoDeAplicar, p: Propuesta, automatica: boolean): { ok: true } | { ok: false; motivo: string } {
-  return decidirSiSePuedeAplicar(entradaDeAplicar(c, p, automatica))
+export function decidirConContexto(c: ContextoDeAplicar, p: Propuesta, automatica: boolean, agente?: { origen?: 'agente'; iaAprueba?: boolean }): { ok: true } | { ok: false; motivo: string } {
+  return decidirSiSePuedeAplicar(entradaDeAplicar(c, p, automatica, agente))
 }
 
 /** Lo que se puede aplicar o no, y por qué. Se comprueba aquí en el servidor, nunca solo en la pantalla (los candados están en decidirSiSePuedeAplicar, que tiene sus pruebas) */
@@ -536,7 +647,7 @@ async function reclamar(perfilId: string, id: string, userId: string | null, des
  * Guarda el resultado de una propuesta RECLAMADA. Comprueba el error (antes no se miraba) y reintenta una vez. Si aun así no se puede guardar, lo que se hizo en
  * Amazon queda en el log con sus ids («aplicado en Amazon pero no guardado») y la propuesta se queda en reserva: así nadie la vuelve a aplicar.
  */
-async function guardarResultado(perfilId: string, id: string, cambios: Record<string, unknown>, rastro: { campaignId: string | null; nombreCampana: string | null; userId: string | null; origen: 'manual' | 'automatico'; que: string }): Promise<void> {
+async function guardarResultado(perfilId: string, id: string, cambios: Record<string, unknown>, rastro: { campaignId: string | null; nombreCampana: string | null; userId: string | null; origen: 'manual' | 'automatico' | 'agente'; que: string }): Promise<void> {
   const service = createServiceClient()
   const intentar = () => service.from('ads_propuestas').update(cambios).eq('perfil_id', perfilId).eq('id', id).in('estado', ['aplicando', 'aprobada']).select('id')
   let r = await intentar()
@@ -598,15 +709,22 @@ export interface ResultadoDeEnsayo {
  *   5. guardar el resultado comprobando el error (guardarResultado).
  * Si algo falla a mitad, deshace lo que ya hubiera creado y la deja en «error» con el motivo.
  */
-export async function aplicarPropuesta(cuenta: CuentaParaSincronizar, id: string, quien: { userId: string | null; automatica: boolean; contexto?: ContextoDeAplicar }): Promise<Propuesta> {
+export async function aplicarPropuesta(
+  cuenta: CuentaParaSincronizar,
+  id: string,
+  quien: { userId: string | null; automatica: boolean; contexto?: ContextoDeAplicar; origen?: 'agente'; iaAprueba?: boolean; pujaMaxima?: number | null }
+): Promise<Propuesta> {
   const p = deFila(await cargar(cuenta.id, id))
-  const decision = decidirConContexto(quien.contexto ?? (await contextoDeAplicar(cuenta.id, quien.automatica)), p, quien.automatica)
+  const agente = quien.origen === 'agente' ? { origen: 'agente' as const, iaAprueba: quien.iaAprueba } : undefined
+  const decision = decidirConContexto(quien.contexto ?? (await contextoDeAplicar(cuenta.id, quien.automatica)), p, quien.automatica, agente)
   if (!decision.ok) throw new Error(decision.motivo)
+  // El agente necesita las columnas de la 315 para dejar su marca (origen, agente_at); sin ellas no aplica
+  if (agente && !(await columnasAgente())) throw new Error(FALTA_MIGRACION_315)
   const estadoAntes = p.estado
   await reclamar(cuenta.id, id, quien.userId, ['pendiente', 'error'])
   const productoId = await productoDe(cuenta.id, p.asin)
   try {
-    await conRastro({ propuestaId: id }, () => recorrerAplicar(cuenta, p, { userId: quien.userId, automatica: quien.automatica, productoId, estadoAntes }))
+    await conRastro({ propuestaId: id, origen: agente ? 'agente' : null }, () => recorrerAplicar(cuenta, p, { userId: quien.userId, automatica: quien.automatica, productoId, estadoAntes, origen: agente?.origen, iaAprueba: agente?.iaAprueba, pujaMaxima: agente ? quien.pujaMaxima : undefined }))
   } catch (e) {
     if (e instanceof ObsoletaOLiberada) throw new Error(e.message)
     throw e
@@ -634,17 +752,104 @@ export async function ensayarPropuesta(cuenta: CuentaParaSincronizar, id: string
   return { ensayo: true, llamadas: llamadas.filter((l) => l.simulada).map((l) => ({ metodo: l.metodo, ruta: l.ruta, cuerpo: l.cuerpo, simulada: l.simulada })), avisos: decision.avisos, error }
 }
 
+/**
+ * ENSAYO DEL AGENTE PPC: el camino de aplicar sin escribir en Amazon (las lecturas sí salen) y, si llega al final, la propuesta queda «ensayada» con resuelta_at = ahora
+ * (cuenta para todas las cuarentenas: en ensayo no se repite cada día lo mismo) y agente_at = ahora (topes del día). Si falla, se queda pendiente y devuelve el porqué.
+ */
+export async function ensayarComoAgente(cuenta: CuentaParaSincronizar, id: string, opciones?: { pujaMaxima?: number | null }): Promise<{ ok: boolean; error: string | null; llamadas: number }> {
+  if (!(await columnasAgente())) return { ok: false, error: FALTA_MIGRACION_315, llamadas: 0 }
+  const p = deFila(await cargar(cuenta.id, id))
+  if (p.estado !== 'pendiente') return { ok: false, error: `Esa propuesta ya está ${p.estado}.`, llamadas: 0 }
+  const contexto = await contextoDeAplicar(cuenta.id, true)
+  const decision = decidirEnsayo(entradaDeAplicar({ ...contexto, topeDiario: Number.MAX_SAFE_INTEGER }, p, true, { origen: 'agente' }))
+  if (!decision.ok) return { ok: false, error: decision.motivo, llamadas: 0 }
+  const productoId = await productoDe(cuenta.id, p.asin)
+  let error: string | null = null
+  const { llamadas } = await conRastro({ ensayo: true, propuestaId: id, origen: 'agente' }, async () => {
+    try {
+      await recorrerAplicar(cuenta, p, { userId: null, automatica: true, productoId, estadoAntes: p.estado, ensayo: true, origen: 'agente', pujaMaxima: opciones?.pujaMaxima })
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
+  })
+  const simuladas = llamadas.filter((l) => l.simulada).length
+  if (error) return { ok: false, error, llamadas: simuladas }
+  const ahora = new Date().toISOString()
+  const { data, error: e } = await createServiceClient()
+    .from('ads_propuestas')
+    .update({ estado: 'ensayada', resuelta_at: ahora, resuelta_por: null, agente_at: ahora, automatica: true, aplicada: { ensayo: true, at: ahora, llamadas: simuladas } })
+    .eq('perfil_id', cuenta.id)
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+    .select('id')
+  if (e) return { ok: false, error: errorDelAgente(e).message, llamadas: simuladas }
+  if (!data || data.length === 0) return { ok: false, error: 'La propuesta ya no estaba pendiente (otra pasada la ha tocado).', llamadas: simuladas }
+  return { ok: true, error: null, llamadas: simuladas }
+}
+
 /** El camino de aplicar, común a la aplicación de verdad y al ensayo (en ensayo no se toca ads_propuestas y llamarAds no escribe: lo decide el rastro) */
-async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: { userId: string | null; automatica: boolean; productoId: string | null; estadoAntes: string; ensayo?: boolean }): Promise<void> {
+async function recorrerAplicar(
+  cuenta: CuentaParaSincronizar,
+  p: Propuesta,
+  q: { userId: string | null; automatica: boolean; productoId: string | null; estadoAntes: string; ensayo?: boolean; origen?: 'agente'; iaAprueba?: boolean; pujaMaxima?: number | null }
+): Promise<void> {
   const id = p.id
-  const origen = (q.automatica ? 'automatico' : 'manual') as 'automatico' | 'manual'
+  const origen: 'manual' | 'automatico' | 'agente' = q.origen === 'agente' ? 'agente' : q.automatica ? 'automatico' : 'manual'
   const comun = { perfilId: cuenta.id, productoId: q.productoId, campaignId: p.campaignId, nombreCampana: p.campaignNombre, origen, userId: q.userId }
+  // Lo que aplica el agente queda con su marca (origen y agente_at: los topes del día cuentan desde aquí). Las columnas existen: aplicarPropuesta lo ha comprobado
+  const marcaDelAgente = origen === 'agente' ? { origen: 'agente', agente_at: new Date().toISOString(), automatica: true } : {}
   const resolver = (estado: string, extra: Record<string, unknown>, que: string) =>
-    q.ensayo ? Promise.resolve() : guardarResultado(cuenta.id, id, { estado, ...extra, resuelta_at: new Date().toISOString(), resuelta_por: q.userId, automatica: q.automatica }, { campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId: q.userId, origen, que })
+    q.ensayo ? Promise.resolve() : guardarResultado(cuenta.id, id, { estado, ...extra, resuelta_at: new Date().toISOString(), resuelta_por: q.userId, automatica: q.automatica, ...(estado === 'aplicada' ? marcaDelAgente : {}) }, { campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId: q.userId, origen, que })
+  const motivoLog = p.motivo + (q.iaAprueba ? ' · aprobada por la IA del agente' : '')
   const marcarError = async (detalle: string) => {
     if (q.ensayo) return
     const { error } = await createServiceClient().from('ads_propuestas').update({ estado: 'error', error: detalle.slice(0, 500), resuelta_at: new Date().toISOString(), resuelta_por: q.userId }).eq('perfil_id', cuenta.id).eq('id', id).in('estado', ['aplicando', 'aprobada'])
     if (error) await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'cambiar', campo: 'estado de la propuesta', valorNuevo: 'error', motivo: 'No se ha podido marcar el error en la propuesta', ok: false, error: `${error.message} · ${detalle}`, propuestaId: id })
+  }
+
+  // Pausar la CAMPAÑA entera (el agente, por falta de stock): se lee su estado; si ya está pausada, obsoleta (no se pisa). Deshacer = activarla si sigue pausada
+  if (p.tipo === 'pausar-campana' || (p.tipo === 'pausar' && p.objetivoTipo === 'anuncio')) {
+    const esCampana = p.tipo === 'pausar-campana'
+    const entidad = esCampana ? 'campaña' : 'anuncio'
+    const entidadId = esCampana ? p.campaignId : p.objetivoId
+    const campo = esCampana ? 'estado de la campaña' : `estado del anuncio de ${p.asin ?? p.termino}`
+    if (!entidadId) {
+      if (!q.ensayo) await liberar(cuenta.id, id, q.estadoAntes, 'A la propuesta le falta el anuncio que hay que pausar.')
+      throw new ObsoletaOLiberada('A la propuesta le falta el anuncio que hay que pausar.')
+    }
+    let estadoAhora: string | null
+    try {
+      estadoAhora = esCampana ? await leerEstadoDeCampana(cuenta, entidadId) : await leerEstadoDeAnuncio(cuenta, entidadId)
+    } catch (e) {
+      const detalle = `No se ha podido leer el estado actual en Amazon: ${e instanceof Error ? e.message : String(e)}`
+      if (!q.ensayo) await liberar(cuenta.id, id, q.estadoAntes, detalle.slice(0, 500))
+      await anotarCambio({ ...comun, entidad, accion: 'pausar', campo, ok: false, error: detalle, motivo: p.motivo, entidadId })
+      throw new ObsoletaOLiberada(detalle)
+    }
+    // Un REINTENTO tras un fallo de transporte al pausar: si ya está pausada, la pausa llegó → «aplicada» con la marca del agente (el stock la puede reactivar)
+    if (origen === 'agente' && confirmaPausaDeReintento(p.error, estadoAhora)) {
+      await anotarCambio({ ...comun, entidad, accion: 'pausar', campo, valorAnterior: 'activa', valorNuevo: 'pausada', motivo: `${p.motivo} · confirmado tras un fallo de red: Amazon ya la tenía pausada`, entidadId })
+      await resolver('aplicada', { aplicada: { pausada: true, estadoAnterior: 'ENABLED', confirmadaTrasReintento: true }, error: null }, esCampana ? 'La pausa de la campaña' : 'La pausa del anuncio')
+      return
+    }
+    if (estadoAhora !== 'ENABLED') {
+      const motivo = estadoAhora == null ? `Amazon ya no encuentra ${esCampana ? 'esa campaña' : 'ese anuncio'}: la propuesta queda obsoleta.` : `En Amazon ${esCampana ? 'la campaña' : 'el anuncio'} ya está ${estadoAhora === 'PAUSED' ? 'pausad' + (esCampana ? 'a' : 'o') : estadoAhora}: no se toca.`
+      await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'descartar', campo: 'propuesta obsoleta', valorNuevo: estadoAhora, motivo, entidadId })
+      await resolver(estadoObsoleta, { error: motivo }, 'Marcarla obsoleta')
+      throw new ObsoletaOLiberada(motivo)
+    }
+    try {
+      if (esCampana) await ponerEstadoDeCampana(cuenta, entidadId, 'PAUSED')
+      else await ponerEstadoDeAnuncio(cuenta, entidadId, 'PAUSED')
+    } catch (e) {
+      const detalle = e instanceof Error ? e.message : String(e)
+      await anotarCambio({ ...comun, entidad, accion: 'pausar', campo, valorAnterior: 'activa', valorNuevo: 'pausada', ok: false, error: detalle, motivo: p.motivo, entidadId })
+      await marcarError(detalle)
+      throw new Error(detalle)
+    }
+    await anotarCambio({ ...comun, entidad, accion: 'pausar', campo, valorAnterior: 'activa', valorNuevo: 'pausada', motivo: p.motivo, entidadId })
+    await resolver('aplicada', { aplicada: { pausada: true, estadoAnterior: estadoAhora }, error: null }, esCampana ? 'La pausa de la campaña' : 'La pausa del anuncio')
+    return
   }
 
   // Pausar: la misma función que el botón de pausa del panel de campañas (deja el log con el motivo del motor); deshacer = volver a activarla
@@ -654,7 +859,8 @@ async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: {
       throw new ObsoletaOLiberada('A la propuesta le falta la segmentación que hay que pausar.')
     }
     try {
-      await cambiarEstado({ cuenta: { id: cuenta.id, conexionId: cuenta.conexionId, profileId: cuenta.profileId }, campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId: q.userId ?? '' }, { tipo: p.objetivoTipo, id: p.objetivoId, texto: p.termino, activar: false, motivo: p.motivo, origen })
+      // userId null si no hay persona (antes '' → la entrada del log se perdía con un 22P02)
+      await cambiarEstado({ cuenta: { id: cuenta.id, conexionId: cuenta.conexionId, profileId: cuenta.profileId }, campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId: q.userId }, { tipo: p.objetivoTipo, id: p.objetivoId, texto: p.termino, activar: false, motivo: p.motivo, origen })
     } catch (e) {
       const detalle = e instanceof Error ? e.message : String(e)
       await marcarError(detalle)
@@ -686,12 +892,25 @@ async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: {
       await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, ok: false, error: detalle, motivo: p.motivo, entidadId })
       throw new ObsoletaOLiberada(detalle)
     }
+    // Un REINTENTO tras un fallo de transporte al escribir: si Amazon ya tiene lo que el agente intentó poner, el cambio llegó. Se resuelve «aplicada» con la
+    // marca del agente (topes, efecto, freno), no obsoleta: si no, lo que el agente subió de verdad quedaría fuera de todos los controles
+    if (origen === 'agente' && confirmaReintento(p, valorAhora)) {
+      await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, valorAnterior: fmt(p.valorActual as number), valorNuevo: fmt(valorAhora as number), motivo: `${p.motivo} · confirmado tras un fallo de red: Amazon ya tenía el valor nuevo`, entidadId })
+      await resolver('aplicada', { aplicada: { valorAnterior: p.valorActual, heredada, confirmadaTrasReintento: true }, valor_nuevo: valorAhora, error: null }, p.tipo === 'puja' ? 'La puja' : 'El presupuesto')
+      return
+    }
     // Fuera del try de la lectura: si falla GUARDAR la obsoleta (guardarResultado), no se confunde con un fallo al leer ni se libera la propuesta
     if (!valorSigueIgual(p.valorActual, valorAhora)) {
       const motivo = motivoDeObsoleta(p.tipo, p.valorActual, valorAhora)
       await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'descartar', campo: 'propuesta obsoleta', valorAnterior: p.valorActual == null ? null : fmt(p.valorActual), valorNuevo: valorAhora == null ? null : fmt(valorAhora), motivo, entidadId })
       await resolver(estadoObsoleta, { error: motivo }, 'Marcarla obsoleta')
       throw new ObsoletaOLiberada(motivo)
+    }
+    // El agente sin valor de partida (forma reducida de una pausa): se guarda ANTES de escribir, para que un reintento tras un fallo de red pueda reconocer
+    // su propio cambio y deshacerlo (confirmaReintento exige el valor de partida)
+    if (!q.ensayo && origen === 'agente' && p.valorActual == null && valorAhora != null) {
+      const { error: eVa } = await createServiceClient().from('ads_propuestas').update({ valor_actual: valorAhora }).eq('perfil_id', cuenta.id).eq('id', id).in('estado', ['aplicando', 'aprobada'])
+      if (eVa) console.error(`[motor] no se ha podido guardar el valor de partida de ${id}:`, eVa.message)
     }
     try {
       if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, p.valorNuevo)
@@ -702,15 +921,19 @@ async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: {
       await marcarError(detalle)
       throw new Error(detalle)
     }
-    await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, valorAnterior: p.valorActual == null ? null : fmt(p.valorActual), valorNuevo: fmt(p.valorNuevo), motivo: p.motivo + (heredada ? ' · la puja de antes era la heredada del grupo' : ''), entidadId })
-    await resolver('aplicada', { aplicada: { valorAnterior: p.valorActual, heredada }, error: null }, p.tipo === 'puja' ? 'La puja' : 'El presupuesto')
+    // El agente puede aplicar una puja sin valor de partida (la forma reducida de una pausa): se guarda el que había en Amazon para poder deshacerla
+    const valorDePartida = p.valorActual ?? (origen === 'agente' ? valorAhora : null)
+    await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, valorAnterior: valorDePartida == null ? null : fmt(valorDePartida), valorNuevo: fmt(p.valorNuevo), motivo: p.motivo + (heredada ? ' · la puja de antes era la heredada del grupo' : ''), entidadId })
+    await resolver('aplicada', { aplicada: { valorAnterior: valorDePartida, heredada }, ...(p.valorActual == null && valorDePartida != null ? { valor_actual: valorDePartida } : {}), error: null }, p.tipo === 'puja' ? 'La puja' : 'El presupuesto')
     return
   }
 
   const creado: { keywordId?: string; negativaId?: string; targetId?: string; negativaProductoId?: string } = {}
   try {
-    // La puja de partida de lo cosechado: el CPC que ya pagaba (lo que ha demostrado que convierte a ese precio)
-    const cpc = p.metricas.clics > 0 ? p.metricas.gasto / p.metricas.clics : 0.2
+    // La puja de partida de lo cosechado: el CPC que ya pagaba (lo que ha demostrado que convierte a ese precio). El agente la limita a su puja máxima (decidirPropuesta)
+    const cpcCalculado = p.tipo === 'promover' ? pujaDePromover(p.metricas, q.pujaMaxima) : 0.2
+    if (cpcCalculado == null) throw new Error('No se puede calcular la puja de partida (CPC o puja máxima no válidos): no se crea nada.')
+    const cpc = cpcCalculado
     if (p.tipo === 'promover' && p.esAsin) {
       creado.targetId = await crearSegmentacionDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, asin: p.termino, puja: cpc })
       await anotarCambio({ ...comun, campaignId: p.haciaCampaignId, nombreCampana: p.haciaCampaignNombre, entidad: 'target', accion: 'promover', campo: 'segmentación por producto (ASIN)', valorAnterior: p.desdeRol, valorNuevo: `${p.termino.toUpperCase()} → ${p.haciaRol}`, motivo: p.motivo, entidadId: creado.targetId })
@@ -723,10 +946,10 @@ async function recorrerAplicar(cuenta: CuentaParaSincronizar, p: Propuesta, q: {
       // Un ASIN se excluye como segmentación negativa por producto, en el grupo donde apareció (SOP: una palabra clave negativa «b0…» no excluye nada y Amazon no avisa)
       if (!p.adGroupId) throw new Error('No se sabe en qué grupo de anuncios apareció este ASIN: exclúyelo a mano en Amazon.')
       creado.negativaProductoId = await crearNegativaDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: p.campaignId, adGroupId: p.adGroupId, asin: p.termino })
-      await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: 'segmentación negativa por productos', valorNuevo: p.termino.toUpperCase(), motivo: p.tipo === 'promover' ? `Para que no compita con la campaña ${p.haciaRol}: ${p.motivo}` : p.motivo, entidadId: creado.negativaProductoId })
+      await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: 'segmentación negativa por productos', valorNuevo: p.termino.toUpperCase(), motivo: p.tipo === 'promover' ? `Para que no compita con la campaña ${p.haciaRol}: ${p.motivo}` : motivoLog, entidadId: creado.negativaProductoId })
     } else if (p.tipo === 'negativizar' || p.negativizarEnOrigen) {
       creado.negativaId = await crearNegativaDeCampana(cuenta.conexionId, cuenta.profileId, p.campaignId, p.termino)
-      await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: 'palabra clave negativa exacta', valorNuevo: p.termino, motivo: p.tipo === 'promover' ? `Para que no compita con la campaña ${p.haciaRol}: ${p.motivo}` : p.motivo, entidadId: creado.negativaId })
+      await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: 'palabra clave negativa exacta', valorNuevo: p.termino, motivo: p.tipo === 'promover' ? `Para que no compita con la campaña ${p.haciaRol}: ${p.motivo}` : motivoLog, entidadId: creado.negativaId })
     }
   } catch (e) {
     // Lo que ya se hubiera creado a medias se deshace: una keyword sin su negativa en origen dejaría los dos compitiendo
@@ -802,28 +1025,58 @@ export async function descartarVarias(perfilId: string, ids: readonly string[], 
 /**
  * Quita de Amazon lo que hizo una propuesta aplicada y la deja «deshecha». También ATÓMICO: se reclama (aplicada → reserva), y si Amazon falla vuelve a «aplicada»
  * con el error y su entrada en el log. En puja y presupuesto se relee el valor: si ya no es el que puso el motor, no se pisa.
+ * El agente PPC deshace con `userId: null` y `origen: 'agente'` (su motivo va al log); `valorMaximo`, en presupuesto: se vuelve a min(valor anterior, valorMaximo) (lo que permite hoy el guardarraíl).
  */
-export async function deshacerPropuesta(cuenta: CuentaParaSincronizar, id: string, userId: string): Promise<void> {
+export async function deshacerPropuesta(
+  cuenta: CuentaParaSincronizar,
+  id: string,
+  userId: string | null,
+  opciones?: { origen?: 'agente'; motivo?: string; valorMaximo?: number; alEscribirPresupuesto?: (campaignId: string, valor: number) => Promise<void> },
+): Promise<void> {
   const fila = await cargar(cuenta.id, id)
   const p = deFila(fila)
   if (p.estado !== 'aplicada') throw new Error('Solo se puede deshacer una propuesta aplicada.')
   await reclamar(cuenta.id, id, userId, ['aplicada'])
   const productoId = await productoDe(cuenta.id, p.asin)
-  const comun = { perfilId: cuenta.id, productoId, campaignId: p.campaignId, nombreCampana: p.campaignNombre, origen: 'manual' as const, userId, propuestaId: id }
+  const origen: 'manual' | 'agente' = opciones?.origen === 'agente' ? 'agente' : 'manual'
+  const comun = { perfilId: cuenta.id, productoId, campaignId: p.campaignId, nombreCampana: p.campaignNombre, origen, userId, propuestaId: id }
+  const seDeshace = `Se deshace${opciones?.motivo ? ` (${opciones.motivo})` : ''}: ${p.motivo}`
   const volverAAplicada = async (detalle: string) => {
     const { error } = await createServiceClient().from('ads_propuestas').update({ estado: 'aplicada', error: `Deshacer falló: ${detalle}`.slice(0, 500) }).eq('perfil_id', cuenta.id).eq('id', id).in('estado', ['aplicando', 'aprobada'])
     if (error) console.error('Ads: no se ha podido devolver la propuesta a aplicada', id, error.message)
   }
-  const resolver = () => guardarResultado(cuenta.id, id, { estado: 'deshecha', resuelta_at: new Date().toISOString(), resuelta_por: userId }, { campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId, origen: 'manual', que: 'Deshacer' })
+  const resolver = () => guardarResultado(cuenta.id, id, { estado: 'deshecha', resuelta_at: new Date().toISOString(), resuelta_por: userId }, { campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId, origen, que: 'Deshacer' })
 
-  await conRastro({ propuestaId: id }, async () => {
+  await conRastro({ propuestaId: id, origen: origen === 'agente' ? 'agente' : null }, async () => {
+    // La pausa de una campaña o de un anuncio (stock): se vuelve a ACTIVAR solo si sigue pausada (si alguien la ha tocado, no se pisa)
+    if (p.tipo === 'pausar-campana' || (p.tipo === 'pausar' && p.objetivoTipo === 'anuncio')) {
+      const esCampana = p.tipo === 'pausar-campana'
+      const entidad = esCampana ? ('campaña' as const) : ('anuncio' as const)
+      const entidadId = esCampana ? p.campaignId : p.objetivoId
+      const campo = esCampana ? 'estado de la campaña' : `estado del anuncio de ${p.asin ?? p.termino}`
+      try {
+        if (!entidadId) throw new Error('A la propuesta le falta el anuncio: actívalo a mano desde Campañas.')
+        const ahora = esCampana ? await leerEstadoDeCampana(cuenta, entidadId) : await leerEstadoDeAnuncio(cuenta, entidadId)
+        if (ahora !== 'PAUSED') throw new Error(`En Amazon ${esCampana ? 'la campaña' : 'el anuncio'} ya no está pausad${esCampana ? 'a' : 'o'} (${ahora ?? 'no se encuentra'}): alguien lo ha cambiado después y no se pisa.`)
+        if (esCampana) await ponerEstadoDeCampana(cuenta, entidadId, 'ENABLED')
+        else await ponerEstadoDeAnuncio(cuenta, entidadId, 'ENABLED')
+      } catch (e) {
+        const detalle = e instanceof Error ? e.message : String(e)
+        await anotarCambio({ ...comun, entidad, accion: 'activar', campo, ok: false, error: detalle, motivo: seDeshace, entidadId })
+        await volverAAplicada(detalle)
+        throw new Error(detalle)
+      }
+      await anotarCambio({ ...comun, entidad, accion: 'activar', campo, valorAnterior: 'pausada', valorNuevo: 'activa', motivo: seDeshace, entidadId })
+      await resolver()
+      return
+    }
     if (p.tipo === 'pausar') {
       if (!p.objetivoId || (p.objetivoTipo !== 'keyword' && p.objetivoTipo !== 'producto')) {
         await volverAAplicada('a la propuesta le falta la segmentación')
         throw new Error('A la propuesta le falta la segmentación: actívala a mano desde Campañas.')
       }
       try {
-        await cambiarEstado({ cuenta: { id: cuenta.id, conexionId: cuenta.conexionId, profileId: cuenta.profileId }, campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId }, { tipo: p.objetivoTipo, id: p.objetivoId, texto: p.termino, activar: true, motivo: `Se deshace: ${p.motivo}` })
+        await cambiarEstado({ cuenta: { id: cuenta.id, conexionId: cuenta.conexionId, profileId: cuenta.profileId }, campaignId: p.campaignId, nombreCampana: p.campaignNombre, userId }, { tipo: p.objetivoTipo, id: p.objetivoId, texto: p.termino, activar: true, motivo: seDeshace, origen })
       } catch (e) {
         const detalle = e instanceof Error ? e.message : String(e)
         await volverAAplicada(detalle)
@@ -835,19 +1088,29 @@ export async function deshacerPropuesta(cuenta: CuentaParaSincronizar, id: strin
     if (p.tipo === 'puja' || p.tipo === 'presupuesto') {
       const entidad = p.tipo === 'puja' ? (p.objetivoTipo === 'keyword' ? 'keyword' : 'target') : 'campaña'
       const entidadId = p.tipo === 'puja' ? p.objetivoId : p.campaignId
+      // Presupuesto con valorMaximo (el agente): se vuelve como mucho a lo que deja hoy el guardarraíl
+      const valorDeVuelta = p.valorActual != null && p.tipo === 'presupuesto' && opciones?.valorMaximo != null && Number.isFinite(opciones.valorMaximo) && opciones.valorMaximo > 0 ? Math.min(p.valorActual, opciones.valorMaximo) : p.valorActual
       try {
-        if (p.valorActual == null || p.valorNuevo == null) throw new Error('No se sabe el valor de antes: no se puede deshacer.')
+        if (p.valorActual == null || p.valorNuevo == null || valorDeVuelta == null) throw new Error('No se sabe el valor de antes: no se puede deshacer.')
         const actual = p.tipo === 'puja' ? (await leerPujaActual(cuenta, p.objetivoTipo, p.objetivoId as string))?.puja ?? null : await leerPresupuestoActual(cuenta, p.campaignId)
         if (!valorSigueIgual(p.valorNuevo, actual)) throw new Error(`En Amazon ya no está el valor que puso el motor (${fmt(p.valorNuevo)}; ahora ${actual == null ? 'no se encuentra' : fmt(actual)}): alguien lo ha cambiado después y no se pisa.`)
-        if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, p.valorActual)
-        else await ponerPresupuesto(cuenta, p.campaignId, p.valorActual)
+        if (p.tipo === 'puja') await ponerPuja(cuenta, p.objetivoTipo, p.objetivoId as string, valorDeVuelta)
+        else await ponerPresupuesto(cuenta, p.campaignId, valorDeVuelta)
       } catch (e) {
         const detalle = e instanceof Error ? e.message : String(e)
-        await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.tipo === 'puja' ? `puja de «${p.termino}»` : 'presupuesto diario', ok: false, error: detalle, motivo: `Se deshace: ${p.motivo}`, entidadId })
+        await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.tipo === 'puja' ? `puja de «${p.termino}»` : 'presupuesto diario', ok: false, error: detalle, motivo: seDeshace, entidadId })
         await volverAAplicada(detalle)
         throw new Error(detalle)
       }
-      await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.tipo === 'puja' ? `puja de «${p.termino}»` : 'presupuesto diario', valorAnterior: fmt(p.valorNuevo), valorNuevo: fmt(p.valorActual), motivo: `Se deshace: ${p.motivo}`, entidadId })
+      // Ya está escrito en Amazon: el presupuesto de vuelta, a quien lo apunta (el agente, en ads_presupuesto_dia, que es de donde lee la suma su guardarraíl). Nunca lanza aquí
+      if (p.tipo === 'presupuesto' && opciones?.alEscribirPresupuesto) {
+        try {
+          await opciones.alEscribirPresupuesto(p.campaignId, valorDeVuelta as number)
+        } catch (e) {
+          console.error('Ads: no se ha podido apuntar el presupuesto deshecho', id, e instanceof Error ? e.message : e)
+        }
+      }
+      await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.tipo === 'puja' ? `puja de «${p.termino}»` : 'presupuesto diario', valorAnterior: fmt(p.valorNuevo), valorNuevo: fmt(valorDeVuelta), motivo: seDeshace + (valorDeVuelta !== p.valorActual ? ` · vuelve a ${fmt(valorDeVuelta)} y no a ${fmt(p.valorActual)} (lo que permite hoy el guardarraíl)` : ''), entidadId })
       await resolver()
       return
     }
@@ -861,13 +1124,230 @@ export async function deshacerPropuesta(cuenta: CuentaParaSincronizar, id: strin
       if (creado.negativaProductoId) await borrarNegativaDeProducto(cuenta.conexionId, cuenta.profileId, creado.negativaProductoId)
     } catch (e) {
       const detalle = e instanceof Error ? e.message : String(e)
-      await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.termino, ok: false, error: detalle, motivo: `Se deshace: ${p.motivo}`, entidadId })
+      await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.termino, ok: false, error: detalle, motivo: seDeshace, entidadId })
       await volverAAplicada(detalle)
       throw new Error(detalle)
     }
-    await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.termino, valorAnterior: p.termino, valorNuevo: 'quitado', motivo: `Se deshace: ${p.motivo}`, entidadId })
+    await anotarCambio({ ...comun, entidad, accion: 'deshacer', campo: p.termino, valorAnterior: p.termino, valorNuevo: 'quitado', motivo: seDeshace, entidadId })
     await resolver()
   })
+}
+
+/* ------------------------------------------------------------------ */
+/* El agente PPC: retener, descartar, ajustar, decisiones de la IA     */
+/* (todo exige la 315; sin ella → «Falta lanzar la migración 315…»)    */
+/* ------------------------------------------------------------------ */
+
+/** La deja para una persona, con el porqué. Solo si sigue pendiente (si no, no hace nada) */
+export async function marcarRetenida(perfilId: string, id: string, motivo: string): Promise<void> {
+  const { error } = await createServiceClient().from('ads_propuestas').update({ retenida_motivo: motivo.slice(0, 500), retenida_at: new Date().toISOString() }).eq('perfil_id', perfilId).eq('id', id).eq('estado', 'pendiente')
+  if (error) throw errorDelAgente(error)
+}
+
+/** El agente la caduca (pendiente → caducada, con el porqué en `error`): se creó con otras reglas o con datos de otro día. No cuenta para la cuarentena: si sigue haciendo falta, se vuelve a proponer */
+export async function caducarComoAgente(perfilId: string, id: string, motivo: string): Promise<void> {
+  const { error } = await createServiceClient()
+    .from('ads_propuestas')
+    .update({ estado: 'caducada', resuelta_at: new Date().toISOString(), error: `Caducada por el agente: ${motivo}`.slice(0, 500) })
+    .eq('perfil_id', perfilId)
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+  if (error) throw errorDelAgente(error)
+}
+
+/** El motivo con que se retiene una subida que iba a caducarse pero viene de un reintento por transporte (su cambio puede estar ya en Amazon) */
+const motivoDeReintentoRetenido = (porque: string) =>
+  `Falló por la red al aplicarla y puede que el cambio ya esté en Amazon; no la caduco (${porque}). Comprueba en Amazon el valor y decide.`.slice(0, 500)
+
+/**
+ * Caduca las pendientes que SUBEN (y los presupuestos que no son del agente) de la cuenta: al reanudar, al encender, al saltar el ensayo y al frenar (subidasACaducar).
+ * Las que vienen de un REINTENTO por transporte (Amazon no contestó: el cambio puede estar ya escrito) NO se caducan: caducada, quedaría fuera del deshacer del
+ * freno, de la medición y de los topes. Se retienen para una persona (clasificarSubidasPendientes), como hace decisionDeReintento al aplicar.
+ * Devuelve cuántas se han caducado. Lanza si falla la lectura o la escritura (quien llama decide; lo prudente es no seguir aplicando).
+ */
+export async function caducarSubidasPendientes(perfilId: string, motivo: string): Promise<number> {
+  const service = createServiceClient()
+  const agente = await columnasAgente()
+  const { data, error } = await todasLasFilas((a, b) =>
+    service
+      .from('ads_propuestas')
+      .select(agente ? 'id, tipo, origen, valor_actual, valor_nuevo, error' : 'id, tipo, valor_actual, valor_nuevo, error')
+      .eq('perfil_id', perfilId)
+      .eq('estado', 'pendiente')
+      .in('tipo', ['puja', 'presupuesto', 'promover'])
+      .order('id')
+      .range(a, b) as unknown as PromiseLike<{
+      data: Array<{ id: string; tipo: string; origen?: string | null; valor_actual: number | null; valor_nuevo: number | null; error: string | null }> | null
+      error: { code?: string; message?: string } | null
+    }>,
+  )
+  if (error) throw errorDelAgente(error)
+  const { caducar: ids, retener } = clasificarSubidasPendientes(data ?? [])
+  // Primero las que pueden estar ya en Amazon: retenidas (siguen pendientes, fuera de pendientesLibres) con el porqué
+  for (const id of retener) await marcarRetenida(perfilId, id, motivoDeReintentoRetenido(motivo))
+  let n = 0
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: hechas, error: e } = await service
+      .from('ads_propuestas')
+      .update({ estado: 'caducada', resuelta_at: new Date().toISOString(), error: `Caducada por el agente: ${motivo}`.slice(0, 500) })
+      .eq('perfil_id', perfilId)
+      .eq('estado', 'pendiente')
+      .in('id', ids.slice(i, i + 200))
+      .select('id')
+    if (e) throw errorDelAgente(e)
+    n += hechas?.length ?? 0
+  }
+  return n
+}
+
+/** El agente la descarta (pendiente → descartada, sin persona) y lo apunta en el log con su motivo. Si ya no estaba pendiente, no hace nada */
+export async function descartarComoAgente(perfilId: string, id: string, motivo: string): Promise<void> {
+  const { data, error } = await createServiceClient()
+    .from('ads_propuestas')
+    .update({ estado: 'descartada', resuelta_at: new Date().toISOString(), resuelta_por: null })
+    .eq('perfil_id', perfilId)
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+    .select('id, tipo, termino, campaign_id, campaign_nombre, objetivo_id')
+  if (error) throw errorDelAgente(error)
+  const f = ((data ?? []) as Array<{ id: string; tipo: string; termino: string; campaign_id: string; campaign_nombre: string; objetivo_id?: string | null }>)[0]
+  if (!f) return
+  await anotarCambio({ perfilId, campaignId: f.campaign_id, nombreCampana: f.campaign_nombre, entidad: 'propuesta', accion: 'descartar', campo: `${f.tipo} · «${f.termino.slice(0, 120)}»`, motivo, origen: 'agente', userId: null, propuestaId: f.id, entidadId: f.objetivo_id ?? null })
+}
+
+/**
+ * Cambia el valor nuevo de una propuesta PENDIENTE (un guardarraíl la recorta, o la forma reducida de una rara) y añade « · <nota>» a su motivo. Con `tipoNuevo: 'puja'`, una pausa pasa a ser
+ * una bajada de puja (la forma reducida: la puja de partida se lee en Amazon al aplicarla y se guarda para poder deshacerla).
+ */
+export async function ajustarValorNuevo(perfilId: string, id: string, valor: number, nota: string, tipoNuevo?: 'puja', valorActual?: number): Promise<void> {
+  if (!Number.isFinite(valor) || valor <= 0) throw new Error('El valor nuevo tiene que ser un número mayor que cero.')
+  const service = createServiceClient()
+  const { data, error } = await service.from('ads_propuestas').select('motivo, estado').eq('perfil_id', perfilId).eq('id', id).maybeSingle()
+  if (error) throw errorDelAgente(error)
+  const fila = data as { motivo: string; estado: string } | null
+  if (!fila || fila.estado !== 'pendiente') return
+  const { error: e2 } = await service
+    .from('ads_propuestas')
+    .update({
+      valor_nuevo: Math.round(valor * 100) / 100,
+      motivo: `${fila.motivo} · ${nota}`.slice(0, 2000),
+      ...(tipoNuevo ? { tipo: tipoNuevo } : {}),
+      // Con el tipo nuevo (una pausa rara que pasa a bajada de puja) se guarda también la puja leída como valor actual: al aplicar se comprueba que Amazon sigue igual
+      // y, si se reintenta, los guardarraíles de la puja tienen con qué compararla
+      ...(tipoNuevo && valorActual !== undefined && Number.isFinite(valorActual) && valorActual > 0 ? { valor_actual: Math.round(valorActual * 100) / 100 } : {}),
+    })
+    .eq('perfil_id', perfilId)
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+  if (e2) throw errorDelAgente(e2)
+}
+
+/**
+ * Una negativa que el agente aplica por la IA va SIEMPRE en concordancia exacta. La negativa de campaña ya se crea así (crearNegativaDeCampana: NEGATIVE_EXACT); esto lo deja dicho en la propuesta
+ * (métricas y motivo) para que nadie la lea como de frase. Solo si sigue pendiente.
+ */
+export async function ajustarConcordancia(perfilId: string, id: string, concordancia: 'NEGATIVE_EXACT'): Promise<void> {
+  const service = createServiceClient()
+  const { data, error } = await service.from('ads_propuestas').select('metricas, motivo, estado').eq('perfil_id', perfilId).eq('id', id).maybeSingle()
+  if (error) throw errorDelAgente(error)
+  const fila = data as { metricas: Record<string, unknown> | null; motivo: string; estado: string } | null
+  if (!fila || fila.estado !== 'pendiente' || fila.metricas?.concordancia === concordancia) return
+  const { error: e2 } = await service
+    .from('ads_propuestas')
+    .update({ metricas: { ...(fila.metricas ?? {}), concordancia }, motivo: `${fila.motivo} · negativa en concordancia exacta`.slice(0, 2000) })
+    .eq('perfil_id', perfilId)
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+  if (e2) throw errorDelAgente(e2)
+}
+
+/** Lo que ha dicho la IA del agente de cada propuesta rara (aplicar o retener, con su motivo). Solo en las que siguen pendientes */
+export async function guardarDecisionesIa(perfilId: string, decisiones: ReadonlyArray<{ id: string; decision: 'aplicar' | 'retener'; motivo: string }>): Promise<void> {
+  const service = createServiceClient()
+  const ahora = new Date().toISOString()
+  for (const d of decisiones) {
+    if (d.decision !== 'aplicar' && d.decision !== 'retener') continue
+    const { error } = await service.from('ads_propuestas').update({ ia_decision: d.decision, ia_motivo: d.motivo.slice(0, 500), ia_at: ahora }).eq('perfil_id', perfilId).eq('id', d.id).eq('estado', 'pendiente')
+    if (error) throw errorDelAgente(error)
+  }
+}
+
+/**
+ * Inserta las propuestas que crea el propio agente (vigilar: presupuestos R1/R4 y el recorte, pausas por stock), con origen 'agente'. El término es el nombre de la campaña (o el ASIN del anuncio).
+ * Una igual ya pendiente (23505) se ignora. Devuelve cuántas se han guardado.
+ */
+export async function insertarPropuestasDelAgente(perfilId: string, filas: ReadonlyArray<FilaDePropuestaDelAgente>): Promise<number> {
+  if (filas.length === 0) return 0
+  if (!(await columnasAgente())) throw new Error(FALTA_MIGRACION_315)
+  const service = createServiceClient()
+  const aFila = (f: FilaDePropuestaDelAgente) => ({
+    perfil_id: perfilId,
+    tipo: f.tipo,
+    asin: f.asin,
+    termino: (f.objetivoTipo === 'anuncio' ? (f.asin ?? f.objetivoId ?? f.campaignNombre).toUpperCase() : f.campaignNombre).slice(0, 300),
+    campaign_id: f.campaignId,
+    campaign_nombre: f.campaignNombre,
+    desde_rol: partesDeNombre(f.campaignNombre)?.rol ?? null,
+    motivo: f.motivo,
+    metricas: { clics: 0, gasto: 0, pedidos: 0, ventas: 0, acosPct: null, ...f.metricas },
+    objetivo_id: f.objetivoId ?? null,
+    objetivo_tipo: f.objetivoTipo ?? null,
+    valor_actual: f.valorActual,
+    valor_nuevo: f.valorNuevo,
+    origen: 'agente',
+  })
+  let nuevas = 0
+  for (const f of filas) {
+    // Una BAJADA de presupuesto (recorte, R4, donante) gana a una SUBIDA pendiente de la misma campaña (retenida o esperando): esa caduca, o el índice
+    // único de pendientes (294) rechazaría la bajada en silencio y el guardarraíl de gasto no actuaría justo ahí
+    if (f.tipo === 'presupuesto' && f.valorActual != null && f.valorNuevo != null && f.valorNuevo < f.valorActual) {
+      const { data: subidas, error: eSub } = await service
+        .from('ads_propuestas')
+        .select('id, valor_actual, valor_nuevo, error')
+        .eq('perfil_id', perfilId)
+        .eq('tipo', 'presupuesto')
+        .eq('campaign_id', f.campaignId)
+        .eq('estado', 'pendiente')
+      if (eSub) throw errorDelAgente(eSub)
+      const filasSube = ((subidas ?? []) as Array<{ id: string; valor_actual: unknown; valor_nuevo: unknown; error: string | null }>).filter((s) => Number(s.valor_nuevo) > Number(s.valor_actual))
+      // Una subida que viene de un reintento por transporte puede estar YA en Amazon: no se caduca (quedaría fuera de todo control), se retiene para una persona.
+      // La bajada choca entonces con el índice único (23505) y no entra: lo prudente con un cambio que no se sabe si está hecho es que lo mire una persona
+      for (const s of filasSube) {
+        if (esReintentoDeTransporte(s.error)) await marcarRetenida(perfilId, s.id, motivoDeReintentoRetenido('la cuenta quiere bajar el presupuesto de esta campaña'))
+      }
+      const ids = filasSube.filter((s) => !esReintentoDeTransporte(s.error)).map((s) => s.id)
+      if (ids.length > 0) {
+        const { error: eCad } = await service
+          .from('ads_propuestas')
+          .update({ estado: 'caducada', resuelta_at: new Date().toISOString(), error: 'Caducada por el agente: la cuenta baja el presupuesto de esta campaña (recorte o presupuesto sobrante).' })
+          .eq('perfil_id', perfilId)
+          .eq('estado', 'pendiente')
+          .in('id', ids)
+        if (eCad) throw errorDelAgente(eCad)
+      }
+    }
+    const { error } = await service.from('ads_propuestas').insert(aFila(f))
+    if (!error) nuevas += 1
+    else if (error.code !== '23505') throw errorDelAgente(error) // 23505 = ya había una pendiente igual
+  }
+  return nuevas
+}
+
+/** Las pendientes que el agente puede mirar: sin retener, las que más gastan primero. Consulta propia (no listarPropuestas): índice idx_ads_propuestas_pendientes_libres */
+export async function pendientesLibres(perfilId: string, limite: number): Promise<Propuesta[]> {
+  if (!(await columnasAgente())) throw new Error(FALTA_MIGRACION_315)
+  const { data, error } = await createServiceClient()
+    .from('ads_propuestas')
+    .select(await columnas())
+    .eq('perfil_id', perfilId)
+    .eq('estado', 'pendiente')
+    .is('retenida_at', null)
+    .order('metricas->gasto', { ascending: false, nullsFirst: false })
+    .order('creada_at', { ascending: true })
+    .limit(Math.min(Math.max(1, Math.floor(limite) || 1), 2000))
+  if (error) throw errorDelAgente(error)
+  // El orden por JSON lo hace la base; se repite aquí por si un gasto llega como texto
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map(deFila).sort((a, b) => (Number(b.metricas.gasto) || 0) - (Number(a.metricas.gasto) || 0))
 }
 
 /* ------------------------------------------------------------------ */

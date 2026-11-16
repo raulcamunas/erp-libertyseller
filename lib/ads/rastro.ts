@@ -29,13 +29,15 @@ interface Rastro {
   anotadas: number
   /** La propuesta del motor que se está aplicando, si la hay: cada entrada del log de este rastro la lleva */
   propuestaId: string | null
+  /** Quién aplica: 'agente' = el agente PPC (las entradas «automaticas» de este rastro se apuntan como suyas) */
+  origen: 'agente' | null
 }
 
 const almacen = new AsyncLocalStorage<Rastro>()
 
 /** Ejecuta `faena` apuntando cada llamada a Amazon. Con `ensayo: true`, las escrituras no salen */
-export async function conRastro<T>(opciones: { ensayo?: boolean; propuestaId?: string | null }, faena: () => Promise<T>): Promise<{ salida: T; llamadas: LlamadaAds[] }> {
-  const rastro: Rastro = { ensayo: Boolean(opciones.ensayo), llamadas: [], anotadas: 0, propuestaId: opciones.propuestaId ?? null }
+export async function conRastro<T>(opciones: { ensayo?: boolean; propuestaId?: string | null; origen?: 'agente' | null }, faena: () => Promise<T>): Promise<{ salida: T; llamadas: LlamadaAds[] }> {
+  const rastro: Rastro = { ensayo: Boolean(opciones.ensayo), llamadas: [], anotadas: 0, propuestaId: opciones.propuestaId ?? null, origen: opciones.origen ?? null }
   const salida = await almacen.run(rastro, faena)
   return { salida, llamadas: rastro.llamadas }
 }
@@ -59,6 +61,11 @@ export function propuestaDelRastro(): string | null {
   return almacen.getStore()?.propuestaId ?? null
 }
 
+/** 'agente' si el rastro abierto es del agente PPC */
+export function origenDelRastro(): 'agente' | null {
+  return almacen.getStore()?.origen ?? null
+}
+
 /** Las llamadas apuntadas hasta ahora en el rastro abierto (para el log de un fallo a mitad) */
 export function llamadasDelRastro(): LlamadaAds[] {
   return almacen.getStore()?.llamadas ?? []
@@ -73,11 +80,15 @@ export function apuntarLlamada(l: LlamadaAds): void {
   if (r) r.llamadas.push(l)
 }
 
-/** PURO. ¿Esta llamada escribe en la cuenta? Las búsquedas de la v3 son POST a …/list, y pedir un informe no cambia nada de la cuenta */
+/**
+ * PURO. ¿Esta llamada escribe en la cuenta? Las búsquedas de la v3 son POST a …/list, pedir un informe no cambia nada de la cuenta, y leer el uso del presupuesto
+ * (POST /sp/campaigns/budget/usage, el agente PPC) tampoco.
+ */
 export function esEscritura(metodo: string, ruta: string): boolean {
   const m = metodo.toUpperCase()
   if (m === 'GET' || m === 'HEAD') return false
   if (/\/list$/.test(ruta)) return false
+  if (/\/budget\/usage$/.test(ruta)) return false
   if (ruta.startsWith('/reporting/') || ruta.startsWith('/v2/profiles')) return false
   return true
 }

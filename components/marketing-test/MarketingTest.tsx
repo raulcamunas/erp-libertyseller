@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ClipboardSignature, LayoutDashboard, ListTree, Megaphone, Package, Rocket, ScrollText, Sparkles } from 'lucide-react'
+import { Bot, ClipboardSignature, LayoutDashboard, ListTree, Megaphone, Package, Rocket, ScrollText, Sparkles } from 'lucide-react'
 import { CAMPO } from '@/lib/estilo/denso'
 import { CabeceraDeModulo, EstadoVacio, Insignia, Pestanas } from '@/components/ui-ls'
 import { nombreDePais } from '@/lib/ads/paises'
 import { BarraDeClientes, type ClienteDeBarra } from './BarraDeClientes'
 import { bandera } from './piezas'
 import { PestanaResumen } from './PestanaResumen'
+import { PestanaAgente } from './PestanaAgente'
 import { PestanaCampanas } from './PestanaCampanas'
 import { PestanaPropuestas } from './PestanaPropuestas'
 import { PestanaFicha } from './PestanaFicha'
@@ -24,6 +25,7 @@ interface Props {
 
 const PESTANAS = [
   { id: 'resumen', nombre: 'Resumen', icono: LayoutDashboard },
+  { id: 'agente', nombre: 'Agente', icono: Bot },
   { id: 'campanas', nombre: 'Campañas', icono: ListTree },
   { id: 'propuestas', nombre: 'Propuestas', icono: Sparkles },
   { id: 'ficha', nombre: 'Ficha de cuenta', icono: ClipboardSignature },
@@ -35,7 +37,7 @@ const PESTANAS = [
 type IdPestana = (typeof PESTANAS)[number]['id']
 
 /**
- * MARKETING TEST — el armazón: cliente y cuenta de anunciante (país) arriba, y las cuatro pestañas. Funciona como Growth Partner: lo elegido viaja en la dirección (?c=cliente&p=cuenta&t=pestaña)
+ * MARKETING TEST — el armazón: cliente y cuenta de anunciante (país) arriba, y las pestañas (la segunda, «Agente», es el agente PPC). Funciona como Growth Partner: lo elegido viaja en la dirección (?c=cliente&p=cuenta&t=pestaña)
  * y por eso cambiar de pestaña no olvida sobre quién se trabaja.
  */
 export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana }: Props) {
@@ -146,6 +148,8 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
             <EstadoVacio icono={Megaphone} acento="marketing" titulo="Este cliente no tiene ninguna cuenta de anunciante en uso" descripcion="Se encienden («Se usa») en Amazon API · Publicidad." />
           ) : activa === 'resumen' ? (
             <PestanaResumen key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
+          ) : activa === 'agente' ? (
+            <PestanaAgente key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'campanas' ? (
             <PestanaCampanas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'propuestas' ? (
