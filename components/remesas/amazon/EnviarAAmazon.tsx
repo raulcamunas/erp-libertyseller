@@ -35,6 +35,7 @@ import { Boton, CifraAnimada, Confirmacion, EsqueletoTarjeta, EstadoVacio, FilaD
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import { FASES_ENVIO, cuantoQueda, faseDelPaso, type FaseEnvio, type Problema } from '@/lib/fba/envio-amazon'
 import type { EstadoDelEnvio } from '@/lib/fba/envio-amazon-motor'
+import { invalidarRemesas } from '../comun/useAgencia'
 import { useEnvioAmazon } from './useEnvioAmazon'
 
 /**
@@ -117,6 +118,8 @@ export function EnviarAAmazon({ remesaId, soloSeguimiento = false }: { remesaId:
   const refrescar = () => {
     void leer()
     router.refresh()
+    // Las pantallas de agencia (plan, resumen…) olvidan lo que tenían: el envío puede haber cambiado de paso
+    invalidarRemesas()
   }
 
   return (

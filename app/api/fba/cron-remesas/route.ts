@@ -11,6 +11,8 @@ import { desdeParaLeerAhora, fechasPorCubrir } from '@/lib/fba/ventana-lectura'
 import { claveDeCuenta, haceCuanto, pedirTurnoDeLectura } from '@/lib/fba/lectura-en-curso'
 import { claveDeLectura, planDeLectura, type ConexionParaLeer } from '@/lib/fba/lectura-plan'
 import { esperarPlanificacion, leerYGuardarPlanificacion } from '@/lib/fba/planificacion-amazon'
+import { diaEnEspana } from '@/lib/fba/fechas'
+import { fechaCorta } from '@/lib/fba/lectura-elegida'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -53,6 +55,15 @@ import { createServiceClient } from '@/lib/supabase/service'
  * Primero las que tienen remesas y después las demás, de la más atrasada a la
  * más al día: si una noche no da tiempo para todas, la que se queda fuera es
  * la que menos lo necesita y a la siguiente le toca antes.
+ *
+ *
+ * ============ CAMBIO DE COMPORTAMIENTO (remesas-pro, 15 nov 2026) ============
+ *
+ * La pasada se quedaba sin tiempo (568-657 s con un presupuesto de 540) y las cuentas que se saltaban no dejaban rastro:
+ * ninguna pantalla decía por qué iban atrasadas. Ahora una cuenta saltada «sin tiempo» escribe en su fila de `fba_lecturas`
+ * `ultimo_error = 'No dio tiempo en la pasada del 15 nov; se lee la próxima'`, con un UPDATE sobre la fila que ya existe
+ * (nunca upsert: no se crea una lectura que no ha existido). La próxima lectura buena lo borra (su upsert pone
+ * `ultimo_error: null`, como siempre). Leer el libro una vez por conexión y no por mercado NO entra aquí (siguiente paso).
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 600
@@ -139,7 +150,15 @@ export async function POST(request: NextRequest) {
 
     for (const u of unidades) {
       if (Date.now() - arranque > PRESUPUESTO_MS) {
-        resultados.push({ conexion: u.conexion, saltado: 'sin tiempo en esta pasada' })
+        // Que quede rastro (spec §0.3 y D35): UPDATE sobre la fila que ya existe, NUNCA upsert. Una cuenta que no se ha leído
+        // nunca no tiene fila y no se le inventa una. No se toca `updated_at` ni `ultimo_intento_at`: no ha habido intento, y el
+        // planificador mira `updated_at` para saber si hay algo nuevo. La lectura buena de la próxima pasada lo borra.
+        const { error: errRastro } = await service
+          .from('fba_lecturas')
+          .update({ ultimo_error: `No dio tiempo en la pasada del ${fechaCorta(diaEnEspana())}; se lee la próxima` })
+          .eq('connection_id', u.conexion)
+          .eq('marketplace_id', u.mercado)
+        resultados.push({ conexion: u.conexion, saltado: 'sin tiempo en esta pasada', rastro: errRastro ? `sin guardar: ${errRastro.message.slice(0, 120)}` : 'anotado' })
         continue
       }
 

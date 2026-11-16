@@ -30,6 +30,21 @@ export function esAvisoDeTareas(a: Pick<AvisoParaPush, 'type' | 'datos'>): boole
 /** ¿Le llega a quien eligió esta categoría? «tareas» = solo lo de tareas de clientes; «todo» = todo lo que sale en la campana */
 export const leToca = (categoria: CategoriaDePush, a: Pick<AvisoParaPush, 'type' | 'datos'>): boolean => categoria === 'todo' || esAvisoDeTareas(a)
 
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * A dónde lleva un aviso de logística FBA (`fba_alerta` o `fba_resumen`). Spec remesas-pro §11 D24:
+ *   · si trae `datos.envioPropuestoId` (un envío propuesto del planificador que vence, pasa a tarde o se te asigna), al plan con ese envío
+ *     abierto: `/dashboard/remesas?vista=plan&envio=<id>`;
+ *   · si no, como siempre, al tablero de alertas.
+ * El id solo se mete en la dirección si tiene forma de uuid. La usa también la campana (NotificationsBell.tsx): una sola regla.
+ */
+export function urlDeAvisoFba(datos: unknown): string {
+  const id = (datos as { envioPropuestoId?: unknown } | null | undefined)?.envioPropuestoId
+  if (typeof id === 'string' && ES_UUID.test(id)) return `/dashboard/remesas?vista=plan&envio=${id}`
+  return '/dashboard/remesas/alertas'
+}
+
 /** A dónde lleva un aviso al pulsarlo: la misma regla que la campana del ERP (components/layout/NotificationsBell.tsx) */
 export function urlDeAviso(a: Pick<AvisoParaPush, 'type' | 'datos' | 'related_client_id'>): string {
   const d = (a.datos ?? null) as { app?: string; clienteId?: string; tareaId?: string } | null
@@ -42,7 +57,7 @@ export function urlDeAviso(a: Pick<AvisoParaPush, 'type' | 'datos' | 'related_cl
     const esId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
     return esId(buzonId) && esId(hiloId) ? `/dashboard/correo?buzon=${buzonId.toLowerCase()}&hilo=${hiloId.toLowerCase()}` : '/dashboard/correo'
   }
-  if (a.type === 'fba_alerta' || a.type === 'fba_resumen') return '/dashboard/remesas/alertas'
+  if (a.type === 'fba_alerta' || a.type === 'fba_resumen') return urlDeAvisoFba(a.datos)
   if (a.type === 'factura_impagada') {
     const id = (d as { facturaId?: unknown } | null)?.facturaId
     return typeof id === 'string' && /^\d+$/.test(id) ? `/dashboard/facturacion?recordar=${id}` : '/dashboard/facturacion?pestana=cobros'

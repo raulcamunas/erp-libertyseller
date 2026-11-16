@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { Boton, Confirmacion, Insignia, Tarjeta } from '@/components/ui-ls'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import { TEXTO_PUNTO, diferenciaDe, ordenarParaRevision, puntoDePropuesta, resumirDiferencias, type LineaDePropuesta } from '@/lib/fba/propuesta-cliente'
+import { invalidarRemesas } from '../comun/useAgencia'
 import { cx } from '../comun/ui'
 
 /**
@@ -20,7 +21,7 @@ import { cx } from '../comun/ui'
  *
  * Solo para la agencia y solo en borrador. Sin la migración 309 no sale.
  */
-export function RevisionPropuesta({ remesa, puedeEditar }: { remesa: RemesaDePanel; puedeEditar: boolean }) {
+export function RevisionPropuesta({ remesa, puedeEditar, clienteId }: { remesa: RemesaDePanel; puedeEditar: boolean; clienteId?: string }) {
   const router = useRouter()
   const [trabajando, setTrabajando] = useState<'aprobar' | 'devolver' | 'enviar' | null>(null)
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
@@ -70,6 +71,7 @@ export function RevisionPropuesta({ remesa, puedeEditar }: { remesa: RemesaDePan
       }
       toast.success('Propuesta aprobada: el cliente ya puede descargar las etiquetas desde su enlace.')
       router.refresh()
+      invalidarRemesas(clienteId ?? null)
     } finally {
       setTrabajando(null)
     }
@@ -86,6 +88,7 @@ export function RevisionPropuesta({ remesa, puedeEditar }: { remesa: RemesaDePan
       }
       toast.success(que === 'devolver' ? 'Devuelta: el cliente puede seguir tocándola desde su enlace.' : 'Propuesta mandada otra vez con lo que hay ahora.')
       router.refresh()
+      invalidarRemesas(clienteId ?? null)
     } finally {
       setTrabajando(null)
     }

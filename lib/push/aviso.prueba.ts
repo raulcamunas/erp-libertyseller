@@ -1,4 +1,4 @@
-import { cargaDePush, categoriaValida, esDispositivoMuerto, esReciente, leToca, nombreDeDispositivo, suscripcionValida, urlDeAviso, VENTANA_DE_ENVIO_MS } from '@/lib/push/aviso'
+import { cargaDePush, categoriaValida, esDispositivoMuerto, esReciente, leToca, nombreDeDispositivo, suscripcionValida, urlDeAviso, urlDeAvisoFba, VENTANA_DE_ENVIO_MS } from '@/lib/push/aviso'
 
 let fallos = 0
 let comprobaciones = 0
@@ -24,6 +24,15 @@ igual('el resto de tipos como la campana', [urlDeAviso(n('web_lead')), urlDeAvis
 igual('correo_asignado de un hilo lleva a esa conversación', urlDeAviso(n('correo_asignado', { buzonId: C, hiloId: T, motivo: 'hilo' })), `/dashboard/correo?buzon=${C}&hilo=${T}`)
 igual('correo_asignado de un buzón (sin hilo) lleva a Correo', urlDeAviso(n('correo_asignado', { buzonId: C, motivo: 'buzon' })), '/dashboard/correo')
 igual('correo_asignado con ids raros o sin datos no los mete en la dirección', [urlDeAviso(n('correo_asignado', { buzonId: '../x', hiloId: T })), urlDeAviso(n('correo_asignado', null))], ['/dashboard/correo', '/dashboard/correo'])
+// D24: un aviso FBA con envío propuesto abre el plan con ese envío; sin él (o con un id raro), las alertas como siempre
+const E = '33333333-3333-4333-8333-333333333333'
+igual('alerta FBA con envío propuesto → el plan con el envío abierto', urlDeAviso(n('fba_alerta', { envioPropuestoId: E, clienteId: C })), `/dashboard/remesas?vista=plan&envio=${E}`)
+igual('resumen FBA con envío propuesto → también', urlDeAviso(n('fba_resumen', { envioPropuestoId: E })), `/dashboard/remesas?vista=plan&envio=${E}`)
+igual('alerta FBA sin envío propuesto → alertas', urlDeAviso(n('fba_alerta', { clienteId: C, tipo: 'rotura' })), '/dashboard/remesas/alertas')
+igual('alerta FBA con un id que no es uuid → alertas', [urlDeAviso(n('fba_alerta', { envioPropuestoId: '../x' })), urlDeAviso(n('fba_alerta', { envioPropuestoId: 42 })), urlDeAviso(n('fba_alerta', { envioPropuestoId: '' }))], ['/dashboard/remesas/alertas', '/dashboard/remesas/alertas', '/dashboard/remesas/alertas'])
+igual('la regla compartida con la campana', [urlDeAvisoFba({ envioPropuestoId: E }), urlDeAvisoFba(null), urlDeAvisoFba(undefined)], [`/dashboard/remesas?vista=plan&envio=${E}`, '/dashboard/remesas/alertas', '/dashboard/remesas/alertas'])
+igual('el push de un envío propuesto lleva su etiqueta a la misma dirección', cargaDePush({ id: 'a3', type: 'fba_alerta', title: 'Envío de Opinas: pasa a tarde', message: null, datos: { envioPropuestoId: E }, read: false, created_at: '' }).etiqueta, `/dashboard/remesas?vista=plan&envio=${E}`)
+
 igual('con cliente de CRM', urlDeAviso(n('otro', null, { related_client_id: 'abc' })), '/dashboard/clients/abc')
 
 igual('«tareas» solo deja pasar lo de tareas', [leToca('tareas', n('task_assigned')), leToca('tareas', n('otro', { app: 'tareas-clientes' })), leToca('tareas', n('correo_nuevo')), leToca('todo', n('correo_nuevo'))], [true, true, false, true])

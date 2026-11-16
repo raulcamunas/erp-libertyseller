@@ -2,11 +2,11 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CloudDownload, Loader2 } from 'lucide-react'
+import { CloudDownload } from 'lucide-react'
 import { toast } from 'sonner'
-import { BOTON } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
 import { sinRespuestaDe } from '../comun/errores'
-import { cx } from '../comun/ui'
+import { invalidarRemesas } from '../comun/useAgencia'
 import { fecha } from '../formato'
 
 /**
@@ -25,7 +25,8 @@ import { fecha } from '../formato'
  * Aunque se lea AHORA, el libro mayor de Amazon es diario: lo de hoy aparece mañana. Solo sale para
  * administradores, igual que «Leer de Amazon» del panel del cliente.
  */
-export function BotonLeerVentas({ remesaId, destacado }: { remesaId: string; destacado: boolean }) {
+/** La lectura, para quien la lanza desde otro sitio (el menú «⋯» del móvil) */
+export function useLeerVentas(remesaId: string, clienteId?: string): { leer: () => Promise<void>; leyendo: boolean } {
   const router = useRouter()
   const [leyendo, setLeyendo] = useState(false)
 
@@ -50,7 +51,9 @@ export function BotonLeerVentas({ remesaId, destacado }: { remesaId: string; des
           (reconocidas > 0 ? ` · llegada confirmada en ${reconocidas} envío${reconocidas === 1 ? '' : 's'}` : ''),
         { duration: 9_000 }
       )
+      // El panel, con el refresh de siempre; las ventas, el plan y los lotes de este cliente se vuelven a pedir
       router.refresh()
+      invalidarRemesas(clienteId)
     } catch {
       toast.warning('Se ha cortado la conexión con el servidor, pero la lectura puede seguir en marcha. Vuelve a mirar dentro de unos minutos.', { duration: 12_000 })
     } finally {
@@ -58,20 +61,25 @@ export function BotonLeerVentas({ remesaId, destacado }: { remesaId: string; des
     }
   }
 
+  return { leer, leyendo }
+}
+
+export function BotonLeerVentas({ remesaId, destacado, clienteId, tamano = 'sm' }: { remesaId: string; destacado: boolean; clienteId?: string; tamano?: 'sm' | 'md' }) {
+  const { leer, leyendo } = useLeerVentas(remesaId, clienteId)
   return (
-    <button
-      type="button"
+    <Boton
+      tamano={tamano}
+      variante={destacado ? 'primario' : 'secundario'}
+      icono={CloudDownload}
+      cargando={leyendo}
       onClick={() => void leer()}
-      disabled={leyendo}
-      className={cx(BOTON.base, destacado ? BOTON.primario : BOTON.secundario)}
       title={
         leyendo
           ? 'Amazon tarda unos minutos en preparar el informe. Puedes seguir trabajando'
           : 'Le pide a Amazon, y guarda, el libro mayor de este cliente hasta ayer —ventas, devoluciones y la llegada de este envío— para repartirlo entre sus envíos. Tarda unos minutos. El ERP ya lo lee solo cada noche; esto es para cuando no se puede esperar'
       }
     >
-      {leyendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <CloudDownload className="h-3 w-3" />}
       {leyendo ? 'Leyendo de Amazon…' : 'Leer ventas'}
-    </button>
+    </Boton>
   )
 }

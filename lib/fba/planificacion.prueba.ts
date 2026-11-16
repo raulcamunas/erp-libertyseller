@@ -3,6 +3,7 @@ import {
   aDia,
   edadVacia,
   entero,
+  fraccionMasDe180,
   numero,
   parsearPlanificacion,
   repartoDeCoste,
@@ -162,6 +163,13 @@ console.log('\n=== el resumen del cliente ===')
   ok('por SKU se guarda lo que cuesta cada tramo, y suma lo que dice Amazon', !!rec.costePorTramo && cerca(rec.costePorTramo.a181, 0.8) && cerca(rec.costePorTramo.a0, 0.2) && cerca(TRAMOS_AMAZON.reduce((t, x) => t + (rec.costePorTramo?.[x.id] ?? 0), 0), 1.0, 1e-9))
   const sinCoste = resumirEdadAmazon({ filas: r.filas.map((f) => ({ ...f, costeMes: null })), fecha: '2026-10-18', precios })
   ok('si el informe no trae coste, no se inventa: null', sinCoste.costeMes === null && sinCoste.tramos.every((t) => t.coste === null) && Object.values(sinCoste.porSku).every((k) => k.costePorTramo === null))
+}
+
+console.log('\n% de más de 180 días (para el planificador)')
+{
+  ok('30 de 100 con más de 180 días → 0,3', fraccionMasDe180({ a0: 50, a61: 10, a91: 10, a181: 20, a331: 5, a366: 3, a456: 2 }) === 0.3)
+  ok('sin unidades → null', fraccionMasDe180({ a0: 0 }) === null && fraccionMasDe180(null) === null)
+  ok('lo que no es número no cuenta', fraccionMasDe180({ a0: 'x', a181: 4, a91: 4 }) === 0.5)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

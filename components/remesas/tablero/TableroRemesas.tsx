@@ -9,7 +9,8 @@ import { COLUMNAS_DEL_TABLERO, agruparPorColumna, filtrarTablero, textoDelPlazo,
 import { cx } from '../comun/ui'
 
 /**
- * EL TABLERO DE REMESAS: TODAS LAS PROPUESTAS EN MARCHA, POR FASES.
+ * EL TABLERO DE REMESAS: TODAS LAS PROPUESTAS EN MARCHA, POR FASES («Propuestas por fases» de la vista `tablero`,
+ * `?vista=tablero&modo=fases`; lo monta TableroClientes con su Segmentado, spec remesas-pro §8).
  *
  * Para llevar el control sin abrir una a una: arriba las cifras (en marcha, te tocan, vencidas, unidades),
  * filtros (todas / te tocan / vencidas, por cliente y por texto) y una columna por fase con una tarjeta por
@@ -97,7 +98,9 @@ export function TableroRemesas({
   }, [tarjetas, verComo])
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-6">
+    // Sin cabina de altura fija (spec §6.5): la página hace scroll normal. Sin título propio: lo nombra el Segmentado
+    // «Envíos · Propuestas por fases» de TableroClientes, que es quien lo monta
+    <div className="flex min-w-0 flex-col gap-4 pb-6">
       <FilaDeKpis minimo={170}>
         <Kpi indice={0} etiqueta="En marcha" valor={tarjetas ? cifras.enMarcha : null} cargando={!tarjetas && !error} icono={KanbanSquare} acento="remesas" nota="propuestas sin enviar a Amazon" />
         <Kpi indice={1} etiqueta="Te tocan" valor={tarjetas ? cifras.mias : null} cargando={!tarjetas && !error} icono={UserRound} acento="remesas" nota={verComo === 'agencia' ? 'esperan a la agencia' : 'esperan a que muevas tú'} onClick={() => setFiltro('mias')} />
@@ -130,7 +133,7 @@ export function TableroRemesas({
             </select>
           </label>
         )}
-        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 sm:max-w-[260px]">
+        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 max-sm:order-last max-sm:basis-full sm:max-w-[260px]">
           <Search className="h-3.5 w-3.5 shrink-0 text-[var(--ls-t4)]" />
           <input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Buscar remesa o cliente" aria-label="Buscar remesa o cliente" className="h-full w-full min-w-0 bg-transparent text-[13px] text-[var(--ls-t1)] placeholder:text-[var(--ls-t4)] focus:outline-none" />
         </label>

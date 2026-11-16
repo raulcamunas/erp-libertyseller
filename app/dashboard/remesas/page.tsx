@@ -1,194 +1,135 @@
 import { redirect } from 'next/navigation'
+import { Truck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getUserProfile } from '@/lib/supabase/get-user-profile'
-import { actorDeRol, type SesionFba } from '@/lib/fba/acceso'
-import { contarAlertasGraves } from '@/lib/fba/alertas-lectura'
-import { panelDeCliente } from '@/lib/fba/datos'
+import { contarAlertasGraves, leerPanelDeAlertas, type PanelDeAlertas } from '@/lib/fba/alertas-lectura'
+import { clientesDeSesion, sesionFbaDe } from '@/lib/fba/clientes-de-sesion'
+import { panelDeCliente, type PanelRemesas } from '@/lib/fba/datos'
 import { diaEnEspana } from '@/lib/fba/fechas'
+import { vistaDesdeUrl, type VistaPedida } from '@/lib/fba/vista-url'
+import { EstadoVacio } from '@/components/ui-ls'
 import { EspacioRemesas } from '@/components/remesas/EspacioRemesas'
 
 /**
- * REMESAS A FBA · LA APP.
+ * REMESAS A FBA · LA PÁGINA (spec remesas-pro §1.2-§1.4 y §11 D25, D27, D37, D39).
  *
- * Qué mandamos a los almacenes de Amazon y cuánto queda vivo de cada envío.
- * Sustituye a un Excel con una pestaña por envío donde la columna «Unidades
- * Vendidas» se rellenaba a mano.
+ * Qué mandamos a los almacenes de Amazon, cuánto queda vivo de cada envío y qué hay que enviar después. Una sola ruta con las vistas en
+ * `?vista=` (hoy · plan · cliente · tablero · alertas) y, dentro de «cliente», la sección en `?seccion=`. Los enlaces viejos (alertas,
+ * campana, correos) los traduce `vistaDesdeUrl` (lib/fba/vista-url.ts), en un solo sitio.
  *
+ * ============ QUIÉN ENTRA Y QUÉ VE ============
+ * La lista de clientes sale de `clientesDeSesion` (lib/fba/clientes-de-sesion.ts), la única puerta:
+ *   · admin (no CEO)                         → todos, edita, agencia.
+ *   · empleado con la casilla `remesas`      → todos, edita, agencia (no es admin). CAMBIO DE COMPORTAMIENTO (D27).
+ *   · otro empleado / cliente de fuera       → sus `fba_accesos`.
+ * La lista se calcula AQUÍ y es la única que la pantalla conoce; las rutas de /api/fba lo vuelven a comprobar (requireFbaAccess).
  *
- * ============ QUIÉN ENTRA, Y QUÉ VE ============
- *
- * Es la primera app del ERP en la que entra gente de FUERA de la agencia. Cada
- * uno ve una lista de clientes distinta:
- *
- *   · admin       -> todos los clientes de amazon_clients.
- *   · cualquier otro -> SOLO los que tenga en fba_accesos. Un 'cliente' de
- *                    verdad suele tener uno; un employee puede tener varios.
- *
- * La lista se calcula AQUÍ, en el servidor, y es la única que la pantalla
- * conoce: no hay forma de pedir un cliente que no esté en ella. Y las rutas de
- * /api/fba vuelven a comprobarlo por su cuenta (lib/fba/acceso.ts), así que
- * cambiar el id en la URL tampoco sirve.
+ * ============ QUÉ SE CALCULA AQUÍ Y QUÉ NO (D25) ============
+ * La página resuelve la sesión, los clientes y sus contadores ligeros. CAMBIO DE COMPORTAMIENTO (anotado, §11.9): antes calculaba SIEMPRE el
+ * panel del cliente (todas sus remesas con su reparto de ventas), mirase lo que mirase la persona. Ahora solo lo calcula cuando hace falta:
+ *   · `vista=cliente` y la sección es `envios` o `propuestas`, o
+ *   · hay `?remesa=` (las cajas de esa remesa vienen con él, `cajasDe`, como siempre).
+ * El cliente de fuera lo recibe recortado (`paraCliente`: sin el análisis de la IA, D26). Hoy, Plan, Resumen, Stock, Ventas, Reposición,
+ * Lotes y el Tablero piden sus datos desde el navegador (useAgencia, memoria de 5 min). Las alertas (`vista=alertas`) se leen aquí.
+ * Las 24 llamadas a `router.refresh()` del módulo siguen funcionando: vuelven a pasar por aquí con la URL de ese momento.
  */
 export const dynamic = 'force-dynamic'
 
-interface ClienteRemesas {
-  id: string
-  nombre: string
-  puedeEditar: boolean
-  /** Cuántas remesas tiene en total. Sirve para que un cliente sin ninguna se vea
-      de un vistazo y no haya que pinchar en los once para averiguarlo */
-  remesas: number
-  /** De esas, los envíos reales (enviada o cerrada) */
-  envios: number
-  /** Y las propuestas que se están trabajando (borrador, aprobada, encajando, lista) */
-  propuestas: number
+type Params = Record<string, string | string[] | undefined>
+
+const uno = (v: string | string[] | undefined): string | undefined => {
+  const s = (Array.isArray(v) ? v[0] : v)?.trim()
+  return s ? s : undefined
 }
 
-export default async function RemesasPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>
-}) {
+/**
+ * También pinta `/dashboard/remesas/alertas`: aquella página llama a esta con `vista=alertas` (sin redirección, para no romper los
+ * marcadores) después de echar al cliente de fuera. La carcasa sabe por la ruta (`usePathname`) que está en las alertas.
+ */
+export default async function RemesasPage({ searchParams }: { searchParams: Params }) {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const profile = await getUserProfile()
-  if (!profile) redirect('/auth/login')
+  const hoy = diaEnEspana()
+  const { sesion, clientes, vacio } = await clientesDeSesion(user.id, { hoy })
 
-  const service = createServiceClient()
-  const esAdmin = profile.role === 'admin'
-
-  let clientes: ClienteRemesas[] = []
-
-  if (esAdmin) {
-    const { data } = await service
-      .from('amazon_clients')
-      .select('id, name')
-      .order('name', { ascending: true })
-    clientes = ((data ?? []) as Array<{ id: string; name: string }>).map((c) => ({
-      id: c.id,
-      nombre: c.name,
-      puedeEditar: true,
-      remesas: 0,
-      envios: 0,
-      propuestas: 0,
-    }))
-  } else {
-    const { data: accesos } = await service
-      .from('fba_accesos')
-      .select('client_id, puede_editar, amazon_clients ( id, name )')
-      .eq('user_id', user.id)
-    // El join lo tipa Supabase como array aunque sea uno-a-uno; se acepta
-    // cualquiera de las dos formas para no depender de cómo lo infiera.
-    type Ficha = { id: string; name: string }
-    const filas = (accesos ?? []) as unknown as Array<{
-      client_id: string
-      puede_editar: boolean
-      amazon_clients: Ficha | Ficha[] | null
-    }>
-    clientes = filas
-      .map((a) => {
-        const ficha = Array.isArray(a.amazon_clients) ? a.amazon_clients[0] : a.amazon_clients
-        return ficha
-          ? { id: a.client_id, nombre: ficha.name, puedeEditar: a.puede_editar, remesas: 0, envios: 0, propuestas: 0 }
-          : null
-      })
-      .filter((c): c is ClienteRemesas => c !== null)
-      .sort((a, b) => a.nombre.localeCompare(b.nombre))
-  }
-
-  // Sin ningún cliente no hay nada que enseñar. Para un 'cliente' de fuera es
-  // que la agencia no le ha dado acceso todavía; se le dice sin dramatizar.
-  if (clientes.length === 0) {
+  if (vacio !== null || clientes.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-10">
-        <div className="glass-card max-w-md p-8 text-center">
-          <p className="text-sm text-white/70">
-            {esAdmin
-              ? 'No hay ningún cliente de Amazon dado de alta todavía.'
-              : 'Tu cuenta todavía no tiene acceso a ninguna cuenta de Amazon. Pídeselo a Liberty Seller.'}
-          </p>
-        </div>
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <EstadoVacio icono={Truck} acento="remesas" titulo="Remesas a FBA" descripcion={vacio ?? 'No hay ningún cliente de Amazon dado de alta todavía.'} />
       </div>
     )
   }
 
-  /**
-   * Cuántas remesas tiene cada uno.
-   *
-   * Una sola lectura de `client_id` y se cuenta aquí, en vez de una consulta de
-   * recuento por cliente: con once clientes serían once viajes a la base para
-   * pintar una cifra pequeña.
-   */
-  const { data: cuentas } = await service
-    .from('fba_remesas')
-    .select('client_id, estado')
-    .in('client_id', clientes.map((c) => c.id))
-  const envios = new Map<string, number>()
-  const propuestas = new Map<string, number>()
-  for (const r of (cuentas ?? []) as Array<{ client_id: string; estado: string | null }>) {
-    // Sin estado = remesa de antes de la migración 195: historia, o sea envío
-    const real = ['enviada', 'cerrada'].includes(r.estado ?? 'cerrada')
-    const mapa = real ? envios : propuestas
-    mapa.set(r.client_id, (mapa.get(r.client_id) ?? 0) + 1)
+  /* ---------- ?remesa=: de qué cliente es y en qué estado está (para abrir su sección) ---------- */
+  const remesaPedida = uno(searchParams.remesa)
+  let remesa: { id: string; clienteId: string; estado: string | null } | null = null
+  if (remesaPedida && /^[0-9a-f-]{36}$/i.test(remesaPedida)) {
+    const { data } = await createServiceClient().from('fba_remesas').select('id, client_id, estado').eq('id', remesaPedida).maybeSingle()
+    const fila = data as { id: string; client_id: string; estado: string | null } | null
+    // Solo si es de un cliente que esta persona ve: si no, como si no existiera (sin confirmar nada)
+    if (fila && clientes.some((c) => c.id === fila.client_id)) remesa = { id: fila.id, clienteId: fila.client_id, estado: fila.estado }
   }
-  clientes = clientes.map((c) => ({
-    ...c,
-    envios: envios.get(c.id) ?? 0,
-    propuestas: propuestas.get(c.id) ?? 0,
-    remesas: (envios.get(c.id) ?? 0) + (propuestas.get(c.id) ?? 0),
-  }))
 
-  const uno = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
-  const pedido = uno(searchParams.cliente)
-  // ACOTADO a la lista: un id que no esté en ella cae al primero, sin error y
-  // sin confirmar si existe.
-  const cliente = clientes.find((c) => c.id === pedido) ?? clientes[0]
+  /* ---------- qué pantalla pide la URL ---------- */
+  let pedida: VistaPedida = vistaDesdeUrl(searchParams, sesion.actor, remesa?.estado ?? null)
+  // El tablero del cliente de fuera solo existe si tiene varias cuentas (D39)
+  if (pedida.vista === 'tablero' && sesion.actor === 'cliente' && clientes.length < 2) pedida = { ...pedida, vista: 'cliente', seccion: 'resumen', modo: undefined }
 
-  // La remesa que se está mirando: sus cajas se leen aquí para no pedirlas
-  // desde el navegador en una segunda vuelta.
-  const remesaAbierta = uno(searchParams.remesa) ?? null
-  const panel = await panelDeCliente(cliente.id, {
-    hoy: diaEnEspana(),
-    cajasDe: remesaAbierta,
-  })
+  // ACOTADO a la lista: un id que no esté en ella cae al de la remesa o al primero, sin error y sin confirmar si existe
+  const cliente =
+    clientes.find((c) => c.id === pedida.clienteId) ?? (remesa ? clientes.find((c) => c.id === remesa?.clienteId) : undefined) ?? clientes[0]
 
-  // La insignia de «Alertas FBA»: las críticas y altas abiertas en los clientes que esta persona ve. Solo para la agencia (un cliente de fuera
-  // no ve las alertas) y sin romper la pantalla si falta la migración 267 o la lectura falla.
+  // La base de datos solo existe para los clientes que la tienen (D40)
+  if (pedida.vista === 'cliente' && pedida.seccion === 'base' && !cliente.tieneCatalogo) pedida = { ...pedida, seccion: 'envios' }
+
+  /* ---------- el panel del cliente, solo si la sección lo necesita (D25) ---------- */
+  const remesaDeEste = remesa && remesa.clienteId === cliente.id ? remesa.id : null
+  const necesitaPanel = pedida.vista === 'cliente' && (pedida.seccion === 'envios' || pedida.seccion === 'propuestas' || remesaDeEste !== null)
+  let panel: PanelRemesas | null = null
+  if (necesitaPanel) {
+    panel = await panelDeCliente(cliente.id, { hoy, cajasDe: remesaDeEste, paraCliente: sesion.actor === 'cliente' })
+  }
+
+  /* ---------- alertas: la insignia (agencia) y, en su vista, el tablero entero ---------- */
   let alertas: { criticas: number; altas: number } | null = null
-  if (profile.role !== 'cliente') {
-    const sesion: SesionFba = {
-      userId: user.id,
-      role: profile.role,
-      esAdmin,
-      actor: actorDeRol(profile.role),
-      clientesPermitidos: esAdmin ? null : clientes.map((c) => c.id),
-      clientesEditables: esAdmin ? null : clientes.filter((c) => c.puedeEditar).map((c) => c.id),
-    }
-    alertas = await contarAlertasGraves(sesion).catch(() => ({ criticas: 0, altas: 0 }))
+  let panelAlertas: PanelDeAlertas | null = null
+  if (sesion.actor === 'agencia') {
+    const fba = sesionFbaDe(sesion)
+    const [cuenta, tablero] = await Promise.all([
+      // Sin romper la pantalla si falta la migración 267 o la lectura falla
+      contarAlertasGraves(fba).catch(() => ({ criticas: 0, altas: 0 })),
+      pedida.vista === 'alertas' ? leerPanelDeAlertas(fba, hoy).catch(() => null) : Promise.resolve(null),
+    ])
+    alertas = cuenta
+    panelAlertas = tablero
   }
 
-  // Enlaces desde las alertas: a una vista concreta del cliente, o directos a su propuesta con IA
-  const vistaPedida = uno(searchParams.vista)
-  const vistaInicial = vistaPedida && ['tablero', 'fases', 'envios', 'propuestas', 'inventario'].includes(vistaPedida) ? vistaPedida : null
+  /* ---------- la conexión de Amazon de cada cliente: solo un admin la necesita («Leer de Amazon» gasta cupo de informes) ---------- */
+  const conexiones: Record<string, string> = {}
+  if (sesion.esAdmin) {
+    const { data } = await createServiceClient()
+      .from('amazon_connections')
+      .select('id, client_id')
+      .in('client_id', clientes.map((c) => c.id))
+      .eq('is_active', true)
+    for (const c of (data ?? []) as Array<{ id: string; client_id: string }>) if (!conexiones[c.client_id]) conexiones[c.client_id] = c.id
+  }
 
   return (
     <EspacioRemesas
+      sesion={sesion}
       clientes={clientes}
-      cliente={cliente}
+      clienteInicial={cliente.id}
+      remesa={remesa ? { id: remesa.id, estado: remesa.estado } : null}
       panel={panel}
-      esAdmin={esAdmin}
-      esAgencia={actorDeRol(profile.role) === 'agencia'}
-      remesaAbierta={remesaAbierta}
-      nombreUsuario={profile.full_name ?? profile.email ?? ''}
+      panelAlertas={panelAlertas}
       alertas={alertas}
-      vistaInicial={vistaInicial}
-      conClientePedido={pedido !== undefined && clientes.some((c) => c.id === pedido)}
-      abrirIa={uno(searchParams.ia) === '1'}
+      hoy={hoy}
+      conexiones={conexiones}
     />
   )
 }

@@ -124,10 +124,10 @@ export function EnlaceParaElCliente({ remesaId, estado = 'encajando' }: { remesa
   }
 
   return (
-    <section className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+    <section className="overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-        <div className="flex min-w-[260px] flex-1 items-start gap-3">
-          <span className="mt-[1px] flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-[var(--ls-acc-suave)] text-[var(--ls-acc)]">
+        <div className="flex min-w-[min(100%,260px)] flex-1 items-start gap-3">
+          <span className="mt-[1px] flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]" style={{ background: 'color-mix(in srgb, var(--ls-mod-remesas) 14%, transparent)', color: 'var(--ls-mod-remesas)' }}>
             <Link2 className="h-[15px] w-[15px]" />
           </span>
           <div className="min-w-0">
@@ -135,7 +135,7 @@ export function EnlaceParaElCliente({ remesaId, estado = 'encajando' }: { remesa
             <p className="mt-[2px] text-[12px] leading-[1.5] text-[var(--ls-t3)]">{que.texto} Es un único enlace para todo el envío.</p>
           </div>
         </div>
-        <button type="button" onClick={() => void copiar()} disabled={trabajando !== null || cargando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
+        <button type="button" onClick={() => void copiar()} disabled={trabajando !== null || cargando} className={cx(BOTON.base, 'h-8 px-3 text-[12.5px] [@media(pointer:coarse)]:h-11', BOTON.primario)}>
           {trabajando === 'copiar' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link2 className="h-3 w-3" />}
           {enlace ? 'Copiar el enlace otra vez' : 'Copiar enlace público'}
         </button>
@@ -155,7 +155,7 @@ export function EnlaceParaElCliente({ remesaId, estado = 'encajando' }: { remesa
             value={enlace.url}
             onFocus={(e) => e.currentTarget.select()}
             aria-label="Dirección del enlace para el cliente"
-            className="h-7 w-full rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 font-mono text-[11.5px] text-[var(--ls-t2)] focus:border-[var(--ls-acc-graf)] focus:outline-none"
+            className="h-9 w-full rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 font-mono text-[11.5px] text-[var(--ls-t2)] focus:border-[var(--ls-acc-graf)] focus:outline-none"
           />
           {enlace.ultimaEdicionAt && !enlace.terminadoAt && (
             <p className="flex items-start gap-[6px] text-[11.5px] leading-[1.45] text-[var(--ls-t4)]">
@@ -171,11 +171,13 @@ export function EnlaceParaElCliente({ remesaId, estado = 'encajando' }: { remesa
             <span>{enlace.abiertoVeces === 0 ? 'Todavía no lo ha abierto' : `Abierto ${enlace.abiertoVeces} ${enlace.abiertoVeces === 1 ? 'vez' : 'veces'} · la última ${haceUnRato(enlace.ultimoUsoAt)}`}</span>
             {enlace.ultimaEdicionAt && <span>Tocó las cajas {haceUnRato(enlace.ultimaEdicionAt)}</span>}
             <span className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={() => window.location.reload()} className={cx(BOTON.base, BOTON.secundario)} title="Recargar la propuesta para ver lo que ha encajado el cliente">
+              {/* Relee la propuesta sin recargar la página entera: la pantalla que la monta escucha «remesas:recargar»
+                  (router.refresh + vaciar la memoria del módulo). Lo que tengas sin guardar en las cajas se conserva */}
+              <button type="button" onClick={() => window.dispatchEvent(new Event('remesas:recargar'))} className={cx(BOTON.base, BOTON.secundario, '[@media(pointer:coarse)]:h-10')} title="Recargar la propuesta para ver lo que ha encajado el cliente">
                 <RefreshCw className="h-3 w-3" />
                 Ver lo encajado
               </button>
-              <button type="button" onClick={() => void desactivar()} disabled={trabajando !== null} className={cx(BOTON.base, BOTON.secundario, 'hover:!text-[var(--ls-e-rojo)]')} title="Quien tenga el enlace dejará de poder entrar">
+              <button type="button" onClick={() => void desactivar()} disabled={trabajando !== null} className={cx(BOTON.base, BOTON.secundario, 'hover:!text-[var(--ls-e-rojo)] [@media(pointer:coarse)]:h-10')} title="Quien tenga el enlace dejará de poder entrar">
                 {trabajando === 'desactivar' && <Loader2 className="h-3 w-3 animate-spin" />}
                 Desactivar
               </button>

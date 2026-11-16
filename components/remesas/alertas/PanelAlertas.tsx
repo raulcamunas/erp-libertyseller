@@ -1,34 +1,52 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { MotionConfig } from 'framer-motion'
 import { toast } from 'sonner'
-import { AlertTriangle, BellOff, Check, ChevronDown, ChevronRight, Printer, RefreshCw, Settings2, Sparkles, X } from 'lucide-react'
-import { BOTON, CAMPO, COLOR_ESTADO, TIPO, type TonoEstado } from '@/lib/estilo/denso'
+import { AlertTriangle, ArrowLeft, Bell, BellOff, BellRing, CalendarClock, Check, ChevronDown, ExternalLink, FileText, Printer, RefreshCw, Send, Sparkles, Timer } from 'lucide-react'
+import { Boton, CabeceraDeModulo, EstadoVacio, FilaDeKpis, Insignia, Kpi, Pestanas, TACTIL } from '@/components/ui-ls'
+import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import { FAMILIA_DE_TIPO, NOMBRE_DE_FAMILIA, compararAlertas, contarPorSeveridad, type FamiliaAlerta, type Severidad } from '@/lib/fba/alertas'
 import { FALTA_LA_MIGRACION_267 } from '@/lib/fba/alertas-mensajes'
 import type { AlertaGuardada, ClienteDeAlertas, PanelDeAlertas } from '@/lib/fba/alertas-lectura'
+import type { EnvioPropuestoGuardado } from '@/lib/fba/plan-tipos'
+import { urlDeEnvioPropuesto } from '@/lib/fba/trabajo-plan'
+import { AjustesReposicion } from '../comun/AjustesReposicion'
+import { Combo, type OpcionCombo } from '../comun/Combo'
+import { compararPrioridad, dinero, fechaCorta, PRIORIDAD } from '../comun/estilo-plan'
+import type { SesionRemesas } from '../comun/tipos-ui'
 import { cx } from '../comun/ui'
+import { useEnviosPropuestos } from '../comun/useEnviosPropuestos'
 
 /**
- * ALERTAS FBA: TODO LO QUE VA MAL EN LA LOGÍSTICA, DE TODOS LOS CLIENTES, EN UNA PANTALLA.
+ * ALERTAS FBA: TODO LO QUE VA MAL EN LA LOGÍSTICA, DE TODOS LOS CLIENTES, EN UNA PANTALLA (vista `alertas`, spec remesas-pro §8).
  *
- *   ALERTAS         el tablero: lo más grave primero, con el dinero en juego, filtrable por cliente y por tipo. Cada una se abre para ver
- *                   las cuentas, llevar al cliente (o a su propuesta con IA) y silenciarla unos días si ya está en marcha.
- *   PLAZOS          el plazo de reposición de cada cliente, a mano: de él depende cada aviso de «reponer». Con un plazo distinto por
- *                   referencia si hace falta.
- *   RESUMEN SEMANAL lo mismo, en una hoja que se puede imprimir o guardar en PDF desde el navegador.
+ *   ALERTAS         lo más grave primero, con el dinero en juego; filtrable por cliente (chips; en el móvil, un Combo), por
+ *                   familia y «solo críticas y altas»; las silenciadas aparte. Cada fila se despliega: las cuentas, «Abrir en
+ *                   Remesas» (?vista=cliente&seccion=envios&cliente=…), el envío propuesto del plan si la referencia va en
+ *                   uno (onAbrirEnvioPropuesto), «Proponer con IA» (…&ia=1), Silenciar 7/30 días y Reabrir.
+ *   PLAZOS          los ajustes de reposición de cada cliente con `AjustesReposicion` (compacto) y, debajo, cuándo se
+ *                   calcularon sus alertas y «Recalcular».
+ *   RESUMEN SEMANAL lo abierto, en una hoja que se imprime o se guarda en PDF desde el navegador.
  *
- * La pantalla no calcula nada: lee lo que dejó la pasada diaria (o el botón «Recalcular»). Cada acción llama a la API y vuelve a pedir la página.
+ * Permisos (§1.4): silenciar, reabrir, recalcular y «Proponer con IA» son de la AGENCIA CON EDICIÓN en ese cliente (antes,
+ * solo admin). Sin `sesion` (la ruta vieja) se usa `esAdmin`, como siempre.
+ *
+ * La pantalla no calcula nada: lee lo que dejó la pasada diaria (o «Recalcular»). Cada acción llama a la API y vuelve a
+ * pedir la página (`router.refresh()`).
  */
 
 type Pestana = 'alertas' | 'plazos' | 'resumen'
 
 const TONO: Record<Severidad, TonoEstado> = { critica: 'rojo', alta: 'naranja', media: 'ambar', info: 'gris' }
 const ROTULO: Record<Severidad, string> = { critica: 'Crítica', alta: 'Alta', media: 'Media', info: 'Aviso' }
+const PLURAL: Record<Severidad, string> = { critica: 'Críticas', alta: 'Altas', media: 'Medias', info: 'Avisos' }
+const TODOS = '__todos__'
 
-const euros = (n: number) => `${Math.round(n).toLocaleString('es-ES')} €`
+/** Las alertas que se miran en el inventario del cliente y no en un envío */
+const DE_STOCK = new Set<string>(['descuadre', 'stock_parado', 'stock_antiguo', 'no_vendibles', 'perdidas'])
 
 /** «hoy», «ayer», «hace 5 días», «hace 3 semanas» */
 function hace(iso: string | null, ahora: number): string {
@@ -40,6 +58,9 @@ function hace(iso: string | null, ahora: number): string {
   if (dias < 60) return `hace ${Math.floor(dias / 7)} semanas`
   return `hace ${Math.floor(dias / 30)} meses`
 }
+
+/** El impacto en la moneda de la alerta (las de reposición la traen del plan; las demás, euros) */
+const impacto = (a: AlertaGuardada) => dinero(a.impacto, typeof a.datos.moneda === 'string' && a.datos.moneda ? a.datos.moneda : 'EUR')
 
 async function llamar(url: string, metodo: 'POST' | 'PUT', cuerpo: unknown): Promise<boolean> {
   try {
@@ -56,7 +77,27 @@ async function llamar(url: string, metodo: 'POST' | 'PUT', cuerpo: unknown): Pro
   }
 }
 
-export function PanelAlertas({ panel, esAdmin }: { panel: PanelDeAlertas; esAdmin: boolean }) {
+/** Los enlaces de una alerta (explícitos, spec §1.2 y D37) */
+export function enlacesDeAlerta(a: Pick<AlertaGuardada, 'clienteId' | 'remesaId' | 'tipo'>): { abrir: string; ia: string } {
+  const c = encodeURIComponent(a.clienteId)
+  const abrir = a.remesaId
+    ? `/dashboard/remesas?vista=cliente&seccion=envios&cliente=${c}&remesa=${encodeURIComponent(a.remesaId)}`
+    : `/dashboard/remesas?vista=cliente&seccion=${DE_STOCK.has(a.tipo) ? 'stock' : 'envios'}&cliente=${c}`
+  return { abrir, ia: `/dashboard/remesas?vista=cliente&seccion=envios&cliente=${c}&ia=1` }
+}
+
+export interface PanelAlertasProps {
+  panel: PanelDeAlertas
+  /** Compatibilidad con la ruta vieja: sin `sesion`, los permisos salen de aquí */
+  esAdmin: boolean
+  sesion?: SesionRemesas
+  /** Dentro de Remesas (vista `alertas`): sin cabecera propia ni «Volver a Remesas» */
+  incrustado?: boolean
+  /** Abre el panel del envío propuesto (si no se pasa, se navega a ?vista=plan&envio=) */
+  onAbrirEnvioPropuesto?: (id: string) => void
+}
+
+export function PanelAlertas({ panel, esAdmin, sesion, incrustado = false, onAbrirEnvioPropuesto }: PanelAlertasProps) {
   const router = useRouter()
   const [, empezar] = useTransition()
   const [pestana, setPestana] = useState<Pestana>('alertas')
@@ -66,6 +107,27 @@ export function PanelAlertas({ panel, esAdmin }: { panel: PanelDeAlertas; esAdmi
   const [verSilenciadas, setVerSilenciadas] = useState(false)
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set())
   const ahora = useMemo(() => Date.now(), [])
+
+  const esAgencia = sesion ? sesion.actor === 'agencia' : true
+  /** Agencia con edición en ese cliente (§1.4); sin sesión, solo admin como antes */
+  const puedeEditar = (clienteId: string): boolean =>
+    sesion ? sesion.actor === 'agencia' && (sesion.editables === null || sesion.editables.includes(clienteId)) : esAdmin
+
+  // Los envíos propuestos activos: una alerta de reposición cuya referencia va en uno enlaza con él
+  const propuestos = useEnviosPropuestos(esAgencia ? {} : null)
+  const envioDeSku = useMemo(() => {
+    const m = new Map<string, EnvioPropuestoGuardado>()
+    const lista = [...propuestos.envios].sort((x, y) => compararPrioridad(x.prioridad, y.prioridad) || x.salirAntesDe.localeCompare(y.salirAntesDe))
+    for (const e of lista) for (const l of e.lineas) if (!m.has(`${e.clienteId}|${l.sku}`)) m.set(`${e.clienteId}|${l.sku}`, e)
+    return m
+  }, [propuestos.envios])
+  const envioDe = (a: AlertaGuardada): EnvioPropuestoGuardado | { id: string } | null => {
+    if (FAMILIA_DE_TIPO[a.tipo] !== 'reposicion') return null
+    const delDato = typeof a.datos.envioPropuestoId === 'string' && a.datos.envioPropuestoId ? a.datos.envioPropuestoId : null
+    const porSku = a.sku ? (envioDeSku.get(`${a.clienteId}|${a.sku}`) ?? null) : null
+    if (porSku) return porSku
+    return delDato ? { id: delDato } : null
+  }
 
   const nombreDe = useMemo(() => new Map(panel.clientes.map((c) => [c.id, c.nombre])), [panel.clientes])
   const refrescar = () => empezar(() => router.refresh())
@@ -81,7 +143,7 @@ export function PanelAlertas({ panel, esAdmin }: { panel: PanelDeAlertas; esAdmi
     [panel.alertas, cliente, familia, soloGraves, verSilenciadas]
   )
 
-  const abiertasTodas = panel.alertas.filter((a) => a.estado === 'abierta')
+  const abiertasTodas = useMemo(() => panel.alertas.filter((a) => a.estado === 'abierta'), [panel.alertas])
   const conteo = contarPorSeveridad(abiertasTodas)
   const silenciadas = panel.alertas.length - abiertasTodas.length
   const sinPlazo = panel.clientes.filter((c) => c.plazoDias === null)
@@ -90,6 +152,14 @@ export function PanelAlertas({ panel, esAdmin }: { panel: PanelDeAlertas; esAdmi
     for (const a of abiertasTodas) m.set(FAMILIA_DE_TIPO[a.tipo], (m.get(FAMILIA_DE_TIPO[a.tipo]) ?? 0) + 1)
     return m
   }, [abiertasTodas])
+
+  const opcionesCliente: OpcionCombo[] = useMemo(
+    () => [
+      { valor: TODOS, texto: 'Todos los clientes', especial: true },
+      ...panel.clientes.map((c) => ({ valor: c.id, texto: c.nombre, detalle: c.abiertas > 0 ? `${c.abiertas} abierta${c.abiertas === 1 ? '' : 's'}` : undefined, atenuada: c.abiertas === 0 })),
+    ],
+    [panel.clientes]
+  )
 
   const alternar = (id: string) =>
     setAbiertas((prev) => {
@@ -108,150 +178,189 @@ export function PanelAlertas({ panel, esAdmin }: { panel: PanelDeAlertas; esAdmi
     }
   }
   async function reabrir(a: AlertaGuardada) {
-    if (await llamar('/api/fba/alertas', 'POST', { accion: 'reabrir', id: a.id })) refrescar()
+    if (await llamar('/api/fba/alertas', 'POST', { accion: 'reabrir', id: a.id })) {
+      toast.success('Alerta reabierta')
+      refrescar()
+    }
   }
 
+  const pestanas = (
+    <Pestanas<Pestana>
+      etiqueta="Secciones de alertas"
+      acento="remesas"
+      opciones={[
+        { id: 'alertas', texto: 'Alertas', icono: BellRing, cuenta: abiertasTodas.length },
+        { id: 'plazos', texto: 'Plazos de reposición', icono: Timer, cuenta: sinPlazo.length || undefined },
+        { id: 'resumen', texto: 'Resumen semanal', icono: FileText },
+      ]}
+      valor={pestana}
+      onCambio={setPestana}
+    />
+  )
+
   return (
-    <div className="fba-cockpit flex min-h-[calc(100vh-4rem)] flex-col print:min-h-0">
-      {/* ================= CABECERA ================= */}
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-5 pb-2 pt-[10px] print:hidden">
-        <h1 className={cx(TIPO.xl, 'text-[var(--ls-t1)]')}>Alertas FBA</h1>
-        <nav aria-label="Vistas" className="flex items-center gap-[2px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
-          {(
-            [
-              ['alertas', 'Alertas', abiertasTodas.length],
-              ['plazos', 'Plazos de reposición', sinPlazo.length],
-              ['resumen', 'Resumen semanal', null],
-            ] as const
-          ).map(([id, rotulo, n]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setPestana(id)}
-              aria-current={pestana === id}
-              className={cx(
-                'inline-flex h-6 items-center gap-[6px] rounded-[6px] px-[10px] text-[12px] font-medium',
-                pestana === id ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-sm' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
-              )}
-            >
-              {rotulo}
-              {n !== null && n > 0 && <span className="tabular-nums text-[var(--ls-t4)]">{n}</span>}
-            </button>
-          ))}
-        </nav>
-        <Link href="/dashboard/remesas" className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')}>
-          Volver a Remesas
-        </Link>
-      </header>
-
-      {panel.faltaMigracion && (
-        <div className="px-5 pb-2 print:hidden">
-          <Aviso tono="ambar">{FALTA_LA_MIGRACION_267}</Aviso>
-        </div>
-      )}
-
-      {/* ================= ALERTAS ================= */}
-      {pestana === 'alertas' && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 pb-6">
-          {/* las cifras */}
-          <div className="flex flex-wrap gap-2">
-            {(['critica', 'alta', 'media', 'info'] as const).map((s) => (
-              <Cifra key={s} sev={s} n={conteo[s]} />
-            ))}
-            {silenciadas > 0 && (
-              <button type="button" onClick={() => setVerSilenciadas((v) => !v)} className={cx(BOTON.chip, verSilenciadas && '!border-[var(--ls-acc-borde)] !text-[var(--ls-t1)]')}>
-                <BellOff className="h-3 w-3" />
-                {silenciadas} silenciada{silenciadas === 1 ? '' : 's'}
-              </button>
-            )}
+    <MotionConfig reducedMotion="user">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1440px] flex-col gap-4 pb-8 print:max-w-none print:gap-0 print:pb-0">
+        {/* ================= CABECERA ================= */}
+        {incrustado ? (
+          <div className="min-w-0 print:hidden">{pestanas}</div>
+        ) : (
+          <div className="print:hidden">
+            <CabeceraDeModulo
+              icono={Bell}
+              acento="remesas"
+              titulo="Alertas FBA"
+              subtitulo="Lo que va mal en la logística de todos los clientes, lo más grave primero"
+              migas={[{ texto: 'Remesas a FBA', href: '/dashboard/remesas' }, { texto: 'Alertas' }]}
+              acciones={
+                <Boton asChild variante="secundario" icono={ArrowLeft}>
+                  <Link href="/dashboard/remesas">Volver a Remesas</Link>
+                </Boton>
+              }
+              debajo={pestanas}
+            />
           </div>
+        )}
 
-          {sinPlazo.length > 0 && (
-            <Aviso tono="ambar">
-              {sinPlazo.length === 1 ? `${sinPlazo[0].nombre} no tiene` : `${sinPlazo.length} clientes no tienen`} puesto el plazo de reposición: los avisos de «reponer» se calculan con 45 días y no suenan en la campana hasta que se
-              configure.{' '}
-              <button type="button" className="underline" onClick={() => setPestana('plazos')}>
-                Ponerlo
-              </button>
-            </Aviso>
-          )}
-
-          {/* los filtros */}
-          <div className="flex flex-wrap items-center gap-[6px]">
-            <Chip activo={cliente === null} onClick={() => setCliente(null)}>
-              Todos los clientes
-            </Chip>
-            {panel.clientes.map((c) => (
-              <Chip key={c.id} activo={cliente === c.id} onClick={() => setCliente(cliente === c.id ? null : c.id)}>
-                {c.nombre}
-                {c.abiertas > 0 && <span className="tabular-nums text-[var(--ls-t4)]">{c.abiertas}</span>}
-              </Chip>
-            ))}
+        {panel.faltaMigracion && (
+          <div className="print:hidden">
+            <Aviso tono="ambar">{FALTA_LA_MIGRACION_267}</Aviso>
           </div>
-          <div className="flex flex-wrap items-center gap-[6px]">
-            <Chip activo={familia === 'todas'} onClick={() => setFamilia('todas')}>
-              Todo tipo
-            </Chip>
-            {(Object.keys(NOMBRE_DE_FAMILIA) as FamiliaAlerta[]).map((f) => (
-              <Chip key={f} activo={familia === f} onClick={() => setFamilia(familia === f ? 'todas' : f)}>
-                {NOMBRE_DE_FAMILIA[f]}
-                <span className="tabular-nums text-[var(--ls-t4)]">{porFamilia.get(f) ?? 0}</span>
-              </Chip>
-            ))}
-            <span className="mx-1 h-4 w-px bg-[var(--ls-linea2)]" />
-            <Chip activo={soloGraves} onClick={() => setSoloGraves((v) => !v)}>
-              Solo críticas y altas
-            </Chip>
-          </div>
+        )}
 
-          {/* la lista */}
-          {visibles.length === 0 ? (
-            <div className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-6 py-12 text-center">
-              <Check className="mx-auto mb-2 h-6 w-6" style={{ color: COLOR_ESTADO.verde }} />
-              <p className={cx(TIPO.l, 'text-[var(--ls-t2)]')}>{panel.alertas.length === 0 ? 'Todavía no hay alertas' : 'Nada con estos filtros'}</p>
-              <p className="mx-auto mt-1 max-w-[460px] text-[12px] leading-[1.55] text-[var(--ls-t3)]">
-                {panel.alertas.length === 0
-                  ? 'La pasada de alertas corre una vez al día. Para ver las de un cliente ahora mismo, pulsa «Recalcular» en la pestaña de Plazos.'
-                  : 'Cambia los filtros para ver el resto.'}
-              </p>
-            </div>
-          ) : (
-            <ul className="overflow-hidden rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] divide-y divide-[var(--ls-linea)]">
-              {visibles.map((a) => (
-                <FilaAlerta
-                  key={a.id}
-                  a={a}
-                  cliente={nombreDe.get(a.clienteId) ?? '—'}
-                  abierta={abiertas.has(a.id)}
-                  onAlternar={() => alternar(a.id)}
-                  ahora={ahora}
-                  esAdmin={esAdmin}
-                  onSilenciar={(dias) => silenciar(a, dias)}
-                  onReabrir={() => reabrir(a)}
+        {/* ================= ALERTAS ================= */}
+        {pestana === 'alertas' && (
+          <div className="flex min-w-0 flex-col gap-3">
+            <FilaDeKpis minimo={150}>
+              {(['critica', 'alta', 'media', 'info'] as const).map((s, i) => (
+                <Kpi
+                  key={s}
+                  indice={i}
+                  etiqueta={PLURAL[s]}
+                  valor={conteo[s]}
+                  acento={COLOR_ESTADO[TONO[s]]}
+                  nota={s === 'critica' || s === 'alta' ? (soloGraves ? 'filtrando: solo críticas y altas' : 'pulsa para ver solo las graves') : 'abiertas ahora'}
+                  onClick={s === 'critica' || s === 'alta' ? () => setSoloGraves((v) => !v) : undefined}
                 />
               ))}
-            </ul>
-          )}
-        </div>
-      )}
+            </FilaDeKpis>
 
-      {/* ================= PLAZOS ================= */}
-      {pestana === 'plazos' && (
-        <div className="flex flex-col gap-3 px-5 pb-6">
-          <p className={cx(TIPO.s, 'max-w-[760px] text-[var(--ls-t3)]')}>
-            El <b className="text-[var(--ls-t2)]">plazo de reposición</b> son los días desde que se pide la mercancía hasta que está a la venta en Amazon (producción, transporte y recepción). Lo pone el
-            equipo, cliente a cliente: de él depende cada aviso de «reponer ya» o «reponer pronto». Si una referencia tarda distinto, se le puede poner su propio plazo.
-          </p>
-          {panel.clientes.length === 0 && <Aviso tono="gris">No hay ningún cliente con Amazon conectado que puedas ver.</Aviso>}
-          {panel.clientes.map((c) => (
-            <FilaPlazo key={c.id} c={c} ahora={ahora} puedeEditar={esAdmin} onCambio={refrescar} />
-          ))}
-        </div>
-      )}
+            {sinPlazo.length > 0 && (
+              <Aviso tono="ambar">
+                {sinPlazo.length === 1 ? `${sinPlazo[0].nombre} no tiene` : `${sinPlazo.length} clientes no tienen`} puesto el plazo de reposición: los avisos de «reponer» se calculan con el plazo de
+                partida y no suenan en la campana hasta que se configure.{' '}
+                <button type="button" className="font-semibold underline" onClick={() => setPestana('plazos')}>
+                  Ponerlo
+                </button>
+              </Aviso>
+            )}
 
-      {/* ================= RESUMEN SEMANAL ================= */}
-      {pestana === 'resumen' && <ResumenSemanal panel={panel} ahora={ahora} />}
-    </div>
+            {/* los filtros */}
+            <div className="flex min-w-0 flex-col gap-2">
+              {/* cliente: Combo en el móvil, chips desde sm */}
+              <div className="flex min-h-[44px] items-center gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-3 sm:hidden">
+                <span className="shrink-0 text-[12px] text-[var(--ls-t4)]">Cliente</span>
+                <Combo
+                  etiqueta="Cliente"
+                  valor={cliente ?? TODOS}
+                  opciones={opcionesCliente}
+                  onElegir={(v) => setCliente(v === TODOS ? null : v)}
+                  placeholder="Buscar cliente"
+                  className="min-w-0 flex-1"
+                  anchoLista={300}
+                />
+              </div>
+              <div className="hidden flex-wrap items-center gap-[6px] sm:flex">
+                <Chip activo={cliente === null} onClick={() => setCliente(null)}>
+                  Todos los clientes
+                </Chip>
+                {panel.clientes.map((c) => (
+                  <Chip key={c.id} activo={cliente === c.id} onClick={() => setCliente(cliente === c.id ? null : c.id)}>
+                    {c.nombre}
+                    {c.abiertas > 0 && <span className="tabular-nums opacity-70">{c.abiertas}</span>}
+                  </Chip>
+                ))}
+              </div>
+              {/* familia: en el móvil, una fila que se desliza */}
+              <div className="ls-sin-barra -mx-4 flex items-center gap-[6px] overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+                <Chip activo={familia === 'todas'} onClick={() => setFamilia('todas')}>
+                  Todo tipo
+                </Chip>
+                {(Object.keys(NOMBRE_DE_FAMILIA) as FamiliaAlerta[]).map((f) => (
+                  <Chip key={f} activo={familia === f} onClick={() => setFamilia(familia === f ? 'todas' : f)}>
+                    {NOMBRE_DE_FAMILIA[f]}
+                    <span className="tabular-nums opacity-70">{porFamilia.get(f) ?? 0}</span>
+                  </Chip>
+                ))}
+                <span className="mx-1 h-4 w-px shrink-0 bg-[var(--ls-linea2)]" aria-hidden />
+                <Chip activo={soloGraves} onClick={() => setSoloGraves((v) => !v)}>
+                  Solo críticas y altas
+                </Chip>
+                {silenciadas > 0 && (
+                  <Chip activo={verSilenciadas} onClick={() => setVerSilenciadas((v) => !v)}>
+                    <BellOff className="h-3 w-3" aria-hidden />
+                    {silenciadas} silenciada{silenciadas === 1 ? '' : 's'}
+                  </Chip>
+                )}
+              </div>
+            </div>
+
+            {verSilenciadas && <p className="text-[12px] text-[var(--ls-t3)]">Estás viendo las silenciadas. Vuelven solas al pasar la fecha, o con «Reabrir».</p>}
+
+            {/* la lista */}
+            {visibles.length === 0 ? (
+              <EstadoVacio
+                icono={Check}
+                acento="remesas"
+                titulo={panel.alertas.length === 0 ? 'Todavía no hay alertas' : 'Nada con estos filtros'}
+                descripcion={
+                  panel.alertas.length === 0
+                    ? 'La pasada de alertas corre una vez al día. Para ver las de un cliente ahora mismo, pulsa «Recalcular» en la pestaña de Plazos.'
+                    : 'Cambia los filtros para ver el resto.'
+                }
+                accion={panel.alertas.length === 0 ? { texto: 'Ir a Plazos', onClick: () => setPestana('plazos') } : undefined}
+              />
+            ) : (
+              <ul className="min-w-0 divide-y divide-[var(--ls-linea)] overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+                {visibles.map((a) => (
+                  <FilaAlerta
+                    key={a.id}
+                    a={a}
+                    cliente={nombreDe.get(a.clienteId) ?? '—'}
+                    abierta={abiertas.has(a.id)}
+                    onAlternar={() => alternar(a.id)}
+                    ahora={ahora}
+                    hoy={panel.hoy}
+                    puedeEditar={puedeEditar(a.clienteId)}
+                    envio={envioDe(a)}
+                    onAbrirEnvioPropuesto={onAbrirEnvioPropuesto}
+                    onSilenciar={(dias) => silenciar(a, dias)}
+                    onReabrir={() => reabrir(a)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* ================= PLAZOS ================= */}
+        {pestana === 'plazos' && (
+          <div className="flex min-w-0 flex-col gap-3">
+            <p className="max-w-[760px] text-[12.5px] leading-[1.55] text-[var(--ls-t3)]">
+              El <b className="text-[var(--ls-t2)]">plazo de reposición</b> son los días desde que se decide un envío hasta que está a la venta en Amazon (preparación, transporte, recepción y
+              margen). De él dependen los avisos de «reponer» y las fechas del plan. Si una referencia tarda distinto, se le puede poner su propio plazo.
+            </p>
+            {panel.clientes.length === 0 && <Aviso tono="gris">No hay ningún cliente con Amazon conectado que puedas ver.</Aviso>}
+            {panel.clientes.map((c) => (
+              <FilaPlazo key={c.id} c={c} ahora={ahora} puedeEditar={puedeEditar(c.id)} onCambio={refrescar} />
+            ))}
+          </div>
+        )}
+
+        {/* ================= RESUMEN SEMANAL ================= */}
+        {pestana === 'resumen' && <ResumenSemanal panel={panel} ahora={ahora} />}
+      </div>
+    </MotionConfig>
   )
 }
 
@@ -259,35 +368,39 @@ export function PanelAlertas({ panel, esAdmin }: { panel: PanelDeAlertas; esAdmi
 /* Piezas pequeñas                                                     */
 /* ------------------------------------------------------------------ */
 
-function Cifra({ sev, n }: { sev: Severidad; n: number }) {
+function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <span className="inline-flex items-baseline gap-[6px] rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[10px] py-[5px]">
-      <span className="h-[8px] w-[8px] self-center rounded-full" style={{ background: COLOR_ESTADO[TONO[sev]] }} />
-      <span className="text-[15px] font-semibold tabular-nums text-[var(--ls-t1)]">{n}</span>
-      <span className="text-[11.5px] text-[var(--ls-t3)]">{ROTULO[sev].toLowerCase()}{n === 1 ? '' : 's'}</span>
-    </span>
-  )
-}
-
-function Chip({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} aria-pressed={activo} className={cx(BOTON.chip, activo && '!border-[var(--ls-acc-borde)] !bg-[var(--ls-sup3)] !text-[var(--ls-t1)]')}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={cx(
+        'inline-flex h-8 shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full border px-3 text-[12.5px] font-medium transition-colors motion-reduce:transition-none',
+        TACTIL,
+        activo
+          ? 'border-[color-mix(in_srgb,var(--ls-mod-remesas)_55%,transparent)] bg-[color-mix(in_srgb,var(--ls-mod-remesas)_14%,transparent)] text-[var(--ls-t1)]'
+          : 'border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t3)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t1)]'
+      )}
+    >
       {children}
     </button>
   )
 }
 
-function Aviso({ tono, children }: { tono: TonoEstado; children: React.ReactNode }) {
+function Aviso({ tono, children }: { tono: TonoEstado; children: ReactNode }) {
   return (
-    <div className="flex gap-[7px] rounded-[6px] border border-[var(--ls-linea2)] border-l-2 bg-[var(--ls-sup2)] px-[9px] py-[7px] text-[11.5px] leading-[1.5] text-[var(--ls-t2)]" style={{ borderLeftColor: COLOR_ESTADO[tono] }}>
-      <AlertTriangle className="mt-[2px] h-[13px] w-[13px] shrink-0" style={{ color: COLOR_ESTADO[tono] }} />
-      <span>{children}</span>
+    <div
+      className="flex gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t2)]"
+      style={{ borderLeft: `3px solid ${COLOR_ESTADO[tono]}` }}
+    >
+      <AlertTriangle className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO[tono] }} aria-hidden />
+      <div className="min-w-0">{children}</div>
     </div>
   )
 }
 
 /** Los números que acompañan a una alerta de reposición, tal como los vio el cálculo */
-function CuentasDeReposicion({ d }: { d: Record<string, unknown> }) {
+function CuentasDeReposicion({ d, hoy }: { d: Record<string, unknown>; hoy: string }) {
   const n = (v: unknown) => (typeof v === 'number' ? v.toLocaleString('es-ES', { maximumFractionDigits: 1 }) : '—')
   const celdas: Array<[string, string]> = [
     ['Vendibles', n(d.vendibles)],
@@ -297,14 +410,16 @@ function CuentasDeReposicion({ d }: { d: Record<string, unknown> }) {
     ['Dura lo que hay', `${n(d.diasHastaRotura)} d`],
     ['Dura con lo que viene', `${n(d.diasConLoQueViene)} d`],
   ]
-  if (typeof d.seAgotaEl === 'string') celdas.push(['Se agota el', d.seAgotaEl.split('-').reverse().join('/')])
+  if (typeof d.seAgotaEl === 'string') celdas.push(['Se agota el', fechaCorta(d.seAgotaEl, hoy)])
+  if (typeof d.salirAntesDe === 'string') celdas.push(['Salir antes del', fechaCorta(d.salirAntesDe, hoy)])
+  if (typeof d.cantidadPropuesta === 'number' && d.cantidadPropuesta > 0) celdas.push(['El plan propone', `${n(d.cantidadPropuesta)} ud`])
   if (typeof d.factorEstacional === 'number' && d.factorEstacional > 1) celdas.push(['Efecto estacional', `×${n(d.factorEstacional)}`])
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-[10px] bg-[var(--ls-sup2)] px-3 py-[10px] sm:grid-cols-4">
       {celdas.map(([k, v]) => (
-        <div key={k}>
-          <dt className="text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">{k}</dt>
-          <dd className="text-[12.5px] tabular-nums text-[var(--ls-t1)]">{v}</dd>
+        <div key={k} className="min-w-0">
+          <dt className="truncate text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">{k}</dt>
+          <dd className="text-[13px] font-medium tabular-nums text-[var(--ls-t1)]">{v}</dd>
         </div>
       ))}
     </dl>
@@ -314,11 +429,11 @@ function CuentasDeReposicion({ d }: { d: Record<string, unknown> }) {
 /** Las referencias o los envíos que forman una alerta de cliente entero (parado, antiguo, pérdidas…) */
 function ListaDeItems({ items }: { items: Array<Record<string, unknown>> }) {
   return (
-    <ul className="space-y-[2px] text-[12px] text-[var(--ls-t2)]">
+    <ul className="space-y-[3px] text-[12px] text-[var(--ls-t2)]">
       {items.slice(0, 10).map((it, i) => (
-        <li key={i} className="flex gap-2">
+        <li key={i} className="flex min-w-0 gap-2">
           <span className="min-w-0 flex-1 truncate">{String(it.nombre ?? it.sku ?? '')}</span>
-          {typeof it.sku === 'string' && it.nombre ? <span className="shrink-0 text-[var(--ls-t4)]">{it.sku}</span> : null}
+          {typeof it.sku === 'string' && it.nombre ? <span className="hidden shrink-0 text-[var(--ls-t4)] sm:inline">{it.sku}</span> : null}
           {typeof it.unidades === 'number' && <span className="shrink-0 tabular-nums">{it.unidades.toLocaleString('es-ES')} ud</span>}
         </li>
       ))}
@@ -332,7 +447,10 @@ function FilaAlerta({
   abierta,
   onAlternar,
   ahora,
-  esAdmin,
+  hoy,
+  puedeEditar,
+  envio,
+  onAbrirEnvioPropuesto,
   onSilenciar,
   onReabrir,
 }: {
@@ -341,70 +459,114 @@ function FilaAlerta({
   abierta: boolean
   onAlternar: () => void
   ahora: number
-  esAdmin: boolean
-  onSilenciar: (dias: number) => void
-  onReabrir: () => void
+  hoy: string
+  puedeEditar: boolean
+  envio: EnvioPropuestoGuardado | { id: string } | null
+  onAbrirEnvioPropuesto?: (id: string) => void
+  onSilenciar: (dias: number) => Promise<void>
+  onReabrir: () => Promise<void>
 }) {
-  const color = COLOR_ESTADO[TONO[a.severidad]]
+  const [ocupado, setOcupado] = useState<null | 'reabrir' | 7 | 30>(null)
+  const tono = TONO[a.severidad]
+  const color = COLOR_ESTADO[tono]
   const esReposicion = FAMILIA_DE_TIPO[a.tipo] === 'reposicion'
   const items = Array.isArray(a.datos.items) ? (a.datos.items as Array<Record<string, unknown>>) : null
-  const base = `/dashboard/remesas?cliente=${a.clienteId}`
-  const destino =
-    a.remesaId ? `${base}&remesa=${a.remesaId}` : a.tipo === 'descuadre' || a.tipo === 'stock_parado' || a.tipo === 'stock_antiguo' || a.tipo === 'no_vendibles' || a.tipo === 'perdidas' ? `${base}&vista=inventario` : base
+  const enlaces = enlacesDeAlerta(a)
+  const conEnvio = envio && 'prioridad' in envio ? envio : null
+
+  const hacer = async (que: 'reabrir' | 7 | 30) => {
+    setOcupado(que)
+    try {
+      if (que === 'reabrir') await onReabrir()
+      else await onSilenciar(que)
+    } finally {
+      setOcupado(null)
+    }
+  }
 
   return (
-    <li>
-      <button type="button" onClick={onAlternar} aria-expanded={abierta} className="flex w-full items-start gap-3 px-3 py-[9px] text-left hover:bg-[var(--ls-sup2)]">
-        <span className="mt-[5px] h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: color }} title={ROTULO[a.severidad]} />
+    <li className="relative">
+      <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: color }} aria-hidden />
+      <button type="button" onClick={onAlternar} aria-expanded={abierta} className="flex w-full min-w-0 items-start gap-3 py-[11px] pl-4 pr-3 text-left hover:bg-[var(--ls-sup2)]">
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-[2px]">
-            <span className="rounded-[4px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[5px] text-[10.5px] font-medium text-[var(--ls-t2)]">{cliente}</span>
-            <span className="text-[10.5px] uppercase tracking-wide" style={{ color }}>
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Insignia tono={tono} tamano="sm" variante={a.severidad === 'critica' ? 'solida' : 'suave'}>
               {ROTULO[a.severidad]}
-            </span>
-            <span className="text-[10.5px] text-[var(--ls-t4)]">desde {hace(a.primeraVezAt, ahora)}</span>
-            {a.estado === 'silenciada' && a.silenciadaHasta && <span className="text-[10.5px] text-[var(--ls-t4)]">silenciada hasta el {a.silenciadaHasta.split('-').reverse().join('/')}</span>}
+            </Insignia>
+            <span className="max-w-full truncate rounded-full border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-[11px] font-medium leading-[18px] text-[var(--ls-t2)]">{cliente}</span>
+            <span className="text-[11px] text-[var(--ls-t4)]">desde {hace(a.primeraVezAt, ahora)}</span>
+            {a.estado === 'silenciada' && a.silenciadaHasta && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--ls-t4)]">
+                <BellOff className="h-3 w-3" aria-hidden /> hasta el {fechaCorta(a.silenciadaHasta, hoy)}
+              </span>
+            )}
           </span>
-          <span className="mt-[2px] block text-[13px] font-medium leading-snug text-[var(--ls-t1)]">{a.titulo}</span>
+          <span className="mt-[5px] block text-[13.5px] font-medium leading-snug text-[var(--ls-t1)]">{a.titulo}</span>
+          {a.impacto >= 1 && (
+            <span className="mt-[3px] block text-[11.5px] text-[var(--ls-t3)] sm:hidden">
+              <b className="font-semibold tabular-nums text-[var(--ls-t1)]">{impacto(a)}</b> en juego
+            </span>
+          )}
         </span>
         {a.impacto >= 1 && (
-          <span className="shrink-0 text-right">
-            <span className="block text-[12.5px] font-semibold tabular-nums text-[var(--ls-t1)]">{euros(a.impacto)}</span>
+          <span className="hidden shrink-0 text-right sm:block">
+            <span className="block text-[13px] font-semibold tabular-nums text-[var(--ls-t1)]">{impacto(a)}</span>
             <span className="block text-[10.5px] text-[var(--ls-t4)]">en juego</span>
           </span>
         )}
-        <span className="mt-[2px] shrink-0 text-[var(--ls-t4)]">{abierta ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</span>
+        <ChevronDown className={cx('mt-[3px] h-4 w-4 shrink-0 text-[var(--ls-t4)] transition-transform motion-reduce:transition-none', abierta && 'rotate-180')} aria-hidden />
       </button>
 
       {abierta && (
-        <div className="space-y-3 border-t border-[var(--ls-linea)] bg-[var(--ls-fondo)] px-4 py-3">
+        <div className="space-y-3 border-t border-[var(--ls-linea)] bg-[var(--ls-fondo)] py-3 pl-4 pr-3">
           <p className="max-w-[820px] text-[12.5px] leading-[1.6] text-[var(--ls-t2)]">{a.detalle}</p>
-          {esReposicion && <CuentasDeReposicion d={a.datos} />}
+          {esReposicion && <CuentasDeReposicion d={a.datos} hoy={hoy} />}
           {items && items.length > 0 && <ListaDeItems items={items} />}
+
+          {conEnvio && (
+            <p className="min-w-0 text-[12px] leading-[1.7] text-[var(--ls-t3)]">
+              <Send className="mr-1.5 inline h-3.5 w-3.5 -translate-y-px text-[var(--ls-mod-remesas)]" aria-hidden />
+              Va en un envío propuesto: salir antes del <b className="text-[var(--ls-t1)]">{fechaCorta(conEnvio.salirAntesDe, hoy)}</b> · {conEnvio.unidades.toLocaleString('es-ES')} ud{' '}
+              <Insignia tono={PRIORIDAD[conEnvio.prioridad].tono} variante={PRIORIDAD[conEnvio.prioridad].variante} tamano="sm" className="ml-1 align-middle">
+                {PRIORIDAD[conEnvio.prioridad].texto}
+              </Insignia>
+            </p>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={destino} className={cx(BOTON.base, BOTON.secundario)}>
-              Abrir en Remesas
-            </Link>
-            {esReposicion && esAdmin && (
-              <Link href={`${base}&ia=1`} className={cx(BOTON.base, BOTON.primario)} title="Abre la propuesta con IA de este cliente">
-                <Sparkles className="h-3 w-3" />
-                Proponer con IA
-              </Link>
+            {envio &&
+              (onAbrirEnvioPropuesto ? (
+                <Boton variante="primario" tamano="sm" icono={CalendarClock} onClick={() => onAbrirEnvioPropuesto(envio.id)}>
+                  Ver envío propuesto
+                </Boton>
+              ) : (
+                <Boton asChild variante="primario" tamano="sm" icono={CalendarClock}>
+                  <Link href={urlDeEnvioPropuesto(envio.id, a.clienteId)}>Ver envío propuesto</Link>
+                </Boton>
+              ))}
+            <Boton asChild variante="secundario" tamano="sm" icono={ExternalLink}>
+              <Link href={enlaces.abrir}>Abrir en Remesas</Link>
+            </Boton>
+            {esReposicion && puedeEditar && (
+              <Boton asChild variante={envio ? 'secundario' : 'primario'} tamano="sm" icono={Sparkles}>
+                <Link href={enlaces.ia} title="Abre la propuesta a medida (IA) de este cliente">
+                  Proponer con IA
+                </Link>
+              </Boton>
             )}
-            {esAdmin &&
+            {puedeEditar &&
               (a.estado === 'silenciada' ? (
-                <button type="button" onClick={onReabrir} className={cx(BOTON.base, BOTON.secundario)}>
+                <Boton variante="secundario" tamano="sm" icono={Bell} cargando={ocupado === 'reabrir'} onClick={() => void hacer('reabrir')}>
                   Reabrir
-                </button>
+                </Boton>
               ) : (
                 <>
-                  <button type="button" onClick={() => onSilenciar(7)} className={cx(BOTON.base, BOTON.secundario)} title="Esconde la alerta una semana: si ya está en marcha">
-                    <BellOff className="h-3 w-3" />
+                  <Boton variante="fantasma" tamano="sm" icono={BellOff} cargando={ocupado === 7} disabled={ocupado !== null} onClick={() => void hacer(7)} title="Esconde la alerta una semana: si ya está en marcha">
                     Silenciar 7 días
-                  </button>
-                  <button type="button" onClick={() => onSilenciar(30)} className={cx(BOTON.base, BOTON.secundario)}>
+                  </Boton>
+                  <Boton variante="fantasma" tamano="sm" cargando={ocupado === 30} disabled={ocupado !== null} onClick={() => void hacer(30)} title="Esconde la alerta un mes">
                     30 días
-                  </button>
+                  </Boton>
                 </>
               ))}
           </div>
@@ -419,40 +581,7 @@ function FilaAlerta({
 /* ------------------------------------------------------------------ */
 
 function FilaPlazo({ c, ahora, puedeEditar, onCambio }: { c: ClienteDeAlertas; ahora: number; puedeEditar: boolean; onCambio: () => void }) {
-  const [plazo, setPlazo] = useState(c.plazoDias === null ? '' : String(c.plazoDias))
-  const [antelacion, setAntelacion] = useState(String(c.antelacionDias))
-  const [avisar, setAvisar] = useState(c.avisar)
-  const [porSku, setPorSku] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(c.plazosSku).map(([k, v]) => [k, String(v)])))
-  const [nuevoSku, setNuevoSku] = useState('')
-  const [nuevoPlazo, setNuevoPlazo] = useState('')
-  const [abierto, setAbierto] = useState(false)
-  const [guardando, setGuardando] = useState(false)
   const [calculando, setCalculando] = useState(false)
-
-  const cambiado =
-    plazo !== (c.plazoDias === null ? '' : String(c.plazoDias)) ||
-    antelacion !== String(c.antelacionDias) ||
-    avisar !== c.avisar ||
-    JSON.stringify(porSku) !== JSON.stringify(Object.fromEntries(Object.entries(c.plazosSku).map(([k, v]) => [k, String(v)])))
-
-  async function guardar() {
-    const dias = Number(plazo.replace(',', '.'))
-    if (!Number.isFinite(dias) || dias < 1 || dias > 365) {
-      toast.error('El plazo tiene que ser un número de días, entre 1 y 365')
-      return
-    }
-    setGuardando(true)
-    // Los que estaban y ya no están se mandan como null para que se quiten
-    const plazosSku: Record<string, number | null> = {}
-    for (const k of Object.keys(c.plazosSku)) plazosSku[k] = null
-    for (const [k, v] of Object.entries(porSku)) plazosSku[k] = Number(v.replace(',', '.'))
-    const bien = await llamar('/api/fba/alertas/config', 'PUT', { clienteId: c.id, plazoDias: dias, antelacionDias: Number(antelacion.replace(',', '.')), avisar, plazosSku })
-    setGuardando(false)
-    if (bien) {
-      toast.success(`Plazo de ${c.nombre} guardado. Recalcula para ver las alertas con él.`)
-      onCambio()
-    }
-  }
 
   async function recalcular() {
     setCalculando(true)
@@ -465,102 +594,26 @@ function FilaPlazo({ c, ahora, puedeEditar, onCambio }: { c: ClienteDeAlertas; a
     }
   }
 
-  function anadirSku() {
-    const sku = nuevoSku.trim()
-    const dias = Number(nuevoPlazo.replace(',', '.'))
-    if (sku === '' || !Number.isFinite(dias) || dias < 1 || dias > 365) {
-      toast.error('Hace falta la referencia (SKU) y un plazo entre 1 y 365 días')
-      return
-    }
-    setPorSku((p) => ({ ...p, [sku]: String(Math.round(dias)) }))
-    setNuevoSku('')
-    setNuevoPlazo('')
-  }
-
   return (
-    <section className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-2 px-3 py-[10px]">
-        <div className="min-w-[160px] flex-1">
-          <h3 className={cx(TIPO.l, 'text-[var(--ls-t1)]')}>{c.nombre}</h3>
-          <p className="text-[11px] text-[var(--ls-t4)]">
-            {c.calculadoAt ? `Calculado ${hace(c.calculadoAt, ahora)}` : 'Aún no calculado'} · {c.abiertas} abierta{c.abiertas === 1 ? '' : 's'}
-            {c.plazoDias === null && <span className="ml-2" style={{ color: COLOR_ESTADO.ambar }}>Plazo sin configurar</span>}
-          </p>
-          {c.errorCalculo && (
-            <p className="mt-[2px] text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>
-              {c.errorCalculo}
-            </p>
-          )}
-        </div>
-        <label className={CAMPO.contenedor}>
-          <span className={CAMPO.etiqueta}>Plazo (días)</span>
-          <input type="number" min={1} max={365} value={plazo} onChange={(e) => setPlazo(e.target.value)} disabled={!puedeEditar} className={cx(CAMPO.input, CAMPO.numero, '!w-[88px]')} placeholder="45" />
-        </label>
-        <label className={CAMPO.contenedor} title="Con cuántos días de más por encima del plazo se avisa de «reponer pronto»">
-          <span className={CAMPO.etiqueta}>Antelación (días)</span>
-          <input type="number" min={0} max={120} value={antelacion} onChange={(e) => setAntelacion(e.target.value)} disabled={!puedeEditar} className={cx(CAMPO.input, CAMPO.numero, '!w-[88px]')} />
-        </label>
-        <label className="flex h-[26px] items-center gap-[6px] text-[12px] text-[var(--ls-t2)]">
-          <input type="checkbox" checked={avisar} onChange={(e) => setAvisar(e.target.checked)} disabled={!puedeEditar} />
-          Avisar en la campana
-        </label>
+    <div className="min-w-0 space-y-[6px]">
+      <AjustesReposicion clienteId={c.id} clienteNombre={c.nombre} puedeEditar={puedeEditar} compacto alGuardar={onCambio} />
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11.5px] text-[var(--ls-t4)]">
+        <span>
+          Alertas {c.calculadoAt ? `calculadas ${hace(c.calculadoAt, ahora)}` : 'aún sin calcular'} · {c.abiertas} abierta{c.abiertas === 1 ? '' : 's'}
+        </span>
+        {c.plazoDias === null && <Insignia tono="ambar" tamano="sm">Plazo sin configurar</Insignia>}
+        {c.errorCalculo && (
+          <span className="min-w-0 basis-full" style={{ color: COLOR_ESTADO.ambar }}>
+            {c.errorCalculo}
+          </span>
+        )}
         {puedeEditar && (
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={guardar} disabled={guardando || !cambiado} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-              {guardando ? 'Guardando…' : 'Guardar'}
-            </button>
-            <button type="button" onClick={recalcular} disabled={calculando || cambiado} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title={cambiado ? 'Guarda antes los cambios' : 'Calcula ahora mismo las alertas de este cliente'}>
-              <RefreshCw className={cx('h-3 w-3', calculando && 'animate-spin')} />
-              Recalcular
-            </button>
-            <button type="button" onClick={() => setAbierto((v) => !v)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} aria-expanded={abierto}>
-              <Settings2 className="h-3 w-3" />
-              Por referencia{Object.keys(porSku).length > 0 ? ` (${Object.keys(porSku).length})` : ''}
-            </button>
-          </div>
+          <Boton variante="fantasma" tamano="sm" icono={RefreshCw} cargando={calculando} onClick={() => void recalcular()} className="ml-auto" title="Calcula ahora mismo las alertas de este cliente (guarda antes los cambios de arriba)">
+            Recalcular
+          </Boton>
         )}
       </div>
-
-      {abierto && (
-        <div className="space-y-2 border-t border-[var(--ls-linea)] px-3 py-3">
-          <p className="text-[11.5px] text-[var(--ls-t3)]">Plazo propio de una referencia (sustituye al del cliente). Útil para lo que se fabrica en otro sitio o viaja por otra vía.</p>
-          {Object.entries(porSku).map(([sku, dias]) => (
-            <div key={sku} className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--ls-t1)]">{sku}</span>
-              <input type="number" min={1} max={365} value={dias} onChange={(e) => setPorSku((p) => ({ ...p, [sku]: e.target.value }))} className={cx(CAMPO.input, CAMPO.numero, '!w-[80px]')} />
-              <span className="text-[11.5px] text-[var(--ls-t4)]">días</span>
-              <button
-                type="button"
-                className={BOTON.icono}
-                title="Quitar: vuelve al plazo del cliente"
-                onClick={() =>
-                  setPorSku((p) => {
-                    const { [sku]: _quitado, ...resto } = p
-                    return resto
-                  })
-                }
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-          <div className="flex items-end gap-2">
-            <label className={cx(CAMPO.contenedor, 'flex-1')}>
-              <span className={CAMPO.etiqueta}>Referencia (SKU)</span>
-              <input value={nuevoSku} onChange={(e) => setNuevoSku(e.target.value)} className={CAMPO.input} placeholder="Tal como sale en Amazon" />
-            </label>
-            <label className={CAMPO.contenedor}>
-              <span className={CAMPO.etiqueta}>Días</span>
-              <input type="number" min={1} max={365} value={nuevoPlazo} onChange={(e) => setNuevoPlazo(e.target.value)} className={cx(CAMPO.input, CAMPO.numero, '!w-[80px]')} />
-            </label>
-            <button type="button" onClick={anadirSku} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
-              Añadir
-            </button>
-          </div>
-          <p className="text-[11px] text-[var(--ls-t4)]">Se guardan al pulsar «Guardar» arriba.</p>
-        </div>
-      )}
-    </section>
+    </div>
   )
 }
 
@@ -582,16 +635,15 @@ function ResumenSemanal({ panel, ahora }: { panel: PanelDeAlertas; ahora: number
     })
 
   return (
-    <div className="px-5 pb-8">
-      <div className="mb-3 flex items-center gap-3 print:hidden">
-        <p className={cx(TIPO.s, 'text-[var(--ls-t3)]')}>Una hoja con lo abierto ahora. Para guardarla en PDF, imprime y elige «Guardar como PDF».</p>
-        <button type="button" onClick={() => window.print()} className={cx(BOTON.base, BOTON.alto, BOTON.primario, 'ml-auto')}>
-          <Printer className="h-3 w-3" />
+    <div className="min-w-0">
+      <div className="mb-3 flex flex-wrap items-center gap-3 print:hidden">
+        <p className="min-w-0 flex-1 text-[12.5px] text-[var(--ls-t3)]">Una hoja con lo abierto ahora. Para guardarla en PDF, imprime y elige «Guardar como PDF».</p>
+        <Boton variante="primario" icono={Printer} onClick={() => window.print()}>
           Imprimir / PDF
-        </button>
+        </Boton>
       </div>
 
-      <article className="mx-auto max-w-[860px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-6 print:max-w-none print:border-0 print:bg-white print:p-0 print:text-black">
+      <article className="mx-auto max-w-[860px] rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4 sm:p-6 print:max-w-none print:rounded-none print:border-0 print:bg-white print:p-0 print:text-black">
         <header className="mb-4 border-b border-[var(--ls-linea)] pb-3 print:border-black/20">
           <h2 className="text-[18px] font-semibold text-[var(--ls-t1)] print:text-black">Resumen semanal de logística FBA</h2>
           <p className="text-[12px] text-[var(--ls-t3)] print:text-black/70">
@@ -608,20 +660,20 @@ function ResumenSemanal({ panel, ahora }: { panel: PanelDeAlertas; ahora: number
             const resto = lista.length - graves.length
             return (
               <section key={c.id} className="mb-5 break-inside-avoid">
-                <h3 className="flex items-baseline gap-2 text-[14px] font-semibold text-[var(--ls-t1)] print:text-black">
+                <h3 className="flex flex-wrap items-baseline gap-x-2 text-[14px] font-semibold text-[var(--ls-t1)] print:text-black">
                   {c.nombre}
                   <span className="text-[11.5px] font-normal text-[var(--ls-t4)] print:text-black/60">
                     {cuenta.critica} crítica{cuenta.critica === 1 ? '' : 's'} · {cuenta.alta} alta{cuenta.alta === 1 ? '' : 's'} · {cuenta.media + cuenta.info} más
                   </span>
                 </h3>
-                {c.plazoDias === null && <p className="text-[11.5px] text-[var(--ls-t3)] print:text-black/70">Plazo de reposición sin configurar: se ha calculado con 45 días.</p>}
+                {c.plazoDias === null && <p className="text-[11.5px] text-[var(--ls-t3)] print:text-black/70">Plazo de reposición sin configurar: se ha calculado con el plazo de partida.</p>}
                 <ul className="mt-1 space-y-[3px]">
                   {graves.map((a) => (
-                    <li key={a.id} className="flex gap-2 text-[12.5px] leading-snug text-[var(--ls-t2)] print:text-black">
+                    <li key={a.id} className="flex min-w-0 gap-2 text-[12.5px] leading-snug text-[var(--ls-t2)] print:text-black">
                       <span className="mt-[6px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: COLOR_ESTADO[TONO[a.severidad]] }} />
                       <span className="min-w-0 flex-1">{a.titulo}</span>
-                      <span className="shrink-0 text-[11px] text-[var(--ls-t4)] print:text-black/60">{hace(a.primeraVezAt, ahora)}</span>
-                      {a.impacto >= 1 && <span className="shrink-0 tabular-nums text-[11.5px]">{euros(a.impacto)}</span>}
+                      <span className="hidden shrink-0 text-[11px] text-[var(--ls-t4)] sm:inline print:inline print:text-black/60">{hace(a.primeraVezAt, ahora)}</span>
+                      {a.impacto >= 1 && <span className="shrink-0 tabular-nums text-[11.5px]">{impacto(a)}</span>}
                     </li>
                   ))}
                 </ul>

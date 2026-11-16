@@ -47,6 +47,9 @@ interface FilaNueva {
 type Columna = 'talla' | 'ean' | 'fnsku' | 'asin' | 'fbasku'
 const COLUMNAS: Columna[] = ['talla', 'ean', 'fnsku', 'asin', 'fbasku']
 
+/** En el móvil, casillas de 40 px y letra de 16 px: con menos, iOS hace zoom al escribir */
+const MOVIL = 'max-lg:h-[40px] max-lg:text-[16px]'
+
 /** Las series de tallas que más se repiten en la hoja de ShoesF */
 const SERIES = ['35-41', '36-41', '36-42', '39-46', '39-47']
 
@@ -252,7 +255,7 @@ export function AnadirReferenciaDialog({
       ancho="max-w-[920px]"
       pie={
         <>
-          <span className="mr-auto text-[11.5px] text-[var(--ls-t3)]">
+          <span className="mr-auto hidden text-[11.5px] text-[var(--ls-t3)] sm:inline">
             {filas.length === 0 ? (
               'Añade al menos una talla'
             ) : (
@@ -266,7 +269,8 @@ export function AnadirReferenciaDialog({
               </>
             )}
           </span>
-          <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
+          {/* En el móvil no cabe: el diálogo se cierra con su X */}
+          <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'hidden sm:inline-flex')}>
             Cancelar
           </button>
           <button type="button" onClick={guardar} disabled={!puedeGuardar} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
@@ -282,7 +286,7 @@ export function AnadirReferenciaDialog({
           <label className={CAMPO.etiqueta} htmlFor="ar-ref">
             REF <span className={CAMPO.obligatorio}>*</span>
           </label>
-          <input ref={primerCampo} id="ar-ref" list="ar-refs" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="8412" autoComplete="off" className={CAMPO.input} />
+          <input ref={primerCampo} id="ar-ref" list="ar-refs" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="8412" autoComplete="off" className={cx(CAMPO.input, MOVIL)} />
           <datalist id="ar-refs">
             {refsConocidas.map((r) => (
               <option key={r} value={r} />
@@ -293,7 +297,7 @@ export function AnadirReferenciaDialog({
           <label className={CAMPO.etiqueta} htmlFor="ar-nombre">
             Nombre y color <span className={CAMPO.obligatorio}>*</span>
           </label>
-          <input id="ar-nombre" list="ar-colores" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="CUERO" autoComplete="off" className={CAMPO.input} />
+          <input id="ar-nombre" list="ar-colores" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="CUERO" autoComplete="off" className={cx(CAMPO.input, MOVIL)} />
           <datalist id="ar-colores">
             {coloresConocidos.map((c) => (
               <option key={c} value={c} />
@@ -304,13 +308,13 @@ export function AnadirReferenciaDialog({
           <label className={CAMPO.etiqueta} htmlFor="ar-cod">
             COD ART
           </label>
-          <input id="ar-cod" value={codArt} onChange={(e) => setCodArt(e.target.value)} placeholder="047768" autoComplete="off" className={cx(CAMPO.input, 'font-mono text-[12px]')} />
+          <input id="ar-cod" value={codArt} onChange={(e) => setCodArt(e.target.value)} placeholder="047768" autoComplete="off" className={cx(CAMPO.input, 'font-mono text-[12px]', MOVIL)} />
         </div>
         <div>
           <label className={CAMPO.etiqueta} htmlFor="ar-precio">
             Precio
           </label>
-          <input id="ar-precio" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="89,90" inputMode="decimal" autoComplete="off" className={cx(CAMPO.input, CAMPO.numero)} />
+          <input id="ar-precio" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="89,90" inputMode="decimal" autoComplete="off" className={cx(CAMPO.input, CAMPO.numero, MOVIL)} />
         </div>
       </div>
       <p className={CAMPO.nota}>
@@ -351,7 +355,7 @@ export function AnadirReferenciaDialog({
             }}
             placeholder="36-41   ó   39, 40, 42"
             autoComplete="off"
-            className={CAMPO.input}
+            className={cx(CAMPO.input, MOVIL)}
           />
         </div>
         <button type="button" onClick={() => aplicarSerie(serie)} disabled={!serie.trim()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
@@ -361,7 +365,7 @@ export function AnadirReferenciaDialog({
         <div className="flex flex-wrap items-center gap-[5px] pb-[1px]">
           <span className="text-[11px] text-[var(--ls-t4)]">Series:</span>
           {SERIES.map((s) => (
-            <button key={s} type="button" onClick={() => aplicarSerie(s)} className={BOTON.chip}>
+            <button key={s} type="button" onClick={() => aplicarSerie(s)} className={cx(BOTON.chip, '[@media(pointer:coarse)]:min-h-[36px]')}>
               {s}
             </button>
           ))}

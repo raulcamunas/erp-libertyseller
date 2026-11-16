@@ -7,9 +7,9 @@ import { aLineaElegida, buscarTalla, coloresDe, type LineaElegida } from '@/lib/
 import { avisosDeFila } from '@/lib/fba/catalogo/validar'
 import { cx } from '../comun/ui'
 import { AnadirReferenciaDialog, type PrellenadoReferencia } from './AnadirReferenciaDialog'
-import { Combo, type OpcionCombo } from './Combo'
+import { Combo, type OpcionCombo } from '../comun/Combo'
 import { ImportarCatalogoDialog } from './ImportarCatalogoDialog'
-import { useCatalogo } from './useCatalogo'
+import { useCatalogo, useEsEstrecho } from './useCatalogo'
 
 /**
  * MONTAR UN ENVÍO ELIGIENDO EN DESPLEGABLES.
@@ -44,6 +44,18 @@ import { useCatalogo } from './useCatalogo'
  * cuentan en `sinTerminar` para que quien guarda lo sepa y no se pierdan en silencio.
  * Las líneas de una remesa ya guardada cuyo SKU no está en la base de datos se
  * conservan tal cual —no se tiran por no encontrarlas— y se marcan.
+ *
+ *
+ * ============ EN EL MÓVIL (spec remesas-pro §6.5 y D38) ============
+ *
+ * La rejilla mide 810 px como poco: por debajo de `lg` cada línea pasa a una TARJETA apilada con
+ * REF → color → talla → unidades en casillas de 44 px, y la línea nueva es la última tarjeta. Las mismas
+ * reglas (una talla una vez, «Todas las tallas», alta desde el desplegable) y el mismo salto de casilla al
+ * elegir. Las flechas ↑↓ entre unidades son cosa del teclado del escritorio.
+ *
+ * API
+ *   <EditorDesplegables clienteId clienteNombre puedeAnadir inicial onCambio variante? alturaMaxima? onUsarOtroModo? container? />
+ *   `container`: dónde montar las listas de los desplegables si el editor va dentro de un diálogo modal de Radix (D38).
  */
 
 interface FilaEd {
@@ -86,6 +98,7 @@ export function EditorDesplegables({
   variante = 'panel',
   alturaMaxima,
   onUsarOtroModo,
+  container,
 }: {
   clienteId: string
   clienteNombre: string
@@ -99,9 +112,12 @@ export function EditorDesplegables({
   alturaMaxima?: string
   /** Para cuando la base de datos no sirve (vacía, sin migrar): pasar al catálogo de Amazon */
   onUsarOtroModo?: () => void
+  /** Dónde se montan las listas de los desplegables (por defecto, document.body) */
+  container?: HTMLElement | null
 }) {
   const catalogo = useCatalogo(clienteId)
   const ix = catalogo.indice
+  const estrecho = useEsEstrecho()
 
   const [filas, setFilas] = useState<FilaEd[]>(() =>
     inicial.map((l) => ({
@@ -422,6 +438,233 @@ export function EditorDesplegables({
     )
   }
 
+  /* ---------- «+ Nueva…» al pie de cada desplegable de la línea nueva ---------- */
+
+  const pieRef = puedeAnadir
+    ? {
+        texto: (
+          <>
+            <Plus className="h-3 w-3" />
+            Nueva referencia…
+          </>
+        ),
+        onClick: (escrito: string) => abrirAnadir({ ref: escrito || undefined }),
+      }
+    : undefined
+  const pieNombre =
+    puedeAnadir && nuevo.ref
+      ? {
+          texto: (
+            <>
+              <Plus className="h-3 w-3" />
+              Otro color de {nuevo.ref}…
+            </>
+          ),
+          onClick: (escrito: string) => abrirAnadir({ ref: nuevo.ref, nombre: escrito || undefined }),
+        }
+      : undefined
+  const pieTalla =
+    puedeAnadir && nuevo.ref && nuevo.nombre
+      ? {
+          texto: (
+            <>
+              <Plus className="h-3 w-3" />
+              Otra talla de {nuevo.ref}…
+            </>
+          ),
+          onClick: () => abrirAnadir({ ref: nuevo.ref, nombre: nuevo.nombre }),
+        }
+      : undefined
+
+  /* ---------- Móvil: tarjetas apiladas ---------- */
+
+  const refNuevoListo = nuevo.ref !== ''
+  const nombreNuevoListo = nuevo.nombre !== ''
+  const dialogoAnadir = anadiendo && (
+    <AnadirReferenciaDialog
+      clienteId={clienteId}
+      clienteNombre={clienteNombre}
+      prellenado={anadiendo}
+      onCerrar={() => setAnadiendo(null)}
+      onAnadidas={({ ref, nombre }) => {
+        // Si se dio de alta desde la fila de abajo, queda elegido y se sigue con la talla.
+        // Si era una línea ya guardada que faltaba, se reconoce sola por su SKU.
+        if (!anadiendo.tallas) {
+          setNuevo({ ref, nombre, talla: '' })
+          irA('nuevo', 'talla')
+        }
+      }}
+    />
+  )
+
+  if (estrecho) {
+    return (
+      <div className="min-w-0 space-y-2">
+        {filasPintadas.length === 0 && (
+          <p className="rounded-[14px] border border-dashed border-[var(--ls-linea2)] px-4 py-4 text-center text-[12.5px] leading-[1.6] text-[var(--ls-t3)]">
+            Todavía no hay líneas. Elige una <b className="font-semibold text-[var(--ls-t2)]">REF</b> en la tarjeta de abajo, después el color y la talla.
+          </p>
+        )}
+
+        {filasPintadas.map((p, i) => {
+          const u = Number(p.f.unidades)
+          const sinUnidades = !Number.isInteger(u) || u < 1
+          const avisos = p.r ? avisosDeFila(p.r).filter((a) => a.gravedad === 'falta') : []
+          const codigos = [p.r?.fbasku ?? p.f.origen?.sku, p.r?.fnsku ?? p.f.origen?.fnsku, p.r?.ean ?? p.f.origen?.ean].filter(Boolean)
+          return (
+            <article key={p.f.uid} className="min-w-0 rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+              <header className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-[12px] font-semibold tabular-nums text-[var(--ls-t3)]">Línea {i + 1}</span>
+                <span className="flex items-center gap-1">
+                  {p.fuera && (
+                    <button
+                      type="button"
+                      disabled={!puedeAnadir}
+                      onClick={() =>
+                        abrirAnadir({
+                          ref: p.f.origen?.referencia ?? undefined,
+                          nombre: p.f.origen?.titulo ?? undefined,
+                          tallas: [{ talla: p.f.origen?.variante ?? '', ean: p.f.origen?.ean, fnsku: p.f.origen?.fnsku, asin: p.f.origen?.asin, fbasku: p.f.origen?.sku }],
+                        })
+                      }
+                      className={cx(BOTON.icono, 'h-[44px] w-[44px] disabled:cursor-default')}
+                      title={puedeAnadir ? 'Esta línea no está en la base de datos. Pulsa para añadirla' : 'Esta línea no está en la base de datos'}
+                      aria-label={`La línea ${i + 1} no está en la base de datos`}
+                    >
+                      <Database className="h-4 w-4" style={{ color: COLOR_ESTADO.ambar }} />
+                    </button>
+                  )}
+                  <button type="button" onClick={() => quitar(p.f.uid)} className={cx(BOTON.icono, 'h-[44px] w-[44px] hover:!text-[var(--ls-e-rojo)]')} aria-label={`Quitar la línea ${i + 1}`}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </span>
+              </header>
+              <div className="grid min-w-0 grid-cols-2 gap-2">
+                <CampoMovil etiqueta="REF">
+                  <Combo
+                    container={container}
+                    className={COMBO_MOVIL}
+                    valor={p.ref || null}
+                    opciones={opcionesRef}
+                    onElegir={(v) => elegirRefEnFila(p.f.uid, v)}
+                    etiqueta={`REF de la línea ${i + 1}`}
+                    placeholder="REF"
+                    inputRef={registrar(`${p.f.uid}:ref`)}
+                    anchoLista={240}
+                  />
+                </CampoMovil>
+                <CampoMovil etiqueta="Talla">
+                  <Combo
+                    container={container}
+                    className={COMBO_MOVIL}
+                    valor={p.talla || null}
+                    opciones={p.ref && p.nombre ? opcionesTalla(p.ref, p.nombre, p.r?.id ?? null, false) : []}
+                    onElegir={(v) => elegirTallaEnFila(p.f.uid, p.ref, p.nombre, v)}
+                    etiqueta={`Talla de la línea ${i + 1}`}
+                    placeholder="Talla"
+                    deshabilitado={!p.ref || !p.nombre}
+                    inputRef={registrar(`${p.f.uid}:talla`)}
+                    anchoLista={200}
+                  />
+                </CampoMovil>
+                <CampoMovil etiqueta="Nombre y color" className="col-span-2">
+                  <Combo
+                    container={container}
+                    className={COMBO_MOVIL}
+                    valor={p.nombre || null}
+                    opciones={p.ref ? opcionesNombre(p.ref) : []}
+                    onElegir={(v) => elegirNombreEnFila(p.f.uid, p.ref, v)}
+                    etiqueta={`Nombre y color de la línea ${i + 1}`}
+                    placeholder="Nombre y color"
+                    deshabilitado={!p.ref}
+                    inputRef={registrar(`${p.f.uid}:nombre`)}
+                    anchoLista={300}
+                  />
+                </CampoMovil>
+                <CampoMovil etiqueta="Unidades">
+                  <input
+                    ref={registrar(`${p.f.uid}:uds`)}
+                    value={p.f.unidades}
+                    onChange={(e) => cambiarUnidades(p.f.uid, e.target.value)}
+                    onKeyDown={(e) => alPulsarUnidades(e, i)}
+                    onFocus={(e) => e.currentTarget.select()}
+                    inputMode="numeric"
+                    enterKeyHint="next"
+                    placeholder="0"
+                    aria-label={`Unidades de la línea ${i + 1}`}
+                    autoComplete="off"
+                    className={cx(
+                      'block h-[44px] w-full min-w-0 rounded-[10px] border bg-[var(--ls-sup2)] px-3 text-right text-[16px] font-semibold tabular-nums text-[var(--ls-t1)] outline-none',
+                      'placeholder:font-normal placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] focus:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)]',
+                      sinUnidades && (p.r || p.f.origen) ? 'border-[var(--ls-e-ambar)]' : 'border-[var(--ls-linea)]'
+                    )}
+                  />
+                </CampoMovil>
+                <div className="min-w-0 self-end pb-[2px]">
+                  <p className="truncate font-mono text-[11.5px] text-[var(--ls-t3)]">{codigos.length ? codigos.join(' · ') : '—'}</p>
+                  {avisos.length > 0 && (
+                    <p className="mt-[2px] flex items-center gap-1 truncate text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      {avisos[0].texto}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </article>
+          )
+        })}
+
+        {/* ---- La tarjeta de abajo: donde se añade ---- */}
+        <article className="min-w-0 rounded-[14px] border border-[var(--ls-acc-graf)] bg-[var(--ls-sup2)] p-3">
+          <p className="mb-2 flex items-center gap-2 text-[12.5px] font-semibold text-[var(--ls-t1)]">
+            <Plus className="h-4 w-4 text-[var(--ls-acc)]" />
+            Añadir una línea
+          </p>
+          <div className="grid min-w-0 grid-cols-1 gap-2">
+            <CampoMovil etiqueta="REF">
+              <Combo container={container} className={COMBO_MOVIL} valor={nuevo.ref || null} opciones={opcionesRef} onElegir={elegirRefNuevo} etiqueta="REF de la línea nueva" placeholder="Elige REF…" inputRef={registrar('nuevo:ref')} anchoLista={260} pie={pieRef} />
+            </CampoMovil>
+            <CampoMovil etiqueta="Nombre y color">
+              <Combo
+                container={container}
+                className={COMBO_MOVIL}
+                valor={nuevo.nombre || null}
+                opciones={refNuevoListo ? opcionesNombre(nuevo.ref) : []}
+                onElegir={elegirNombreNuevo}
+                etiqueta="Nombre y color de la línea nueva"
+                placeholder="Nombre y color"
+                deshabilitado={!refNuevoListo}
+                inputRef={registrar('nuevo:nombre')}
+                anchoLista={300}
+                pie={pieNombre}
+              />
+            </CampoMovil>
+            <CampoMovil etiqueta="Talla">
+              <Combo
+                container={container}
+                className={COMBO_MOVIL}
+                valor={nuevo.talla || null}
+                opciones={refNuevoListo && nombreNuevoListo ? opcionesTalla(nuevo.ref, nuevo.nombre, null, true) : []}
+                onElegir={elegirTallaNueva}
+                etiqueta="Talla de la línea nueva"
+                placeholder="Talla"
+                deshabilitado={!refNuevoListo || !nombreNuevoListo}
+                inputRef={registrar('nuevo:talla')}
+                anchoLista={240}
+                pie={pieTalla}
+              />
+            </CampoMovil>
+          </div>
+          <p className="mt-2 text-[11.5px] leading-[1.5] text-[var(--ls-t4)]">
+            {!refNuevoListo ? 'Elige la REF, después el color y la talla.' : !nombreNuevoListo ? 'Ahora el color.' : 'Y la talla: la primera opción las añade todas.'}
+          </p>
+        </article>
+
+        {dialogoAnadir}
+      </div>
+    )
+  }
+
   /* ---------- La tabla ---------- */
 
   const panel = variante === 'panel'
@@ -468,6 +711,7 @@ export function EditorDesplegables({
 
                 <div className="px-[3px] py-[3px]">
                   <Combo
+                    container={container}
                     valor={p.ref || null}
                     opciones={opcionesRef}
                     onElegir={(v) => elegirRefEnFila(p.f.uid, v)}
@@ -479,6 +723,7 @@ export function EditorDesplegables({
                 </div>
                 <div className="px-[3px] py-[3px]">
                   <Combo
+                    container={container}
                     valor={p.nombre || null}
                     opciones={p.ref ? opcionesNombre(p.ref) : []}
                     onElegir={(v) => elegirNombreEnFila(p.f.uid, p.ref, v)}
@@ -491,6 +736,7 @@ export function EditorDesplegables({
                 </div>
                 <div className="px-[3px] py-[3px]">
                   <Combo
+                    container={container}
                     valor={p.talla || null}
                     opciones={p.ref && p.nombre ? opcionesTalla(p.ref, p.nombre, p.r?.id ?? null, false) : []}
                     onElegir={(v) => elegirTallaEnFila(p.f.uid, p.ref, p.nombre, v)}
@@ -565,6 +811,7 @@ export function EditorDesplegables({
             </div>
             <div className="px-[3px] py-[4px]">
               <Combo
+                container={container}
                 valor={nuevo.ref || null}
                 opciones={opcionesRef}
                 onElegir={elegirRefNuevo}
@@ -572,23 +819,12 @@ export function EditorDesplegables({
                 placeholder="Elige REF…"
                 inputRef={registrar('nuevo:ref')}
                 anchoLista={220}
-                pie={
-                  puedeAnadir
-                    ? {
-                        texto: (
-                          <>
-                            <Plus className="h-3 w-3" />
-                            Nueva referencia…
-                          </>
-                        ),
-                        onClick: (escrito) => abrirAnadir({ ref: escrito || undefined }),
-                      }
-                    : undefined
-                }
+                pie={pieRef}
               />
             </div>
             <div className="px-[3px] py-[4px]">
               <Combo
+                container={container}
                 valor={nuevo.nombre || null}
                 opciones={refNuevoOk ? opcionesNombre(nuevo.ref) : []}
                 onElegir={elegirNombreNuevo}
@@ -597,23 +833,12 @@ export function EditorDesplegables({
                 deshabilitado={!refNuevoOk}
                 inputRef={registrar('nuevo:nombre')}
                 anchoLista={280}
-                pie={
-                  puedeAnadir && refNuevoOk
-                    ? {
-                        texto: (
-                          <>
-                            <Plus className="h-3 w-3" />
-                            Otro color de {nuevo.ref}…
-                          </>
-                        ),
-                        onClick: (escrito) => abrirAnadir({ ref: nuevo.ref, nombre: escrito || undefined }),
-                      }
-                    : undefined
-                }
+                pie={pieNombre}
               />
             </div>
             <div className="px-[3px] py-[4px]">
               <Combo
+                container={container}
                 valor={nuevo.talla || null}
                 opciones={refNuevoOk && nombreNuevoOk ? opcionesTalla(nuevo.ref, nuevo.nombre, null, true) : []}
                 onElegir={elegirTallaNueva}
@@ -622,19 +847,7 @@ export function EditorDesplegables({
                 deshabilitado={!refNuevoOk || !nombreNuevoOk}
                 inputRef={registrar('nuevo:talla')}
                 anchoLista={190}
-                pie={
-                  puedeAnadir && refNuevoOk && nombreNuevoOk
-                    ? {
-                        texto: (
-                          <>
-                            <Plus className="h-3 w-3" />
-                            Otra talla de {nuevo.ref}…
-                          </>
-                        ),
-                        onClick: () => abrirAnadir({ ref: nuevo.ref, nombre: nuevo.nombre }),
-                      }
-                    : undefined
-                }
+                pie={pieTalla}
               />
             </div>
             <p className="truncate pl-3 pr-3 text-[11.5px] text-[var(--ls-t4)]" style={{ gridColumn: '5 / -1' }}>
@@ -644,22 +857,7 @@ export function EditorDesplegables({
         </div>
       </div>
 
-      {anadiendo && (
-        <AnadirReferenciaDialog
-          clienteId={clienteId}
-          clienteNombre={clienteNombre}
-          prellenado={anadiendo}
-          onCerrar={() => setAnadiendo(null)}
-          onAnadidas={({ ref, nombre }) => {
-            // Si se dio de alta desde la fila de abajo, queda elegido y se sigue con la talla.
-            // Si era una línea ya guardada que faltaba, se reconoce sola por su SKU.
-            if (!anadiendo.tallas) {
-              setNuevo({ ref, nombre, talla: '' })
-              irA('nuevo', 'talla')
-            }
-          }}
-        />
-      )}
+      {dialogoAnadir}
     </div>
   )
 }
@@ -667,6 +865,19 @@ export function EditorDesplegables({
 /* ------------------------------------------------------------------ */
 /* Piezas                                                              */
 /* ------------------------------------------------------------------ */
+
+/** El Combo en una tarjeta del móvil: casilla visible de 44 px y letra de 16 px (iOS no hace zoom) */
+const COMBO_MOVIL =
+  '[&_input]:h-[44px] [&_input]:rounded-[10px] [&_input]:border [&_input]:border-[var(--ls-linea)] [&_input]:bg-[var(--ls-sup)] [&_input]:px-3 [&_input]:pr-8 [&_input]:text-[16px]'
+
+function CampoMovil({ etiqueta, children, className }: { etiqueta: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cx('min-w-0', className)}>
+      <p className="mb-[3px] text-[11px] font-medium text-[var(--ls-t4)]">{etiqueta}</p>
+      {children}
+    </div>
+  )
+}
 
 function Cab({ children, className }: { children?: React.ReactNode; className?: string }) {
   return <div className={cx('h-[26px] px-[7px] text-[11px] font-semibold leading-[26px] text-[var(--ls-t4)]', className)}>{children}</div>

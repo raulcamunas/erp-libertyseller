@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, Check, Link2, Loader2 } from 'lucide-react'
-import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
+import { AlertTriangle, Check, Link2 } from 'lucide-react'
+import { Boton, TACTIL } from '@/components/ui-ls'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound-estados'
 import { ESTADOS_AMAZON_MALOS, PASOS_AMAZON, estaEnlazada, fechasDePasos, indicePasoAmazon } from '@/lib/fba/vista'
@@ -83,7 +84,7 @@ export function SeguidorAmazon({
                   }}
                 >
                   {(hecho || completo) && <Check className="h-[10px] w-[10px] text-[#0F1114]" strokeWidth={3.5} />}
-                  {enCurso && !completo && <span className="h-[6px] w-[6px] animate-pulse rounded-full" style={{ background: 'var(--ls-acc-graf)' }} />}
+                  {enCurso && !completo && <span className="h-[6px] w-[6px] rounded-full motion-safe:animate-pulse" style={{ background: 'var(--ls-acc-graf)' }} />}
                 </span>
                 <div className="min-w-0">
                   <p className={cx('text-[12.5px] leading-[1.3]', hecho || enCurso ? 'font-medium text-[var(--ls-t1)]' : 'text-[var(--ls-t4)]')}>{paso.texto}</p>
@@ -126,7 +127,7 @@ export function SeguidorAmazon({
                 }}
               >
                 {(hecho || completo) && <Check className="h-[10px] w-[10px] text-[#0F1114]" strokeWidth={3.5} />}
-                {enCurso && !completo && <span className="h-[6px] w-[6px] animate-pulse rounded-full" style={{ background: 'var(--ls-acc-graf)' }} />}
+                {enCurso && !completo && <span className="h-[6px] w-[6px] rounded-full motion-safe:animate-pulse" style={{ background: 'var(--ls-acc-graf)' }} />}
               </span>
               <span className="flex min-w-0 shrink-0 items-baseline gap-[6px] whitespace-nowrap">
                 <span className={cx('text-[12.5px]', hecho || enCurso ? 'font-medium text-[var(--ls-t1)]' : 'text-[var(--ls-t4)]')}>{paso.texto}</span>
@@ -175,41 +176,42 @@ function SinEnlazar({ puedeEditar, onEnlazar }: { puedeEditar: boolean; onEnlaza
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex min-w-[260px] flex-1 items-start gap-2">
-          <Link2 className="mt-[2px] h-4 w-4 shrink-0 text-[var(--ls-t4)]" />
-          <div>
-            <p className={cx(TIPO.l, 'text-[var(--ls-t1)]')}>Este envío no está enlazado con Amazon</p>
-            <p className="text-[11.5px] leading-[1.5] text-[var(--ls-t3)]">
-              Sin el número de envío FBA —el que empieza por <span className="font-mono">FBA</span>— no se puede ver por
-              dónde va ni cuánto ha recibido Amazon.
-            </p>
-          </div>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+      <div className="flex min-w-0 flex-1 basis-[240px] items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[var(--ls-t3)]">
+          <Link2 className="h-4 w-4" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-semibold text-[var(--ls-t1)]">Este envío no está enlazado con Amazon</p>
+          <p className="text-[12px] leading-[1.5] text-[var(--ls-t3)]">
+            Sin el número de envío FBA —el que empieza por <span className="font-mono">FBA</span>— no se puede ver por dónde va ni cuánto ha recibido Amazon.
+          </p>
         </div>
-        {puedeEditar && (
-          <form
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (valido && !enviando) void enlazar()
-            }}
-          >
-            <input
-              value={numero}
-              onChange={(e) => setNumero(e.target.value)}
-              placeholder="FBA15ABCDEF"
-              spellCheck={false}
-              className={cx(CAMPO.input, 'w-[170px] font-mono')}
-              aria-label="Número de envío FBA"
-            />
-            <button type="submit" disabled={!valido || enviando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-              {enviando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link2 className="h-3 w-3" />}
-              Enlazar y consultar
-            </button>
-          </form>
-        )}
       </div>
+      {puedeEditar && (
+        <form
+          className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (valido && !enviando) void enlazar()
+          }}
+        >
+          <input
+            value={numero}
+            onChange={(e) => setNumero(e.target.value)}
+            placeholder="FBA15ABCDEF"
+            spellCheck={false}
+            className={cx(
+              'h-9 min-w-0 flex-1 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 font-mono text-[13px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[var(--ls-acc-graf)] sm:w-[170px] sm:flex-none',
+              TACTIL
+            )}
+            aria-label="Número de envío FBA"
+          />
+          <Boton type="submit" variante="primario" tamano="sm" icono={Link2} cargando={enviando} disabled={!valido}>
+            Enlazar y consultar
+          </Boton>
+        </form>
+      )}
     </div>
   )
 }

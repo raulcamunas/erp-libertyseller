@@ -1,64 +1,135 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { TABLA } from '@/lib/estilo/denso'
+import { useMemo } from 'react'
+import { Activity, Download } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts'
+import { Boton, TablaAdaptable, type Columna } from '@/components/ui-ls'
 import type { FilaProducto, ResumenRitmo } from '@/lib/fba/analisis'
-import { descargarCsv, EJE, TablaDeDatos, TarjetaGrafico, tooltipDe, VIZ } from '../comun/graficos'
-import { Clave, cx, Segmentado, Tarjeta } from '../comun/ui'
-import { fecha } from '../formato'
+import type { LineaDePanel } from '@/lib/fba/datos'
+import { descargarCsv, EJE, Grafico, TablaDeDatos, TarjetaGrafico, tooltipDe, useAnimarGraficos, VIZ, DURACION_ANIMACION } from '../comun/graficos'
+import { Clave, cx } from '../comun/ui'
+import { decimal, entero, fecha, ritmo as textoRitmo } from '../formato'
 import { ChipRotacion } from './ChipRotacion'
+import { ventasPorSku } from './reglas'
+import { CeldaProducto } from './TablaReferencias'
 
 /**
- * ROTACIÓN: A QUÉ RITMO SALE CADA PRODUCTO Y CUÁNDO SE AGOTA.
+ * ROTACIÓN: A QUÉ RITMO SALE CADA PRODUCTO DE ESTE ENVÍO Y CUÁNDO SE AGOTA.
  *
- * El gráfico enseña los diez que más se han vendido con lo que les queda a cada
- * uno: un producto con mucha venta y poco stock es el que hay que reponer ya. Las
- * barras son finas, con 2 px de superficie entre lo vendido y lo que queda.
+ * El ritmo de aquí es el «ritmo de este envío» (su lote FIFO). Al lado va el de la referencia (planificador): un SKU
+ * cuyo envío más antiguo todavía tiene stock no vende de este, aunque la referencia venda mucho (spec §1.1).
+ *
+ * El gráfico enseña los diez que más se han vendido con lo que les queda a cada uno: mucha venta y poco stock es lo que
+ * toca reponer. Barras finas, con 2 px de superficie entre lo vendido y lo que queda.
  */
 
-export function TabRotacion({ filas, ritmo, nombreArchivo }: { filas: FilaProducto[]; ritmo: ResumenRitmo; nombreArchivo: string }) {
-  const [orden, setOrden] = useState<'urgencia' | 'ritmo' | 'vendidas'>('urgencia')
-
-  const ordenadas = useMemo(() => {
-    const l = [...filas]
-    if (orden === 'ritmo') return l.sort((a, b) => b.udDia7 - a.udDia7 || a.sku.localeCompare(b.sku))
-    if (orden === 'vendidas') return l.sort((a, b) => b.vendidas - a.vendidas || a.sku.localeCompare(b.sku))
-    // Primero lo que se agota antes; los agotados y los que no se venden, al final
-    const cob = (f: FilaProducto) => (f.clase === 'sin_stock' ? 1e9 : (f.cobertura ?? 1e8))
-    return l.sort((a, b) => cob(a) - cob(b) || a.sku.localeCompare(b.sku))
-  }, [filas, orden])
+export function TabRotacion({
+  filas,
+  ritmo,
+  nombreArchivo,
+  ritmoReferencia = null,
+  lineas = [],
+}: {
+  filas: FilaProducto[]
+  ritmo: ResumenRitmo
+  nombreArchivo: string
+  ritmoReferencia?: Map<string, number> | null
+  lineas?: LineaDePanel[]
+}) {
+  const ventas = useMemo(() => ventasPorSku(lineas), [lineas])
+  const vendidas = (f: FilaProducto) => ventas.get(f.sku)?.ventas ?? f.vendidas
+  const refTotal = useMemo(() => {
+    if (!ritmoReferencia) return null
+    let s = 0
+    let hay = false
+    for (const f of filas) {
+      const r = ritmoReferencia.get(f.sku)
+      if (r) {
+        s += r
+        hay = true
+      }
+    }
+    return hay ? s : null
+  }, [filas, ritmoReferencia])
 
   const top = useMemo(
     () =>
       [...filas]
-        .filter((f) => f.vendidas > 0)
-        .sort((a, b) => b.vendidas - a.vendidas)
+        .filter((f) => vendidas(f) > 0)
+        .sort((a, b) => vendidas(b) - vendidas(a))
         .slice(0, 10)
         .map((f) => ({
           etiqueta: f.variante ? `${f.sku.slice(-9)} · ${f.variante}` : f.sku.slice(-14),
-          vendidas: f.vendidas,
+          vendidas: vendidas(f),
           quedan: f.quedan,
         })),
-    [filas]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filas, ventas]
   )
+  const animar = useAnimarGraficos(top.length * 2)
 
   const Contenido = tooltipDe(
     [
-      { key: 'vendidas', nombre: 'Vendidas', color: VIZ.vendidas },
-      { key: 'quedan', nombre: 'Quedan', color: VIZ.quedan },
+      { key: 'vendidas', nombre: 'Vendidas', color: VIZ.vendidas, formato: (v) => `${entero(v)} ud` },
+      { key: 'quedan', nombre: 'Quedan', color: VIZ.quedan, formato: (v) => `${entero(v)} ud` },
     ],
     (l) => String(l)
   )
 
+  const urgencia = (f: FilaProducto) => (f.clase === 'sin_stock' ? 1e9 : (f.cobertura ?? 1e8))
+  const columnas: Columna<FilaProducto>[] = [
+    { id: 'producto', cabecera: 'Producto', celda: (f) => <CeldaProducto f={f} />, ordenar: (f) => f.sku, movil: 'titulo', ancho: '30%' },
+    { id: 'rotacion', cabecera: 'Rotación', celda: (f) => <ChipRotacion clase={f.clase} />, ordenar: urgencia, movil: 'insignia' },
+    { id: 'vendidas', cabecera: 'Vendidas', celda: (f) => entero(vendidas(f)), ordenar: vendidas, alinear: 'derecha' },
+    {
+      id: 'ritmo',
+      cabecera: 'Ritmo envío',
+      rotuloMovil: 'Ritmo de este envío',
+      celda: (f) => <span title="ud/día de este envío en la última semana">{decimal(f.udDia7, 2)}</span>,
+      ordenar: (f) => f.udDia7,
+      alinear: 'derecha',
+    },
+    ...(ritmoReferencia
+      ? [
+          {
+            id: 'ritmoRef',
+            cabecera: 'Ritmo ref.',
+            rotuloMovil: 'Ritmo de la referencia',
+            celda: (f: FilaProducto) => {
+              const r = ritmoReferencia.get(f.sku)
+              return <span className="text-[var(--ls-t3)]">{r ? decimal(r, 2) : '—'}</span>
+            },
+            ordenar: (f: FilaProducto) => ritmoReferencia.get(f.sku) ?? 0,
+            alinear: 'derecha' as const,
+          },
+        ]
+      : []),
+    { id: 'quedan', cabecera: 'Quedan', celda: (f) => <b className="font-semibold text-[var(--ls-t1)]">{entero(f.quedan)}</b>, ordenar: (f) => f.quedan, alinear: 'derecha' },
+    { id: 'cobertura', cabecera: 'Días de stock', celda: (f) => (f.cobertura === null ? '—' : entero(f.cobertura)), ordenar: urgencia, alinear: 'derecha' },
+    {
+      id: 'agota',
+      cabecera: 'Se agota',
+      celda: (f) => <span className="text-[var(--ls-t3)]">{f.quedan === 0 ? 'agotado' : f.seAgotaEl ? fecha(f.seAgotaEl) : '—'}</span>,
+      ordenar: (f) => f.seAgotaEl ?? '9999',
+    },
+    { id: 'total', cabecera: 'Desde la llegada', rotuloMovil: 'Ud/día desde la llegada', celda: (f) => decimal(f.udDiaRemesa, 2), ordenar: (f) => f.udDiaRemesa, alinear: 'derecha', movil: 'oculto' },
+  ]
+
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 overflow-hidden rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] sm:grid-cols-5">
-        <Dato rotulo="Ritmo · 7 días" valor={ritmo.udDia7.toLocaleString('es-ES', { maximumFractionDigits: 1 })} unidad="ud/día" />
-        <Dato rotulo="Ritmo · 30 días" valor={ritmo.udDia30.toLocaleString('es-ES', { maximumFractionDigits: 1 })} unidad="ud/día" />
-        <Dato rotulo="Desde la llegada" valor={ritmo.udDiaRemesa.toLocaleString('es-ES', { maximumFractionDigits: 1 })} unidad="ud/día" />
-        <Dato rotulo="Días con ventas" valor={`${ritmo.diasConVentas}`} unidad={`de ${ritmo.diasTotales}`} />
-        <Dato rotulo="Se agota" valor={ritmo.seAgotaEl ? fecha(ritmo.seAgotaEl) : '—'} sub="al ritmo actual" ultima />
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-linea)] shadow-[var(--ls-sombra-1)] sm:grid-cols-3 xl:grid-cols-6">
+        <Dato rotulo="Ritmo de este envío · 7 d" valor={decimal(ritmo.udDia7, 2)} unidad="ud/día" />
+        <Dato
+          rotulo="Ritmo de la referencia"
+          valor={refTotal === null ? '—' : decimal(refTotal, 2)}
+          unidad={refTotal === null ? undefined : 'ud/día'}
+          sub="planificador, sus referencias"
+          pista="Lo que venden en total las referencias de este envío (de todos sus envíos), según el planificador"
+        />
+        <Dato rotulo="Este envío · 30 d" valor={decimal(ritmo.udDia30, 2)} unidad="ud/día" />
+        <Dato rotulo="Desde la llegada" valor={decimal(ritmo.udDiaRemesa, 2)} unidad="ud/día" />
+        <Dato rotulo="Días con ventas" valor={entero(ritmo.diasConVentas)} unidad={`de ${entero(ritmo.diasTotales)}`} />
+        <Dato rotulo="Se agota" valor={ritmo.seAgotaEl ? fecha(ritmo.seAgotaEl) : '—'} sub="al ritmo de este envío" />
       </div>
 
       {top.length > 0 && (
@@ -72,18 +143,16 @@ export function TabRotacion({ filas, ritmo, nombreArchivo }: { filas: FilaProduc
             </>
           }
           grafico={
-            <div style={{ height: top.length * 28 + 34 }} className="w-full" role="img" aria-label="Los diez productos más vendidos y lo que queda de cada uno">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={top} layout="vertical" margin={{ top: 2, right: 14, left: 0, bottom: 0 }} barSize={14} barCategoryGap="30%">
-                  <CartesianGrid stroke={EJE.rejilla} horizontal={false} />
-                  <XAxis type="number" tick={EJE.tick} axisLine={{ stroke: EJE.linea }} tickLine={false} allowDecimals={false} />
-                  <YAxis type="category" dataKey="etiqueta" width={118} tick={EJE.tick} axisLine={false} tickLine={false} />
-                  <Tooltip content={<Contenido />} cursor={{ fill: 'var(--ls-sup3)', opacity: 0.7 }} isAnimationActive={false} />
-                  <Bar dataKey="vendidas" stackId="a" fill={VIZ.vendidas} stroke="var(--ls-sup)" strokeWidth={2} isAnimationActive={false} />
-                  <Bar dataKey="quedan" stackId="a" fill={VIZ.quedan} stroke="var(--ls-sup)" strokeWidth={2} radius={[0, 4, 4, 0]} isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <Grafico etiqueta="Los diez productos más vendidos y lo que queda de cada uno" alto={top.length * 28 + 34}>
+              <BarChart data={top} layout="vertical" margin={{ top: 2, right: 14, left: 0, bottom: 0 }} barSize={14} barCategoryGap="30%">
+                <CartesianGrid stroke={EJE.rejilla} horizontal={false} />
+                <XAxis type="number" tick={EJE.tick} axisLine={{ stroke: EJE.linea }} tickLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="etiqueta" width={104} tick={EJE.tick} axisLine={false} tickLine={false} />
+                <Tooltip content={<Contenido />} cursor={{ fill: 'var(--ls-sup3)', opacity: 0.7 }} isAnimationActive={false} />
+                <Bar dataKey="vendidas" stackId="a" fill={VIZ.vendidas} stroke="var(--ls-sup)" strokeWidth={2} isAnimationActive={animar} animationDuration={DURACION_ANIMACION} />
+                <Bar dataKey="quedan" stackId="a" fill={VIZ.quedan} stroke="var(--ls-sup)" strokeWidth={2} radius={[0, 4, 4, 0]} isAnimationActive={animar} animationDuration={DURACION_ANIMACION} />
+              </BarChart>
+            </Grafico>
           }
           tabla={
             <TablaDeDatos
@@ -98,91 +167,48 @@ export function TabRotacion({ filas, ritmo, nombreArchivo }: { filas: FilaProduc
         />
       )}
 
-      <Tarjeta
-        titulo="Rotación por producto"
-        derecha={
-          <>
-            <Segmentado
-              valor={orden}
-              onCambio={setOrden}
-              etiqueta="Ordenar por"
-              opciones={[
-                { id: 'urgencia', texto: 'Urgencia', titulo: 'Los que se agotan antes, primero' },
-                { id: 'ritmo', texto: 'Ritmo' },
-                { id: 'vendidas', texto: 'Vendidas' },
-              ]}
-            />
-            <button
-              type="button"
-              className="inline-flex h-6 items-center rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[9px] text-[11.5px] text-[var(--ls-t2)] hover:bg-[var(--ls-sup3)]"
-              onClick={() =>
-                descargarCsv(`rotacion-${nombreArchivo}.csv`, ['SKU', 'Producto', 'Vendidas', 'Ud/día 7 d', 'Ud/día total', 'Quedan', 'Días de stock', 'Se agota', 'Rotación'], ordenadas.map((f) => [f.sku, f.nombre, f.vendidas, f.udDia7, f.udDiaRemesa, f.quedan, f.cobertura, f.seAgotaEl, f.clase]))
-              }
-            >
-              CSV
-            </button>
-          </>
-        }
-        cuerpo={false}
-      >
-        <div className="max-h-[420px] overflow-auto">
-          <table className={TABLA.tabla}>
-            <thead>
-              <tr>
-                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[230px]')}>Producto</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Vendidas</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Ud/día · 7 d</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha, 'hidden 2xl:table-cell')}>Ud/día · total</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Quedan</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Días de stock</th>
-                <th className={TABLA.cabecera}>Se agota</th>
-                <th className={TABLA.cabecera}>Rotación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ordenadas.map((f) => (
-                <tr key={f.sku} className={TABLA.fila}>
-                  <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[270px]')}>
-                    <div className="flex items-baseline gap-2 overflow-hidden">
-                      <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{f.sku}</span>
-                      <span className="truncate text-[var(--ls-t1)]" title={f.nombre ?? ''}>
-                        {f.nombre ?? '—'}
-                      </span>
-                      {f.variante && <span className="shrink-0 text-[var(--ls-t4)]">{f.variante}</span>}
-                    </div>
-                  </td>
-                  <td className={cx(TABLA.celda, TABLA.numero)}>{f.vendidas}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero)}>{f.udDia7.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero, 'hidden text-[var(--ls-t3)] 2xl:table-cell')}>{f.udDiaRemesa.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero, 'font-semibold text-[var(--ls-t1)]')}>{f.quedan}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero)}>{f.cobertura === null ? '—' : Math.round(f.cobertura)}</td>
-                  <td className={cx(TABLA.celda, 'text-[var(--ls-t3)]')}>{f.quedan === 0 ? 'agotado' : f.seAgotaEl ? fecha(f.seAgotaEl) : '—'}</td>
-                  <td className={TABLA.celda}>
-                    <ChipRotacion clase={f.clase} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Tarjeta>
-      <p className="px-1 text-[11px] leading-[1.5] text-[var(--ls-t4)]">
-        Los días de stock salen de lo que queda de este envío entre lo vendido por día en la última semana. Rápida: menos de 14 días.
-        Media: hasta 45. Lenta: más. Sin ventas: nada en 30 días.
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[13.5px] font-semibold text-[var(--ls-t1)]">Rotación por producto</h3>
+        <Boton
+          tamano="sm"
+          icono={Download}
+          onClick={() =>
+            descargarCsv(
+              `rotacion-${nombreArchivo}.csv`,
+              ['SKU', 'Producto', 'Vendidas', 'Ud/día 7 d (este envío)', 'Ud/día de la referencia', 'Ud/día desde la llegada', 'Quedan', 'Días de stock', 'Se agota', 'Rotación'],
+              filas.map((f) => [f.sku, f.nombre, vendidas(f), f.udDia7, ritmoReferencia?.get(f.sku) ?? null, f.udDiaRemesa, f.quedan, f.cobertura, f.seAgotaEl, f.clase])
+            )
+          }
+        >
+          CSV
+        </Boton>
+      </div>
+      <TablaAdaptable
+        etiqueta="Rotación por producto"
+        columnas={columnas}
+        filas={filas}
+        claveDe={(f) => f.sku}
+        ordenInicial={{ id: 'rotacion', sentido: 'asc' }}
+        porPagina={50}
+        vacio={{ icono: Activity, titulo: 'Este envío no tiene referencias' }}
+      />
+      <p className="px-1 text-[12px] leading-[1.5] text-[var(--ls-t4)]">
+        Los días de stock salen de lo que queda de este envío entre lo que salió por día en la última semana. Rápida: menos de 14 días. Media: hasta 45.
+        Lenta: más. Sin ventas: nada en 30 días.{refTotal !== null && ` Las referencias de este envío venden ${textoRitmo(refTotal)} en total.`}
       </p>
     </div>
   )
 }
 
-function Dato({ rotulo, valor, unidad, sub, ultima }: { rotulo: string; valor: string; unidad?: string; sub?: string; ultima?: boolean }) {
+function Dato({ rotulo, valor, unidad, sub, pista }: { rotulo: string; valor: string; unidad?: string; sub?: string; pista?: string }) {
   return (
-    <div className={cx('min-w-0 border-b border-r border-[var(--ls-linea)] px-3 py-[9px] sm:border-b-0', ultima && 'sm:border-r-0')}>
-      <div className="text-[11px] font-semibold text-[var(--ls-t4)]">{rotulo}</div>
-      <div className="mt-[3px] flex items-baseline gap-[4px]">
-        <span className="text-[19px] font-semibold leading-[1.1] tracking-[-0.02em] text-[var(--ls-t1)]">{valor}</span>
-        {unidad && <span className="text-[11.5px] text-[var(--ls-t3)]">{unidad}</span>}
+    <div className={cx('min-w-0 bg-[var(--ls-sup)] px-4 py-3')} title={pista}>
+      <div className="truncate text-[11.5px] font-medium text-[var(--ls-t3)]">{rotulo}</div>
+      <div className="mt-[3px] flex items-baseline gap-[4px] whitespace-nowrap">
+        <span className="text-[20px] font-semibold leading-[1.1] tracking-[-0.02em] text-[var(--ls-t1)] tabular-nums">{valor}</span>
+        {unidad && <span className="truncate text-[12px] text-[var(--ls-t3)]">{unidad}</span>}
       </div>
-      {sub && <div className="mt-[1px] text-[11px] text-[var(--ls-t3)]">{sub}</div>}
+      {sub && <div className="mt-[2px] truncate text-[11.5px] text-[var(--ls-t4)]">{sub}</div>}
     </div>
   )
 }

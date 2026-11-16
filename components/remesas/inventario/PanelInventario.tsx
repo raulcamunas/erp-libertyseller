@@ -1,248 +1,86 @@
 'use client'
 
-import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, Boxes, CloudDownload, FileSpreadsheet, Loader2, RefreshCw, Search, Sparkles, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { ArrowDown, ArrowUp, Boxes, CloudDownload, FileSpreadsheet, Loader2, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TIPO } from '@/lib/estilo/denso'
+import { EsqueletoTarjeta, EstadoVacio, TablaAdaptable, type Columna } from '@/components/ui-ls'
+import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { costeMensual, estimarAlmacenaje, mesDe, type SupuestosAlmacenaje } from '@/lib/fba/almacenaje'
 import { informeDeAntiguedad, productosDeTramo, tramoDelInforme, unidadesEnTramo, type IdTramoInforme } from '@/lib/fba/antiguedad'
-import { AVISO_ANTERIOR_AL_LIBRO, AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, diasEntreInv, type EstadoSku, type InventarioDeCliente, type SkuInventario } from '@/lib/fba/inventario'
+import { AVISO_ANTERIOR_AL_LIBRO, AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, dentroDe, diasEntreInv, type InventarioDeCliente } from '@/lib/fba/inventario'
 import { TRAMOS_AMAZON, TRAMOS_MAS_DE_90 } from '@/lib/fba/planificacion'
-import { Clave, cx, Tarjeta, Vacio } from '../comun/ui'
+import type { EnCamino, PlanCliente, PlanParaCliente } from '@/lib/fba/plan-tipos'
+import { marketplaceLabel } from '@/lib/types/amazon'
+import { BandaDeCalidad, type BandaDeCalidadProps } from '../comun/BandaDeCalidad'
 import { bajarRespuesta } from '../comun/descargar'
+import { AVISO_LINEA, CONFIANZA, ESTADO_STOCK, PRIORIDAD } from '../comun/estilo-plan'
 import { descargarCsv, VIZ } from '../comun/graficos'
-import { fecha } from '../formato'
+import type { CallbacksRemesas, ClienteRemesas, SesionRemesas } from '../comun/tipos-ui'
+import { esPlanDeAgencia, usePlan } from '../comun/usePlan'
+import { Clave, cx, Tarjeta } from '../comun/ui'
+import { fecha, fechaCorta } from '../formato'
 import { FichaSku } from './FichaSku'
-import { AjusteAlmacenaje, ChipEstado, EdadDelStock, EdadDelStockAmazon, GraficoVentas, Kpi } from './piezas'
-import { COLOR_TRAMO, COLOR_TRAMO_AMAZON, ESTADO_SKU, eur, eurFino, hace, m3, n0, n1, n2, pct } from './formato'
-import { useInventario, useSupuestosAlmacenaje } from './useInventario'
+import { AjusteAlmacenaje, EdadDelStock, EdadDelStockAmazon, GraficoVentas, InsigniaEstadoStock, Kpi, MenuColumnas, NotaDeOrigen } from './piezas'
+import { COLOR_TRAMO, COLOR_TRAMO_AMAZON, calidadDeInventario, din, diasDesde, eurFino, filasDeStock, hace, m3, n0, n1, n2, pct, type FilaStock, type LineaDeStock } from './formato'
+import { useConfirmarPlazos, useInventario, useLeerDeAmazon, useSupuestosAlmacenaje } from './useInventario'
 
 /**
- * EL INVENTARIO DE UN CLIENTE, ENTERO.
+ * LA SECCIÓN «STOCK» DE UN CLIENTE (antes «Panel del cliente»; spec remesas-pro §8, §6.5, D11, D25, D26, D39 y D41).
  *
- * Todo lo que tiene en los almacenes de Amazon, referencia a referencia: cuánto stock hay,
- * a qué ritmo se vende, cuánto se devuelve, cuánto lleva parado y cuánto puede estar
- * costando que siga ahí. Sale del libro mayor de inventario y del espejo del catálogo
- * (lib/fba/inventario.ts), no de lo que alguien haya apuntado.
+ * Todo lo que tiene en los almacenes de Amazon, referencia a referencia: cuánto stock hay, a qué ritmo se vende, cuánto
+ * dura, cuánto se devuelve, cuánto lleva parado y cuánto cuesta que siga ahí. Se CONSERVA todo lo del panel de antes:
+ *   · «Leer de Amazon» (solo admin: gasta cupo de informes), «Actualizar» y «Propuesta a medida (IA)» (agencia que edita);
+ *   · las cifras, el gráfico de ventas y devoluciones y la antigüedad (de Amazon o estimada) con clic en un tramo para ver
+ *     sus productos y su Excel (todos o el tramo);
+ *   · los supuestos de almacenaje, que el cliente externo SIGUE viendo y ajustando (D39);
+ *   · los filtros, el buscador y el CSV, y la ficha de cada referencia (ahora en un PanelLateral, con su proyección).
  *
- * Es la pantalla para decidir QUÉ reponer y QUÉ NO: lo que se agota pide un envío, y lo que
- * lleva meses quieto es dinero parado —y almacenaje que se paga cada mes—.
+ * Lo nuevo:
+ *   · La banda de calidad arriba (D41), con los avisos del inventario dentro y sin repetir los del plan.
+ *   · La tabla es `TablaAdaptable` con 7 columnas (producto, vendible, camino, ritmo, cobertura, rotura, estado) y
+ *     «Columnas ▾» para el resto en el escritorio; tarjetas en el móvil.
+ *   · Ritmo, cobertura y rotura salen de la ÚLTIMA PASADA del plan (un único número por pregunta, §1.1), con su origen y
+ *     el aviso «stock de hace N días» si la pasada no es de hoy; sin pasada (o sin esa referencia), del inventario.
+ *   · El título dice el mercado de la lectura, no «Amazon.es» fijo.
+ *
+ * API
+ *   <PanelInventario sesion cliente hoy callbacks? />
+ *     callbacks.onPropuestaAMedida(clienteId)   «Propuesta a medida (IA)» (agencia con editar)
+ *     callbacks.onIrA('cliente', 'reposicion')  «Poner plazos» de la banda
+ *   `?sku=` en la URL (lo pone el mapa de cobertura del Resumen) abre la ficha de esa referencia.
  */
 
-type IdFiltro = 'con_stock' | 'todas' | 'agotadas' | 'urgentes' | 'parado' | 'exceso' | 'devoluciones' | 'antiguas' | 'no_vendibles'
-
-interface Filtro {
-  id: IdFiltro
-  texto: string
-  ayuda: string
-  admite: (s: SkuInventario) => boolean
-  /** Se pinta con un punto de color cuando hay algo */
-  alerta?: boolean
-}
-
-const FILTROS: Filtro[] = [
-  { id: 'con_stock', texto: 'Con stock', ayuda: 'Lo que hay ahora en la red de Amazon', admite: (s) => s.enAmazon > 0 },
-  { id: 'agotadas', texto: 'Agotadas', ayuda: ESTADO_SKU.agotado.ayuda, admite: (s) => s.estado === 'agotado', alerta: true },
-  { id: 'urgentes', texto: 'Se agotan en 14 días', ayuda: ESTADO_SKU.urgente.ayuda, admite: (s) => s.estado === 'urgente', alerta: true },
-  { id: 'parado', texto: 'Paradas', ayuda: ESTADO_SKU.parado.ayuda, admite: (s) => s.estado === 'parado' },
-  { id: 'exceso', texto: 'Exceso', ayuda: ESTADO_SKU.exceso.ayuda, admite: (s) => s.estado === 'exceso' },
-  { id: 'devoluciones', texto: 'Devoluciones altas', ayuda: 'Se devuelve el 12 % o más de lo que se vende', admite: (s) => s.alertas.includes('devoluciones altas') },
-  { id: 'antiguas', texto: 'Más de 270 días', ayuda: 'Tiene unidades de más de 270 días en Amazon: zona de recargo por antigüedad', admite: (s) => s.porTramo.t271 + s.porTramo.t366 > 0 },
-  { id: 'no_vendibles', texto: 'No vendibles', ayuda: 'Tiene unidades en los almacenes de Amazon que no se pueden vender: dañadas o defectuosas (si Amazon aún no ha dado el desglose, también reservadas o en tránsito sin registrar)', admite: (s) => s.noDisponibles > 0 },
-  { id: 'todas', texto: 'Todas', ayuda: 'Todas las referencias que han tenido stock o ventas', admite: () => true },
-]
-
-/**
- * Con el informe de Amazon leído, «antiguas» pasa a ser lo que Seller Central llama inventario
- * antiguo —más de 90 días—, que es lo que se compara con su pantalla. Mismo id: el filtro elegido
- * se conserva.
- */
-const FILTRO_ANTIGUAS_AMAZON: Filtro = {
-  id: 'antiguas',
-  texto: 'Más de 90 días',
-  ayuda: 'Tiene unidades de más de 90 días en Amazon (de 91 días en adelante), según su informe de planificación: lo que Seller Central llama inventario antiguo',
-  admite: (s) => (s.edadAmazon?.masDe90 ?? 0) > 0,
-}
-
-interface Ctx {
-  mes: number
-  supuestos: SupuestosAlmacenaje
-  /** Hay antigüedad leída del informe de Amazon: las columnas de edad y de almacenaje usan esa */
-  conAmazon: boolean
-}
-
-const textoDe = (v: string | ((c: Ctx) => string | undefined) | undefined, c: Ctx): string | undefined => (typeof v === 'function' ? v(c) : v)
-
-interface Columna {
-  id: string
-  titulo: string | ((c: Ctx) => string)
-  ayuda?: string | ((c: Ctx) => string | undefined)
-  /** El valor con el que se ordena y se exporta. null va siempre al final */
-  valor: (s: SkuInventario, c: Ctx) => number | string | null
-  celda: (s: SkuInventario, c: Ctx) => ReactNode
-}
-
-const ORDEN_ESTADO: Record<EstadoSku, number> = { agotado: 0, urgente: 1, bajo: 2, parado: 3, exceso: 4, sin_ventas: 5, ok: 6, sin_datos: 7 }
-
-const tonoCobertura = (s: SkuInventario): string => {
-  if (s.cobertura === null) return 'var(--ls-t4)'
-  if (s.cobertura <= 14) return COLOR_ESTADO.rojo
-  if (s.cobertura <= 30) return COLOR_ESTADO.ambar
-  if (s.cobertura > 120) return COLOR_ESTADO.azul
-  return COLOR_ESTADO.verde
-}
-
-const COLUMNAS: Columna[] = [
-  { id: 'estado', titulo: 'Estado', valor: (s) => ORDEN_ESTADO[s.estado], celda: (s) => <ChipEstado estado={s.estado} /> },
-  { id: 'enAmazon', titulo: 'En Amazon', ayuda: 'Lo que hay dentro de los almacenes de Amazon: disponible, reservado y no apto. Lo que viene de camino va aparte, en «De camino»', valor: (s) => Math.max(0, s.enAmazon - s.entrante), celda: (s) => <b className="font-semibold text-[var(--ls-t1)]">{n0(Math.max(0, s.enAmazon - s.entrante))}</b> },
-  {
-    id: 'vendibles',
-    titulo: 'Vendibles',
-    ayuda: 'Lo que se puede vender ahora mismo',
-    valor: (s) => s.vendibles,
-    celda: (s) => <span style={s.noDisponibles > 0 ? { color: COLOR_ESTADO.ambar } : undefined}>{n0(s.vendibles)}</span>,
-  },
-  { id: 'entrante', titulo: 'De camino', ayuda: 'Enviado a Amazon y todavía sin recibir: lo que dice Amazon o, si es más, lo registrado en los envíos del ERP', valor: (s) => s.entrante, celda: (s) => (s.entrante > 0 ? n0(s.entrante) : <span className="text-[var(--ls-t4)]">—</span>) },
-  { id: 'v7', titulo: '7 d', ayuda: 'Unidades vendidas en los últimos 7 días', valor: (s) => s.vendidas.d7, celda: (s) => n0(s.vendidas.d7) },
-  { id: 'v30', titulo: '30 d', ayuda: 'Unidades vendidas en los últimos 30 días', valor: (s) => s.vendidas.d30, celda: (s) => n0(s.vendidas.d30) },
-  { id: 'v90', titulo: '90 d', ayuda: 'Unidades vendidas en los últimos 90 días', valor: (s) => s.vendidas.d90, celda: (s) => n0(s.vendidas.d90) },
-  {
-    id: 'ritmo',
-    titulo: 'Ud/día',
-    ayuda: 'Ritmo de venta con el que se planifica: mezcla de las dos últimas semanas y el último mes',
-    valor: (s) => s.ritmoPlan,
-    celda: (s) => (
-      <span className="inline-flex items-center justify-end gap-[4px]">
-        {s.tendencia === 'sube' && <ArrowUp className="h-3 w-3" style={{ color: COLOR_ESTADO.verde }} aria-label="al alza" />}
-        {s.tendencia === 'baja' && <ArrowDown className="h-3 w-3" style={{ color: COLOR_ESTADO.rojo }} aria-label="a la baja" />}
-        {n2(s.ritmoPlan)}
-        {s.muestraCorta && s.vendidas.d30 > 0 && <span className="text-[var(--ls-t4)]" title="Poca historia: ritmo orientativo">*</span>}
-      </span>
-    ),
-  },
-  {
-    id: 'cobertura',
-    titulo: 'Stock para',
-    ayuda: 'Días que dura lo vendible al ritmo actual',
-    valor: (s) => (s.vendibles <= 0 ? 0 : s.cobertura),
-    celda: (s) =>
-      s.estado === 'sin_datos' ? (
-        <span className="text-[var(--ls-t4)]">—</span>
-      ) : s.vendibles <= 0 ? (
-        <span className="text-[var(--ls-t3)]">{s.entrante > 0 ? 'de camino' : s.enAmazon > 0 ? 'no vendible' : 'agotado'}</span>
-      ) : s.cobertura === null ? (
-        <span className="text-[var(--ls-t4)]">sin ventas</span>
-      ) : (
-        <span className="inline-flex items-center justify-end gap-[6px]">
-          <span className="h-[7px] w-[7px] rounded-full" style={{ background: tonoCobertura(s) }} aria-hidden />
-          {n0(s.cobertura)} d
-        </span>
-      ),
-  },
-  { id: 'agota', titulo: 'Se agota', valor: (s) => s.seAgotaEl, celda: (s) => <span className="text-[var(--ls-t3)]">{s.seAgotaEl ? fecha(s.seAgotaEl) : '—'}</span> },
-  {
-    id: 'ultima',
-    titulo: 'Última venta',
-    valor: (s) => s.diasSinVenta,
-    celda: (s) => <span className={s.estado === 'parado' ? undefined : 'text-[var(--ls-t3)]'} style={s.estado === 'parado' ? { color: COLOR_ESTADO.magenta } : undefined}>{s.ultimaVenta ? hace(s.diasSinVenta) : 'nunca'}</span>,
-  },
-  {
-    id: 'edad',
-    titulo: (c) => (c.conAmazon ? 'Antigüedad' : 'Edad'),
-    ayuda: (c) =>
-      c.conAmazon
-        ? 'El tramo de antigüedad más viejo en el que tiene unidades, según Amazon. Con el ratón encima se ve el reparto'
-        : 'Días medios que llevan en Amazon las unidades que quedan (estimado con el libro mayor)',
-    valor: (s, c) => (c.conAmazon ? (s.edadAmazon?.masAntiguo ? TRAMOS_AMAZON.findIndex((t) => t.id === s.edadAmazon?.masAntiguo) : null) : s.edadMediaDias),
-    celda: (s, c) => {
-      if (!c.conAmazon) return s.edadMediaDias === null ? <span className="text-[var(--ls-t4)]">—</span> : `${n0(s.edadMediaDias)} d`
-      const e = s.edadAmazon
-      const tramo = TRAMOS_AMAZON.find((t) => t.id === e?.masAntiguo)
-      if (!e || !tramo) return <span className="text-[var(--ls-t4)]">—</span>
-      const reparto = TRAMOS_AMAZON.filter((t) => e.edad[t.id] > 0).map((t) => `${t.texto}: ${n0(e.edad[t.id])}`).join(' · ')
-      return (
-        <span title={reparto} className="inline-flex items-center justify-end gap-[6px]">
-          <span className="h-[7px] w-[7px] rounded-full" style={{ background: COLOR_TRAMO_AMAZON[tramo.id] }} aria-hidden />
-          {tramo.texto.replace(' días', '')} d
-        </span>
-      )
-    },
-  },
-  {
-    id: 'antiguas',
-    titulo: (c) => (c.conAmazon ? '> 90 d' : '> 270 d'),
-    ayuda: (c) =>
-      c.conAmazon
-        ? 'Unidades que llevan más de 90 días en Amazon: lo que Seller Central llama inventario antiguo'
-        : 'Unidades que llevan más de 270 días: la zona donde Amazon puede cobrar de más',
-    valor: (s, c) => (c.conAmazon ? (s.edadAmazon?.masDe90 ?? 0) : s.porTramo.t271 + s.porTramo.t366),
-    celda: (s, c) => {
-      const v = c.conAmazon ? (s.edadAmazon?.masDe90 ?? 0) : s.porTramo.t271 + s.porTramo.t366
-      // Con los tramos de Amazon, de 181 días en adelante ya hay recargo por antigüedad: eso va en rojo
-      const conRecargo = c.conAmazon && s.edadAmazon ? s.edadAmazon.edad.a181 + s.edadAmazon.edad.a331 + s.edadAmazon.edad.a366 + s.edadAmazon.edad.a456 > 0 : !c.conAmazon
-      return v > 0 ? <b className="font-semibold" style={{ color: conRecargo ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }}>{n0(v)}</b> : <span className="text-[var(--ls-t4)]">—</span>
-    },
-  },
-  {
-    id: 'devol',
-    titulo: 'Devol. 90 d',
-    ayuda: 'Unidades devueltas por los clientes en 90 días y qué parte de lo vendido son',
-    valor: (s) => s.devueltas.d90,
-    celda: (s) =>
-      s.devueltas.d90 === 0 ? (
-        <span className="text-[var(--ls-t4)]">—</span>
-      ) : (
-        <span style={s.alertas.includes('devoluciones altas') ? { color: COLOR_ESTADO.ambar } : undefined}>
-          {n0(s.devueltas.d90)} <span className="text-[var(--ls-t4)]">({pct(s.tasaDevolucion90)})</span>
-        </span>
-      ),
-  },
-  { id: 'valor', titulo: 'Valor', ayuda: 'Stock a precio de venta', valor: (s) => s.valorStock, celda: (s) => eur(s.valorStock) },
-  {
-    id: 'almacenaje',
-    titulo: 'Almacenaje/mes',
-    ayuda: (c) => (c.conAmazon ? 'Lo que Amazon calcula que costará guardar esta referencia el mes que viene, recargos incluidos' : 'Estimación: ver los supuestos de volumen y tarifa'),
-    valor: (s, c) => (c.conAmazon ? (s.edadAmazon?.costeMes ?? null) : costeMensual(Math.max(0, s.enAmazon - s.entrante), c.mes, c.supuestos)),
-    celda: (s, c) =>
-      c.conAmazon ? (
-        <span className="text-[var(--ls-t3)]">{s.edadAmazon?.costeMes != null ? eurFino(s.edadAmazon.costeMes) : '—'}</span>
-      ) : (
-        <span className="text-[var(--ls-t3)]">{eur(costeMensual(Math.max(0, s.enAmazon - s.entrante), c.mes, c.supuestos))}</span>
-      ),
-  },
-]
-
-export function PanelInventario({
-  clienteId,
-  clienteNombre,
-  hoy,
-  onProponer,
-  puedeLeerVentas = false,
-}: {
-  clienteId: string
-  clienteNombre: string
+export interface PanelInventarioProps {
+  sesion: SesionRemesas
+  cliente: ClienteRemesas
+  /** YYYY-MM-DD en Madrid */
   hoy: string
-  /** Salta a Propuestas con el generador de IA. Solo la agencia lo tiene */
-  onProponer?: () => void
-  /** Pedirle a Amazon el libro mayor ahora mismo, sin esperar a la pasada de la noche. Solo un administrador */
-  puedeLeerVentas?: boolean
-}) {
-  const { cargando, error, datos, recargar } = useInventario(clienteId)
-  const [supuestos, guardarSupuestos] = useSupuestosAlmacenaje(clienteId)
+  callbacks?: Partial<CallbacksRemesas>
+}
+
+export function PanelInventario({ sesion, cliente, hoy, callbacks }: PanelInventarioProps) {
+  const { cargando, error, datos, recargar } = useInventario(cliente.id)
+  const planR = usePlan(cliente.id, { todas: true })
+  const [supuestos, guardarSupuestos] = useSupuestosAlmacenaje(cliente.id)
 
   if (!datos) {
-    return (
-      <div className="flex h-full items-center justify-center rounded-[8px] border border-dashed border-[var(--ls-linea2)]">
-        {error ? (
-          <Vacio icono={<AlertTriangle />} titulo="No se ha podido leer el inventario" accion={<button type="button" onClick={() => void recargar()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>Reintentar</button>}>
-            {error}
-          </Vacio>
-        ) : (
-          <div className="flex items-center gap-2 text-[12.5px] text-[var(--ls-t3)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Leyendo el inventario de {clienteNombre}…
-          </div>
-        )}
+    return error ? (
+      <div className="rounded-[14px] border border-dashed border-[var(--ls-linea2)] bg-[var(--ls-sup)]">
+        <EstadoVacio icono={Boxes} titulo="No se ha podido leer el inventario" descripcion={error} accion={{ texto: 'Reintentar', icono: RefreshCw, onClick: () => void recargar() }} />
+      </div>
+    ) : (
+      <div className="flex flex-col gap-3" role="status" aria-label={`Leyendo el inventario de ${cliente.nombre}`}>
+        <p className="flex items-center gap-2 text-[12.5px] text-[var(--ls-t3)]">
+          <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+          Leyendo el inventario de {cliente.nombre}…
+        </p>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <EsqueletoTarjeta key={i} alto={92} />
+          ))}
+        </div>
+        <EsqueletoTarjeta alto={260} />
       </div>
     )
   }
@@ -250,171 +88,529 @@ export function PanelInventario({
   return (
     <Contenido
       datos={datos}
-      clienteId={clienteId}
-      clienteNombre={clienteNombre}
+      sesion={sesion}
+      cliente={cliente}
       hoy={hoy}
+      plan={planR.plan}
+      planError={planR.error}
+      planCalculadoAt={planR.pasada?.calculadoAt ?? null}
       supuestos={supuestos}
       onSupuestos={guardarSupuestos}
-      actualizando={cargando}
-      onActualizar={() => void recargar()}
-      onProponer={onProponer}
-      puedeLeerVentas={puedeLeerVentas}
+      actualizando={cargando || planR.cargando}
+      onActualizar={() => {
+        void recargar()
+        void planR.recargar()
+      }}
+      onPlanCambiado={() => void planR.recargar()}
+      callbacks={callbacks}
     />
   )
 }
 
-/**
- * PEDIRLE A AMAZON EL LIBRO MAYOR AHORA.
- *
- * La pasada de la noche lo lee sola, una vez al día. Este botón es para cuando hace falta
- * antes —se va a montar un envío y las ventas de los últimos días cuentan— o cuando la
- * pasada ha fallado y el aviso dice que las ventas llevan días atrasadas.
- *
- * Amazon tarda entre uno y varios minutos en preparar el informe, y la petición espera a que
- * esté. Si la conexión se corta por el camino, el servidor sigue con lo suyo: el informe no
- * depende de que esta pestaña siga abierta. Por eso un fallo de red no se cuenta como un
- * fallo de la lectura, y se dice que mire más tarde.
- */
-function LeerVentas({ conexionId, destacado, onLeido }: { conexionId: string; destacado: boolean; onLeido: () => void }) {
-  const [leyendo, setLeyendo] = useState(false)
+/* ------------------------------------------------------------------ */
+/* Filtros                                                             */
+/* ------------------------------------------------------------------ */
 
-  async function leer() {
-    setLeyendo(true)
-    try {
-      const res = await fetch(`/api/fba/sincronizar?conexion=${encodeURIComponent(conexionId)}`, { method: 'POST' })
-      const cuerpo = (await res.json().catch(() => null)) as { error?: string; hasta?: string; movimientos?: number; planificacion?: { guardadas: number; guardado: boolean; aviso: string | null; error: string | null } } | null
-      if (!res.ok) {
-        toast.error(cuerpo?.error ?? 'No se ha podido leer el libro mayor de Amazon')
-        return
-      }
-      toast.success(`Ventas al día: leídas hasta el ${fecha(cuerpo?.hasta)} (${n0(cuerpo?.movimientos ?? 0)} movimientos)`)
-      // La antigüedad se lee a la vez y puede fallar sola: se cuenta aparte, no se esconde
-      const p = cuerpo?.planificacion
-      if (p?.error) toast.warning(`No se ha podido leer la antigüedad de Amazon: ${p.error}`, { duration: 15_000 })
-      else if (p && !p.guardado && p.aviso) toast.warning(p.aviso, { duration: 15_000 })
-      else if (p?.guardado) toast.success(`Antigüedad de Amazon al día: ${n0(p.guardadas)} referencias`)
-      onLeido()
-    } catch {
-      toast.warning('Se ha cortado la conexión con el servidor, pero la lectura puede seguir en marcha. Pulsa «Actualizar» dentro de unos minutos.', { duration: 12_000 })
-    } finally {
-      setLeyendo(false)
-    }
-  }
+type IdFiltro = 'con_stock' | 'todas' | 'agotadas' | 'urgentes' | 'parado' | 'exceso' | 'devoluciones' | 'antiguas' | 'no_vendibles'
 
-  return (
-    <>
-      {leyendo && <span className="hidden text-[11px] text-[var(--ls-t4)] xl:inline">Amazon tarda unos minutos en preparar el informe</span>}
-      <button
-        type="button"
-        onClick={() => void leer()}
-        disabled={leyendo}
-        className={cx(BOTON.base, BOTON.alto, destacado ? BOTON.primario : BOTON.secundario)}
-        title="Le pide a Amazon, y guarda, el libro mayor de este cliente hasta hoy —ventas y devoluciones— y su informe de antigüedad del stock. Tarda unos minutos"
-      >
-        {leyendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <CloudDownload className="h-3 w-3" />}
-        {leyendo ? 'Leyendo de Amazon…' : 'Leer de Amazon'}
-      </button>
-    </>
-  )
+interface Filtro {
+  id: IdFiltro
+  texto: string
+  ayuda: string
+  admite: (f: FilaStock) => boolean
+  /** Se pinta con un punto de color cuando hay algo */
+  alerta?: boolean
 }
+
+const FILTROS: Filtro[] = [
+  { id: 'con_stock', texto: 'Con stock', ayuda: 'Lo que hay ahora en la red de Amazon', admite: (f) => f.sku.enAmazon > 0 },
+  { id: 'agotadas', texto: 'Agotadas', ayuda: 'Sin stock vendible y con ventas: se están perdiendo ventas', admite: (f) => f.estado === 'agotado', alerta: true },
+  { id: 'urgentes', texto: 'Rompen pronto', ayuda: 'Se quedan sin stock antes de que pueda llegar un envío, o casi', admite: (f) => f.estado === 'urgente', alerta: true },
+  { id: 'parado', texto: 'Paradas', ayuda: 'Llevan mucho sin venderse y siguen ocupando almacén', admite: (f) => f.estado === 'parado' },
+  { id: 'exceso', texto: 'De sobra', ayuda: 'Más stock del que se vende en la cobertura máxima', admite: (f) => f.estado === 'exceso' },
+  { id: 'devoluciones', texto: 'Devoluciones altas', ayuda: 'Se devuelve el 12 % o más de lo que se vende', admite: (f) => f.sku.alertas.includes('devoluciones altas') },
+  { id: 'antiguas', texto: 'Más de 270 días', ayuda: 'Tiene unidades de más de 270 días en Amazon: zona de recargo por antigüedad', admite: (f) => f.sku.porTramo.t271 + f.sku.porTramo.t366 > 0 },
+  { id: 'no_vendibles', texto: 'No vendibles', ayuda: 'Tiene unidades en Amazon que no se pueden vender: dañadas o defectuosas (sin el desglose de Amazon, también reservadas o en tránsito sin registrar)', admite: (f) => f.sku.noDisponibles > 0 },
+  { id: 'todas', texto: 'Todas', ayuda: 'Todas las referencias que han tenido stock o ventas', admite: () => true },
+]
+
+/** Con el informe de Amazon leído, «antiguas» es lo que Seller Central llama inventario antiguo (más de 90 días). Mismo id */
+const FILTRO_ANTIGUAS_AMAZON: Filtro = {
+  id: 'antiguas',
+  texto: 'Más de 90 días',
+  ayuda: 'Tiene unidades de más de 90 días en Amazon según su informe de planificación: lo que Seller Central llama inventario antiguo',
+  admite: (f) => (f.sku.edadAmazon?.masDe90 ?? 0) > 0,
+}
+
+/* ------------------------------------------------------------------ */
+/* Columnas                                                            */
+/* ------------------------------------------------------------------ */
+
+interface Ctx {
+  mes: number
+  supuestos: SupuestosAlmacenaje
+  conAmazon: boolean
+  moneda: string
+  hoy: string
+  esAgencia: boolean
+}
+
+const tonoCobertura = (dias: number | null): string => {
+  if (dias === null) return 'var(--ls-t4)'
+  if (dias <= 14) return COLOR_ESTADO.rojo
+  if (dias <= 30) return COLOR_ESTADO.ambar
+  if (dias > 120) return COLOR_ESTADO.violeta
+  return COLOR_ESTADO.verde
+}
+
+const ORDEN_ESTADO: Record<FilaStock['estado'], number> = { agotado: 0, urgente: 1, bajo: 2, parado: 3, exceso: 4, sin_ventas: 5, ok: 6, sin_datos: 7 }
+const enAlmacen = (f: FilaStock) => dentroDe(f.sku)
+const raya = <span className="text-[var(--ls-t4)]">—</span>
+
+/** Marca de «no sale del plan» junto a una cifra */
+const deInventario = (f: FilaStock) =>
+  f.origen === 'inventario' ? (
+    <span className="ml-[3px] align-super text-[9.5px] text-[var(--ls-t4)]" title="Del inventario: esta referencia no está en el plan">
+      inv
+    </span>
+  ) : null
+
+/** Las 7 de siempre */
+function columnasBase(c: Ctx): Columna<FilaStock>[] {
+  return [
+    {
+      id: 'producto',
+      cabecera: 'Producto',
+      movil: 'titulo',
+      ordenar: (f) => f.sku.sku,
+      ancho: '34%',
+      celda: (f) => (
+        <span className="flex min-w-0 max-w-[420px] items-baseline gap-2 overflow-hidden">
+          <span className="shrink-0 font-mono text-[12px] text-[var(--ls-t3)]">{f.sku.sku}</span>
+          <span className="truncate font-normal text-[var(--ls-t1)]" title={f.sku.nombre ?? ''}>
+            {f.sku.nombre ?? '—'}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: 'vendibles',
+      cabecera: 'Vendible',
+      alinear: 'derecha',
+      ordenar: (f) => f.sku.vendibles,
+      celda: (f) => <span style={f.sku.noDisponibles > 0 ? { color: COLOR_ESTADO.ambar } : undefined} title={f.sku.noDisponibles > 0 ? `${n0(f.sku.noDisponibles)} no vendibles aparte` : undefined}>{n0(f.sku.vendibles)}</span>,
+    },
+    {
+      id: 'camino',
+      cabecera: 'Camino',
+      rotuloMovil: 'De camino',
+      alinear: 'derecha',
+      ordenar: (f) => f.linea?.deCamino ?? f.sku.entrante,
+      celda: (f) => {
+        const v = f.linea?.deCamino ?? f.sku.entrante
+        const dudoso = f.linea?.dudoso ?? 0
+        return v > 0 ? (
+          <span title={dudoso > 0 ? `${n0(dudoso)} en un envío dudoso que no cuenta` : 'Enviado y todavía sin recibir'}>
+            {n0(v)}
+            {dudoso > 0 && <span className="ml-[3px] text-[10px]" style={{ color: COLOR_ESTADO.rojo }}>!</span>}
+          </span>
+        ) : (
+          raya
+        )
+      },
+    },
+    {
+      id: 'ritmo',
+      cabecera: 'Ud/día',
+      rotuloMovil: 'Ritmo',
+      alinear: 'derecha',
+      ordenar: (f) => f.ritmo,
+      celda: (f) => {
+        if (f.ritmo === null) return raya
+        const conf = f.confianza ? CONFIANZA[f.confianza] : null
+        const s = f.sku
+        return (
+          <span className="inline-flex items-center justify-end gap-[4px]" title={f.ritmoExplicacion ?? 'Mezcla de las dos últimas semanas y el último mes (inventario)'}>
+            {s.tendencia === 'sube' && <ArrowUp className="h-3 w-3" style={{ color: COLOR_ESTADO.verde }} aria-label="al alza" />}
+            {s.tendencia === 'baja' && <ArrowDown className="h-3 w-3" style={{ color: COLOR_ESTADO.rojo }} aria-label="a la baja" />}
+            {n2(f.ritmo)}
+            {(conf?.corto === 'baja' || (f.origen === 'inventario' && s.muestraCorta && s.vendidas.d30 > 0)) && (
+              <span className="text-[var(--ls-t4)]" title="Poca historia: ritmo orientativo">
+                *
+              </span>
+            )}
+            {deInventario(f)}
+          </span>
+        )
+      },
+    },
+    {
+      id: 'cobertura',
+      cabecera: 'Cobertura',
+      alinear: 'derecha',
+      ordenar: (f) => f.cobertura,
+      celda: (f) => {
+        if (f.estado === 'sin_datos' && f.cobertura === null) return raya
+        if ((f.cobertura ?? 0) <= 0 && f.sku.vendibles <= 0)
+          return <span className="text-[var(--ls-t3)]">{f.sku.entrante > 0 ? 'de camino' : f.sku.enAmazon > 0 ? 'no vendible' : 'agotado'}</span>
+        if (f.cobertura === null) return <span className="text-[var(--ls-t4)]">sin ventas</span>
+        return (
+          <span className="inline-flex items-center justify-end gap-[6px]" title={f.origen === 'plan' ? 'Días que dura con lo que viene de camino (plan)' : 'Días que dura lo vendible al ritmo actual (inventario)'}>
+            <span className="h-[7px] w-[7px] rounded-full" style={{ background: tonoCobertura(f.cobertura) }} aria-hidden />
+            {n0(f.cobertura)} d
+          </span>
+        )
+      },
+    },
+    {
+      id: 'rotura',
+      cabecera: 'Rotura',
+      rotuloMovil: 'Sin stock el',
+      alinear: 'derecha',
+      ordenar: (f) => f.rotura ?? '9999-12-31',
+      celda: (f) => (f.rotura ? <span className="text-[var(--ls-t2)]">{fechaCorta(f.rotura, c.hoy)}</span> : raya),
+    },
+    {
+      id: 'estado',
+      cabecera: 'Estado',
+      movil: 'insignia',
+      ordenar: (f) => ORDEN_ESTADO[f.estado],
+      celda: (f) => (
+        <span className="inline-flex items-center gap-[6px]">
+          <InsigniaEstadoStock estado={f.estado} />
+          {f.stockViejo && (
+            <span className="text-[10.5px] text-[var(--ls-t4)]" title="El stock de esta referencia sale de otro mercado y no es de hoy (D11)">
+              viejo
+            </span>
+          )}
+        </span>
+      ),
+    },
+  ]
+}
+
+interface ColumnaExtra {
+  id: string
+  texto: string
+  columna: (c: Ctx) => Columna<FilaStock>
+  /** Solo la agencia */
+  agencia?: boolean
+}
+
+const EXTRA: ColumnaExtra[] = [
+  {
+    id: 'enAmazon',
+    texto: 'En Amazon (dentro)',
+    columna: () => ({ id: 'enAmazon', cabecera: 'En Amazon', alinear: 'derecha', movil: 'oculto', ordenar: enAlmacen, celda: (f) => <b className="font-semibold text-[var(--ls-t1)]">{n0(enAlmacen(f))}</b> }),
+  },
+  {
+    id: 'reservadas',
+    texto: 'Reservado',
+    columna: () => ({ id: 'reservadas', cabecera: 'Reservado', alinear: 'derecha', movil: 'oculto', ordenar: (f) => f.sku.reservadas ?? null, celda: (f) => (f.sku.reservadas == null ? raya : n0(f.sku.reservadas)) }),
+  },
+  {
+    id: 'noVendibles',
+    texto: 'No vendibles',
+    columna: () => ({ id: 'noVendibles', cabecera: 'No vend.', alinear: 'derecha', movil: 'oculto', ordenar: (f) => f.sku.noDisponibles, celda: (f) => (f.sku.noDisponibles > 0 ? <span style={{ color: COLOR_ESTADO.ambar }}>{n0(f.sku.noDisponibles)}</span> : raya) }),
+  },
+  { id: 'v7', texto: 'Vendidas 7 días', columna: () => ({ id: 'v7', cabecera: '7 d', alinear: 'derecha', movil: 'oculto', ordenar: (f) => f.sku.vendidas.d7, celda: (f) => n0(f.sku.vendidas.d7) }) },
+  { id: 'v30', texto: 'Vendidas 30 días', columna: () => ({ id: 'v30', cabecera: '30 d', alinear: 'derecha', movil: 'oculto', ordenar: (f) => f.sku.vendidas.d30, celda: (f) => n0(f.sku.vendidas.d30) }) },
+  { id: 'v90', texto: 'Vendidas 90 días', columna: () => ({ id: 'v90', cabecera: '90 d', alinear: 'derecha', movil: 'oculto', ordenar: (f) => f.sku.vendidas.d90, celda: (f) => n0(f.sku.vendidas.d90) }) },
+  {
+    id: 'ultima',
+    texto: 'Última venta',
+    columna: () => ({
+      id: 'ultima',
+      cabecera: 'Última venta',
+      alinear: 'derecha',
+      movil: 'oculto',
+      ordenar: (f) => f.sku.diasSinVenta,
+      celda: (f) => (
+        <span className={f.estado === 'parado' ? undefined : 'text-[var(--ls-t3)]'} style={f.estado === 'parado' ? { color: COLOR_ESTADO.magenta } : undefined}>
+          {f.sku.ultimaVenta ? hace(f.sku.diasSinVenta) : 'nunca'}
+        </span>
+      ),
+    }),
+  },
+  {
+    id: 'edad',
+    texto: 'Antigüedad',
+    columna: (c) => ({
+      id: 'edad',
+      cabecera: c.conAmazon ? 'Antigüedad' : 'Edad',
+      alinear: 'derecha',
+      movil: 'oculto',
+      ordenar: (f) => (c.conAmazon ? (f.sku.edadAmazon?.masAntiguo ? TRAMOS_AMAZON.findIndex((t) => t.id === f.sku.edadAmazon?.masAntiguo) : null) : f.sku.edadMediaDias),
+      celda: (f) => {
+        if (!c.conAmazon) return f.sku.edadMediaDias === null ? raya : `${n0(f.sku.edadMediaDias)} d`
+        const e = f.sku.edadAmazon
+        const tramo = TRAMOS_AMAZON.find((t) => t.id === e?.masAntiguo)
+        if (!e || !tramo) return raya
+        const reparto = TRAMOS_AMAZON.filter((t) => e.edad[t.id] > 0).map((t) => `${t.texto}: ${n0(e.edad[t.id])}`).join(' · ')
+        return (
+          <span title={reparto} className="inline-flex items-center justify-end gap-[6px]">
+            <span className="h-[7px] w-[7px] rounded-full" style={{ background: COLOR_TRAMO_AMAZON[tramo.id] }} aria-hidden />
+            {tramo.texto.replace(' días', '')} d
+          </span>
+        )
+      },
+    }),
+  },
+  {
+    id: 'antiguas',
+    texto: 'Unidades antiguas',
+    columna: (c) => ({
+      id: 'antiguas',
+      cabecera: c.conAmazon ? '> 90 d' : '> 270 d',
+      alinear: 'derecha',
+      movil: 'oculto',
+      ordenar: (f) => (c.conAmazon ? (f.sku.edadAmazon?.masDe90 ?? 0) : f.sku.porTramo.t271 + f.sku.porTramo.t366),
+      celda: (f) => {
+        const s = f.sku
+        const v = c.conAmazon ? (s.edadAmazon?.masDe90 ?? 0) : s.porTramo.t271 + s.porTramo.t366
+        // Con los tramos de Amazon, de 181 días en adelante ya hay recargo por antigüedad: eso va en rojo
+        const conRecargo = c.conAmazon && s.edadAmazon ? s.edadAmazon.edad.a181 + s.edadAmazon.edad.a331 + s.edadAmazon.edad.a366 + s.edadAmazon.edad.a456 > 0 : !c.conAmazon
+        return v > 0 ? <b className="font-semibold" style={{ color: conRecargo ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }}>{n0(v)}</b> : raya
+      },
+    }),
+  },
+  {
+    id: 'devol',
+    texto: 'Devoluciones 90 días',
+    columna: () => ({
+      id: 'devol',
+      cabecera: 'Devol. 90 d',
+      alinear: 'derecha',
+      movil: 'oculto',
+      ordenar: (f) => f.sku.devueltas.d90,
+      celda: (f) =>
+        f.sku.devueltas.d90 === 0 ? (
+          raya
+        ) : (
+          <span style={f.sku.alertas.includes('devoluciones altas') ? { color: COLOR_ESTADO.ambar } : undefined}>
+            {n0(f.sku.devueltas.d90)} <span className="text-[var(--ls-t4)]">({pct(f.sku.tasaDevolucion90)})</span>
+          </span>
+        ),
+    }),
+  },
+  { id: 'valor', texto: 'Valor del stock', columna: (c) => ({ id: 'valor', cabecera: 'Valor', alinear: 'derecha', movil: 'oculto', ordenar: (f) => f.sku.valorStock, celda: (f) => din(f.sku.valorStock, f.sku.moneda ?? c.moneda) }) },
+  {
+    id: 'almacenaje',
+    texto: 'Almacenaje al mes',
+    columna: (c) => ({
+      id: 'almacenaje',
+      cabecera: 'Almac./mes',
+      alinear: 'derecha',
+      movil: 'oculto',
+      ordenar: (f) => (c.conAmazon ? (f.sku.edadAmazon?.costeMes ?? null) : costeMensual(enAlmacen(f), c.mes, c.supuestos)),
+      celda: (f) => <span className="text-[var(--ls-t3)]">{c.conAmazon ? eurFino(f.sku.edadAmazon?.costeMes ?? null) : eurFino(costeMensual(enAlmacen(f), c.mes, c.supuestos))}</span>,
+    }),
+  },
+  {
+    id: 'plan',
+    texto: 'Lo que propone el plan',
+    agencia: true,
+    columna: (c) => ({
+      id: 'plan',
+      cabecera: 'Plan',
+      alinear: 'derecha',
+      movil: 'oculto',
+      ordenar: (f) => f.linea?.cantidad ?? null,
+      celda: (f) => {
+        const l = f.linea
+        if (!l || !l.cantidad || !l.prioridad) return raya
+        const p = PRIORIDAD[l.prioridad]
+        return (
+          <span className="inline-flex items-center justify-end gap-[6px]" title={l.salirAntesDe ? `Que salga antes del ${fechaCorta(l.salirAntesDe, c.hoy)}` : undefined}>
+            <span className="h-[7px] w-[7px] rounded-full" style={{ background: COLOR_ESTADO[p.tono] }} aria-hidden />
+            {n0(l.cantidad)} ud
+          </span>
+        )
+      },
+    }),
+  },
+]
+
+const CLAVE_COLUMNAS = 'fba-stock-columnas'
+
+/** Las columnas de más que se ven, recordadas en este navegador (una comodidad: sin almacenamiento, ninguna) */
+function useColumnasExtra(): [Set<string>, (id: string, visible: boolean) => void] {
+  const [visibles, setVisibles] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    try {
+      const crudo = window.localStorage.getItem(CLAVE_COLUMNAS)
+      if (crudo) setVisibles(new Set((JSON.parse(crudo) as unknown[]).filter((x): x is string => typeof x === 'string')))
+    } catch {
+      // Sin almacenamiento: las de siempre
+    }
+  }, [])
+  const cambiar = useCallback((id: string, visible: boolean) => {
+    setVisibles((v) => {
+      const n = new Set(v)
+      if (visible) n.add(id)
+      else n.delete(id)
+      try {
+        window.localStorage.setItem(CLAVE_COLUMNAS, JSON.stringify([...n]))
+      } catch {
+        // Vale mientras la pantalla esté abierta
+      }
+      return n
+    })
+  }, [])
+  return [visibles, cambiar]
+}
+
+/* ------------------------------------------------------------------ */
+/* La sección                                                          */
+/* ------------------------------------------------------------------ */
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
 function Contenido({
   datos,
-  clienteId,
-  clienteNombre,
+  sesion,
+  cliente,
   hoy,
+  plan,
+  planError,
+  planCalculadoAt,
   supuestos,
   onSupuestos,
   actualizando,
   onActualizar,
-  onProponer,
-  puedeLeerVentas,
+  onPlanCambiado,
+  callbacks,
 }: {
   datos: InventarioDeCliente
-  clienteId: string
-  clienteNombre: string
+  sesion: SesionRemesas
+  cliente: ClienteRemesas
   hoy: string
+  plan: PlanCliente | PlanParaCliente | null
+  planError: string | null
+  planCalculadoAt: string | null
   supuestos: SupuestosAlmacenaje
   onSupuestos: (s: SupuestosAlmacenaje) => void
   actualizando: boolean
   onActualizar: () => void
-  onProponer?: () => void
-  puedeLeerVentas: boolean
+  onPlanCambiado: () => void
+  callbacks?: Partial<CallbacksRemesas>
 }) {
+  const esAgencia = sesion.actor === 'agencia'
+  const puedeEditar = esAgencia && cliente.puedeEditar
+  const planAgencia = esAgencia && esPlanDeAgencia(plan) ? plan : null
+  const moneda = planAgencia?.moneda ?? cliente.moneda
+  const params = useSearchParams()
+  const skuDeUrl = params?.get('sku') ?? null
+
   const [filtro, setFiltro] = useState<IdFiltro>('con_stock')
   const [busca, setBusca] = useState('')
-  const [orden, setOrden] = useState<{ id: string; dir: 'asc' | 'desc' } | null>(null)
   const [abierta, setAbierta] = useState<string | null>(null)
   // El tramo de la tarjeta de antigüedad que se ha pulsado: la tabla de abajo enseña sus productos
   const [tramoSel, setTramoSel] = useState<IdTramoInforme | null>(null)
   const [bajandoExcel, setBajandoExcel] = useState(false)
+  const [extra, cambiarExtra] = useColumnasExtra()
   const zonaTabla = useRef<HTMLDivElement>(null)
 
+  const lector = useLeerDeAmazon(cliente.id, onActualizar)
+  const plazos = useConfirmarPlazos(cliente.id, onPlanCambiado)
+
+  // El mapa de cobertura del Resumen manda aquí con ?sku=: se abre su ficha (una vez por sku)
+  const skuAbiertoDeUrl = useRef<string | null>(null)
+  useEffect(() => {
+    if (!skuDeUrl || skuAbiertoDeUrl.current === skuDeUrl) return
+    skuAbiertoDeUrl.current = skuDeUrl
+    if (datos.skus.some((s) => s.sku === skuDeUrl)) {
+      setFiltro('todas')
+      setAbierta(skuDeUrl)
+    }
+  }, [skuDeUrl, datos.skus])
+
   const mes = mesDe(hoy)
-  // La pasada de la noche lee cada día: pasar de un día sin leer ya es raro, y el botón se destaca
   const ventasAtrasadas = datos.leidoHasta === null || diasEntreInv(datos.leidoHasta, hoy) > 1
   const ea = datos.edadAmazon
   const conAmazon = ea !== null
-  // Con la antigüedad de Amazon, el aviso de las unidades «anteriores al libro» ya no describe lo que se ve
-  const avisos = ea ? datos.avisos.filter((a) => !a.includes(AVISO_ANTERIOR_AL_LIBRO)) : datos.avisos
-  const ctx: Ctx = useMemo(() => ({ mes, supuestos, conAmazon }), [mes, supuestos, conAmazon])
   const r = datos.resumen
   const sinLibro = datos.libro === 'sin_leer'
+  const ctx: Ctx = useMemo(() => ({ mes, supuestos, conAmazon, moneda, hoy, esAgencia }), [mes, supuestos, conAmazon, moneda, hoy, esAgencia])
 
+  /* ---------- plan + inventario ---------- */
+  const filas = useMemo(
+    () => filasDeStock(datos.skus, (plan?.lineas as LineaDeStock[] | undefined) ?? null, { coberturaMaxima: planAgencia?.ajustes.coberturaMaxima ?? null }),
+    [datos.skus, plan, planAgencia]
+  )
+  const conPlan = filas.filter((f) => f.origen === 'plan').length
+  const viejos = filas.filter((f) => f.stockViejo).length
+  const diasPlan = plan ? diasDesde(plan.hoy, hoy) : null
+  const mercado = cliente.mercadoLectura ?? plan?.calidad.mercado ?? datos.marketplaceId
+  const enCamino: EnCamino[] = plan?.enCamino ?? []
+
+  /* ---------- filtros ---------- */
   const filtros = useMemo(() => (conAmazon ? FILTROS.map((f) => (f.id === 'antiguas' ? FILTRO_ANTIGUAS_AMAZON : f)) : FILTROS), [conAmazon])
-  const cuentas = useMemo(() => Object.fromEntries(filtros.map((f) => [f.id, datos.skus.filter(f.admite).length])) as Record<IdFiltro, number>, [filtros, datos.skus])
+  const cuentas = useMemo(() => Object.fromEntries(filtros.map((f) => [f.id, filas.filter(f.admite).length])) as Record<IdFiltro, number>, [filtros, filas])
 
   // La antigüedad como una lista de tramos, venga de Amazon o estimada: lo que se pulsa y lo que se exporta
   const informe = useMemo(() => informeDeAntiguedad(datos, { costeDe: (u) => costeMensual(u, mes, supuestos) }), [datos, mes, supuestos])
-  // Un tramo que ya no existe (se ha vuelto a leer y la fuente es otra) deja de estar elegido solo
   const tramoActivo = tramoDelInforme(informe, tramoSel)
   const productosDelTramo = useMemo(() => (tramoActivo ? productosDeTramo(datos.skus, informe, tramoActivo.id) : []), [datos.skus, informe, tramoActivo])
 
   const visibles = useMemo(() => {
     const f = filtros.find((x) => x.id === filtro) ?? filtros[0]
     const q = busca.trim().toLowerCase()
-    const base = tramoActivo ? productosDelTramo.map((p) => p.sku) : datos.skus.filter(f.admite)
-    const lista = base.filter((s) => !q || s.sku.toLowerCase().includes(q) || (s.nombre ?? '').toLowerCase().includes(q) || (s.asin ?? '').toLowerCase().includes(q))
-    // Con un tramo elegido y sin otro orden pedido, ya vienen por unidades en ese tramo (productosDeTramo)
-    if (!orden) return lista
-    const col = COLUMNAS.find((c) => c.id === orden.id)
-    if (!col) return lista
-    const signo = orden.dir === 'asc' ? 1 : -1
-    return [...lista].sort((a, b) => {
-      const va = col.valor(a, ctx)
-      const vb = col.valor(b, ctx)
-      if (va === null && vb === null) return 0
-      if (va === null) return 1
-      if (vb === null) return -1
-      return (typeof va === 'string' && typeof vb === 'string' ? va.localeCompare(vb) : Number(va) - Number(vb)) * signo
-    })
-  }, [datos.skus, filtros, filtro, busca, orden, ctx, tramoActivo, productosDelTramo])
+    const porSku = new Map(filas.map((x) => [x.sku.sku, x]))
+    const base = tramoActivo ? productosDelTramo.map((p) => porSku.get(p.sku.sku)).filter((x): x is FilaStock => !!x) : filas.filter(f.admite)
+    return base.filter((x) => !q || x.sku.sku.toLowerCase().includes(q) || (x.sku.nombre ?? '').toLowerCase().includes(q) || (x.sku.asin ?? '').toLowerCase().includes(q))
+  }, [filas, filtros, filtro, busca, tramoActivo, productosDelTramo])
 
+  /* ---------- columnas ---------- */
+  const opcionesExtra = EXTRA.filter((e) => !e.agencia || esAgencia)
+  const columnas = useMemo(() => {
+    const base = columnasBase(ctx)
+    const deTramo: Columna<FilaStock>[] = tramoActivo
+      ? [
+          {
+            id: 'tramo',
+            cabecera: tramoActivo.id === 'anterior' ? 'Sin edad' : `En ${tramoActivo.texto.replace(' días', '')}`,
+            rotuloMovil: `En ${tramoActivo.texto}`,
+            alinear: 'derecha',
+            ordenar: (f) => unidadesEnTramo(f.sku, informe, tramoActivo.id),
+            celda: (f) => (
+              <span>
+                <b className="font-semibold text-[var(--ls-t1)]">{n0(unidadesEnTramo(f.sku, informe, tramoActivo.id))}</b>
+                <span className="text-[var(--ls-t4)]"> / {n0(enAlmacen(f))}</span>
+              </span>
+            ),
+          },
+        ]
+      : []
+    const mas = opcionesExtra.filter((e) => extra.has(e.id)).map((e) => e.columna(ctx))
+    return [base[0], ...deTramo, ...base.slice(1), ...mas]
+  }, [ctx, tramoActivo, informe, extra, opcionesExtra])
+
+  /* ---------- almacenaje ---------- */
   // El almacenaje se cobra por lo que está DENTRO del almacén: lo que viene de camino no paga
-  const enAlmacen = Math.max(0, r.unidadesEnAmazon - r.entrante)
+  // Se suma por referencia: restar al total el camino de las remesas (que el total no lleva) daba menos que lo vendible
+  const dentro = datos.skus.reduce((t, k) => t + dentroDe(k), 0)
   // Lo que la tarjeta de antigüedad no recoge: lo que Amazon tiene dentro y no está fechado ni es «anterior al libro»
-  const sinClasificar = ea ? Math.max(0, enAlmacen - ea.unidades) : Math.max(0, enAlmacen - Object.values(r.porTramo).reduce((s, v) => s + v, 0) - r.anteriorALaLectura)
+  const sinClasificar = ea ? Math.max(0, dentro - ea.unidades) : Math.max(0, dentro - Object.values(r.porTramo).reduce((s, v) => s + v, 0) - r.anteriorALaLectura)
   const valorMasDe90 = ea ? ea.tramos.filter((t) => TRAMOS_MAS_DE_90.includes(t.id)).reduce((acc, t) => acc + t.valor, 0) : 0
-  const est = useMemo(() => estimarAlmacenaje({ unidades: enAlmacen, unidadesAntiguas: r.unidadesAntiguas }, mes, supuestos), [enAlmacen, r.unidadesAntiguas, mes, supuestos])
-  const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  const est = useMemo(() => estimarAlmacenaje({ unidades: dentro, unidadesAntiguas: r.unidadesAntiguas }, mes, supuestos), [dentro, r.unidadesAntiguas, mes, supuestos])
   const mesSiguiente = MESES[mes % 12]
 
-  const ficha = abierta ? datos.skus.find((s) => s.sku === abierta) ?? null : null
+  const ficha = abierta ? filas.find((f) => f.sku.sku === abierta) ?? null : null
 
   function elegirTramo(id: string) {
     const nuevo = tramoSel === id ? null : (id as IdTramoInforme)
     setTramoSel(nuevo)
     setBusca('')
-    setOrden(null)
     // La tabla está más abajo: se lleva a la vista para que se vea que ha pasado algo
-    if (nuevo) requestAnimationFrame(() => zonaTabla.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    if (nuevo) requestAnimationFrame(() => zonaTabla.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }))
   }
 
   /** El Excel de antigüedad con la marca: de todos los tramos, o solo del que se ha pulsado */
   async function bajarExcel(tramo: string | null) {
     setBajandoExcel(true)
     try {
-      const q = new URLSearchParams({ cliente: clienteId })
+      const q = new URLSearchParams({ cliente: cliente.id })
       if (tramo) q.set('tramo', tramo)
       const res = await fetch(`/api/fba/inventario/excel?${q.toString()}`)
       if (!res.ok) {
@@ -423,8 +619,8 @@ function Contenido({
         return
       }
       await bajarRespuesta(res, 'antiguedad-del-stock.xlsx')
-      const filas = Number(res.headers.get('X-Filas') ?? 0)
-      toast.success(`Excel descargado: ${filas} fila${filas === 1 ? '' : 's'} de productos`)
+      const nFilas = Number(res.headers.get('X-Filas') ?? 0)
+      toast.success(`Excel descargado: ${nFilas} fila${nFilas === 1 ? '' : 's'} de productos`)
     } catch {
       toast.error('No se ha podido descargar el Excel. Revisa la conexión y vuelve a probar.')
     } finally {
@@ -432,158 +628,172 @@ function Contenido({
     }
   }
 
-  function ordenarPor(id: string) {
-    setOrden((o) => (o?.id !== id ? { id, dir: 'desc' } : o.dir === 'desc' ? { id, dir: 'asc' } : null))
-  }
-
   function exportar() {
     descargarCsv(
-      `inventario-${clienteNombre.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${hoy}.csv`,
+      `stock-${cliente.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${hoy}.csv`,
       [
-        'SKU', 'Producto', 'ASIN', ...(tramoActivo ? [`Uds en ${tramoActivo.texto}`] : []), 'Estado', 'En Amazon', 'Vendibles', 'De camino', 'No vendibles', 'Vendidas 7 d', 'Vendidas 30 d', 'Vendidas 90 d', 'Ud/día', 'Días de stock', 'Se agota', 'Última venta', 'Días sin venta',
+        'SKU', 'Producto', 'ASIN', ...(tramoActivo ? [`Uds en ${tramoActivo.texto}`] : []), 'Estado', 'En Amazon', 'Vendibles', 'De camino', 'No vendibles',
+        'Vendidas 7 d', 'Vendidas 30 d', 'Vendidas 90 d', 'Ritmo (ud/día)', 'Cobertura (días)', 'Rotura', 'De dónde salen ritmo y cobertura',
+        'Ud/día (inventario)', 'Días de stock (inventario)', 'Se agota (inventario)', 'Última venta', 'Días sin venta',
         ...(conAmazon ? [...TRAMOS_AMAZON.map((t) => `Antigüedad ${t.texto.replace(' días', '')} (uds)`), 'Más de 90 d (uds)'] : ['Edad media (d)', 'Más de 270 d (uds)']),
         'Devueltas 90 d', 'Tasa de devolución', 'Precio', 'Valor del stock', conAmazon ? 'Almacenaje/mes (Amazon)' : 'Almacenaje/mes (est.)',
+        ...(esAgencia ? ['Propone el plan (ud)', 'Prioridad'] : []),
       ],
-      visibles.map((s) => [
-        s.sku, s.nombre, s.asin, ...(tramoActivo ? [unidadesEnTramo(s, informe, tramoActivo.id)] : []), ESTADO_SKU[s.estado].texto, s.enAmazon, s.vendibles, s.entrante, s.noDisponibles,
-        s.vendidas.d7, s.vendidas.d30, s.vendidas.d90, s.ritmoPlan, s.cobertura, s.seAgotaEl, s.ultimaVenta, s.diasSinVenta,
-        ...(conAmazon ? [...TRAMOS_AMAZON.map((t) => s.edadAmazon?.edad[t.id] ?? null), s.edadAmazon?.masDe90 ?? null] : [s.edadMediaDias, s.porTramo.t271 + s.porTramo.t366]),
-        s.devueltas.d90, s.tasaDevolucion90, s.precio, s.valorStock,
-        conAmazon ? (s.edadAmazon?.costeMes ?? null) : costeMensual(Math.max(0, s.enAmazon - s.entrante), mes, supuestos),
-      ])
+      visibles.map((f) => {
+        const s = f.sku
+        return [
+          s.sku, s.nombre, s.asin, ...(tramoActivo ? [unidadesEnTramo(s, informe, tramoActivo.id)] : []), ESTADO_STOCK[f.estado].texto, s.enAmazon, s.vendibles, f.linea?.deCamino ?? s.entrante, s.noDisponibles,
+          s.vendidas.d7, s.vendidas.d30, s.vendidas.d90, f.ritmo, f.cobertura, f.rotura, f.origen === 'plan' ? 'plan' : 'inventario',
+          s.ritmoPlan, s.cobertura, s.seAgotaEl, s.ultimaVenta, s.diasSinVenta,
+          ...(conAmazon ? [...TRAMOS_AMAZON.map((t) => s.edadAmazon?.edad[t.id] ?? null), s.edadAmazon?.masDe90 ?? null] : [s.edadMediaDias, s.porTramo.t271 + s.porTramo.t366]),
+          s.devueltas.d90, s.tasaDevolucion90, s.precio, s.valorStock,
+          conAmazon ? (s.edadAmazon?.costeMes ?? null) : costeMensual(enAlmacen(f), mes, supuestos),
+          ...(esAgencia ? [f.linea?.cantidad ?? null, f.linea?.prioridad ? PRIORIDAD[f.linea.prioridad].texto : null] : []),
+        ]
+      })
     )
   }
+
+  /* ---------- banda de calidad ---------- */
+  const calidad = plan ? plan.calidad : calidadDeInventario(datos, hoy)
+  const extraBanda: NonNullable<BandaDeCalidadProps['extra']> = []
+  if (sesion.esAdmin && !datos.planificacion.tabla)
+    extraBanda.push({ id: 'm231', tono: 'ambar', texto: 'Falta lanzar la migración 231_fba_planificacion.sql en Supabase: sin ella no se guarda la antigüedad que cuenta Amazon y se enseña la estimada con el libro mayor' })
+  if (datos.planificacion.error)
+    extraBanda.push({ id: 'planificacion', tono: 'rojo', texto: `La última lectura de la antigüedad de Amazon ha fallado${datos.planificacion.leidoAt ? ` (${fecha(datos.planificacion.leidoAt)})` : ''}: ${datos.planificacion.error}` })
+  // El error de la lectura del libro ya lo da la banda con `ultimoError` si no hay plan; con plan, solo si el plan no lo trae
+  if (plan && datos.lectura?.error && !('ultimoError' in plan.calidad && plan.calidad.ultimoError))
+    extraBanda.push({ id: 'lectura', tono: 'rojo', texto: `La última lectura de Amazon ha fallado${datos.lectura.intentoAt ? ` (${fecha(datos.lectura.intentoAt)})` : ''}: ${datos.lectura.error}` })
+  // Los avisos del inventario, sin los del libro (atraso, sin leer: los dice la banda) ni el de la edad estimada si Amazon da la suya
+  for (const [i, a] of datos.avisos.entries()) {
+    if (a.startsWith(AVISO_VENTAS_ATRASADAS) || a.startsWith(AVISO_LIBRO_SIN_LEER)) continue
+    if (ea && a.includes(AVISO_ANTERIOR_AL_LIBRO)) continue
+    extraBanda.push({ id: `inv_${i}`, tono: 'ambar', texto: a })
+  }
+  if (planError && !plan) extraBanda.push({ id: 'plan_error', tono: 'gris', texto: `El plan no se ha podido leer (${planError}): ritmo, cobertura y rotura salen del inventario` })
 
   if (!datos.conectado) {
     return (
-      <div className="rounded-[8px] border border-dashed border-[var(--ls-linea2)]">
-        <Vacio icono={<Boxes />} titulo="Este cliente no tiene la cuenta de Amazon conectada">
-          Sin la conexión no hay stock ni libro mayor de ventas que leer. Se conecta desde la ficha del cliente en Amazon.
-        </Vacio>
+      <div className="rounded-[14px] border border-dashed border-[var(--ls-linea2)] bg-[var(--ls-sup)]">
+        <EstadoVacio icono={Boxes} titulo="Este cliente no tiene la cuenta de Amazon conectada" descripcion="Sin la conexión no hay stock ni libro mayor de ventas que leer. Se conecta desde la ficha del cliente en Amazon." />
       </div>
     )
   }
 
+  const botonesCabecera: ReactNode = (
+    <div className="flex flex-wrap items-center gap-2">
+      {puedeEditar && callbacks?.onPropuestaAMedida && (
+        <button
+          type="button"
+          onClick={() => callbacks.onPropuestaAMedida?.(cliente.id)}
+          className={cx(BOTON.base, BOTON.alto, sesion.esAdmin && datos.conexionId && ventasAtrasadas ? BOTON.secundario : BOTON.primario)}
+          title="Que la IA proponga qué mandar a Amazon, con este stock delante"
+        >
+          <Sparkles className="h-3 w-3" />
+          <span>Propuesta a medida (IA)</span>
+        </button>
+      )}
+      {sesion.esAdmin && datos.conexionId && (
+        <>
+          {lector.leyendo && <span className="hidden text-[11px] text-[var(--ls-t4)] xl:inline">Amazon tarda unos minutos en preparar el informe</span>}
+          <button
+            type="button"
+            onClick={() => void lector.leer(datos.conexionId)}
+            disabled={lector.leyendo}
+            className={cx(BOTON.base, BOTON.alto, ventasAtrasadas ? BOTON.primario : BOTON.secundario)}
+            title="Le pide a Amazon, y guarda, el libro mayor de este cliente hasta hoy —ventas y devoluciones— y su informe de antigüedad del stock. Tarda unos minutos"
+          >
+            {lector.leyendo ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : <CloudDownload className="h-3 w-3" />}
+            {lector.leyendo ? 'Leyendo de Amazon…' : 'Leer de Amazon'}
+          </button>
+        </>
+      )}
+      <button type="button" onClick={onActualizar} disabled={actualizando} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Volver a leer el inventario y el plan">
+        <RefreshCw className={cx('h-3 w-3', actualizando && 'animate-spin motion-reduce:animate-none')} />
+        Actualizar
+      </button>
+    </div>
+  )
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pb-3 pr-[2px]">
+    <div className="flex min-w-0 flex-col gap-4 pb-3">
       {/* ================= CABECERA ================= */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex min-w-0 flex-wrap items-end justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
-          <h2 className={cx(TIPO.l, 'text-[var(--ls-t1)]')}>Panel de {clienteNombre}</h2>
-          <p className="text-[11.5px] text-[var(--ls-t3)]">
-            Inventario FBA en Amazon.es · {datos.leidoHasta ? `ventas y devoluciones leídas hasta el ${fecha(datos.leidoHasta)}` : 'libro mayor sin leer'}
-            {datos.libroDesde && <span className="text-[var(--ls-t4)]"> · libro desde el {fecha(datos.libroDesde)}</span>}
+          <h2 className="truncate text-[17px] font-semibold tracking-[-0.015em] text-[var(--ls-t1)]">Stock en Amazon {mercado ? marketplaceLabel(mercado) : ''}</h2>
+          <p className="text-[12px] text-[var(--ls-t3)]">
+            {cliente.nombre} · {datos.leidoHasta ? `ventas y devoluciones leídas hasta el ${fechaCorta(datos.leidoHasta, hoy)}` : 'libro mayor sin leer'}
+            {datos.libroDesde && <span className="text-[var(--ls-t4)]"> · libro desde el {fechaCorta(datos.libroDesde, hoy)}</span>}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {onProponer && (
-            // Con las ventas atrasadas lo primero es ponerlas al día: el botón destacado es el de leerlas
-            <button type="button" onClick={onProponer} className={cx(BOTON.base, BOTON.alto, puedeLeerVentas && datos.conexionId && ventasAtrasadas ? BOTON.secundario : BOTON.primario)} title="Que la IA proponga qué mandar a Amazon, con este inventario delante">
-              <Sparkles className="h-3 w-3" />
-              Proponer reposición con IA
-            </button>
-          )}
-          {puedeLeerVentas && datos.conexionId && <LeerVentas conexionId={datos.conexionId} destacado={ventasAtrasadas} onLeido={onActualizar} />}
-          <button type="button" onClick={onActualizar} disabled={actualizando} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Volver a leer el inventario">
-            <RefreshCw className={cx('h-3 w-3', actualizando && 'animate-spin')} />
-            Actualizar
-          </button>
-        </div>
+        {botonesCabecera}
       </div>
 
-      {(avisos.length > 0 || datos.lectura?.error || datos.planificacion.error || (puedeLeerVentas && !datos.planificacion.tabla)) && (
-        <ul className="shrink-0 space-y-[6px]">
-          {puedeLeerVentas && !datos.planificacion.tabla && (
-            <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
-              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
-              <span>
-                <b className={AVISO.fuerte}>Falta lanzar la migración 231_fba_planificacion.sql en Supabase.</b> Sin ella no se guarda la antigüedad que cuenta Amazon y la tarjeta enseña la estimada con el libro mayor.
-              </span>
-            </li>
-          )}
-          {datos.planificacion.error && (
-            <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
-              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
-              <span>
-                <b className={AVISO.fuerte}>La última lectura de la antigüedad de Amazon ha fallado{datos.planificacion.leidoAt ? ` (${fecha(datos.planificacion.leidoAt)})` : ''}:</b> {datos.planificacion.error}
-              </span>
-            </li>
-          )}
-          {datos.lectura?.error && (
-            <li className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
-              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
-              <span>
-                <b className={AVISO.fuerte}>La última lectura de Amazon ha fallado{datos.lectura.intentoAt ? ` (${fecha(datos.lectura.intentoAt)})` : ''}:</b> {datos.lectura.error}
-              </span>
-            </li>
-          )}
-          {avisos.map((a) => (
-            <li key={a} className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
-              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
-              <span>
-                {a}
-                {/* Las ventas se leen solas cada noche: si pasan de unos días, algo ha fallado. El botón las pone al día */}
-                {puedeLeerVentas && datos.conexionId && (a.startsWith(AVISO_VENTAS_ATRASADAS) || a.startsWith(AVISO_LIBRO_SIN_LEER)) && (
-                  <span className="text-[var(--ls-t3)]"> Se leen solas cada noche; con «Leer de Amazon» se ponen al día ahora.</span>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <BandaDeCalidad
+        calidad={calidad}
+        esAdmin={sesion.esAdmin}
+        puedeEditar={puedeEditar}
+        hoy={hoy}
+        onLeerAmazon={sesion.esAdmin && datos.conexionId ? () => lector.leer(datos.conexionId) : undefined}
+        leyendo={lector.leyendo}
+        onConfirmarPlazos={puedeEditar ? plazos.confirmar : undefined}
+        confirmando={plazos.confirmando}
+        onPonerPlazos={puedeEditar && callbacks?.onIrA ? () => callbacks.onIrA?.('cliente', 'reposicion') : undefined}
+        extra={extraBanda}
+      />
 
       {datos.skus.length === 0 ? (
-        <div className="rounded-[8px] border border-dashed border-[var(--ls-linea2)]">
-          <Vacio icono={<Boxes />} titulo="Todavía no hay nada que enseñar">
-            Ni stock en Amazon ni movimientos en el libro mayor de este cliente.
-          </Vacio>
+        <div className="rounded-[14px] border border-dashed border-[var(--ls-linea2)] bg-[var(--ls-sup)]">
+          <EstadoVacio icono={Boxes} titulo="Todavía no hay nada que enseñar" descripcion="Ni stock en Amazon ni movimientos en el libro mayor de este cliente." />
         </div>
       ) : (
         <>
           {/* ================= LAS CIFRAS ================= */}
-          <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-8">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 2xl:grid-cols-8">
             <Kpi
+              indice={0}
               rotulo="En Amazon"
-              valor={n0(enAlmacen)}
+              valor={n0(dentro)}
               sub={`vendibles ${n0(r.vendibles)} · de camino ${n0(r.entrante)} · no vendibles ${n0(r.noDisponibles)}`}
               ayuda="Lo que hay dentro de los almacenes de Amazon, sin lo que viene de camino. «No vendibles»: dañadas o defectuosas (si Amazon aún no ha dado el desglose, también reservadas o en tránsito sin registrar)"
             />
-            <Kpi rotulo="Valor del stock" valor={eur(r.valorStock)} sub={`a precio de venta · ${n0(r.referencias)} referencia${r.referencias === 1 ? '' : 's'}`} />
+            <Kpi indice={1} rotulo="Valor del stock" valor={din(r.valorStock, moneda)} sub={`a precio de venta · ${n0(r.referencias)} referencia${r.referencias === 1 ? '' : 's'}`} />
+            <Kpi indice={2} rotulo="Ventas (30 días)" valor={sinLibro ? '—' : n0(r.vendidas30)} sub={sinLibro ? 'sin libro mayor' : `${din(r.valorVentas30, moneda)} · ${n1(r.ritmo30)} ud/día`} />
             <Kpi
-              rotulo="Ventas (30 días)"
-              valor={sinLibro ? '—' : n0(r.vendidas30)}
-              sub={sinLibro ? 'sin libro mayor' : `${eur(r.valorVentas30)} · ${n1(r.ritmo30)} ud/día`}
+              indice={3}
+              rotulo="Cobertura"
+              valor={sinLibro ? '—' : plan?.resumen.coberturaMediana != null ? `${n0(plan.resumen.coberturaMediana)} días` : r.coberturaMedia === null ? '—' : `${n0(r.coberturaMedia)} días`}
+              tono={cuentas.agotadas + cuentas.urgentes > 0 ? 'ambar' : undefined}
+              sub={sinLibro ? 'sin libro mayor' : `${n0(cuentas.agotadas)} agotadas · ${n0(cuentas.urgentes)} rompen pronto`}
+              ayuda={plan?.resumen.coberturaMediana != null ? 'Mediana de los días que dura cada referencia que vende, con lo que viene de camino (plan)' : 'Días que duraría todo el stock vendible al ritmo actual (inventario)'}
             />
             <Kpi
-              rotulo="Stock para"
-              valor={sinLibro || r.coberturaMedia === null ? '—' : `${n0(r.coberturaMedia)} días`}
-              tono={r.agotadas + r.urgentes > 0 ? 'ambar' : undefined}
-              sub={sinLibro ? 'sin libro mayor' : `${n0(r.agotadas)} agotadas · ${n0(r.urgentes)} se agotan en 14 d`}
-              ayuda="Días que duraría todo el stock vendible al ritmo actual de venta"
-            />
-            <Kpi
+              indice={4}
               rotulo="Devoluciones (90 días)"
               valor={sinLibro ? '—' : pct(r.tasaDevolucion90)}
               tono={r.tasaDevolucion90 !== null && r.tasaDevolucion90 >= 0.12 ? 'ambar' : undefined}
               sub={sinLibro ? 'sin libro mayor' : `${n0(r.devueltas90)} de ${n0(r.vendidas90)} vendidas`}
             />
             <Kpi
+              indice={5}
               rotulo="Parado"
               valor={sinLibro ? '—' : `${n0(r.paradasUnidades)} uds`}
               tono={r.paradas > 0 ? 'magenta' : undefined}
-              sub={sinLibro ? 'sin libro mayor' : `${eur(r.paradasValor)} · ${n0(r.paradas)} referencia${r.paradas === 1 ? '' : 's'} sin vender`}
+              sub={sinLibro ? 'sin libro mayor' : `${din(r.paradasValor, moneda)} · ${n0(r.paradas)} referencia${r.paradas === 1 ? '' : 's'} sin vender`}
               ayuda="Stock de productos que llevan 60 días o más sin venderse"
             />
             {ea ? (
               <Kpi
+                indice={6}
                 rotulo="Más de 90 días"
                 valor={`${n0(ea.masDe90)} uds`}
                 tono={ea.masDe180 > 0 ? 'rojo' : ea.masDe90 > 0 ? 'ambar' : undefined}
-                sub={`${eur(valorMasDe90)} · ${n0(ea.masDe180)} con más de 180 d`}
+                sub={`${din(valorMasDe90, moneda)} · ${n0(ea.masDe180)} con más de 180 d`}
                 ayuda="Unidades que llevan más de 90 días en Amazon según su informe de planificación: lo que Seller Central llama inventario antiguo. A partir de 181 días hay recargo por antigüedad"
               />
             ) : (
               <Kpi
+                indice={6}
                 rotulo="Edad media"
                 valor={r.edadMediaDias === null ? '—' : `${n0(r.edadMediaDias)} días`}
                 tono={r.unidadesAntiguas > 0 ? 'rojo' : undefined}
@@ -593,6 +803,7 @@ function Contenido({
             )}
             {ea && ea.costeMes !== null ? (
               <Kpi
+                indice={7}
                 rotulo="Almacenaje (Amazon)"
                 valor={`${eurFino(ea.costeMes)}/mes`}
                 sub={
@@ -605,32 +816,33 @@ function Contenido({
                 ayuda="Lo que Amazon calcula que costará guardar este stock el mes que viene, con los recargos. Viene de su informe de planificación de inventario"
               />
             ) : (
-            <Kpi
-              rotulo="Almacenaje (estimado)"
-              valor={`${eur(est.almacenajeMes)}/mes`}
-              sub={
-                <>
-                  {m3(est.m3)} · {n0(supuestos.litrosPorUnidad)} L/ud
-                  {est.almacenajeMesSiguiente !== est.almacenajeMes && (
-                    <>
-                      <br />
-                      {mesSiguiente}: {eur(est.almacenajeMesSiguiente)}
-                    </>
-                  )}
-                  {est.recargoMes !== null && ` · recargo ${eur(est.recargoMes)}`}
-                </>
-              }
-              ayuda="Estimación con un volumen medio por unidad y las tarifas por m³. Se ajusta con el lápiz"
-              derecha={<AjusteAlmacenaje supuestos={supuestos} onGuardar={onSupuestos} />}
-            />
+              <Kpi
+                indice={7}
+                rotulo="Almacenaje (estimado)"
+                valor={`${eurFino(est.almacenajeMes)}/mes`}
+                sub={
+                  <>
+                    {m3(est.m3)} · {n0(supuestos.litrosPorUnidad)} L/ud
+                    {est.almacenajeMesSiguiente !== est.almacenajeMes && (
+                      <>
+                        <br />
+                        {mesSiguiente}: {eurFino(est.almacenajeMesSiguiente)}
+                      </>
+                    )}
+                    {est.recargoMes !== null && ` · recargo ${eurFino(est.recargoMes)}`}
+                  </>
+                }
+                ayuda="Estimación con un volumen medio por unidad y las tarifas por m³. Se ajusta con el lápiz"
+                derecha={<AjusteAlmacenaje supuestos={supuestos} onGuardar={onSupuestos} />}
+              />
             )}
           </div>
 
           {/* ================= LOS GRÁFICOS ================= */}
-          <div className="grid shrink-0 gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+          <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
             <Tarjeta
               titulo="Ventas y devoluciones, día a día"
-              ayuda={sinLibro ? 'Sin libro mayor leído' : `Últimos 90 días, hasta el ${fecha(datos.leidoHasta)}`}
+              ayuda={sinLibro ? 'Sin libro mayor leído' : `Últimos 90 días, hasta el ${fechaCorta(datos.leidoHasta, hoy)}`}
               derecha={
                 <>
                   <Clave color={VIZ.vendidas}>vendidas</Clave>
@@ -642,7 +854,7 @@ function Contenido({
             </Tarjeta>
             <Tarjeta
               titulo="Cuánto lleva el stock en Amazon"
-              ayuda={ea ? `Por tramos de antigüedad, como los cuenta Amazon · foto del ${fecha(ea.fecha)}` : 'Estimada con el libro mayor (lo más antiguo se vende primero): Amazon todavía no ha dado la suya'}
+              ayuda={ea ? `Por tramos, como los cuenta Amazon · foto del ${fecha(ea.fecha)}` : 'Estimada con el libro mayor (lo más antiguo se vende primero)'}
               derecha={
                 <button
                   type="button"
@@ -651,158 +863,149 @@ function Contenido({
                   className={cx(BOTON.base, BOTON.secundario)}
                   title="Descargar la antigüedad del stock en Excel, con la marca de Liberty Seller: los tramos y los productos de cada uno"
                 >
-                  {bajandoExcel ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3" />}
+                  {bajandoExcel ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : <FileSpreadsheet className="h-3 w-3" />}
                   Excel
                 </button>
               }
             >
-              {ea ? (
-                <EdadDelStockAmazon resumen={ea} sinClasificar={sinClasificar} seleccion={tramoActivo?.id ?? null} onSeleccion={elegirTramo} />
-              ) : (
-                <EdadDelStock
-                  porTramo={r.porTramo}
-                  valorPorTramo={r.valorPorTramo}
-                  anterior={r.anteriorALaLectura}
-                  diasDeLibro={datos.diasDeLibro}
-                  sinLibro={sinLibro}
-                  costeDe={(u) => costeMensual(u, mes, supuestos)}
-                  sinClasificar={sinClasificar}
-                  seleccion={tramoActivo?.id ?? null}
-                  onSeleccion={elegirTramo}
-                />
-              )}
+              <div className="overflow-x-auto">
+                {ea ? (
+                  <EdadDelStockAmazon resumen={ea} sinClasificar={sinClasificar} seleccion={tramoActivo?.id ?? null} onSeleccion={elegirTramo} />
+                ) : (
+                  <EdadDelStock
+                    porTramo={r.porTramo}
+                    valorPorTramo={r.valorPorTramo}
+                    anterior={r.anteriorALaLectura}
+                    diasDeLibro={datos.diasDeLibro}
+                    sinLibro={sinLibro}
+                    costeDe={(u) => costeMensual(u, mes, supuestos)}
+                    sinClasificar={sinClasificar}
+                    seleccion={tramoActivo?.id ?? null}
+                    onSeleccion={elegirTramo}
+                  />
+                )}
+              </div>
               <p className="mt-2 text-[11px] leading-[1.5] text-[var(--ls-t4)]">Pulsa un tramo para ver debajo los productos que lo forman.</p>
             </Tarjeta>
           </div>
 
+          {/* ================= DE DÓNDE SALEN LAS CIFRAS ================= */}
+          <div className="flex flex-wrap items-center gap-2">
+            {plan && conPlan > 0 ? (
+              <NotaDeOrigen tono={diasPlan && diasPlan > 1 ? 'ambar' : undefined}>
+                Ritmo, cobertura y rotura: plan de reposición
+                {planCalculadoAt ? ` calculado el ${fechaCorta(planCalculadoAt.slice(0, 10), hoy)}` : ` del ${fechaCorta(plan.hoy, hoy)}`}
+                {diasPlan && diasPlan > 0 ? ` · stock de hace ${diasPlan} día${diasPlan === 1 ? '' : 's'}` : ''}
+                {conPlan < filas.length ? ` · ${n0(filas.length - conPlan)} del inventario («inv»)` : ''}
+              </NotaDeOrigen>
+            ) : (
+              <NotaDeOrigen>Ritmo y cobertura del inventario: {plan ? 'el plan no trae estas referencias' : 'no hay plan calculado'}</NotaDeOrigen>
+            )}
+            {viejos > 0 && (
+              <NotaDeOrigen tono="gris">
+                {n0(viejos)} referencia{viejos === 1 ? '' : 's'} con {AVISO_LINEA.stock_viejo.texto.toLowerCase()}
+              </NotaDeOrigen>
+            )}
+          </div>
+
           {/* ================= FILTROS ================= */}
-          <div ref={zonaTabla} className="flex shrink-0 scroll-mt-1 flex-wrap items-center gap-[6px]">
+          <div ref={zonaTabla} className="flex min-w-0 scroll-mt-20 flex-col gap-2">
             {tramoActivo && (
-              <>
+              <div className="flex flex-wrap items-center gap-2">
                 <span
-                  className="inline-flex h-6 items-center gap-[7px] rounded-[6px] border border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] pl-2 pr-1 text-[11.5px] text-[var(--ls-t1)]"
+                  className="inline-flex min-h-[28px] max-w-full items-center gap-[7px] rounded-[10px] border border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] pl-2 pr-1 text-[12px] text-[var(--ls-t1)]"
                   title="Los productos de abajo son los que tienen unidades en este tramo de antigüedad"
                 >
-                  <span className="h-[8px] w-[8px] shrink-0 rounded-[2px]" style={{ background: ea ? COLOR_TRAMO_AMAZON[tramoActivo.id as keyof typeof COLOR_TRAMO_AMAZON] : tramoActivo.id === 'anterior' ? 'var(--ls-t4)' : COLOR_TRAMO[tramoActivo.id as keyof typeof COLOR_TRAMO] }} />
+                  <span
+                    className="h-[8px] w-[8px] shrink-0 rounded-[2px]"
+                    style={{ background: ea ? COLOR_TRAMO_AMAZON[tramoActivo.id as keyof typeof COLOR_TRAMO_AMAZON] : tramoActivo.id === 'anterior' ? 'var(--ls-t4)' : COLOR_TRAMO[tramoActivo.id as keyof typeof COLOR_TRAMO] }}
+                  />
                   <b className="font-semibold">{tramoActivo.texto}</b>
-                  <span className="text-[var(--ls-t3)]">
-                    {n0(productosDelTramo.length)} referencia{productosDelTramo.length === 1 ? '' : 's'} · {n0(tramoActivo.unidades)} uds{tramoActivo.valor > 0 ? ` · ${eur(tramoActivo.valor)}` : ''}
+                  <span className="truncate text-[var(--ls-t3)]">
+                    {n0(productosDelTramo.length)} referencia{productosDelTramo.length === 1 ? '' : 's'} · {n0(tramoActivo.unidades)} uds{tramoActivo.valor > 0 ? ` · ${din(tramoActivo.valor, moneda)}` : ''}
                   </span>
                   <button type="button" onClick={() => setTramoSel(null)} className={BOTON.icono} aria-label="Quitar el filtro de antigüedad" title="Quitar el filtro y volver a ver todos los productos">
                     <X className="h-3 w-3" />
                   </button>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => void bajarExcel(tramoActivo.id)}
-                  disabled={bajandoExcel}
-                  className={cx(BOTON.base, BOTON.secundario)}
-                  title="Descargar en Excel, con la marca, solo los productos de este tramo"
-                >
-                  {bajandoExcel ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3" />}
+                <button type="button" onClick={() => void bajarExcel(tramoActivo.id)} disabled={bajandoExcel} className={cx(BOTON.base, BOTON.secundario)} title="Descargar en Excel, con la marca, solo los productos de este tramo">
+                  {bajandoExcel ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : <FileSpreadsheet className="h-3 w-3" />}
                   Excel de este tramo
                 </button>
-                <span className="mx-1 h-4 w-px shrink-0 bg-[var(--ls-linea2)]" aria-hidden />
-              </>
+              </div>
             )}
-            {filtros.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                title={f.ayuda}
-                onClick={() => {
-                  // Un filtro de los de siempre y un tramo elegido no se mezclan: se elige uno u otro
-                  setTramoSel(null)
-                  setFiltro(f.id)
-                }}
-                className={cx(BOTON.chip, filtro === f.id && !tramoActivo && BOTON.chipEncendido)}
-              >
-                {f.alerta && cuentas[f.id] > 0 && <span className="h-[7px] w-[7px] rounded-full" style={{ background: f.id === 'agotadas' ? COLOR_ESTADO.rojo : COLOR_ESTADO.naranja }} />}
-                {f.texto}
-                <span className="tabular-nums text-[var(--ls-t4)]">{cuentas[f.id]}</span>
-              </button>
-            ))}
-            <label className="relative ml-auto block w-[240px]">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)]" />
-              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="SKU, ASIN o nombre" className={cx(CAMPO.input, 'pl-[26px]')} />
-            </label>
-            <button type="button" onClick={exportar} disabled={visibles.length === 0} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
-              CSV
-            </button>
+            <div className="ls-sin-barra -mx-4 flex gap-[6px] overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+              {filtros.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  title={f.ayuda}
+                  onClick={() => {
+                    // Un filtro de los de siempre y un tramo elegido no se mezclan: se elige uno u otro
+                    setTramoSel(null)
+                    setFiltro(f.id)
+                  }}
+                  aria-pressed={filtro === f.id && !tramoActivo}
+                  className={cx(BOTON.chip, 'shrink-0 [@media(pointer:coarse)]:min-h-[36px]', filtro === f.id && !tramoActivo && BOTON.chipEncendido)}
+                >
+                  {f.alerta && cuentas[f.id] > 0 && <span className="h-[7px] w-[7px] rounded-full" style={{ background: f.id === 'agotadas' ? COLOR_ESTADO.rojo : COLOR_ESTADO.naranja }} />}
+                  {f.texto}
+                  <span className="tabular-nums text-[var(--ls-t4)]">{cuentas[f.id]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <label className="relative block min-w-0 flex-1 sm:max-w-[300px]">
+                <span className="sr-only">Buscar</span>
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)]" />
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="SKU, ASIN o nombre" className={cx(CAMPO.input, 'pl-[26px] [@media(pointer:coarse)]:min-h-[44px]')} />
+              </label>
+              <span className="text-[12px] tabular-nums text-[var(--ls-t4)]">
+                {n0(visibles.length)} referencia{visibles.length === 1 ? '' : 's'}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <div className="hidden lg:block">
+                  <MenuColumnas opciones={opcionesExtra.map((e) => ({ id: e.id, texto: e.texto }))} visibles={extra} onCambio={cambiarExtra} />
+                </div>
+                <button type="button" onClick={exportar} disabled={visibles.length === 0} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, '[@media(pointer:coarse)]:min-h-[44px]')}>
+                  CSV
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* ================= LA TABLA ================= */}
-          <Tarjeta cuerpo={false} className="shrink-0 overflow-hidden">
-            {/* En el móvil la tabla crece con la página (sin alto máximo: un scroll de casi una pantalla dentro de otro se quedaba con el dedo) y la columna fija del producto es estrecha, para que se vean las cifras al deslizar de lado. Desde lg, como siempre */}
-            <div className="overflow-auto lg:max-h-[640px]">
-              <table className={TABLA.tabla}>
-                <thead>
-                  <tr>
-                    <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[300px]')}>Producto</th>
-                    {tramoActivo && (
-                      <th className={cx(TABLA.cabecera, TABLA.derecha)} title={`Unidades de cada producto que están en el tramo ${tramoActivo.texto}`}>
-                        {tramoActivo.id === 'anterior' ? 'Sin edad' : `En ${tramoActivo.texto.replace(' días', '')}`}
-                      </th>
-                    )}
-                    {COLUMNAS.map((c) => {
-                      const activa = orden?.id === c.id
-                      return (
-                        <th key={c.id} className={cx(TABLA.cabecera, c.id !== 'estado' && TABLA.derecha)} title={textoDe(c.ayuda, ctx)}>
-                          <button type="button" onClick={() => ordenarPor(c.id)} className="inline-flex items-center gap-[3px] hover:text-[var(--ls-t1)]">
-                            {textoDe(c.titulo, ctx)}
-                            {activa && (orden?.dir === 'desc' ? <ArrowDown className="h-[10px] w-[10px]" /> : <ArrowUp className="h-[10px] w-[10px]" />)}
-                          </button>
-                        </th>
-                      )
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibles.map((s) => (
-                    <tr key={s.sku} className={cx(TABLA.fila, 'cursor-pointer', s.enAmazon === 0 && 'opacity-70')} onClick={() => setAbierta(s.sku)}>
-                      <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[360px]')}>
-                        <div className="flex items-baseline gap-2 overflow-hidden">
-                          <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{s.sku}</span>
-                          <span className="truncate text-[var(--ls-t1)]" title={s.nombre ?? ''}>
-                            {s.nombre ?? '—'}
-                          </span>
-                        </div>
-                      </td>
-                      {tramoActivo && (
-                        <td className={cx(TABLA.celda, TABLA.numero)}>
-                          <b className="font-semibold text-[var(--ls-t1)]">{n0(unidadesEnTramo(s, informe, tramoActivo.id))}</b>
-                          <span className="text-[var(--ls-t4)]"> / {n0(Math.max(0, s.enAmazon - s.entrante))}</span>
-                        </td>
-                      )}
-                      {COLUMNAS.map((c) => (
-                        <td key={c.id} className={cx(TABLA.celda, c.id !== 'estado' && TABLA.numero)}>
-                          {c.celda(s, ctx)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  {visibles.length === 0 && (
-                    <tr>
-                      <td colSpan={COLUMNAS.length + 1 + (tramoActivo ? 1 : 0)} className={cx(TABLA.celda, 'h-16 text-center text-[var(--ls-t4)]')}>
-                        Nada con este filtro.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Tarjeta>
-          <p className="shrink-0 text-[11px] leading-[1.5] text-[var(--ls-t4)]">
+          <TablaAdaptable
+            columnas={columnas}
+            filas={visibles}
+            claveDe={(f) => f.sku.sku}
+            alPulsarFila={(f) => setAbierta(f.sku.sku)}
+            filaActiva={abierta}
+            porPagina={50}
+            etiqueta={`Stock de ${cliente.nombre} por referencia`}
+            vacio={{ icono: Search, titulo: 'Nada con este filtro', descripcion: busca ? `Ninguna referencia coincide con «${busca}».` : 'Prueba con otro filtro o con «Todas».' }}
+          />
+          <p className="text-[11px] leading-[1.5] text-[var(--ls-t4)]">
             Las ventas y devoluciones salen del libro mayor de inventario de Amazon, que se lee una vez al día.{' '}
             {ea
               ? 'La antigüedad y el coste de almacenaje salen del informe de planificación de inventario de Amazon, que se lee a la vez.'
               : 'La edad del stock se estima con la convención FIFO: lo más antiguo se vende primero.'}{' '}
-            * ritmo orientativo (poca historia).
+            * ritmo orientativo (poca historia). «inv»: la referencia no está en el plan y sus cifras salen del inventario.
           </p>
         </>
       )}
 
-      {ficha && <FichaSku sku={ficha} hoy={hoy} leidoHasta={datos.leidoHasta} supuestos={supuestos} onCerrar={() => setAbierta(null)} />}
+      <FichaSku
+        fila={ficha}
+        hoy={hoy}
+        leidoHasta={datos.leidoHasta}
+        supuestos={supuestos}
+        moneda={moneda}
+        enCamino={enCamino}
+        plazo={planAgencia ? { hastaLaVenta: planAgencia.plazo.hastaLaVenta, margen: planAgencia.plazo.margen } : null}
+        esAgencia={esAgencia}
+        onCerrar={() => setAbierta(null)}
+      />
     </div>
   )
 }

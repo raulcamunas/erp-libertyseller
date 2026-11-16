@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, Download, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, Download, Loader2, PackageSearch, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialogo } from '@/components/plataforma/comun'
-import { BOTON, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
+import { COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import type { EnvioNuevo } from '@/lib/fba/envios-nuevos'
 import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound-estados'
 import { cx } from '../comun/ui'
@@ -17,6 +18,9 @@ import { fecha } from '../formato'
  * todos. Los que se importan nacen ya enlazados y, a partir de ahí, se siguen solos (estado cada hora y ventas cada día).
  *
  * Se importan por TANDAS DE 4 (el servidor admite hasta 8 por llamada y cada envío son varias consultas a Amazon): se ve el avance y un fallo no tira los demás.
+ *
+ * Quien lo monta, en `onImportados`, hace el `router.refresh()` de siempre seguido de `invalidarRemesas(clienteId)`.
+ * Con el kit: botones de components/ui-ls y, en el móvil, cada envío es una tarjeta con su casilla (la tabla, desde sm).
  */
 
 const POR_TANDA = 4
@@ -154,21 +158,20 @@ export function ImportarPedidosDialog({
       ancho="max-w-[820px]"
       pie={
         <>
-          <button type="button" onClick={onManual} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'mr-auto')} title="Traer uno solo, escribiendo su número FBA">
+          <Boton tamano="sm" variante="fantasma" icono={PackageSearch} onClick={onManual} className="mr-auto" title="Traer uno solo, escribiendo su número FBA">
             Traer uno por su número
-          </button>
-          <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
+          </Boton>
+          <Boton tamano="sm" onClick={onCerrar}>
             Cerrar
-          </button>
-          <button type="button" onClick={importar} disabled={elegidos.size === 0 || importando !== null || cargando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-            {importando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-            {importando ? `Importando ${importando.hechos}/${importando.total}…` : `Importar ${elegidos.size > 0 ? elegidos.size : ''} ${elegidos.size === 1 ? 'envío' : 'envíos'}`.replace('  ', ' ')}
-          </button>
+          </Boton>
+          <Boton tamano="sm" variante="primario" icono={Download} cargando={importando !== null} onClick={() => void importar()} disabled={elegidos.size === 0 || cargando}>
+            {importando ? `Importando ${importando.hechos}/${importando.total}…` : `Importar ${elegidos.size > 0 ? `${elegidos.size} ` : ''}${elegidos.size === 1 ? 'envío' : 'envíos'}`}
+          </Boton>
         </>
       }
     >
       {conPropuestasListas && (
-        <p className="rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t2)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
+        <p className="rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12px] leading-[1.5] text-[var(--ls-t2)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
           Este cliente tiene propuestas ya encajadas. Si un envío de la lista es de una de ellas, no lo importes aparte: ábrela en <b>Propuestas</b> y enlázala con su número, para no tenerlo duplicado.
         </p>
       )}
@@ -180,7 +183,7 @@ export function ImportarPedidosDialog({
       )}
 
       {falloDeRed && (
-        <div className="flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.rojo}` }} role="alert">
+        <div className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12px] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.rojo}` }} role="alert">
           <AlertTriangle className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.rojo }} />
           {falloDeRed}
         </div>
@@ -189,7 +192,7 @@ export function ImportarPedidosDialog({
       {datos?.sinConexion && <p className="py-8 text-center text-[12.5px] text-[var(--ls-t3)]">Este cliente no tiene conectada su cuenta de Amazon, así que no se pueden consultar sus envíos.</p>}
 
       {datos && !datos.sinConexion && datos.error && (
-        <div className="flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
+        <div className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12px] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
           <AlertTriangle className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
           Amazon no ha contestado del todo: {datos.error}
         </div>
@@ -206,7 +209,7 @@ export function ImportarPedidosDialog({
       )}
 
       {nuevos.length > 0 && (
-        <div className="max-h-[380px] overflow-auto rounded-[6px] border border-[var(--ls-linea)]">
+        <div className="hidden max-h-[380px] overflow-auto rounded-[10px] border border-[var(--ls-linea)] sm:block">
           <table className={TABLA.tabla}>
             <thead>
               <tr>
@@ -244,12 +247,48 @@ export function ImportarPedidosDialog({
         </div>
       )}
 
+      {nuevos.length > 0 && (
+        <ul className="flex flex-col gap-2 sm:hidden" aria-label="Envíos nuevos en Amazon">
+          <li>
+            <label className="flex min-h-[44px] items-center gap-3 px-1 text-[13px] text-[var(--ls-t2)]">
+              <input type="checkbox" className="h-5 w-5" checked={todos} onChange={() => setElegidos(todos ? new Set() : new Set(nuevos.map((e) => e.shipmentId)))} />
+              Marcar todos
+            </label>
+          </li>
+          {nuevos.map((e) => (
+            <li key={e.shipmentId}>
+              <label
+                className={cx(
+                  'flex items-start gap-3 rounded-[14px] border bg-[var(--ls-sup)] p-3',
+                  elegidos.has(e.shipmentId) ? 'border-[color-mix(in_srgb,var(--ls-acc-graf)_45%,var(--ls-linea))]' : 'border-[var(--ls-linea)]'
+                )}
+              >
+                <input type="checkbox" className="mt-[2px] h-5 w-5 shrink-0" checked={elegidos.has(e.shipmentId)} onChange={() => alternar(e.shipmentId)} aria-label={`Importar ${e.shipmentId}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-semibold text-[var(--ls-t1)]">{e.nombre ?? e.shipmentId}</span>
+                  <span className="mt-[2px] block truncate text-[12px] text-[var(--ls-t3)]">
+                    <span className="font-mono">{e.shipmentId}</span> · {ESTADO_INBOUND_TEXTO[e.estado]?.texto ?? e.estado}
+                    {e.diaCreacion ? ` · ${fecha(e.diaCreacion)}` : ''}
+                    {variosMercados ? ` · ${e.mercadoNombre}` : ''}
+                  </span>
+                  {errores[e.shipmentId] && (
+                    <span className="mt-1 flex items-center gap-1 text-[12px]" style={{ color: COLOR_ESTADO.rojo }}>
+                      <AlertTriangle className="h-3 w-3" aria-hidden /> {errores[e.shipmentId]}
+                    </span>
+                  )}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {datos && !datos.sinConexion && (
-        <div className="flex items-center justify-between text-[11.5px] text-[var(--ls-t4)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-[var(--ls-t4)]">
           <span>{datos.comprobadoAt ? `Mirado en Amazon a las ${new Date(datos.comprobadoAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
-          <button type="button" onClick={() => void cargar(true)} disabled={cargando || importando !== null} className="inline-flex items-center gap-1 text-[var(--ls-t3)] hover:text-[var(--ls-t1)] disabled:opacity-50">
-            <RefreshCw className={cx('h-3 w-3', cargando && 'animate-spin')} /> Volver a mirar en Amazon
-          </button>
+          <Boton tamano="sm" variante="fantasma" icono={RefreshCw} cargando={cargando} disabled={importando !== null} onClick={() => void cargar(true)}>
+            Volver a mirar en Amazon
+          </Boton>
         </div>
       )}
     </Dialogo>

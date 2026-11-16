@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { FileSpreadsheet, Loader2 } from 'lucide-react'
+import { FileSpreadsheet } from 'lucide-react'
 import { toast } from 'sonner'
-import { BOTON } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
 import { bajarRespuesta } from '../comun/descargar'
-import { cx } from '../comun/ui'
 
 /**
  * «EXCEL»: LA PROPUESTA EN UN DOCUMENTO CON LA MARCA, PARA MANDÁRSELO AL CLIENTE.
@@ -39,15 +38,16 @@ export function BotonExcel({ remesaId, vacia }: { remesaId: string; vacia: boole
   }
 
   return (
-    <button
-      type="button"
+    <Boton
+      variante="secundario"
+      tamano="sm"
+      icono={FileSpreadsheet}
+      cargando={bajando}
+      disabled={vacia}
       onClick={() => void bajar()}
-      disabled={bajando || vacia}
-      className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}
       title={vacia ? 'Añade alguna referencia: sin ellas no hay nada que enseñar' : 'Descargar la propuesta en Excel, con la marca de Liberty Seller, para enviársela al cliente'}
     >
-      {bajando ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3" />}
       Descargar Excel
-    </button>
+    </Boton>
   )
 }

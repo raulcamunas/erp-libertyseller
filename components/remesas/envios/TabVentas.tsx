@@ -1,12 +1,15 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { BOTON, CAMPO } from '@/lib/estilo/denso'
+import { createPortal } from 'react-dom'
+import { Download } from 'lucide-react'
+import { Boton, Segmentado, TACTIL } from '@/components/ui-ls'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import { matrizDeVentas, serieDeLinea, serieDeRemesa, ultimosDias } from '@/lib/fba/analisis'
 import { AreaPorDia, ColumnasPorDia, descargarCsv, TablaDeDatos, TarjetaGrafico, VIZ, dm, dmy } from '../comun/graficos'
-import { Clave, cx, Segmentado, Tarjeta } from '../comun/ui'
-import { fecha } from '../formato'
+import { Clave, cx, Tarjeta } from '../comun/ui'
+import { entero, fecha } from '../formato'
+import { cuentasDeEnvio } from './reglas'
 
 /**
  * VENTAS POR DÍA: DE TODA LA REMESA Y DE CADA PRODUCTO.
@@ -14,6 +17,11 @@ import { fecha } from '../formato'
  * Los filtros van en UNA fila encima de lo que filtran —producto y periodo— y
  * valen para las dos tarjetas de abajo: el gráfico y el mapa de calor cuentan lo
  * mismo, o los números no coincidirían entre sí.
+ *
+ * El reparto por días apunta TODO lo que sale del lote. Si el envío tiene retiradas o mermas, aquí se llaman
+ * «salidas» (las cifras de arriba sí separan las ventas); si no, son ventas sin más.
+ *
+ * El tooltip del mapa de calor es `fixed`: va en un portal (un `transform` de .pagina-de-ruta lo descolocaba).
  */
 
 export function TabVentas({ remesa, hoy }: { remesa: RemesaDePanel; hoy: string }) {
@@ -27,19 +35,24 @@ export function TabVentas({ remesa, hoy }: { remesa: RemesaDePanel; hoy: string 
 
   const columnas = useMemo(() => ultimosDias(hoy, remesa.cuentaDesde, dias), [hoy, remesa.cuentaDesde, dias])
   const matriz = useMemo(() => matrizDeVentas(remesa.lineas, columnas), [remesa.lineas, columnas])
+  const salidas = (linea ? (linea.retiradas ?? 0) + (linea.mermas ?? 0) : cuentasDeEnvio(remesa).retiradasYMermas) > 0
+  const palabra = salidas ? 'Salidas' : 'Vendidas'
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <label className="flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
+    <div className="space-y-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="flex min-w-0 max-w-full items-center gap-2 text-[12px] text-[var(--ls-t4)]">
           Producto
           <select
             value={sku}
             onChange={(e) => setSku(e.target.value)}
-            className={cx(CAMPO.input, 'h-[26px] w-auto max-w-[320px] pr-6')}
+            className={cx(
+              'h-9 min-w-0 max-w-[min(320px,70vw)] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 pr-7 text-[13px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)]',
+              TACTIL
+            )}
             aria-label="Producto"
           >
-            <option value="todos">Toda la remesa ({remesa.lineas.length})</option>
+            <option value="todos">Todo el envío ({remesa.lineas.length})</option>
             {remesa.lineas.map((l) => (
               <option key={l.sku} value={l.sku}>
                 {l.sku}
@@ -52,37 +65,38 @@ export function TabVentas({ remesa, hoy }: { remesa: RemesaDePanel; hoy: string 
           valor={dias}
           onCambio={setDias}
           etiqueta="Periodo"
+          tamano="sm"
           opciones={[
-            { id: 7, texto: '7 días' },
-            { id: 14, texto: '14 días' },
-            { id: 30, texto: '30 días' },
-            { id: 60, texto: '60 días' },
+            { id: 7, texto: '7 d' },
+            { id: 14, texto: '14 d' },
+            { id: 30, texto: '30 d' },
+            { id: 60, texto: '60 d' },
           ]}
         />
-        <span className="text-[11.5px] text-[var(--ls-t3)]">
-          <b className="font-semibold text-[var(--ls-t1)]">{total.toLocaleString('es-ES')}</b> unidades en {datos.length} días ·{' '}
-          {linea ? (linea.nombre ?? linea.sku) : 'toda la remesa'}
+        <span className="text-[12.5px] text-[var(--ls-t3)]">
+          <b className="font-semibold text-[var(--ls-t1)]">{entero(total)}</b> unidades {salidas ? 'salieron' : 'vendidas'} en {datos.length} días ·{' '}
+          {linea ? (linea.nombre ?? linea.sku) : 'todo el envío'}
         </span>
       </div>
 
       <TarjetaGrafico
-        titulo={linea ? 'Ventas de este producto' : 'Ventas de la remesa'}
-        ayuda="Arriba, lo vendido cada día; abajo, lo acumulado desde que llegó"
+        titulo={`${palabra === 'Salidas' ? 'Salidas' : 'Ventas'} ${linea ? 'de este producto' : 'del envío'}`}
+        ayuda={`Arriba, lo ${salidas ? 'que salió' : 'vendido'} cada día; abajo, lo acumulado desde que llegó`}
         leyenda={
           <>
-            <Clave color={VIZ.vendidas}>Vendidas ese día</Clave>
+            <Clave color={VIZ.vendidas}>{salidas ? 'Salidas ese día (ventas, retiradas y mermas)' : 'Vendidas ese día'}</Clave>
             <Clave color={VIZ.recibidas}>Acumuladas</Clave>
           </>
         }
         onCsv={() =>
-          descargarCsv(`ventas-${linea?.sku ?? 'remesa'}-${remesa.referenciaEnvio ?? remesa.id.slice(0, 8)}.csv`, ['Día', 'Vendidas', 'Acumuladas'], datos.map((d) => [d.fecha, d.vendidas, d.acumuladas]))
+          descargarCsv(`ventas-${linea?.sku ?? 'remesa'}-${remesa.referenciaEnvio ?? remesa.id.slice(0, 8)}.csv`, ['Día', palabra, 'Acumuladas'], datos.map((d) => [d.fecha, d.vendidas, d.acumuladas]))
         }
         grafico={
           datos.length === 0 ? (
             <p className="py-10 text-center text-[12px] text-[var(--ls-t4)]">Todavía no hay días que enseñar.</p>
           ) : (
             <div>
-              <ColumnasPorDia datos={datos} clave="vendidas" nombre="Vendidas" color={VIZ.vendidas} alto={130} ejeX={false} syncId="ventas-dias" />
+              <ColumnasPorDia datos={datos} clave="vendidas" nombre={palabra} color={VIZ.vendidas} alto={130} ejeX={false} syncId="ventas-dias" />
               <AreaPorDia datos={datos} clave="acumuladas" nombre="Acumuladas" color={VIZ.recibidas} alto={130} syncId="ventas-dias" />
             </div>
           )
@@ -91,7 +105,7 @@ export function TabVentas({ remesa, hoy }: { remesa: RemesaDePanel; hoy: string 
           <TablaDeDatos
             columnas={[
               { clave: 'fecha', titulo: 'Día', formato: (v) => dmy(String(v)) },
-              { clave: 'vendidas', titulo: 'Vendidas', numero: true },
+              { clave: 'vendidas', titulo: palabra, numero: true },
               { clave: 'acumuladas', titulo: 'Acumuladas', numero: true },
             ]}
             filas={[...datos].reverse()}
@@ -155,11 +169,11 @@ function MapaDeCalor({
   return (
     <Tarjeta
       titulo="Producto por producto"
-      ayuda="Cada celda son las unidades vendidas ese día; cuanto más azul, más. Pulsa un producto para verlo solo"
+      ayuda="Cada celda son las unidades que salieron ese día; cuanto más azul, más. Pulsa un producto para verlo solo"
       derecha={
-        <button type="button" onClick={onCsv} className={cx(BOTON.base, BOTON.secundario)}>
+        <Boton tamano="sm" icono={Download} onClick={onCsv} title="Descargar los datos en CSV">
           CSV
-        </button>
+        </Boton>
       }
       cuerpo={false}
     >
@@ -168,7 +182,7 @@ function MapaDeCalor({
           <table className="border-separate border-spacing-0">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-30 h-[26px] min-w-[140px] border-b lg:min-w-[230px] border-r border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-left text-[11px] font-semibold text-[var(--ls-t4)]">
+                <th className="sticky left-0 top-0 z-30 h-[26px] min-w-[120px] border-b border-r lg:min-w-[230px] border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 text-left text-[11px] font-semibold text-[var(--ls-t4)]">
                   Producto
                 </th>
                 {columnas.map((d) => (
@@ -186,7 +200,7 @@ function MapaDeCalor({
                 <tr key={f.sku} className="group">
                   <th
                     scope="row"
-                    className="sticky left-0 z-10 h-[28px] max-w-[150px] cursor-pointer lg:max-w-[260px] truncate border-b border-r border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2 text-left text-[12px] font-normal text-[var(--ls-t2)] group-hover:bg-[var(--ls-sup3)]"
+                    className="sticky left-0 z-10 h-[28px] max-w-[130px] cursor-pointer truncate lg:max-w-[260px] border-b border-r border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2 text-left text-[12px] font-normal text-[var(--ls-t2)] group-hover:bg-[var(--ls-sup3)]"
                     title={`${f.nombre ?? f.sku} — pulsa para ver solo este producto`}
                     onClick={() => onElegir(f.sku)}
                   >
@@ -221,14 +235,17 @@ function MapaDeCalor({
             </tbody>
           </table>
         </div>
-        {tip && (
-          <div
-            className="pointer-events-none fixed z-50 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 py-[5px] text-[11.5px] text-[var(--ls-t1)] shadow-lg"
-            style={{ left: tip.x + 12, top: tip.y + 14 }}
-          >
-            {tip.texto}
-          </div>
-        )}
+        {tip &&
+          typeof document !== 'undefined' &&
+          createPortal(
+            <div
+              className="pointer-events-none fixed z-[70] rounded-[8px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-2 py-[5px] text-[12px] text-[var(--ls-t1)] shadow-[var(--ls-sombra-2)]"
+              style={{ left: Math.min(tip.x + 12, window.innerWidth - 240), top: tip.y + 14 }}
+            >
+              {tip.texto}
+            </div>,
+            document.body
+          )}
       </div>
       {/* La escala: de cero al máximo del periodo */}
       <div className="flex items-center gap-2 border-t border-[var(--ls-linea)] px-3 py-[7px] text-[11px] text-[var(--ls-t4)]">

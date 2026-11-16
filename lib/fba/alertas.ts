@@ -1,6 +1,8 @@
 import { sigueVivo, ESTADO_INBOUND_TEXTO } from './inbound-estados'
 import { costeMensual, mesDe } from './almacenaje'
 import { diasEntreInv, sumarDiasInv, type EnvioInventario, type InventarioCliente, type SkuInventario } from './inventario'
+import type { LineaPlan } from './plan-tipos'
+import { reglaDeAcceso } from './regla-acceso'
 
 /**
  * ALERTAS DE LOGÍSTICA FBA: QUÉ VA MAL, DICHO ANTES DE QUE HAYA QUE MIRARLO.
@@ -51,6 +53,32 @@ import { diasEntreInv, sumarDiasInv, type EnvioInventario, type InventarioClient
  * El ritmo es el de planificación del inventario (mezcla de 14 y 30 días) multiplicado por un factor ESTACIONAL: si el año pasado, en el
  * tramo de fechas que va a cubrir el pedido, se vendía bastante más que justo antes, ese producto se acelera por estas fechas y se cuenta
  * con ello. Solo SUBE el ritmo, nunca lo baja: un aviso de menos por confiar en el calendario es peor que uno de más.
+ *
+ *
+ * ============ CAMBIOS DE COMPORTAMIENTO (remesas-pro, 15 nov 2026) ============
+ *
+ *   · UN SOLO NÚMERO DE ROTURA (spec §11 D30). Si quien llama pasa `plan` (las líneas de la última pasada del planificador, de
+ *     ≤ 36 h), las alertas de REPOSICIÓN y ROTURA de una referencia con línea toman de ella la fecha de rotura, la prioridad, el
+ *     € en riesgo y la moneda, en vez de su cuenta de siempre. Así la alerta y el plan nunca dicen dos fechas distintas:
+ *       tarde                      → reponer_ya, crítica   (la rotura ya no se evita)
+ *       urgente                    → reponer_ya, alta      (hay que decidir en ≤ 3 días)
+ *       esta_semana · proximas_2   → reponer_pronto, media
+ *       este_mes · mas_adelante    → nada (el plan lo tiene en su calendario)
+ *       la línea queda FUERA del plan (stock de sobra, no comprable, sin datos, cuarentena…) → nada de reponer: sería avisar de
+ *       enviar algo que el plan, con más datos, ha decidido no enviar.
+ *     `agotado` sigue saliendo (es un hecho, no una previsión) con el € y la fecha del plan. `rotura_proxima` usa el primer hueco
+ *     de la simulación del plan (`fechaPrimerHueco`), que ya cuenta llegadas dudosas y entrantes sin remesa.
+ *     Sin pasada, o con una de más de 36 h, o sin línea para esa referencia: la cuenta de siempre. Las demás alertas no cambian.
+ *   · El plazo que llega en `config` ya no es el 45 fijo: alertas-datos.ts lo calcula con `plazoDelCliente` (manual > medido >
+ *     de partida), que da L + M. Ejemplo: Opinas pasa de 45 a ~24 días y deja de inflar «reponer ya».
+ *   · `no_vendibles` con el desglose de Amazon leído (`reservadas` no es null) son solo las NO APTAS (dañadas o defectuosas) y el
+ *     texto lo dice así, en vez de «no se pueden separar». Sin desglose, el texto de siempre (tuteado).
+ *   · `lotesDeFilas` (puro): parte las filas a guardar en lotes con las MISMAS columnas. El cron de alertas fallaba desde el 4 nov
+ *     porque un upsert en lote mezclaba filas con `primera_vez_at` y filas sin ella: PostgREST rellena con NULL las que faltan y
+ *     saltaba el NOT NULL de la 267 (spec §0.1).
+ *   · `clientesPorUsuario` (puro): a quién avisar, con `reglaDeAcceso` (D27). Reciben la campana y el resumen del lunes los admins
+ *     y los empleados con la casilla `remesas` (antes solo admins y quien tuviera fila en `fba_accesos`, que tiene 0 filas); un CEO
+ *     sin la casilla deja de recibirlos. El cliente de fuera, nunca.
  */
 
 /* ------------------------------------------------------------------ */
@@ -169,6 +197,73 @@ export interface EntradaAlertas {
   noComprables?: readonly string[]
   /** Ajustes de inventario recientes por referencia, en neto (negativo = Amazon ha dado de baja unidades) */
   ajustesRecientes?: ReadonlyArray<{ sku: string; neto: number }>
+  /**
+   * Las líneas de la ÚLTIMA pasada del planificador, si tiene ≤ 36 h (spec §11 D30). Quien lo pasa comprueba la antigüedad
+   * (`planVigente`). Sin esto, o sin línea para una referencia, la reposición se calcula como siempre.
+   */
+  plan?: PlanParaAlertas | null
+}
+
+/** Lo que las alertas toman de una línea del plan (§11 D30) */
+export type LineaPlanParaAlertas = Pick<
+  LineaPlan,
+  | 'sku'
+  | 'fechaRotura'
+  | 'fechaPrimerHueco'
+  | 'prioridad'
+  | 'eurosEnRiesgo'
+  | 'moneda'
+  | 'fuera'
+  | 'salirAntesDe'
+  | 'decidirAntesDe'
+  | 'cantidad'
+  | 'vaTarde'
+  | 'diasSinStockInevitables'
+>
+
+export interface PlanParaAlertas {
+  /** ISO de la pasada */
+  calculadoAt: string
+  lineas: Record<string, LineaPlanParaAlertas>
+}
+
+/** Horas que vale una pasada del planificador para las alertas (§11 D30) */
+export const PLAN_VIGENTE_HORAS = 36
+
+/** ¿La pasada calculada en `calculadoAt` (ISO) sirve todavía a las `ahora` (ISO)? Fechas ilegibles o del futuro lejano: no */
+export function planVigente(calculadoAt: string | null | undefined, ahora: string): boolean {
+  if (!calculadoAt) return false
+  const t = Date.parse(calculadoAt)
+  const a = Date.parse(ahora)
+  if (!Number.isFinite(t) || !Number.isFinite(a)) return false
+  const horas = (a - t) / 3_600_000
+  // Un poco de tolerancia hacia delante por relojes desajustados; más que eso es un dato raro y no se cree
+  return horas >= -1 && horas <= PLAN_VIGENTE_HORAS
+}
+
+/** Lo mínimo para dar por buena una línea guardada en JSON (la pasada se guarda como JSONB y puede venir de otra versión) */
+export function lineaPlanParaAlertas(crudo: unknown): LineaPlanParaAlertas | null {
+  if (!crudo || typeof crudo !== 'object') return null
+  const o = crudo as Record<string, unknown>
+  if (typeof o.sku !== 'string' || !o.sku) return null
+  const prioridades = ['tarde', 'urgente', 'esta_semana', 'proximas_2', 'este_mes', 'mas_adelante']
+  if (typeof o.prioridad !== 'string' || !prioridades.includes(o.prioridad)) return null
+  const fecha = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null)
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  return {
+    sku: o.sku,
+    fechaRotura: fecha(o.fechaRotura),
+    fechaPrimerHueco: fecha(o.fechaPrimerHueco),
+    prioridad: o.prioridad as LineaPlan['prioridad'],
+    eurosEnRiesgo: num(o.eurosEnRiesgo),
+    moneda: typeof o.moneda === 'string' && o.moneda ? o.moneda : 'EUR',
+    fuera: typeof o.fuera === 'string' ? (o.fuera as LineaPlan['fuera']) : null,
+    salirAntesDe: fecha(o.salirAntesDe),
+    decidirAntesDe: fecha(o.decidirAntesDe),
+    cantidad: num(o.cantidad) ?? 0,
+    vaTarde: o.vaTarde === true,
+    diasSinStockInevitables: num(o.diasSinStockInevitables) ?? 0,
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -265,6 +360,10 @@ function alertaDeReposicion(s: SkuInventario, e: EntradaAlertas): AlertaFba | nu
 
   const diasHastaRotura = s.vendibles / ritmo
   const diasConLoQueViene = (s.vendibles + s.entrante) / ritmo
+
+  const linea = e.plan?.lineas[s.sku]
+  if (linea) return alertaDeReposicionConPlan(s, linea, e, { plazo, ritmo, diasHastaRotura, diasConLoQueViene, nota })
+
   const datos: Record<string, unknown> = {
     sku: s.sku,
     nombre: s.nombre,
@@ -352,6 +451,120 @@ function alertaDeReposicion(s: SkuInventario, e: EntradaAlertas): AlertaFba | nu
         `Hay que pedir en los próximos ${Math.max(0, Math.floor(diasConLoQueViene - plazo))} días para no quedarse sin producto.` +
         estacional +
         nota,
+      impacto: 0,
+      datos,
+    }
+  }
+  return null
+}
+
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+/** «3 dic» */
+const fechaCorta = (f: string): string => `${Number(f.slice(8, 10))} ${MESES_CORTOS[Number(f.slice(5, 7)) - 1] ?? ''}`.trim()
+
+/**
+ * La reposición de una referencia con línea en la última pasada del planificador (§11 D30): la fecha, la prioridad y el € son
+ * los del plan. Ver el bloque «Cambios de comportamiento» de arriba.
+ */
+function alertaDeReposicionConPlan(
+  s: SkuInventario,
+  l: LineaPlanParaAlertas,
+  e: EntradaAlertas,
+  c: { plazo: number; ritmo: number; diasHastaRotura: number; diasConLoQueViene: number; nota: string }
+): AlertaFba | null {
+  const moneda = l.moneda || s.moneda || 'EUR'
+  const euros = l.eurosEnRiesgo !== null && l.eurosEnRiesgo > 0 ? l.eurosEnRiesgo : 0
+  const enRiesgo = euros > 0 ? ` Ventas en riesgo si no sale: unos ${dinero(euros, moneda)}.` : ''
+  const salir =
+    l.fuera === null && l.cantidad > 0 && l.salirAntesDe
+      ? ` El plan propone ${u(l.cantidad)} ud: tiene que salir antes del ${fechaCorta(l.salirAntesDe)}${l.decidirAntesDe && l.decidirAntesDe !== l.salirAntesDe ? ` (decidir antes del ${fechaCorta(l.decidirAntesDe)})` : ''}.`
+      : ''
+  const datos: Record<string, unknown> = {
+    sku: s.sku,
+    nombre: s.nombre,
+    vendibles: s.vendibles,
+    entrante: s.entrante,
+    ritmo: redondea(c.ritmo, 2),
+    plazoDias: c.plazo,
+    plazoConfigurado: c.nota === '',
+    diasHastaRotura: redondea(c.diasHastaRotura),
+    diasConLoQueViene: redondea(c.diasConLoQueViene),
+    seAgotaEl: l.fechaRotura,
+    fechaRotura: l.fechaRotura,
+    fechaPrimerHueco: l.fechaPrimerHueco,
+    prioridad: l.prioridad,
+    salirAntesDe: l.salirAntesDe,
+    decidirAntesDe: l.decidirAntesDe,
+    cantidadPropuesta: l.fuera === null ? l.cantidad : 0,
+    fueraDelPlan: l.fuera,
+    origen: 'plan',
+    planCalculadoAt: e.plan?.calculadoAt ?? null,
+    tendencia: s.tendencia,
+    moneda,
+    precio: s.precio,
+  }
+  const base = { sku: s.sku, remesaId: null, clave: `reposicion:${s.sku}` }
+
+  // Sin nada vendible: es un hecho de hoy, salga o no en el plan
+  if (s.vendibles <= 0) {
+    const viene = s.entrante > 0
+    return {
+      ...base,
+      tipo: 'agotado',
+      severidad: viene ? 'alta' : 'critica',
+      titulo: `Agotado: ${nombreCorto(s)}`,
+      detalle:
+        `Sin stock vendible y se vende a ${f(c.ritmo)} ud/día.` +
+        (viene ? ` Hay ${u(s.entrante)} de camino.` : ' No hay nada de camino.') +
+        salir +
+        enRiesgo +
+        c.nota,
+      impacto: euros,
+      datos: { ...datos, diasHastaRotura: 0 },
+    }
+  }
+
+  const propone = l.fuera === null && l.cantidad > 0
+  const rotura = l.fechaRotura ? ` Se queda sin stock el ${fechaCorta(l.fechaRotura)}` : ' Se va a quedar sin stock'
+
+  if (propone && (l.prioridad === 'tarde' || l.prioridad === 'urgente')) {
+    const tarde = l.prioridad === 'tarde'
+    const huecos = tarde && l.diasSinStockInevitables > 0 ? ` y ya no se evita: unos ${f(l.diasSinStockInevitables)} días sin stock aunque salga hoy` : ''
+    return {
+      ...base,
+      tipo: 'reponer_ya',
+      severidad: tarde ? 'critica' : 'alta',
+      titulo: `Reponer ya: ${nombreCorto(s)}`,
+      detalle: `${rotura.trim()}${huecos}.${salir}${enRiesgo}${c.nota}`,
+      impacto: euros,
+      datos,
+    }
+  }
+
+  // Se queda sin nada antes de que llegue lo que viene: el primer hueco de la simulación del plan, aunque sea inevitable
+  if (s.entrante > 0 && l.fechaPrimerHueco && diasEntreInv(e.hoy, l.fechaPrimerHueco) <= 10) {
+    const dias = Math.max(0, diasEntreInv(e.hoy, l.fechaPrimerHueco))
+    return {
+      ...base,
+      tipo: 'rotura_proxima',
+      severidad: 'alta',
+      titulo: `Se agota antes de que llegue el envío: ${nombreCorto(s)}`,
+      detalle:
+        `Con lo que hay en la estantería se queda sin stock el ${fechaCorta(l.fechaPrimerHueco)} (${dias === 0 ? 'hoy' : `en ${dias} día${dias === 1 ? '' : 's'}`}) y lo que viene de camino (${u(s.entrante)}) aún no está a la venta. ` +
+        `Si el envío se retrasa, habrá más días sin stock.` +
+        c.nota,
+      impacto: euros > 0 ? euros : c.ritmo * (s.precio ?? 0) * 7,
+      datos: { ...datos, seAgotaEl: l.fechaPrimerHueco },
+    }
+  }
+
+  if (propone && (l.prioridad === 'esta_semana' || l.prioridad === 'proximas_2')) {
+    return {
+      ...base,
+      tipo: 'reponer_pronto',
+      severidad: 'media',
+      titulo: `Reponer pronto: ${nombreCorto(s)}`,
+      detalle: `${rotura.trim()}.${salir}${enRiesgo}${c.nota}`,
       impacto: 0,
       datos,
     }
@@ -531,18 +744,24 @@ function alertasDeCuadre(e: EntradaAlertas): AlertaFba[] {
   const noVend = inv.skus.filter((s) => s.noDisponibles >= 3 && s.noDisponibles >= 0.15 * Math.max(1, s.enAmazon)).sort((a, b) => b.noDisponibles - a.noDisponibles)
   const totalNoVend = noVend.reduce((s, k) => s + k.noDisponibles, 0)
   if (totalNoVend >= U.noVendibles.minUnidades) {
+    // Con el desglose de Amazon leído (migración 271), `noDisponibles` son SOLO las no aptas: se dice así y se dice qué hacer.
+    // Sin desglose es una resta (total − vendible − de camino) que mezcla reservado, tránsito y dañado.
+    const conDesglose = noVend.every((s) => s.reservadas !== null && s.reservadas !== undefined)
+    const refs = `${noVend.length} referencia${noVend.length === 1 ? '' : 's'}`
     salida.push({
       clave: 'no_vendibles',
       tipo: 'no_vendibles',
       severidad: 'info',
       sku: null,
       remesaId: null,
-      titulo: `${u(totalNoVend)} unidades en Amazon que no se pueden vender`,
-      detalle:
-        `En ${noVend.length} referencia${noVend.length === 1 ? '' : 's'} hay unidades dentro de la red de Amazon que no están a la venta (dañadas, reservadas o en tránsito sin registrar). ` +
-        `Desde aquí no se pueden separar: si son muchas, mírelas en Seller Central.`,
+      titulo: conDesglose ? `${u(totalNoVend)} unidades no aptas para la venta en Amazon` : `${u(totalNoVend)} unidades en Amazon que no se pueden vender`,
+      detalle: conDesglose
+        ? `En ${refs} Amazon tiene unidades marcadas como «No apto» (dañadas en el almacén, por el transportista o devueltas por el cliente en mal estado). ` +
+          `No se venden ni cuentan para la cobertura: pide su retirada o, si el daño es de Amazon, el reembolso en Seller Central.`
+        : `En ${refs} hay unidades dentro de la red de Amazon que no están a la venta (dañadas, reservadas o en tránsito sin registrar). ` +
+          `Desde aquí no se pueden separar porque el desglose de Amazon no está leído: si son muchas, míralas en Seller Central.`,
       impacto: noVend.reduce((s, k) => s + k.noDisponibles * (k.precio ?? 0), 0),
-      datos: { unidades: totalNoVend, items: noVend.slice(0, 10).map((s) => ({ sku: s.sku, unidades: s.noDisponibles, nombre: s.nombre })) },
+      datos: { unidades: totalNoVend, desglose: conDesglose, items: noVend.slice(0, 10).map((s) => ({ sku: s.sku, unidades: s.noDisponibles, nombre: s.nombre })) },
     })
   }
 
@@ -771,6 +990,106 @@ export function planearAlertas(guardadas: readonly FilaDeAlerta[], calculadas: r
 
   const resolver = completo ? guardadas.filter((g) => g.estado !== 'resuelta' && !vistas.has(g.clave)).map((g) => g.clave) : []
   return { escribir, resolver, avisar }
+}
+
+/* ------------------------------------------------------------------ */
+/* Las filas que se guardan (forma de fba_alertas, migración 267)      */
+/* ------------------------------------------------------------------ */
+
+export type FilaParaGuardar = Record<string, unknown>
+
+/**
+ * Las filas de `fba_alertas` que salen de `plan.escribir`. Cada fila lleva SOLO las columnas que hay que tocar:
+ *   · nueva o reabierta → además `primera_vez_at` (ahora) y `resuelta_at: null`;
+ *   · abierta → además `silenciada_hasta: null` (una silenciada que cumplió su fecha vuelve sin fecha);
+ *   · silenciada que sigue → conserva su `silenciada_hasta` (no se nombra).
+ */
+export function filasDeAlertas(clienteId: string, escribir: PlanDeAlertas['escribir'], ahora: string): FilaParaGuardar[] {
+  return escribir.map(({ alerta: a, estado, nueva, reabierta }) => ({
+    client_id: clienteId,
+    clave: a.clave,
+    tipo: a.tipo,
+    severidad: a.severidad,
+    sku: a.sku,
+    remesa_id: a.remesaId,
+    titulo: a.titulo,
+    detalle: a.detalle,
+    impacto: Math.round(a.impacto * 100) / 100,
+    datos: a.datos,
+    estado,
+    ultima_vez_at: ahora,
+    ...(nueva || reabierta ? { primera_vez_at: ahora, resuelta_at: null } : {}),
+    ...(estado === 'abierta' ? { silenciada_hasta: null } : {}),
+  }))
+}
+
+/** Las columnas de una fila, ordenadas: la «forma» con la que PostgREST arma el upsert de un lote */
+export const formaDeFila = (f: FilaParaGuardar): string => Object.keys(f).sort().join(',')
+
+/**
+ * Parte las filas en lotes de como mucho `tamano` donde TODAS tienen las mismas columnas (spec §0.1).
+ * PostgREST arma un upsert en lote con la unión de columnas y pone NULL donde una fila no trae la columna: con filas nuevas
+ * (con `primera_vez_at`) y existentes (sin ella) en el mismo lote, las existentes recibían `primera_vez_at = NULL` y saltaba el
+ * NOT NULL. Así cada lote es homogéneo y lo que una fila no nombra no se toca.
+ */
+export function lotesDeFilas(filas: readonly FilaParaGuardar[], tamano: number): FilaParaGuardar[][] {
+  const porForma = new Map<string, FilaParaGuardar[]>()
+  for (const f of filas) {
+    const k = formaDeFila(f)
+    const lista = porForma.get(k)
+    if (lista) lista.push(f)
+    else porForma.set(k, [f])
+  }
+  const t = Math.max(1, Math.floor(tamano))
+  const lotes: FilaParaGuardar[][] = []
+  for (const lista of porForma.values()) for (let i = 0; i < lista.length; i += t) lotes.push(lista.slice(i, i + t))
+  return lotes
+}
+
+/* ------------------------------------------------------------------ */
+/* A quién avisar (spec §11 D24 y D27)                                 */
+/* ------------------------------------------------------------------ */
+
+export interface PerfilParaAvisos {
+  id: string
+  role: string | null
+  puesto: string | null
+}
+
+/**
+ * Qué clientes ve cada persona de la AGENCIA, con la misma regla que la pantalla (`reglaDeAcceso`): admins, y empleados con la casilla
+ * `remesas` de Gestión de Usuarios (todos los clientes), más los `fba_accesos` sueltos de quien no tiene la casilla. `null` = todos.
+ * El cliente de fuera (actor `cliente`) NUNCA sale: las alertas son de agencia. Quien no ve a ningún cliente no sale.
+ *
+ * Cambio de comportamiento (D27): antes recibían los avisos los admins y quien tuviera fila en `fba_accesos` (0 filas: nadie más);
+ * ahora también los empleados con la casilla `remesas`, y un CEO sin la casilla deja de recibirlos.
+ */
+export function clientesPorUsuario(
+  perfiles: readonly PerfilParaAvisos[],
+  conCasilla: ReadonlySet<string>,
+  accesos: ReadonlyArray<{ userId: string; clienteId: string; puedeEditar: boolean }>
+): Map<string, string[] | null> {
+  const porUsuario = new Map<string, Array<{ clienteId: string; puedeEditar: boolean }>>()
+  for (const a of accesos) {
+    const lista = porUsuario.get(a.userId)
+    if (lista) lista.push({ clienteId: a.clienteId, puedeEditar: a.puedeEditar })
+    else porUsuario.set(a.userId, [{ clienteId: a.clienteId, puedeEditar: a.puedeEditar }])
+  }
+  const salida = new Map<string, string[] | null>()
+  for (const p of perfiles) {
+    const regla = reglaDeAcceso({ role: p.role, puesto: p.puesto, casillaRemesas: conCasilla.has(p.id), accesos: porUsuario.get(p.id) ?? [] })
+    if (regla.actor !== 'agencia') continue
+    if (regla.clientesPermitidos === null) salida.set(p.id, null)
+    else if (regla.clientesPermitidos.length > 0) salida.set(p.id, regla.clientesPermitidos)
+  }
+  return salida
+}
+
+/** Las personas de la agencia que ven a ese cliente (para la campana) */
+export function destinatariosDelCliente(porUsuario: ReadonlyMap<string, string[] | null>, clienteId: string): string[] {
+  const ids: string[] = []
+  for (const [id, clientes] of Array.from(porUsuario.entries())) if (clientes === null || clientes.includes(clienteId)) ids.push(id)
+  return ids
 }
 
 /** Cuántas alertas de cada gravedad */

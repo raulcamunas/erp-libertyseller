@@ -98,7 +98,12 @@ export interface LlegadaPrevista {
   dudoso: boolean
   /** Fecha de salida del envío (para «si llega el envío del 20 sep…») */
   fechaEnvio: string | null
+  /** Estado de la remesa sin salir (borrador | aprobada | encajando | lista), solo en `comprometido` */
+  estadoRemesa?: string | null
 }
+
+/** Una remesa sin salir que ya lleva esta referencia (para el aviso del envío: no prometer «añádelo ahí» si no se puede) */
+export interface RemesaSinSalirDeLinea { remesaId: string; nombre: string | null; estado: string | null; fechaEnvio: string | null; unidades: number }
 
 /** Llegadas que NO cuentan pero se cuentan en la frase */
 export interface LlegadaDescartada { unidades: number; motivo: 'dudoso' | 'propuesta_parada'; nombre: string | null; desde: string | null }
@@ -127,6 +132,8 @@ export interface LineaPlan {
   vendibles: number; deCamino: number; comprometido: number; reservadas: number | null
   entranteSinRemesa: number; dudoso: number
   ritmo: RitmoSku
+  /** El ritmo previsto que usa la frase y el plan (media de la demanda de las próximas 4 semanas, con la temporada); lo que enseña la pantalla como «previsto» */
+  ritmoPrevisto?: number | null
   coberturaDias: number | null; coberturaConLoQueViene: number | null
   /** Rotura que decide (≥ H + L) */
   fechaRotura: string | null
@@ -147,6 +154,8 @@ export interface LineaPlan {
   aLaVentaUrgente: string | null
   /** Una frase con cifras y fechas «3 dic» */
   porque: string
+  /** Remesas sin salir que ya llevan esta referencia (opcional: las pasadas viejas no lo traen) */
+  remesasSinSalir?: RemesaSinSalirDeLinea[]
   ajusteIa: { tipo: AjusteIa['tipo']; valor: number | null; motivo: string } | null
 }
 
@@ -167,6 +176,11 @@ export interface EnvioGuardadoMinimo {
   remesaId: string | null; estadoCambiadoAt: string
   /** Lineas actuales (para cambios_desde_ayer) */
   lineas: Array<{ sku: string; cantidad: number }>
+  /**
+   * Las referencias que ya no cambian con el plan: las de lo hablado (`lineas_aceptadas`) o las que fueron a la remesa (en
+   * preparación). null = todo sigue al plan (nuevo, o hablado sin líneas aceptadas: convertir usa `lineas`, que se reescriben)
+   */
+  skusFijos?: string[] | null
 }
 
 export interface CambiosDesdeAyer {
@@ -368,9 +382,19 @@ export type FnPlanificarSku = (
 export type FnAgruparEnvios = (
   lineas: LineaPlan[], clienteId: string, connectionId: string | null, hoy: string, ajustes: AjustesReposicion, plazo: PlazoEtapas,
   recalcular: (l: LineaPlan, nuevaSalida: string) => LineaPlan, ocupado: number,
+  /** Vuelve a cuadrar las tallas de un modelo (caja y mínimo del modelo) dentro de cada envío, tras recalcular (ajustarPorModelo) */
+  ajustarModelo?: (lineas: LineaPlan[]) => LineaPlan[],
+  /** Si llega, se llena con lo que se deja fuera de los envíos: sku → por qué (esas líneas pasan a «aún no toca») */
+  apartadas?: Map<string, string>,
 ) => EnvioPropuestoCalculado[]
 
 export type FnReconciliarEnvios = (
   guardados: EnvioGuardadoMinimo[], recientesCerrados: EnvioGuardadoMinimo[], calculados: EnvioPropuestoCalculado[],
-  hoy: string, opciones: { completo: boolean },
+  hoy: string, opciones: {
+    completo: boolean
+    /** Envíos hablados cuyas líneas cuentan como llegada en esta pasada: el plan ya no pide sus SKU POR ellos mismos */
+    habladosQueCuentan?: ReadonlySet<string>
+    /** Ahora (ISO): un en_preparacion sin remesa solo es huérfano si lleva así MINUTOS_HUERFANO; sin él, siempre */
+    ahora?: string
+  },
 ) => ResultadoReconciliacion

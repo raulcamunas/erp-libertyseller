@@ -1,15 +1,23 @@
 import {
   CONFIG_ALERTAS_POR_DEFECTO,
   calcularAlertas,
+  clientesPorUsuario,
   contarPorSeveridad,
+  destinatariosDelCliente,
   factorEstacional,
+  filasDeAlertas,
+  formaDeFila,
+  lineaPlanParaAlertas,
+  lotesDeFilas,
   planearAlertas,
+  planVigente,
   plazoValido,
   type AlertaFba,
   type ConfigAlertas,
   type EntradaAlertas,
   type EnvioParaAlertas,
   type FilaDeAlerta,
+  type LineaPlanParaAlertas,
 } from '@/lib/fba/alertas'
 import { sumarDiasInv, type InventarioCliente, type ResumenInventario, type SkuInventario } from '@/lib/fba/inventario'
 
@@ -351,6 +359,121 @@ console.log('\n=== reconciliar con lo guardado ===')
   ok('si una alerta ya avisada empeora (alta -> crítica) vuelve a avisar', sube.avisar.length === 1)
   const baja = planearAlertas([fila('x', { severidad: 'critica', severidadAvisada: 'critica' })], [alerta('x', 'alta')], HOY)
   ok('si mejora, no', baja.avisar.length === 0)
+}
+
+console.log('\n=== no vendibles: con el desglose de Amazon leído se dice qué son ===')
+{
+  const con = una(calcular([sku({ sku: 'A', enAmazon: 40, vendibles: 28, noDisponibles: 12, reservadas: 0 })]), 'no_vendibles')
+  ok('con desglose: «no aptas», sin «no se pueden separar»', con?.titulo.includes('no aptas') === true && !con.detalle.includes('no se pueden separar') && con.datos.desglose === true, JSON.stringify(con))
+  ok('y dice qué hacer (retirada o reembolso)', con?.detalle.includes('retirada') === true && con.detalle.includes('reembolso'), con?.detalle)
+  const sin = una(calcular([sku({ sku: 'A', enAmazon: 40, vendibles: 28, noDisponibles: 12 })]), 'no_vendibles')
+  ok('sin desglose: el texto de siempre, tuteado', sin?.detalle.includes('míralas') === true && !sin.detalle.includes('mírelas') && sin.datos.desglose === false, sin?.detalle)
+}
+
+console.log('\n=== un solo número de rotura: la alerta toma la fecha del plan (D30) ===')
+{
+  const L = (sobre: Partial<LineaPlanParaAlertas> & { sku: string }): LineaPlanParaAlertas => ({
+    fechaRotura: '2026-11-20',
+    fechaPrimerHueco: '2026-11-20',
+    prioridad: 'urgente',
+    eurosEnRiesgo: 312.4,
+    moneda: 'EUR',
+    fuera: null,
+    salirAntesDe: '2026-11-04',
+    decidirAntesDe: '2026-11-03',
+    cantidad: 60,
+    vaTarde: false,
+    diasSinStockInevitables: 0,
+    ...sobre,
+  })
+  const plan = (...ls: LineaPlanParaAlertas[]) => ({ plan: { calculadoAt: `${HOY}T03:00:00Z`, lineas: Object.fromEntries(ls.map((l) => [l.sku, l])) } })
+
+  // Con la cuenta de siempre, 50 días y plazo 45 es «reponer pronto»; el plan dice urgente y gana el plan
+  const a = una(calcular([sku({ sku: 'A', vendibles: 50 })], plan(L({ sku: 'A' }))), 'reposicion:A')
+  ok('urgente en el plan → reponer ya, alta', a?.tipo === 'reponer_ya' && a.severidad === 'alta', JSON.stringify(a))
+  ok('la fecha es la del plan (20 nov) y el € el del plan', a?.datos.seAgotaEl === '2026-11-20' && a.detalle.includes('20 nov') && a.impacto === 312.4, JSON.stringify(a))
+  ok('dice cuánto propone y antes de cuándo sale', a?.detalle.includes('60 ud') === true && a.detalle.includes('4 nov'), a?.detalle)
+
+  const t = una(calcular([sku({ sku: 'T', vendibles: 5 })], plan(L({ sku: 'T', prioridad: 'tarde', vaTarde: true, diasSinStockInevitables: 9 }))), 'reposicion:T')
+  ok('tarde en el plan → reponer ya, crítica, con los días sin stock inevitables', t?.tipo === 'reponer_ya' && t.severidad === 'critica' && t.detalle.includes('9 días sin stock'), JSON.stringify(t))
+
+  const p = una(calcular([sku({ sku: 'P', vendibles: 20 })], plan(L({ sku: 'P', prioridad: 'proximas_2', fechaPrimerHueco: '2026-12-01' }))), 'reposicion:P')
+  ok('próximas 2 semanas → reponer pronto, media (la cuenta de siempre decía reponer ya crítica)', p?.tipo === 'reponer_pronto' && p.severidad === 'media', JSON.stringify(p))
+
+  const m = una(calcular([sku({ sku: 'M', vendibles: 20 })], plan(L({ sku: 'M', prioridad: 'este_mes' }))), 'reposicion:M')
+  ok('este mes → sin alerta de reposición (el plan lo tiene en el calendario)', m === undefined, JSON.stringify(m))
+
+  const s = una(calcular([sku({ sku: 'S', vendibles: 10 })], plan(L({ sku: 'S', prioridad: 'urgente', fuera: 'stock_de_sobra', cantidad: 0 }))), 'reposicion:S')
+  ok('fuera del plan (stock de sobra) → sin «reponer»', s === undefined, JSON.stringify(s))
+
+  const g = una(calcular([sku({ sku: 'G', vendibles: 0, entrante: 0 })], plan(L({ sku: 'G', prioridad: 'urgente', eurosEnRiesgo: 900 }))), 'reposicion:G')
+  ok('agotado sigue siendo agotado, con el € del plan', g?.tipo === 'agotado' && g.severidad === 'critica' && g.impacto === 900, JSON.stringify(g))
+
+  const r = una(
+    calcular([sku({ sku: 'R', vendibles: 4, entrante: 100 })], plan(L({ sku: 'R', prioridad: 'mas_adelante', fechaRotura: null, fechaPrimerHueco: '2026-11-06', cantidad: 0, fuera: 'stock_de_sobra' }))),
+    'reposicion:R'
+  )
+  ok('rotura próxima con el primer hueco del plan (6 nov)', r?.tipo === 'rotura_proxima' && r.datos.seAgotaEl === '2026-11-06' && r.detalle.includes('6 nov'), JSON.stringify(r))
+
+  const n = una(calcular([sku({ sku: 'N', vendibles: 20 })], plan(L({ sku: 'OTRA' }))), 'reposicion:N')
+  ok('sin línea para esa referencia: la cuenta de siempre (reponer ya, crítica)', n?.tipo === 'reponer_ya' && n.severidad === 'critica' && n.datos.origen === undefined, JSON.stringify(n))
+
+  ok('una pasada de hace 30 h vale', planVigente('2026-11-01T00:00:00Z', '2026-11-02T06:00:00Z'))
+  ok('una de hace 37 h no', !planVigente('2026-11-01T00:00:00Z', '2026-11-02T13:00:00Z'))
+  ok('sin fecha, no', !planVigente(null, '2026-11-02T06:00:00Z'))
+  ok('una línea guardada se lee', lineaPlanParaAlertas({ sku: 'X', prioridad: 'tarde', fechaRotura: '2026-12-01', eurosEnRiesgo: 3, moneda: 'USD', fuera: null, cantidad: 12 })?.moneda === 'USD')
+  ok('una línea rota no', lineaPlanParaAlertas({ sku: 'X', prioridad: 'pronto' }) === null && lineaPlanParaAlertas(null) === null)
+}
+
+console.log('\n=== guardar: cada lote del upsert con las mismas columnas (§0.1) ===')
+{
+  const alerta = (clave: string): AlertaFba => ({ clave, tipo: 'agotado', severidad: 'alta', sku: clave, remesaId: null, titulo: clave, detalle: '', impacto: 1.234, datos: {} })
+  const escribir = [
+    { alerta: alerta('nueva'), estado: 'abierta' as const, nueva: true, reabierta: false },
+    { alerta: alerta('existente'), estado: 'abierta' as const, nueva: false, reabierta: false },
+    { alerta: alerta('reabierta'), estado: 'abierta' as const, nueva: false, reabierta: true },
+    { alerta: alerta('silenciada'), estado: 'silenciada' as const, nueva: false, reabierta: false },
+    ...Array.from({ length: 7 }, (_, i) => ({ alerta: alerta(`n${i}`), estado: 'abierta' as const, nueva: true, reabierta: false })),
+    ...Array.from({ length: 5 }, (_, i) => ({ alerta: alerta(`e${i}`), estado: 'abierta' as const, nueva: false, reabierta: false })),
+  ]
+  const filas = filasDeAlertas('c1', escribir, '2026-11-02T03:00:00Z')
+  const lotes = lotesDeFilas(filas, 4)
+  ok('todas las filas de cada lote tienen las mismas claves', lotes.every((l) => l.every((f) => formaDeFila(f) === formaDeFila(l[0]))), lotes.map((l) => l.map(formaDeFila).join(' | ')).join(' || '))
+  ok('ningún lote pasa del tamaño', lotes.every((l) => l.length <= 4 && l.length > 0))
+  ok('no se pierde ni se repite ninguna fila', lotes.flat().length === filas.length && new Set(lotes.flat().map((f) => f.clave)).size === filas.length)
+  const de = (c: string) => filas.find((f) => f.clave === c)!
+  ok('la nueva y la reabierta llevan primera_vez_at y resuelta_at: null', 'primera_vez_at' in de('nueva') && de('reabierta').resuelta_at === null && 'primera_vez_at' in de('reabierta'))
+  ok('la existente NO lleva primera_vez_at (no se pisa con NULL)', !('primera_vez_at' in de('existente')) && !('resuelta_at' in de('existente')))
+  ok('la silenciada no nombra silenciada_hasta (conserva su fecha); la abierta la pone a null', !('silenciada_hasta' in de('silenciada')) && de('existente').silenciada_hasta === null)
+  ok('el impacto va redondeado a céntimos', de('nueva').impacto === 1.23)
+}
+
+console.log('\n=== a quién avisar: admins y empleados con la casilla remesas (D27) ===')
+{
+  const perfiles = [
+    { id: 'admin', role: 'admin', puesto: null },
+    { id: 'ceo-sin', role: 'admin', puesto: 'ceo' },
+    { id: 'ceo-con', role: 'admin', puesto: 'ceo' },
+    { id: 'adm-casilla', role: 'employee', puesto: 'gestion_administrativa' },
+    { id: 'adm-sin', role: 'employee', puesto: 'gestion_administrativa' },
+    { id: 'emp-acceso', role: 'employee', puesto: null },
+    { id: 'cli', role: 'cliente', puesto: null },
+  ]
+  const casillas = new Set(['ceo-con', 'adm-casilla', 'cli'])
+  const accesos = [
+    { userId: 'emp-acceso', clienteId: 'C1', puedeEditar: false },
+    { userId: 'cli', clienteId: 'C1', puedeEditar: true },
+  ]
+  const m = clientesPorUsuario(perfiles, casillas, accesos)
+  ok('admin y empleado con casilla: todos los clientes', m.get('admin') === null && m.get('adm-casilla') === null)
+  ok('CEO con casilla sí; CEO sin casilla y sin accesos no', m.get('ceo-con') === null && !m.has('ceo-sin'))
+  ok('el puesto solo no da nada (administrativa sin casilla)', !m.has('adm-sin'))
+  ok('empleado sin casilla: sus fba_accesos', JSON.stringify(m.get('emp-acceso')) === '["C1"]')
+  ok('el cliente de fuera nunca, aunque tenga casilla y acceso', !m.has('cli'))
+  const c1 = destinatariosDelCliente(m, 'C1').sort()
+  const c2 = destinatariosDelCliente(m, 'C2').sort()
+  ok('destinatarios de C1', JSON.stringify(c1) === JSON.stringify(['adm-casilla', 'admin', 'ceo-con', 'emp-acceso']), JSON.stringify(c1))
+  ok('destinatarios de C2 (sin el del acceso suelto)', JSON.stringify(c2) === JSON.stringify(['adm-casilla', 'admin', 'ceo-con']), JSON.stringify(c2))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN' : `\n${fallos} FALLOS`)

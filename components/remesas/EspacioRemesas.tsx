@@ -1,774 +1,501 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { AlertTriangle, BellRing, Boxes, ClipboardList, Columns3, Database, Download, FileDown, KanbanSquare, Package, PackagePlus, Plus, Sparkles, Timer, TrendingDown, Truck, Upload } from 'lucide-react'
-import { AVISO, BOTON, CIFRAS, COLOR_ESTADO, INSIGNIA, TIPO } from '@/lib/estilo/denso'
-import { analizarProductos, resumenDeRitmo } from '@/lib/fba/analisis'
-import { filasACsv } from '@/lib/fba/catalogo/exportar'
-import { esClienteConCatalogo } from '@/lib/fba/catalogo/tipos'
-import { estaCompleta } from '@/lib/fba/catalogo/validar'
-import type { PanelRemesas, RemesaDePanel } from '@/lib/fba/datos'
-import type { Actor } from '@/lib/fba/flujo'
-import { esEnvio, esPropuesta, estaEnCamino, estaEnlazada, leToca, turnoDe } from '@/lib/fba/vista'
-import { AnadirReferenciaDialog, type PrellenadoReferencia } from './catalogo/AnadirReferenciaDialog'
-import { ImportarCatalogoDialog } from './catalogo/ImportarCatalogoDialog'
-import { useCatalogo } from './catalogo/useCatalogo'
-import { VistaBaseDeDatos } from './catalogo/VistaBaseDeDatos'
-import { cx, Vacio } from './comun/ui'
-import { DetalleEnvio } from './envios/DetalleEnvio'
-import { PanelInventario } from './inventario/PanelInventario'
-import { ListaEnvios } from './envios/ListaEnvios'
+import { Component, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { motion, MotionConfig } from 'framer-motion'
+import { AlertTriangle, BellRing, Loader2, RefreshCw } from 'lucide-react'
+import { EstadoVacio } from '@/components/ui-ls'
+import type { PanelDeAlertas } from '@/lib/fba/alertas-lectura'
+import type { PanelRemesas } from '@/lib/fba/datos'
+import { vistaDesdeUrl, type VistaPedida } from '@/lib/fba/vista-url'
+import { PanelAlertas } from './alertas/PanelAlertas'
+import { EspacioCliente, seccionConPanel, seccionesDe } from './cliente/EspacioCliente'
+import type { CallbacksRemesas, ClienteRemesas, IrA, SeccionCliente, SesionRemesas, VistaRemesas } from './comun/tipos-ui'
+import { invalidarRemesas } from './comun/useAgencia'
 import { ImportarPedidosDialog } from './envios/ImportarPedidosDialog'
 import { TraerEnvioDialog } from './envios/TraerEnvioDialog'
 import { useEnviosNuevosDeTodos } from './envios/useEnviosNuevos'
-import { TableroClientes } from './tablero/TableroClientes'
-import { EspacioPropuesta } from './propuestas/EspacioPropuesta'
-import { ListaPropuestas } from './propuestas/ListaPropuestas'
+import { VistaHoy } from './hoy/VistaHoy'
+import { CabeceraRemesas } from './navegacion/CabeceraRemesas'
+import { PanelEnvioPropuesto } from './plan/PanelEnvioPropuesto'
+import { VistaPlan } from './plan/VistaPlan'
 import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
-import { fecha } from './formato'
-import { PlazosDialog } from './PlazosDialog'
-import { TableroRemesas } from './tablero/TableroRemesas'
+import { TableroClientes, type ModoTablero } from './tablero/TableroClientes'
 
 /**
- * REMESAS A FBA: DOS COSAS DISTINTAS Y UNA TERCERA PARA MIRAR.
+ * REMESAS A FBA · LA CARCASA (spec remesas-pro §1.2-§1.4 y §11 D25, D37, D38, D39, D41).
  *
- *   ENVÍOS       lo que ya ha salido y existe en Amazon: se sigue su estado, lo
- *                que ha llegado y lo que se va vendiendo. Es lo verídico.
- *   PROPUESTAS   lo que se está preparando con el cliente: qué mandar, que lo
- *                apruebe, que etiquete y encaje. Cuando se marca como enviada y se
- *                enlaza con su número de Amazon, pasa a Envíos.
- *   PANEL DEL CLIENTE   (pestaña «Panel del cliente») TODO lo que el cliente tiene en Amazon,
- *                con sus ventas, devoluciones, el tiempo que lleva parado y lo que puede
- *                costar: su inventario FBA entero, sin depender de qué envíos se hayan
- *                registrado. Al cambiar de cliente en la barra, la pestaña se queda: se
- *                recorren los paneles de uno en uno.
- *   PROPUESTA CON IA   (solo la agencia) la IA mira el inventario y propone qué mandar, con el
- *                porqué de cada línea; se revisa, se corrige y se crea el borrador. La
- *                propuesta a mano sigue ahí, al lado.
- *   BASE DE DATOS  solo para los clientes que la tienen (ShoesF): su hoja de REF,
- *                color, talla, EAN, FNSKU, ASIN y FBASKU, de la que las propuestas
- *                sacan los desplegables.
+ * Ligera a propósito: la cabecera con las vistas, la vista abierta y lo que se abre encima desde cualquier vista. Nada de cálculos.
  *
- * Cada una es una pantalla con su propia lista a la izquierda y su espacio de
- * trabajo a la derecha. La pantalla no calcula nada pesado: el reparto de ventas
- * llega hecho del servidor.
+ *   agencia            Hoy · Plan · Cliente · Tablero · Alertas
+ *   cliente de fuera   Mi stock (vista «cliente») y, con varias cuentas, Mis cuentas (tablero reducido, solo envíos, sin salud ni €, D39)
  *
- * Cambiar de pestaña o de envío es instantáneo —no toca el servidor—. Solo se
- * pide al servidor lo que hace falta: otro cliente, o las cajas de una propuesta
- * que está encajándose, que llegan por la URL.
+ * ============ LA URL MANDA ============
+ * Qué se ve sale SIEMPRE de la URL (`useSearchParams` + `vistaDesdeUrl`, lib/fba/vista-url.ts), con la regla de los enlaces viejos en un solo
+ * sitio. Así «Atrás», recargar y pegar un enlace abren lo mismo. Cómo se cambia:
+ *   · cambiar de VISTA o de CLIENTE      → `router.push(url, { scroll: false })`: deja historial para «Atrás» (D25).
+ *   · cambiar de SECCIÓN, filtros, modo  → `history.replaceState`, sin ir al servidor… salvo que la sección necesite el panel que calcula la
+ *                                          página (Envíos y Propuestas) y no esté: entonces `router.replace`.
+ *   · tras ESCRIBIR (crear, importar, traer, convertir) → se vacía la memoria del cliente (`invalidarRemesas`), se navega a lo creado y
+ *                                          `router.refresh()`: la pantalla se pone al día sin recargar a mano.
+ * `/dashboard/remesas/alertas` pinta esta misma carcasa con la vista `alertas` (la ruta lo dice: `usePathname`).
+ *
+ * ============ LO QUE SE MONTA UNA SOLA VEZ, AQUÍ ============
+ * Se abre desde Hoy, Plan, Tablero, Alertas y Cliente, así que vive en la carcasa y las vistas lo piden con `CallbacksRemesas`:
+ *   · PanelEnvioPropuesto      (agencia) `?envio=<id>` o `onAbrirEnvioPropuesto`. Al convertir, salta a la remesa nueva en Propuestas.
+ *   · PropuestaIaDialog        (agencia que edita) `?ia=1` o `onPropuestaAMedida`.
+ *   · ImportarPedidosDialog    `onImportarPedidos` (desde la cabecera del cliente, el aviso de Envíos, las tarjetas de Hoy y el «+N» del tablero).
+ *   · TraerEnvioDialog         desde Envíos vacío y desde «Traer uno por su número» de Importar pedidos.
+ *   · NuevaPropuestaDialog     «Nueva propuesta» (también el cliente de fuera con `puede_editar`, D39).
+ *
+ * Fuera la cabina de altura fija (`lg:h-[calc(100vh-4rem)]`): la página crece y hace scroll la ventana también en el escritorio.
+ * `MotionConfig reducedMotion="user"`: con «reducir movimiento» las vistas cambian sin deslizarse.
  */
 
-interface Cliente {
-  id: string
-  nombre: string
-  puedeEditar: boolean
-  remesas: number
-  envios: number
-  propuestas: number
+export interface EspacioRemesasProps {
+  sesion: SesionRemesas
+  clientes: ClienteRemesas[]
+  /** El cliente que ha resuelto la página (el de la URL, el de `?remesa=` o el primero) */
+  clienteInicial: string
+  /** La remesa de `?remesa=` con su estado (para saber si va a Envíos o a Propuestas) */
+  remesa: { id: string; estado: string | null } | null
+  /** El panel del cliente (solo si la sección lo necesita, D25) */
+  panel: PanelRemesas | null
+  /** El tablero de alertas (solo en la vista alertas) */
+  panelAlertas: PanelDeAlertas | null
+  /** Alertas graves abiertas para la insignia. null = no se enseñan (cliente de fuera) */
+  alertas: { criticas: number; altas: number } | null
+  /** YYYY-MM-DD en Madrid */
+  hoy: string
+  /** La conexión de Amazon de cada cliente: solo llega a un admin («Leer de Amazon») */
+  conexiones: Record<string, string>
 }
 
-/** La tira de cifras mide más que un teléfono: ahí se desliza de lado dentro de sí misma en vez de ensanchar la página */
-const CIFRA_MOVIL = 'max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+interface Pantalla {
+  vista: VistaRemesas
+  seccion: SeccionCliente
+  cliente: ClienteRemesas
+  modo: ModoTablero
+  pedida: VistaPedida
+}
 
-type Vista = 'tablero' | 'fases' | 'envios' | 'propuestas' | 'inventario' | 'base'
+const RUTA = '/dashboard/remesas'
 
-export function EspacioRemesas({
-  clientes,
-  cliente,
-  panel,
-  esAdmin,
-  esAgencia,
-  remesaAbierta,
-  alertas,
-  vistaInicial,
-  conClientePedido,
-  abrirIa,
-}: {
-  clientes: Cliente[]
-  cliente: Cliente
-  panel: PanelRemesas
-  esAdmin: boolean
-  /** Admin o empleado: la agencia en el flujo (lib/fba/acceso.ts actorDeRol). Un empleado ya no cuenta como cliente */
-  esAgencia: boolean
-  /** La remesa cuyas cajas ha traído el servidor. Viene de la URL */
-  remesaAbierta: string | null
-  nombreUsuario: string
-  /** Las alertas graves abiertas en los clientes que esta persona ve. null = no se enseñan (cliente de fuera) */
-  alertas?: { criticas: number; altas: number } | null
-  /** La vista que pide la URL (?vista=), por ejemplo desde una alerta */
-  vistaInicial?: string | null
-  /** La URL pedía un cliente concreto (?cliente=): entonces no se abre el tablero sino su pantalla */
-  conClientePedido?: boolean
-  /** Abre la propuesta con IA nada más entrar (?ia=1), por ejemplo desde una alerta de «reponer ya» */
-  abrirIa?: boolean
-}) {
+/** Las vistas que puede abrir quien mira, en orden */
+function vistasDe(sesion: Pick<SesionRemesas, 'actor'>, nClientes: number): VistaRemesas[] {
+  if (sesion.actor === 'agencia') return ['hoy', 'plan', 'cliente', 'tablero', 'alertas']
+  return nClientes > 1 ? ['cliente', 'tablero'] : ['cliente']
+}
+
+export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel, panelAlertas, alertas, hoy, conexiones }: EspacioRemesasProps) {
   const router = useRouter()
-  const verComo: Actor = esAgencia ? 'agencia' : 'cliente'
-  const hoy = panel.hoy
-  // Cada propuesta con IA es una llamada de pago sobre el inventario entero del cliente: la lanza
-  // la agencia, igual que la ruta, que lo comprueba otra vez en el servidor
-  const puedeProponerConIa = esAdmin && cliente.puedeEditar
+  const ruta = usePathname() ?? RUTA
+  const sp = useSearchParams()
+  const [navegando, empezar] = useTransition()
+  const [actualizando, empezarActualizar] = useTransition()
+  /** El cliente al que se está yendo (late en el selector mientras llega) */
+  const [destino, setDestino] = useState<string | null>(null)
 
-  const envios = useMemo(() => panel.remesas.filter(esEnvio), [panel.remesas])
-  const propuestas = useMemo(() => panel.remesas.filter(esPropuesta), [panel.remesas])
+  const enRutaAlertas = /\/remesas\/alertas\/?$/.test(ruta)
+  const vistas = useMemo(() => vistasDe(sesion, clientes.length), [sesion, clientes.length])
+  const clienteDe = useCallback((id: string | null | undefined) => (id ? clientes.find((c) => c.id === id) ?? null : null), [clientes])
 
-  // Si llegan por un enlace a una propuesta, se abre en Propuestas
-  const [vistaElegida, setVista] = useState<Vista>(() => {
-    const abierta = panel.remesas.find((r) => r.id === remesaAbierta)
-    if (abierta) return esPropuesta(abierta) ? 'propuestas' : 'envios'
-    if (vistaInicial === 'fases' || vistaInicial === 'envios' || vistaInicial === 'propuestas' || vistaInicial === 'inventario') return vistaInicial
-    // Con varios clientes, lo primero que se ve es el tablero de todos; si se llega a un cliente concreto (un enlace, una alerta), su pantalla
-    return clientes.length > 1 && !conClientePedido ? 'tablero' : 'envios'
-  })
+  /* ================= QUÉ SE VE: DE LA URL ================= */
 
-  // La base de datos solo existe para los clientes que la tienen. Si se estaba en ella
-  // y se salta a otro cliente, se cae a Envíos: derivado, no corregido en un efecto.
-  const conCatalogo = esClienteConCatalogo(cliente.nombre)
-  const vista: Vista = vistaElegida === 'base' && !conCatalogo ? 'envios' : vistaElegida
-  const catalogo = useCatalogo(cliente.id, conCatalogo)
-  const [anadiendo, setAnadiendo] = useState<PrellenadoReferencia | null>(null)
-  const [importando, setImportando] = useState(false)
-  const [envioElegido, setEnvioElegido] = useState<string | null>(remesaAbierta)
-  const [propuestaElegida, setPropuestaElegida] = useState<string | null>(remesaAbierta)
-  const [nueva, setNueva] = useState(false)
-  const [conIa, setConIa] = useState(Boolean(abrirIa) && puedeProponerConIa)
-  const [trayendo, setTrayendo] = useState(false)
-  // IMPORTAR PEDIDOS: de qué cliente (puede no ser el que está abierto: se pide desde el tablero) y cuántos envíos nuevos tiene cada uno en Amazon
+  const params = useMemo(() => {
+    const o: Record<string, string> = {}
+    sp?.forEach((v, k) => {
+      if (!(k in o)) o[k] = v
+    })
+    return o
+  }, [sp])
+
+  const pantalla: Pantalla = useMemo(() => {
+    const idRemesa = params.remesa ?? null
+    const estado = idRemesa ? (panel?.remesas.find((r) => r.id === idRemesa)?.estado ?? (remesa?.id === idRemesa ? remesa.estado : null)) : null
+    const pedida: VistaPedida = enRutaAlertas ? { vista: 'alertas', abrirIa: false } : vistaDesdeUrl(params, sesion.actor, estado)
+    let vista = pedida.vista
+    let seccion: SeccionCliente = pedida.seccion ?? 'resumen'
+    if (!vistas.includes(vista)) {
+      vista = 'cliente'
+      seccion = 'resumen'
+    }
+    // ACOTADO a la lista, como la página: un id que no esté cae al que resolvió el servidor o al primero
+    const cliente = clienteDe(pedida.clienteId) ?? clienteDe(clienteInicial) ?? clientes[0]
+    const posibles = seccionesDe(sesion, cliente)
+    if (!posibles.includes(seccion)) seccion = seccion === 'base' ? 'envios' : 'resumen'
+    return { vista, seccion, cliente, modo: pedida.modo === 'fases' && sesion.actor === 'agencia' ? 'fases' : 'envios', pedida }
+  }, [params, panel, remesa, enRutaAlertas, sesion, vistas, clienteDe, clienteInicial, clientes])
+
+  const { vista, seccion, cliente } = pantalla
+  const panelDeEste = panel && panel.clienteId === cliente.id ? panel : null
+
+  /* ================= NAVEGAR ================= */
+
+  /** La dirección de una pantalla. Con `remesa` y sin sección, la sección la decide el estado de la remesa (vistaDesdeUrl) */
+  const urlDe = useCallback(
+    (v: VistaRemesas, s: SeccionCliente | undefined, extra: Record<string, string> = {}): string => {
+      const p = new URLSearchParams()
+      p.set('vista', v)
+      if (v === 'cliente') {
+        p.set('cliente', extra.cliente ?? cliente.id)
+        const conSeccion = s ?? (extra.remesa ? undefined : vista === 'cliente' ? seccion : 'resumen')
+        if (conSeccion) p.set('seccion', conSeccion)
+      }
+      for (const [k, val] of Object.entries(extra)) if (val && !(v === 'cliente' && k === 'cliente')) p.set(k, val)
+      return `${RUTA}?${p.toString()}`
+    },
+    [cliente.id, vista, seccion]
+  )
+
+  /** Cambia la URL sin ir al servidor (y sin historial). `null` como estado: así Next sincroniza useSearchParams y el router (14.2) */
+  const reemplazarUrl = useCallback((url: string) => {
+    window.history.replaceState(null, '', url)
+  }, [])
+
+  const irA: IrA = useCallback(
+    (v, s, extra = {}) => {
+      const url = urlDe(v, s, extra)
+      const clienteDestino = v === 'cliente' ? (extra.cliente ?? cliente.id) : null
+      const mismaPantalla = !enRutaAlertas && v === vista && (v !== 'cliente' || clienteDestino === cliente.id)
+      const seccionDestino = s ?? seccion
+      const faltaPanel =
+        v === 'cliente' && (seccionConPanel(seccionDestino) || !!extra.remesa) && !(panel && panel.clienteId === clienteDestino)
+      const faltaAlertas = v === 'alertas' && !panelAlertas
+      if (!mismaPantalla) {
+        setDestino(clienteDestino)
+        empezar(() => router.push(url, { scroll: false }))
+      } else if (faltaPanel || faltaAlertas) {
+        empezar(() => router.replace(url, { scroll: false }))
+      } else {
+        reemplazarUrl(url)
+      }
+    },
+    [urlDe, cliente.id, enRutaAlertas, vista, seccion, panel, panelAlertas, router, reemplazarUrl]
+  )
+
+  /** Tras escribir: memoria del cliente fuera, a lo creado, y el servidor vuelve a calcular (la cola del router hace las dos en orden) */
+  const irTrasEscribir = useCallback(
+    (clienteId: string, s: SeccionCliente, extra: Record<string, string> = {}) => {
+      invalidarRemesas(clienteId)
+      const url = urlDe('cliente', s, { ...extra, cliente: clienteId })
+      const misma = !enRutaAlertas && vista === 'cliente' && clienteId === cliente.id
+      setDestino(clienteId)
+      empezar(() => {
+        if (misma) router.replace(url, { scroll: false })
+        else router.push(url, { scroll: false })
+        router.refresh()
+      })
+    },
+    [urlDe, enRutaAlertas, vista, cliente.id, router]
+  )
+
+  // Si la sección necesita el panel (o la vista, las alertas) y no ha llegado —por ejemplo al volver «Atrás» a una entrada cambiada con
+  // replaceState—, se pide UNA vez por dirección
+  const pedidoAlServidor = useRef<string | null>(null)
+  const necesitaServidor =
+    (vista === 'cliente' && seccionConPanel(seccion) && !panelDeEste) ||
+    (vista === 'alertas' && sesion.actor === 'agencia' && !panelAlertas)
+  const claveDeUrl = `${ruta}?${sp?.toString() ?? ''}`
+  useEffect(() => {
+    if (!necesitaServidor || navegando) return
+    if (pedidoAlServidor.current === claveDeUrl) return
+    pedidoAlServidor.current = claveDeUrl
+    empezar(() => router.refresh())
+  }, [necesitaServidor, navegando, claveDeUrl, router])
+
+  /* ================= LO QUE SE ABRE ENCIMA ================= */
+
+  const [envioAbierto, setEnvioAbierto] = useState<string | null>(() => (sesion.actor === 'agencia' ? (pantalla.pedida.envioId ?? null) : null))
+  const envioDeUrl = pantalla.pedida.envioId ?? null
+  useEffect(() => {
+    if (envioDeUrl && sesion.actor === 'agencia') setEnvioAbierto(envioDeUrl)
+  }, [envioDeUrl, sesion.actor])
+
+  /** Quita un parámetro de la URL sin ir al servidor (para que recargar no vuelva a abrir lo que ya se cerró) */
+  const quitarDeUrl = useCallback(
+    (clave: string) => {
+      if (!sp?.has(clave)) return
+      const p = new URLSearchParams(sp.toString())
+      p.delete(clave)
+      // La pantalla se deja explícita: sin `envio`, `?vista=plan` sigue siendo el plan, y sin `ia=1` el cliente sigue en su sección
+      if (!enRutaAlertas) {
+        p.set('vista', vista)
+        if (vista === 'cliente') {
+          p.set('cliente', cliente.id)
+          p.set('seccion', seccion)
+        }
+      }
+      reemplazarUrl(`${ruta}${p.toString() ? `?${p.toString()}` : ''}`)
+    },
+    [sp, enRutaAlertas, vista, cliente.id, seccion, ruta, reemplazarUrl]
+  )
+
+  const cerrarEnvio = useCallback(() => {
+    setEnvioAbierto(null)
+    quitarDeUrl('envio')
+  }, [quitarDeUrl])
+
+  // «Propuesta a medida (IA)»: de qué cliente. `?ia=1` la abre al llegar (desde una alerta de «reponer ya»)
+  const [iaDe, setIaDe] = useState<string | null>(null)
+  useEffect(() => {
+    if (!pantalla.pedida.abrirIa) return
+    if (sesion.actor === 'agencia' && cliente.puedeEditar) setIaDe(cliente.id)
+    quitarDeUrl('ia')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pantalla.pedida.abrirIa, cliente.id])
+
+  const [nuevaDe, setNuevaDe] = useState<string | null>(null)
   const [importandoDe, setImportandoDe] = useState<string | null>(null)
+  const [trayendoDe, setTrayendoDe] = useState<string | null>(null)
   const [versionTablero, setVersionTablero] = useState(0)
-  const [plazosAbierto, setPlazosAbierto] = useState(false)
+
   const hayQueImportar = clientes.some((c) => c.puedeEditar)
   const { porCliente: nuevosPorCliente, refrescar: refrescarNuevos } = useEnviosNuevosDeTodos(hayQueImportar)
-  const nuevosDeEste = cliente.puedeEditar ? (nuevosPorCliente[cliente.id] ?? 0) : 0
-  const [cambiando, setCambiando] = useState<string | null>(null)
 
-  /**
-   * EN EL MÓVIL, ELEGIR EN LA LISTA LLEVA AL DETALLE.
-   *
-   * Por debajo de lg la lista y el detalle van uno debajo del otro y la lista entera va primero: sin esto, tocar un envío cambiaba algo que
-   * estaba una o dos pantallas más abajo y parecía que no había pasado nada. En el ordenador están lado a lado y no se mueve nada.
-   */
-  const detalle = useRef<HTMLElement>(null)
+  /* ================= LOS CALLBACKS (estables: las vistas los meten en sus efectos) ================= */
 
-  // La pestaña abierta, siempre a la vista en su barra: en el móvil la barra se desliza de lado y «Envíos» quedaba cortada por el borde
-  const barraVistas = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const barra = barraVistas.current
-    const activa = barra?.querySelector<HTMLElement>('[aria-current="page"]')
-    if (!barra || !activa || barra.scrollWidth <= barra.clientWidth) return
-    const caja = barra.getBoundingClientRect()
-    const boton = activa.getBoundingClientRect()
-    barra.scrollTo({ left: barra.scrollLeft + boton.left - caja.left - (caja.width - boton.width) / 2, behavior: 'smooth' })
-  }, [vistaElegida])
-  function alDetalleEnMovil() {
-    if (typeof window === 'undefined' || window.matchMedia('(min-width: 1024px)').matches) return
-    requestAnimationFrame(() => detalle.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
-  }
+  const vivos = useRef({ irA, clienteDe, sesion })
+  vivos.current = { irA, clienteDe, sesion }
+  const callbacks: CallbacksRemesas = useMemo(
+    () => ({
+      onAbrirEnvioPropuesto: (id) => {
+        if (vivos.current.sesion.actor === 'agencia') setEnvioAbierto(id)
+      },
+      onIrA: (v, s, extra) => vivos.current.irA(v, s, extra),
+      onPropuestaAMedida: (id) => {
+        const c = vivos.current.clienteDe(id)
+        if (c && vivos.current.sesion.actor === 'agencia' && c.puedeEditar) setIaDe(id)
+      },
+      onImportarPedidos: (id) => {
+        if (vivos.current.clienteDe(id)?.puedeEditar) setImportandoDe(id)
+      },
+    }),
+    []
+  )
 
-  function irACliente(id: string, remesa?: string | null) {
-    // Desde el tablero se va a los envíos del cliente elegido
-    if (vistaElegida === 'tablero') setVista('envios')
-    if (remesa) setEnvioElegido(remesa)
-    if (id === cliente.id) return
-    setCambiando(id)
-    // El envío elegido va en el estado, no en la URL: `?remesa=` obliga al servidor a leer las cajas de esa remesa y un envío no las necesita
-    router.push(`/dashboard/remesas?cliente=${id}`)
-  }
-  useEffect(() => setCambiando(null), [cliente.id])
+  const actualizar = useCallback(() => {
+    invalidarRemesas()
+    refrescarNuevos()
+    setVersionTablero((v) => v + 1)
+    empezarActualizar(() => router.refresh())
+  }, [refrescarNuevos, router])
 
-  // Desde el tablero se salta a la remesa de OTRO cliente por la URL: al llegar, se abre en su sitio
-  useEffect(() => {
-    if (!remesaAbierta) return
-    const r = panel.remesas.find((x) => x.id === remesaAbierta)
-    if (!r) return
-    if (esPropuesta(r)) {
-      setPropuestaElegida(r.id)
-      setVista((v) => (v === 'tablero' ? 'propuestas' : v))
-    } else {
-      setEnvioElegido(r.id)
-      setVista((v) => (v === 'tablero' ? 'envios' : v))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remesaAbierta, cliente.id])
+  /* ================= PINTAR ================= */
 
-  /**
-   * LA ELEGIDA, DERIVADA Y NO CORREGIDA.
-   *
-   * Si la remesa elegida todavía no está en el panel —acaba de crearse y el
-   * servidor no ha contestado— se enseña la primera, pero NO se toca la elección:
-   * cuando lleguen los datos, la elegida está ahí y se abre sola. Corregir el
-   * estado en medio es lo que haría saltar a otra.
-   */
-  const envio = envios.find((r) => r.id === envioElegido) ?? primeroPorDefecto(envios)
-  const propuesta = propuestas.find((r) => r.id === propuestaElegida) ?? propuestas[0] ?? null
-
-  // Las cajas de una propuesta que se está encajando llegan por la URL: es lo único
-  // que obliga a ir al servidor al elegir una. Se pide UNA vez por propuesta y paso
-  // (la clave lo recuerda), así que si el servidor no las trae no se queda
-  // preguntando en bucle.
-  const cajasPedidas = useRef<string | null>(null)
-  const clavePropuesta = propuesta ? `${propuesta.id}:${propuesta.estado}` : null
-  const cajasLlegadas = panel.cajasDe?.remesaId ?? null
-  useEffect(() => {
-    if (vista !== 'propuestas' || !propuesta || !clavePropuesta) return
-    const necesitaCajas = propuesta.estado === 'encajando' || propuesta.estado === 'lista'
-    if (!necesitaCajas || cajasLlegadas === propuesta.id || cajasPedidas.current === clavePropuesta) return
-    cajasPedidas.current = clavePropuesta
-    router.replace(`/dashboard/remesas?cliente=${cliente.id}&remesa=${propuesta.id}`, { scroll: false })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vista, clavePropuesta, cajasLlegadas, cliente.id])
-
-  /** Días de stock de cada envío, para señalar en la lista los que se agotan pronto */
-  const diasCobertura = useMemo(() => {
-    const globales = new Map(panel.skus.map((s) => [s.sku, s]))
-    const m = new Map<string, number | null>()
-    for (const r of envios) {
-      if (r.quedan === 0) {
-        m.set(r.id, null)
-        continue
-      }
-      m.set(r.id, resumenDeRitmo(r, analizarProductos(r, globales, hoy), hoy).cobertura)
-    }
-    return m
-  }, [envios, panel.skus, hoy])
-
-  const cifras = useMemo(() => {
-    const enviadas = envios.reduce((s, r) => s + r.enviadas, 0)
-    const vivas = envios.reduce((s, r) => s + r.quedan, 0)
-    const enCamino = envios.filter((r) => estaEnCamino(r.estadoAmazon)).length
-    const urgentes = panel.skus.filter((s) => s.diasDeCobertura !== null && s.diasDeCobertura <= 14 && s.quedan > 0).length
-    const descuadre = panel.skus.reduce((s, k) => s + (k.descuadre ?? 0), 0)
-    const tocan = propuestas.filter((r) => leToca(turnoDe(r.estado, r.lineas.length, r.propuesta), verComo)).length
-    const porFase = (e: string) => propuestas.filter((r) => r.estado === e).length
-    return { enviadas, vivas, enCamino, urgentes, descuadre, tocan, porFase }
-  }, [envios, propuestas, panel.skus, verComo])
-
-  const cifrasBase = useMemo(() => {
-    const filas = catalogo.filas ?? []
-    return {
-      referencias: catalogo.indice.grupos.length,
-      modelos: catalogo.indice.modelos.length,
-      tallas: filas.length,
-      incompletas: filas.filter((f) => !estaCompleta(f)).length,
-    }
-  }, [catalogo.filas, catalogo.indice])
-
-  /** Descarga la base de datos en el formato de la hoja: se puede pegar de vuelta o volver a importar */
-  function descargarBase() {
-    const csv = '\ufeff' + filasACsv(catalogo.filas ?? [])
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    const a = document.createElement('a')
-    const nombre = cliente.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    a.href = url
-    a.download = `base-de-datos-${nombre}-${hoy}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  const clienteDelPlan = vista === 'plan' ? (clienteDe(params.cliente)?.id ?? null) : null
+  const cargandoCliente = navegando ? destino : null
+  const clienteIa = clienteDe(iaDe)
+  const clienteNueva = clienteDe(nuevaDe)
+  const clienteImportar = clienteDe(importandoDe)
+  const clienteTraer = clienteDe(trayendoDe)
 
   return (
-    // EN EL MÓVIL LA PÁGINA CRECE Y HACE SCROLL LA VENTANA. La altura fija de pantalla (con las listas y el detalle con su propio scroll dentro) es
-    // para el ordenador: en un teléfono dejaba la lista en 150 px con su scroll, el detalle cortado por abajo y dos scrolls metidos uno en otro que se
-    // quedaban con el dedo. Desde lg vuelve a ser la cabina de altura fija de siempre.
-    <div className="fba-cockpit flex min-w-0 flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0">
-      {/* ================= CABECERA: TÍTULO, VISTAS, CIFRAS Y ACCIONES ================= */}
-      <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-0 pb-[6px] pt-[10px] lg:px-5">
-        <h1 className={cx(TIPO.xl, 'flex items-center gap-2 text-[var(--ls-t1)]')}>
-          <span className="grid h-7 w-7 place-items-center rounded-[9px] text-[var(--ls-fondo)] shadow-[0_6px_16px_-8px_var(--ls-mod-remesas)]" style={{ background: 'linear-gradient(135deg, var(--ls-mod-remesas), color-mix(in srgb, var(--ls-mod-remesas) 60%, #0b3b4a))' }}>
-            <Truck className="h-[15px] w-[15px]" />
-          </span>
-          Remesas a FBA
-        </h1>
+    <MotionConfig reducedMotion="user">
+      <div className="fba-cockpit flex min-w-0 flex-col pb-8 print:pb-0">
+        <CabeceraRemesas
+          sesion={sesion}
+          vista={vista}
+          vistas={vistas}
+          onVista={(v) => irA(v, v === 'cliente' ? seccion : undefined, v === 'cliente' ? { cliente: cliente.id } : {})}
+          alertas={alertas}
+          actualizando={actualizando}
+          onActualizar={vista === 'hoy' ? undefined : actualizar}
+        />
 
-        {/* Las pestañas no caben en un teléfono: se deslizan de lado DENTRO de su barra. Sin max-w-full la barra medía 540 px y estiraba la página
-            entera (el móvil la alejaba a 660 px de ancho y todo se veía diminuto) */}
-        <nav ref={barraVistas} aria-label="Vistas" className="flex max-w-full items-center gap-[2px] overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {clientes.length > 1 && (
-            <Pestana activa={vista === 'tablero'} onClick={() => setVista('tablero')} icono={<Columns3 className="h-[14px] w-[14px]" />} titulo="Todos los clientes en columnas: el estado de sus envíos de un vistazo">
-              Tablero
-            </Pestana>
-          )}
-          {esAgencia && (
-            <Pestana activa={vista === 'fases'} onClick={() => setVista('fases')} icono={<KanbanSquare className="h-[14px] w-[14px]" />} titulo="Todas las propuestas en marcha, de todos los clientes, por fases">
-              Propuestas en marcha
-            </Pestana>
-          )}
-          <Pestana activa={vista === 'envios'} onClick={() => setVista('envios')} icono={<Package className="h-[14px] w-[14px]" />} titulo="Lo que ya ha salido y existe en Amazon">
-            Envíos
-            <span className="tabular-nums text-[var(--ls-t4)]">{envios.filter(estaEnlazada).length}</span>
-          </Pestana>
-          <Pestana activa={vista === 'propuestas'} onClick={() => setVista('propuestas')} icono={<ClipboardList className="h-[14px] w-[14px]" />} titulo="Lo que se está preparando con el cliente">
-            Propuestas
-            {propuestas.length > 0 && (
-              <span className={cifras.tocan > 0 ? INSIGNIA.contador : 'tabular-nums text-[var(--ls-t4)]'} title={cifras.tocan > 0 ? `${cifras.tocan} esperan a que muevas tú` : undefined}>
-                {propuestas.length}
-              </span>
-            )}
-          </Pestana>
-          <Pestana activa={vista === 'inventario'} onClick={() => setVista('inventario')} icono={<Boxes className="h-[14px] w-[14px]" />} titulo="El panel completo de este cliente: su inventario FBA con ventas, devoluciones, tiempo parado, ritmo de venta y lo que puede costarle dejarlo en Amazon">
-            Panel del cliente
-          </Pestana>
-          {conCatalogo && (
-            <Pestana activa={vista === 'base'} onClick={() => setVista('base')} icono={<Database className="h-[14px] w-[14px]" />} titulo={`La hoja de referencias de ${cliente.nombre}: REF, color, talla y sus códigos. De aquí salen los desplegables de las propuestas`}>
-              Base de datos
-              {catalogo.filas && <span className="tabular-nums text-[var(--ls-t4)]">{catalogo.filas.length}</span>}
-            </Pestana>
-          )}
-        </nav>
+        {/* Entrada suave al cambiar de vista (solo opacidad y 8 px). Sin AnimatePresence alrededor de la página (§6.4): la vista nueva se pinta
+            sin esperar a que la vieja salga, y al acabar no queda `transform` en el ancestro de lo `fixed` */}
+        <motion.div
+            key={vista}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="min-w-0"
+          >
+            <SiFalla clave={`${vista}:${cliente.id}:${seccion}`} onActualizar={actualizar}>
+            {vista === 'hoy' && <VistaHoy sesion={sesion} callbacks={callbacks} />}
 
-        {/* Las cifras del cliente, en la misma fila: no merecen una fila entera */}
-        {vista === 'envios' && (
-          <div className={cx(CIFRAS.tira, CIFRA_MOVIL)}>
-            <Cifra rotulo="enviadas" valor={cifras.enviadas} />
-            <Cifra rotulo="vivas" valor={cifras.vivas} />
-            <Cifra rotulo="de camino" valor={cifras.enCamino} />
-            <Cifra rotulo="se agotan en 14 días" valor={cifras.urgentes} alerta={cifras.urgentes > 0} />
-            {panel.conectado && <Cifra rotulo="descuadre con Amazon" valor={cifras.descuadre} signo alerta={cifras.descuadre !== 0} pista="Lo que Amazon tiene menos lo que explican los envíos. Positivo: había stock de antes" />}
-          </div>
-        )}
-        {vista === 'propuestas' && (
-          <div className={cx(CIFRAS.tira, CIFRA_MOVIL)}>
-            <Cifra rotulo="te tocan a ti" valor={cifras.tocan} urgente={cifras.tocan > 0} />
-            <Cifra rotulo="en propuesta" valor={cifras.porFase('borrador')} />
-            <Cifra rotulo="aprobadas" valor={cifras.porFase('aprobada')} />
-            <Cifra rotulo="encajando" valor={cifras.porFase('encajando')} />
-            <Cifra rotulo="listas" valor={cifras.porFase('lista')} />
-          </div>
-        )}
-        {vista === 'base' && catalogo.filas && catalogo.filas.length > 0 && (
-          <div className={cx(CIFRAS.tira, CIFRA_MOVIL)}>
-            <Cifra rotulo="REF" valor={cifrasBase.referencias} />
-            <Cifra rotulo="modelos" valor={cifrasBase.modelos} />
-            <Cifra rotulo="tallas" valor={cifrasBase.tallas} />
-            <Cifra rotulo="incompletas" valor={cifrasBase.incompletas} alerta={cifrasBase.incompletas > 0} pista="Tallas a las que les falta el FBASKU, el EAN, el FNSKU o el ASIN" />
-          </div>
-        )}
+            {vista === 'plan' && <VistaPlan sesion={sesion} callbacks={callbacks} clientes={clientes} clienteId={clienteDelPlan} hoy={hoy} />}
 
-      </header>
+            {vista === 'tablero' && (
+              <TableroClientes
+                sesion={sesion}
+                nuevosPorCliente={nuevosPorCliente}
+                version={versionTablero}
+                onAbrir={(clienteId, remesaId) => irA('cliente', remesaId ? undefined : 'envios', remesaId ? { cliente: clienteId, remesa: remesaId } : { cliente: clienteId })}
+                onImportarPedidos={callbacks.onImportarPedidos}
+                onAbrirEnvioPropuesto={sesion.actor === 'agencia' ? callbacks.onAbrirEnvioPropuesto : undefined}
+                modo={pantalla.modo}
+                onCambiarModo={(m) => reemplazarUrl(m === 'fases' ? `${RUTA}?vista=tablero&modo=fases` : `${RUTA}?vista=tablero`)}
+                clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre }))}
+                onAbrirPropuesta={(t) => irA('cliente', 'propuestas', { cliente: t.clienteId, remesa: t.id })}
+              />
+            )}
 
-      {/* ================= CLIENTES Y LO QUE SE HACE CON EL ELEGIDO =================
-          Alertas, Plazos y los botones del cliente (importar, propuestas, base de datos) van en la fila de los clientes y no en la cabecera: allí, cuando no cabían junto a
-          las vistas, bajaban a una segunda fila sueltos a la derecha y parecía que flotaban (15 nov 2026). Los clientes se deslizan de lado en lo que queda. */}
-      {(clientes.length > 1 || vista !== 'tablero' || alertas) && (
-        <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-0 pb-[8px] pt-[2px] lg:flex-nowrap lg:px-5">
-          {clientes.length > 1 && <BarraClientes clientes={clientes} activo={vista === 'tablero' ? '' : cliente.id} cargando={cambiando} onElegir={irACliente} nuevos={nuevosPorCliente} />}
-          {/* max-w-full y sin shrink-0 por debajo de lg: en el móvil, con shrink-0, el grupo medía lo que todos sus botones en una sola fila (600 px)
-              y ensanchaba la página entera; así baja de línea dentro del ancho de la pantalla */}
-          <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden lg:shrink-0">
-            {alertas && (
-              <Link
-                href="/dashboard/remesas/alertas"
-                className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}
-                title="Lo que va mal en la logística de todos los clientes: roturas de stock, envíos parados, descuadres y stock parado"
-              >
-                <BellRing className="h-3 w-3" />
-                Alertas
-                {alertas.criticas + alertas.altas > 0 && (
-                  <span className={INSIGNIA.contador} title={`${alertas.criticas} críticas y ${alertas.altas} altas`}>
-                    {alertas.criticas + alertas.altas}
-                  </span>
-                )}
-              </Link>
-            )}
-            {esAdmin && vista !== 'tablero' && (
-              <button type="button" onClick={() => setPlazosAbierto(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cuánto tarda este cliente desde que le avisamos hasta que su mercancía está a la venta en Amazon: preparación, transporte, recepción y margen. De ahí salen los avisos de reponer">
-                <Timer className="h-3 w-3" />
-                Plazos
-              </button>
-            )}
-            {/* Solo en pantallas muy anchas (2xl), como antes de mover estos botones a la fila de los clientes */}
-            {panel.leidoHasta && <span className="hidden text-[11px] text-[var(--ls-t4)] 2xl:inline">Ventas leídas hasta el {fecha(panel.leidoHasta)}</span>}
-            {cliente.puedeEditar && vista === 'envios' && (
-              <button type="button" onClick={() => setImportandoDe(cliente.id)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Los envíos que Amazon tiene en la cuenta de este cliente y el ERP todavía no: se marcan y se importan de golpe">
-                <PackagePlus className="h-3 w-3" />
-                Importar pedidos
-                {nuevosDeEste > 0 && <span className={INSIGNIA.contador} title={`${nuevosDeEste} nuevo${nuevosDeEste === 1 ? '' : 's'} en Amazon`}>{nuevosDeEste}</span>}
-              </button>
-            )}
-            {vista === 'tablero' ? null : vista === 'base' ? (
-              <>
-                {catalogo.filas && catalogo.filas.length > 0 && (
-                  <button type="button" onClick={descargarBase} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Descargar la base de datos en el formato de la hoja de cálculo">
-                    <FileDown className="h-3 w-3" />
-                    Exportar CSV
-                  </button>
-                )}
-                {catalogo.puedeEditar && !catalogo.sinMigrar && (
-                  <>
-                    <button type="button" onClick={() => setImportando(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Cargar o completar la base de datos desde el CSV de la hoja">
-                      <Upload className="h-3 w-3" />
-                      Importar CSV
-                    </button>
-                    <button type="button" onClick={() => setAnadiendo({})} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-                      <Plus className="h-3 w-3" />
-                      Añadir referencia
-                    </button>
-                  </>
-                )}
-              </>
-            ) : (
-              cliente.puedeEditar &&
-              (puedeProponerConIa ? (
-                // La agencia tiene las dos: que la IA proponga, o montarla a mano como siempre
-                <>
-                  <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Eliges tú qué mandar, producto a producto">
-                    <Plus className="h-3 w-3" />
-                    Propuesta manual
-                  </button>
-                  <button type="button" onClick={() => setConIa(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)} title="La IA mira el inventario, las ventas y las devoluciones y propone qué mandar. Se revisa y se corrige antes de crearla">
-                    <Sparkles className="h-3 w-3" />
-                    Propuesta con IA
-                  </button>
-                </>
+            {vista === 'alertas' &&
+              (panelAlertas ? (
+                <PanelAlertas panel={panelAlertas} esAdmin={sesion.esAdmin} sesion={sesion} incrustado onAbrirEnvioPropuesto={callbacks.onAbrirEnvioPropuesto} />
+              ) : navegando || necesitaServidor ? (
+                <p className="flex items-center gap-2 py-6 text-[12.5px] text-[var(--ls-t3)]" role="status">
+                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                  Leyendo las alertas…
+                </p>
               ) : (
-                <button type="button" onClick={() => setNueva(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-                  <Plus className="h-3 w-3" />
-                  Nueva propuesta
-                </button>
-              ))
+                <EstadoVacio icono={BellRing} acento="remesas" titulo="No se han podido leer las alertas" descripcion="Pulsa «Actualizar» para volver a probar." />
+              ))}
+
+            {vista === 'cliente' && (
+              <EspacioCliente
+                sesion={sesion}
+                cliente={cliente}
+                clientes={clientes}
+                seccion={seccion}
+                onSeccion={(s) => irA('cliente', s, { cliente: cliente.id })}
+                onCliente={(id) => irA('cliente', seccion, { cliente: id })}
+                cambiando={cargandoCliente}
+                panel={panelDeEste}
+                remesaAbierta={params.remesa ?? null}
+                hoy={hoy}
+                callbacks={callbacks}
+                enviosNuevos={nuevosPorCliente}
+                conexionId={sesion.esAdmin ? (conexiones[cliente.id] ?? null) : null}
+                onNuevaPropuesta={() => setNuevaDe(cliente.id)}
+                onTraer={() => setTrayendoDe(cliente.id)}
+                onPedirCajas={(remesaId) => empezar(() => router.replace(urlDe('cliente', 'propuestas', { cliente: cliente.id, remesa: remesaId }), { scroll: false }))}
+                onEnviada={(remesaId) => irTrasEscribir(cliente.id, 'envios', { remesa: remesaId })}
+              />
             )}
-          </div>
-        </div>
-      )}
+            </SiFalla>
+          </motion.div>
 
-      {/* ================= AVISOS (solo si los hay) ================= */}
-      {vista !== 'tablero' && ((!panel.conectado && envios.length > 0) || panel.ultimoError) && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 px-0 pb-2 lg:px-5">
-          {!panel.conectado && envios.length > 0 && (
-            <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
-              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
-              Sin API de Amazon: las ventas no se descuentan solas
-            </div>
-          )}
-          {panel.ultimoError && (
-            <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.rojo }}>
-              <AlertTriangle className={AVISO.icono} style={{ color: COLOR_ESTADO.rojo }} />
-              Última lectura fallida: {panel.ultimoError.slice(0, 80)}
-            </div>
-          )}
-        </div>
-      )}
+        {/* ================= ENCIMA: UNA VEZ PARA TODAS LAS VISTAS ================= */}
 
-      {vista === 'envios' && nuevosDeEste > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 px-0 pb-2 lg:px-5">
-          <div className={cx(AVISO.base, AVISO.conTono, 'items-center')} style={{ borderLeftColor: COLOR_ESTADO.ambar }}>
-            <PackagePlus className={AVISO.icono} style={{ color: COLOR_ESTADO.ambar }} />
-            {nuevosDeEste === 1 ? 'Hay 1 envío nuevo en Amazon que todavía no está en el ERP' : `Hay ${nuevosDeEste} envíos nuevos en Amazon que todavía no están en el ERP`}
-            <button type="button" onClick={() => setImportandoDe(cliente.id)} className="ml-2 font-semibold underline">
-              Importar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ================= CUERPO ================= */}
-      {vista === 'tablero' ? (
-        <div className="min-h-0 flex-1 px-0 pb-3 lg:px-5">
-          <TableroClientes
-            nuevosPorCliente={nuevosPorCliente}
-            version={versionTablero}
-            onAbrir={(clienteId, remesaId) => irACliente(clienteId, remesaId)}
-            onImportar={(clienteId) => setImportandoDe(clienteId)}
+        {sesion.actor === 'agencia' && (
+          <PanelEnvioPropuesto
+            envioId={envioAbierto}
+            onCerrar={cerrarEnvio}
+            onConvertida={(remesaId, clienteId) => {
+              setEnvioAbierto(null)
+              // Salta a la remesa nueva en Propuestas (la URL nueva ya no lleva `envio`)
+              irTrasEscribir(clienteId, 'propuestas', { remesa: remesaId })
+            }}
+            usuarioId={sesion.usuarioId}
+            esAdmin={sesion.esAdmin}
+            puedeEditar={sesion.esAgencia}
+            hoy={hoy}
           />
-        </div>
-      ) : vista === 'fases' ? (
-        <div className="min-h-0 flex-1 px-0 pb-1 lg:px-5">
-          <TableroRemesas
-            verComo={verComo}
-            clientes={clientes.map((c) => ({ id: c.id, nombre: c.nombre }))}
-            onAbrir={(t) => {
-              if (t.clienteId === cliente.id) {
-                setPropuestaElegida(t.id)
-                setVista('propuestas')
-              } else {
-                setCambiando(t.clienteId)
-                router.push(`/dashboard/remesas?cliente=${t.clienteId}&remesa=${t.id}`)
-              }
+        )}
+
+        {clienteIa && sesion.actor === 'agencia' && clienteIa.puedeEditar && (
+          <PropuestaIaDialog
+            sesion={sesion}
+            cliente={clienteIa}
+            hoy={hoy}
+            onCerrar={() => setIaDe(null)}
+            onCreada={(id) => {
+              const de = clienteIa.id
+              setIaDe(null)
+              irTrasEscribir(de, 'propuestas', { remesa: id })
             }}
           />
-        </div>
-      ) : vista === 'inventario' ? (
-        <div className="min-h-0 flex-1 px-0 pb-1 lg:px-5">
-          <PanelInventario key={cliente.id} clienteId={cliente.id} clienteNombre={cliente.nombre} hoy={hoy} onProponer={puedeProponerConIa ? () => setConIa(true) : undefined} puedeLeerVentas={esAdmin} />
-        </div>
-      ) : vista === 'base' ? (
-        <div className="min-h-0 flex-1 px-0 pb-4 lg:px-5">
-          <VistaBaseDeDatos clienteId={cliente.id} clienteNombre={cliente.nombre} onAnadir={(p) => setAnadiendo(p ?? {})} onImportar={() => setImportando(true)} />
-        </div>
-      ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 px-0 pb-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:px-5">
-          {vista === 'envios' ? (
-            <>
-              <ListaEnvios envios={envios} seleccionada={envio?.id ?? null} onElegir={(id) => {
-                  setEnvioElegido(id)
-                  alDetalleEnMovil()
-                }} puedeEditar={cliente.puedeEditar} onTraer={() => setTrayendo(true)} diasCobertura={diasCobertura} hoy={hoy} />
-              <section ref={detalle} className="min-h-0 min-w-0 scroll-mt-16 lg:scroll-mt-0">
-                {envio ? (
-                  <DetalleEnvio key={envio.id} remesa={envio} skus={panel.skus} hoy={hoy} puedeEditar={cliente.puedeEditar} puedeBorrar={esAdmin} puedeLeerVentas={esAdmin} conectado={panel.conectado} />
-                ) : (
-                  <SinSeleccion icono={<Package />} titulo={envios.length === 0 ? 'Todavía no hay ningún envío' : 'Elige un envío de la lista'}>
-                    {envios.length === 0
-                      ? 'Los envíos nacen de una propuesta: se prepara con el cliente, se marca como enviada y se enlaza con su número de Amazon. O se trae uno que ya existe por su número FBA.'
-                      : 'Aquí aparece todo lo que se sabe de él: por dónde va en Amazon, cuánto ha llegado, cuánto se ha vendido y cuándo se agota.'}
-                  </SinSeleccion>
-                )}
-              </section>
-            </>
-          ) : (
-            <>
-              <ListaPropuestas
-                propuestas={propuestas}
-                seleccionada={propuesta?.id ?? null}
-                onElegir={(id) => {
-                  setPropuestaElegida(id)
-                  alDetalleEnMovil()
-                }}
-                verComo={verComo}
-                hoy={hoy}
-                puedeEditar={cliente.puedeEditar}
-                onNueva={() => setNueva(true)}
-                onNuevaIa={puedeProponerConIa ? () => setConIa(true) : undefined}
-              />
-              <section ref={detalle} className="min-h-0 min-w-0 scroll-mt-16 lg:scroll-mt-0">
-                {propuesta ? (
-                  <EspacioPropuesta
-                    key={propuesta.id}
-                    remesa={propuesta}
-                    clienteId={cliente.id}
-                    clienteNombre={cliente.nombre}
-                    esAdmin={esAdmin}
-                    actor={verComo}
-                    puedeEditar={cliente.puedeEditar}
-                    puedeBorrar={esAdmin}
-                    cajas={panel.cajasDe?.remesaId === propuesta.id ? panel.cajasDe.datos : null}
-                    hoy={hoy}
-                    onEnviada={(id) => {
-                      setEnvioElegido(id)
-                      setVista('envios')
-                    }}
-                  />
-                ) : (
-                  <SinSeleccion icono={<ClipboardList />} titulo={propuestas.length === 0 ? 'No hay ninguna propuesta' : 'Elige una propuesta'}>
-                    Se propone qué mandar, el cliente lo aprueba, etiqueta y encaja, y la agencia crea el envío en Amazon. Cuando está enviada pasa a Envíos.
-                  </SinSeleccion>
-                )}
-              </section>
-            </>
-          )}
-        </div>
-      )}
+        )}
 
-      {anadiendo && <AnadirReferenciaDialog clienteId={cliente.id} clienteNombre={cliente.nombre} prellenado={anadiendo} onCerrar={() => setAnadiendo(null)} />}
-      {importando && <ImportarCatalogoDialog clienteId={cliente.id} clienteNombre={cliente.nombre} onCerrar={() => setImportando(false)} />}
-      {nueva && (
-        <NuevaPropuestaDialog
-          clienteId={cliente.id}
-          clienteNombre={cliente.nombre}
-          esAdmin={esAdmin}
-          conCatalogo={conCatalogo}
-          onCerrar={() => setNueva(false)}
-          onCreada={(id) => {
-            setPropuestaElegida(id)
-            setVista('propuestas')
-            router.refresh()
-          }}
-        />
-      )}
-      {conIa && puedeProponerConIa && (
-        <PropuestaIaDialog
-          clienteId={cliente.id}
-          clienteNombre={cliente.nombre}
-          hoy={hoy}
-          onCerrar={() => setConIa(false)}
-          onCreada={(id) => {
-            setPropuestaElegida(id)
-            setVista('propuestas')
-            router.refresh()
-          }}
-        />
-      )}
-      {plazosAbierto && esAdmin && (
-        <PlazosDialog clienteId={cliente.id} clienteNombre={cliente.nombre} remesas={panel.remesas} hoy={hoy} onCerrar={() => setPlazosAbierto(false)} onGuardado={() => router.refresh()} />
-      )}
-      {importandoDe && (
-        <ImportarPedidosDialog
-          clienteId={importandoDe}
-          clienteNombre={clientes.find((c) => c.id === importandoDe)?.nombre ?? ''}
-          conPropuestasListas={importandoDe === cliente.id && propuestas.some((p) => p.estado === 'lista')}
-          onCerrar={() => setImportandoDe(null)}
-          onManual={() => {
-            const de = importandoDe
-            setImportandoDe(null)
-            if (de === cliente.id) setTrayendo(true)
-            else irACliente(de)
-          }}
-          onImportados={(ids) => {
-            refrescarNuevos()
-            setVersionTablero((v) => v + 1)
-            // Se abre el primero importado en su cliente (si el diálogo se abrió desde el tablero de otro, se va allí)
-            if (importandoDe === cliente.id) {
-              setEnvioElegido(ids[0])
-              setVista('envios')
-              router.refresh()
-            } else {
-              irACliente(importandoDe, ids[0])
-            }
-          }}
-        />
-      )}
-      {trayendo && (
-        <TraerEnvioDialog
-          clienteId={cliente.id}
-          clienteNombre={cliente.nombre}
-          onCerrar={() => setTrayendo(false)}
-          onTraido={(id) => {
-            setEnvioElegido(id)
-            setVista('envios')
-            router.refresh()
-          }}
-        />
-      )}
-    </div>
+        {clienteNueva && clienteNueva.puedeEditar && (
+          <NuevaPropuestaDialog
+            sesion={sesion}
+            cliente={clienteNueva}
+            onCerrar={() => setNuevaDe(null)}
+            onCreada={(id) => {
+              const de = clienteNueva.id
+              setNuevaDe(null)
+              irTrasEscribir(de, 'propuestas', { remesa: id })
+            }}
+          />
+        )}
+
+        {clienteImportar && (
+          <ImportarPedidosDialog
+            clienteId={clienteImportar.id}
+            clienteNombre={clienteImportar.nombre}
+            conPropuestasListas={panelDeEste?.clienteId === clienteImportar.id ? panelDeEste.remesas.some((r) => r.estado === 'lista') : (clienteImportar.contadores.listas ?? 0) > 0}
+            onCerrar={() => setImportandoDe(null)}
+            onManual={() => {
+              const de = clienteImportar.id
+              setImportandoDe(null)
+              setTrayendoDe(de)
+            }}
+            onImportados={(ids) => {
+              const de = clienteImportar.id
+              refrescarNuevos()
+              setVersionTablero((v) => v + 1)
+              // Se abre el primero importado en su cliente (aunque el diálogo se abriera desde Hoy o el tablero)
+              irTrasEscribir(de, 'envios', ids[0] ? { remesa: ids[0] } : {})
+            }}
+          />
+        )}
+
+        {clienteTraer && clienteTraer.puedeEditar && (
+          <TraerEnvioDialog
+            clienteId={clienteTraer.id}
+            clienteNombre={clienteTraer.nombre}
+            marketplaceId={clienteTraer.mercadoRemesa}
+            onCerrar={() => setTrayendoDe(null)}
+            onTraido={(id) => {
+              const de = clienteTraer.id
+              setTrayendoDe(null)
+              refrescarNuevos()
+              irTrasEscribir(de, 'envios', { remesa: id })
+            }}
+          />
+        )}
+      </div>
+    </MotionConfig>
   )
-}
-
-/** Al abrir Envíos, si no hay ninguno elegido, el más reciente de los enlazados */
-function primeroPorDefecto(envios: RemesaDePanel[]): RemesaDePanel | null {
-  const enlazados = envios.filter(estaEnlazada).sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio))
-  return enlazados.find((r) => r.quedan > 0) ?? enlazados[0] ?? null
 }
 
 /* ------------------------------------------------------------------ */
-/* Piezas                                                              */
+/* Si una vista falla al pintarse                                      */
 /* ------------------------------------------------------------------ */
-
-function Pestana({ activa, onClick, icono, titulo, children }: { activa: boolean; onClick: () => void; icono: React.ReactNode; titulo: string; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={titulo}
-      aria-current={activa ? 'page' : undefined}
-      className={cx(
-        'inline-flex h-[28px] shrink-0 items-center gap-[7px] whitespace-nowrap rounded-[6px] px-3 text-[12.5px] font-medium transition-colors',
-        activa ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-[inset_0_0_0_1px_var(--ls-linea2)]' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
-      )}
-    >
-      <span className={activa ? 'text-[var(--ls-acc)]' : undefined}>{icono}</span>
-      {children}
-    </button>
-  )
-}
-
-function Cifra({ rotulo, valor, signo, alerta, urgente, pista }: { rotulo: string; valor: number; signo?: boolean; alerta?: boolean; urgente?: boolean; pista?: string }) {
-  return (
-    <div className={CIFRAS.celda} title={pista}>
-      <span className={cx(CIFRAS.valor, urgente && CIFRAS.urgente)} style={alerta ? { color: COLOR_ESTADO.ambar } : undefined}>
-        {signo && valor > 0 ? '+' : ''}
-        {valor.toLocaleString('es-ES')}
-      </span>
-      <span className={CIFRAS.rotulo}>{rotulo}</span>
-    </div>
-  )
-}
-
-function SinSeleccion({ icono, titulo, children }: { icono: React.ReactNode; titulo: string; children: React.ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center rounded-[8px] border border-dashed border-[var(--ls-linea2)]">
-      <Vacio icono={icono} titulo={titulo}>
-        {children}
-      </Vacio>
-    </div>
-  )
-}
 
 /**
- * UN BOTÓN POR CLIENTE, EN HORIZONTAL.
- *
- * Con once cuentas un desplegable obliga a abrirlo para saber qué hay; en
- * horizontal se ven todas de un vistazo y se salta de una a otra con un clic, que
- * es como se trabaja cuando revisas varias seguidas. Cada una dice cuántos envíos
- * tiene y, en naranja, cuántas propuestas hay en marcha. Las que no tienen nada se
- * pintan apagadas: siguen siendo clicables —hay que poder crearle la primera—.
+ * Una vista que revienta al pintarse (un dato con una forma inesperada) no deja en blanco el módulo entero: la cabecera sigue ahí para
+ * cambiar de vista o de cliente, y se puede volver a probar. Se reinicia sola al cambiar de vista, cliente o sección (`clave`).
  */
-function BarraClientes({ clientes, activo, cargando, onElegir, nuevos }: { clientes: Cliente[]; activo: string; cargando: string | null; onElegir: (id: string) => void; nuevos: Record<string, number> }) {
-  const fila = useRef<HTMLDivElement>(null)
+class SiFalla extends Component<{ clave: string; onActualizar: () => void; children: ReactNode }, { error: string | null; clave: string }> {
+  state = { error: null as string | null, clave: this.props.clave }
 
-  useEffect(() => {
-    // Se mueve SOLO la fila, de lado. scrollIntoView movía también la ventana: en el móvil, donde la página hace scroll, cambiar de cliente
-    // con la página bajada daba un tirón hacia la fila
-    const f = fila.current
-    const b = f?.querySelector<HTMLElement>('[data-activo="true"]')
-    if (!f || !b) return
-    const caja = f.getBoundingClientRect()
-    const boton = b.getBoundingClientRect()
-    f.scrollTo({ left: f.scrollLeft + boton.left - caja.left - (caja.width - boton.width) / 2, behavior: 'smooth' })
-  }, [activo])
+  static getDerivedStateFromError(e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
 
-  // Difuminado en el borde por el que la fila sigue: sin él, el último cliente quedaba cortado en seco y parecía un fallo
-  const [bordes, setBordes] = useState({ izq: false, der: false })
-  const medirBordes = useCallback(() => {
-    const f = fila.current
-    if (!f) return
-    const izq = f.scrollLeft > 2
-    const der = f.scrollLeft + f.clientWidth < f.scrollWidth - 2
-    setBordes((b) => (b.izq === izq && b.der === der ? b : { izq, der }))
-  }, [])
-  useEffect(() => {
-    const f = fila.current
-    if (!f) return
-    medirBordes()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medirBordes) : null
-    ro?.observe(f)
-    return () => ro?.disconnect()
-  }, [medirBordes, clientes.length])
-  const mascara = `linear-gradient(to right, ${bordes.izq ? 'transparent, #000 28px' : '#000, #000'}, ${bordes.der ? '#000 calc(100% - 40px), transparent' : '#000, #000'})`
+  static getDerivedStateFromProps(props: { clave: string }, state: { error: string | null; clave: string }) {
+    return props.clave !== state.clave ? { error: null, clave: props.clave } : null
+  }
 
-  return (
-    <div
-      ref={fila}
-      onScroll={medirBordes}
-      className="flex min-w-0 basis-full items-center gap-[6px] overflow-x-auto py-[2px] lg:flex-1 lg:basis-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ maskImage: mascara, WebkitMaskImage: mascara }}
-    >
-      {clientes.map((c) => {
-        const esActivo = c.id === activo
-        const vacio = c.remesas === 0
-        return (
-          <button
-            key={c.id}
-            type="button"
-            data-activo={esActivo}
-            onClick={() => onElegir(c.id)}
-            title={vacio ? `${c.nombre} · todavía sin remesas` : `${c.nombre} · ${c.envios} envío${c.envios === 1 ? '' : 's'} · ${c.propuestas} propuesta${c.propuestas === 1 ? '' : 's'}`}
-            className={cx(
-              'relative inline-flex h-[26px] shrink-0 items-center gap-[7px] rounded-[6px] border px-[10px] text-[12px] transition-colors',
-              c.id === cargando && 'animate-pulse',
-              esActivo
-                ? 'border-[var(--ls-acc-graf)] bg-[var(--ls-acc-suave)] font-medium text-[var(--ls-t1)]'
-                : vacio
-                  ? 'border-[var(--ls-linea)] text-[var(--ls-t4)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t2)]'
-                  : 'border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t1)]'
-            )}
-          >
-            {c.nombre}
-            {c.envios > 0 && <span className="tabular-nums text-[11px] text-[var(--ls-t4)]">{c.envios}</span>}
-            {c.propuestas > 0 && (
-              <span className={INSIGNIA.contador} title={`${c.propuestas} propuesta${c.propuestas === 1 ? '' : 's'} en marcha`}>
-                {c.propuestas}
-              </span>
-            )}
-            {c.puedeEditar && (nuevos[c.id] ?? 0) > 0 && (
-              <span className="rounded-full px-[6px] text-[10.5px] font-semibold" style={{ background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 18%, transparent)`, color: COLOR_ESTADO.ambar }} title={`${nuevos[c.id]} envío${nuevos[c.id] === 1 ? '' : 's'} nuevo${nuevos[c.id] === 1 ? '' : 's'} en Amazon sin importar`}>
-                +{nuevos[c.id]}
-              </span>
-            )}
-          </button>
-        )
-      })}
-    </div>
-  )
+  componentDidCatch(e: unknown) {
+    console.error('[Remesas] Una vista ha fallado al pintarse', e)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="rounded-[14px] border border-dashed border-[var(--ls-linea2)] bg-[var(--ls-sup)]">
+        <EstadoVacio
+          icono={AlertTriangle}
+          acento="remesas"
+          titulo="Esta pantalla no se ha podido pintar"
+          descripcion={`Prueba a actualizar o cambia de vista; el resto de Remesas sigue funcionando. (${this.state.error.slice(0, 160)})`}
+          accion={{
+            texto: 'Volver a probar',
+            icono: RefreshCw,
+            onClick: () => {
+              this.setState({ error: null })
+              this.props.onActualizar()
+            },
+          }}
+        />
+      </div>
+    )
+  }
 }

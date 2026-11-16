@@ -1,5 +1,8 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { marketplaceLabel } from '@/lib/types/amazon'
 import { leerTodo } from './paginar'
+import { filaDeStock, filasDeOtrosMercados, lecturaDeCliente } from './inventario-datos'
+import { stockEntreMercados } from './lectura-elegida'
 import { cajasDeRemesa, type CajasDeRemesa } from './cajas'
 import type { AnalisisIa } from './analisis-ia'
 import type { EstadoRemesa } from './flujo'
@@ -21,6 +24,16 @@ import {
  * Aquí no se decide nada del reparto: eso está entero en fifo.ts, que es una
  * función pura y se prueba sola. Esto lee, llama, y junta el resultado con los
  * descriptivos y con el stock real.
+ *
+ *
+ * ============ CAMBIOS DE COMPORTAMIENTO (remesas-pro, 15 nov 2026) ============
+ *
+ *   · La conexión y el mercado del libro son los de la LECTURA ELEGIDA (`lecturaDeCliente`, spec §0.2 y D35), los mismos que
+ *     usa el inventario. Antes: la conexión de las remesas y el mercado de la PRIMERA remesa, así que el panel y el inventario
+ *     leían copias distintas del libro. Sin conexión activa, lo de antes (conexión de las remesas).
+ *   · El stock real de un SKU sin fila en ese mercado sale de otro mercado de la conexión (`stockEntreMercados`, D11: el mayor
+ *     reciente, nunca la suma). Antes se quedaba en null (sin cuadre). El panel trae `mercado` y `avisos` de la lectura.
+ *   · `paraCliente: true` (D26): sin `analisisIa`. El cliente de fuera ya no recibe el análisis de la IA en el navegador.
  */
 
 export interface LineaDePanel {
@@ -162,6 +175,19 @@ export interface PanelRemesas {
   /** Hasta qué día se ha leído el libro mayor. null = nunca */
   leidoHasta: string | null
   ultimoError: string | null
+  /** El mercado de la copia del libro que se lee (lectura elegida, §0.2). null = sin conexión */
+  mercado?: string | null
+  /** Avisos de la lectura, ya redactados: «Ventas hasta el 6 nov: …», dos conexiones activas, stock de otro mercado */
+  avisos?: string[]
+}
+
+export interface OpcionesPanel {
+  hoy: string
+  diasDeVelocidad?: number
+  /** La remesa de la que se quieren las cajas (solo una) */
+  cajasDe?: string | null
+  /** Para el cliente de fuera (D26): sin `analisisIa` (ni se lee) */
+  paraCliente?: boolean
 }
 
 interface FilaRemesa {
@@ -238,10 +264,7 @@ interface FilaMovimiento {
  * demás del mismo SKU, y el porcentaje consumido de un envío sale de sumar sus
  * líneas ya repartidas.
  */
-export async function panelDeCliente(
-  clienteId: string,
-  opciones: { hoy: string; diasDeVelocidad?: number; cajasDe?: string | null }
-): Promise<PanelRemesas> {
+export async function panelDeCliente(clienteId: string, opciones: OpcionesPanel): Promise<PanelRemesas> {
   const service = createServiceClient()
 
   /**
@@ -363,7 +386,8 @@ export async function panelDeCliente(
    * se traga la falta: sin ella, las propuestas salen igual, sin su análisis.
    */
   const analisisPorRemesa = new Map<string, AnalisisIa>()
-  {
+  // El cliente de fuera no recibe el análisis de la IA (D26): ni se lee, así no viaja al navegador
+  if (!opciones.paraCliente) {
     const { data: filasAnalisis } = await service
       .from('fba_remesas')
       .select('id, analisis_ia')
@@ -412,10 +436,16 @@ export async function panelDeCliente(
     }
   }
 
-  // La conexión sale de las propias remesas: un cliente sin autorización —el
-  // caso de ShoesF— las lleva igual, y entonces no hay movimientos que leer.
-  const connectionId = filasRemesa.find((r) => r.connection_id)?.connection_id ?? null
-  const marketplaceId = filasRemesa[0]?.marketplace_id ?? null
+  /**
+   * LA CONEXIÓN Y LA COPIA DEL LIBRO: LA LECTURA ELEGIDA (§0.2, D35). Antes el mercado era el de la PRIMERA remesa y la
+   * conexión la de las remesas, así que el panel leía una copia del libro y el inventario otra (Creative Toys: España al 6 nov
+   * aquí, Italia al 15 nov allí). Ahora las dos usan `lecturaDeCliente`. Sin conexión activa, como antes: la conexión sale de
+   * las propias remesas (un cliente sin autorización las lleva igual, y entonces no hay movimientos que leer).
+   */
+  const elegida = await lecturaDeCliente(service, clienteId, opciones.hoy)
+  const connectionId = elegida?.connectionId ?? filasRemesa.find((r) => r.connection_id)?.connection_id ?? null
+  const marketplaceId = elegida?.marketplaceId ?? filasRemesa[0]?.marketplace_id ?? null
+  const avisos: string[] = elegida ? [...elegida.avisos] : []
 
   /**
    * EL REPARTO DE VENTAS SOLO MIRA LO QUE YA HA SALIDO.
@@ -467,30 +497,64 @@ export async function panelDeCliente(
       disposicion: m.disposicion,
     }))
 
-    const { data: lectura } = await service
-      .from('fba_lecturas')
-      .select('leido_hasta, ultimo_error')
-      .eq('connection_id', connectionId)
-      .eq('marketplace_id', marketplaceId)
-      .maybeSingle()
-    leidoHasta = (lectura as { leido_hasta: string | null } | null)?.leido_hasta ?? null
-    ultimoError = (lectura as { ultimo_error: string | null } | null)?.ultimo_error ?? null
+    if (elegida) {
+      leidoHasta = elegida.lectura?.leidoHasta ?? null
+      ultimoError = elegida.lectura?.error ?? null
+    } else {
+      const { data: lectura } = await service
+        .from('fba_lecturas')
+        .select('leido_hasta, ultimo_error')
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .maybeSingle()
+      leidoHasta = (lectura as { leido_hasta: string | null } | null)?.leido_hasta ?? null
+      ultimoError = (lectura as { ultimo_error: string | null } | null)?.ultimo_error ?? null
+    }
 
     // El stock real, para el cuadre. Sale del espejo que ya refresca el ciclo
     // de quince minutos: no se le pregunta nada a Amazon desde aquí.
-    const { data: listings } = await service
-      .from('amazon_listings')
-      .select('sku, fba_quantity, title, asin')
-      .eq('connection_id', connectionId)
-      .eq('marketplace_id', marketplaceId)
-      .in('sku', skus)
-    for (const l of (listings ?? []) as Array<{
-      sku: string
-      fba_quantity: number | null
-      title: string | null
-      asin: string | null
-    }>) {
-      if (typeof l.fba_quantity === 'number') stockPorSku.set(l.sku, l.fba_quantity)
+    // En trozos de 150: con 300 referencias la lista de SKU no cabe en una URL.
+    const conFila = new Set<string>()
+    for (let i = 0; i < skus.length; i += 150) {
+      const { data: listings } = await service
+        .from('amazon_listings')
+        .select('sku, fba_quantity')
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .in('sku', skus.slice(i, i + 150))
+      for (const l of (listings ?? []) as Array<{ sku: string; fba_quantity: number | null }>) {
+        // Una fila sin cantidad (listing que no es de FBA en ese país) no cuenta como fila: se busca en los demás mercados
+        if (typeof l.fba_quantity !== 'number') continue
+        conFila.add(l.sku)
+        stockPorSku.set(l.sku, l.fba_quantity)
+      }
+    }
+
+    // Los SKU sin fila en ese mercado: el stock de otro mercado de la conexión, el mayor reciente y nunca la suma (D11)
+    const sinFila = skus.filter((s) => !conFila.has(s))
+    if (sinFila.length > 0) {
+      try {
+        // Sin el filtro de «con stock»: una referencia agotada en todos los mercados cuadra con 0, no se queda sin dato
+        const otras = await filasDeOtrosMercados(service, connectionId, marketplaceId, sinFila, { soloConStock: false })
+        const crudas = new Map(otras.map((f) => [`${f.marketplace_id}|${f.sku}`, f] as const))
+        let viejas = 0
+        let tomadas = 0
+        for (const [sku, e] of Array.from(stockEntreMercados(otras.map(filaDeStock), marketplaceId, opciones.hoy).entries())) {
+          const total = crudas.get(`${e.marketplaceId}|${sku}`)?.fba_quantity
+          if (typeof total !== 'number') continue
+          stockPorSku.set(sku, total)
+          tomadas++
+          if (e.viejoDias !== null) viejas++
+        }
+        // Que el stock venga de otro país de la cuenta es lo normal en Pan-UE: solo se dice si el dato es viejo
+        if (tomadas > 0 && viejas > 0) {
+          avisos.push(
+            `${viejas} referencia${viejas === 1 ? '' : 's'} sin fila en ${marketplaceLabel(marketplaceId)} cuadra${viejas === 1 ? '' : 'n'} con el stock de otro mercado de la cuenta de hace más de 2 días`
+          )
+        }
+      } catch {
+        // Es una mejora del cuadre: si no se puede leer, esas referencias se quedan sin stock real, como antes
+      }
     }
   }
 
@@ -731,5 +795,7 @@ export async function panelDeCliente(
     }),
     leidoHasta,
     ultimoError,
+    mercado: connectionId ? marketplaceId : null,
+    avisos,
   }
 }

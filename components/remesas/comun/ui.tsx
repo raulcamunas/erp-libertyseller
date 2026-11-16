@@ -2,13 +2,24 @@
 
 import type { ReactNode } from 'react'
 import { COLOR_ESTADO, INSIGNIA, TIPO, type TonoEstado } from '@/lib/estilo/denso'
+import { TACTIL } from '@/components/ui-ls/Boton'
 
 /**
  * LAS PIEZAS COMUNES DE REMESAS A FBA.
  *
- * Todo sale del contrato de estilo de lib/estilo/denso.ts —superficies opacas
- * escalonadas, cuatro niveles de texto, radios de 4/6/10— y de sus tokens
- * `--ls-*`, así que cada pieza sigue sola al tema claro y al oscuro.
+ * API (la de siempre; solo ha cambiado el aspecto, a los tokens del kit components/ui-ls)
+ *   cx(...clases)                                   une clases y quita las vacías
+ *   <Insignia tono icono titulo>                    insignia densa, para tablas (el color en el glifo)
+ *   <Clave color>                                   punto de color + palabra, para leyendas
+ *   <Tarjeta titulo ayuda derecha cuerpo>           caja con cabecera: radio 14, velo de luz y sombra del kit
+ *   <Vacio icono titulo accion>                     qué pasa + qué hacer
+ *   <Segmentado valor onCambio opciones etiqueta>   opciones excluyentes, compacto (44 px con el dedo)
+ *   <Medidor partes total alto>                     barra partida en trozos
+ *
+ * Todo sale del contrato de estilo de lib/estilo/denso.ts y de los tokens
+ * `--ls-*` del kit, así que cada pieza sigue sola al tema claro y al oscuro.
+ * Lo nuevo del módulo usa directamente el kit (`@/components/ui-ls`); esto queda
+ * para las pantallas densas que siguen con esta API.
  *
  * El color de estado va en el GLIFO y no en la palabra: tapa el color con la mano
  * y la pantalla sigue diciendo lo mismo.
@@ -76,17 +87,23 @@ export function Tarjeta({
   cuerpo?: boolean
 }) {
   return (
-    <section className={cx('min-w-0 rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]', className)}>
+    <section
+      className={cx(
+        'relative min-w-0 rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)]',
+        'before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-[image:var(--ls-velo)]',
+        className
+      )}
+    >
       {(titulo || derecha) && (
-        <header className="flex min-h-[36px] items-center justify-between gap-3 border-b border-[var(--ls-linea)] px-3 py-[6px]">
+        <header className="relative flex min-h-[40px] flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-[var(--ls-linea)] px-4 py-[7px]">
           <div className="min-w-0">
             {titulo && <h3 className={cx(TIPO.l, 'truncate text-[var(--ls-t1)]')}>{titulo}</h3>}
             {ayuda && <p className="truncate text-[11px] leading-[1.4] text-[var(--ls-t4)]">{ayuda}</p>}
           </div>
-          {derecha && <div className="flex shrink-0 items-center gap-2">{derecha}</div>}
+          {derecha && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">{derecha}</div>}
         </header>
       )}
-      <div className={cuerpo ? 'p-3' : undefined}>{children}</div>
+      <div className={cx('relative', cuerpo && 'p-3 sm:p-4')}>{children}</div>
     </section>
   )
 }
@@ -133,7 +150,7 @@ export function Segmentado<T extends string | number>({
     <div
       role="tablist"
       aria-label={etiqueta}
-      className="inline-flex shrink-0 items-center gap-[2px] rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[2px]"
+      className="inline-flex max-w-full shrink-0 items-center gap-[2px] overflow-x-auto rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[2px] [scrollbar-width:none]"
     >
       {opciones.map((o) => {
         const activa = o.id === valor
@@ -146,7 +163,8 @@ export function Segmentado<T extends string | number>({
             title={o.titulo}
             onClick={() => onCambio(o.id)}
             className={cx(
-              'inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-[4px] px-[9px] text-[11.5px] transition-colors',
+              'inline-flex h-[24px] items-center justify-center gap-[5px] whitespace-nowrap rounded-[8px] px-[9px] text-[11.5px] transition-colors',
+              TACTIL,
               activa
                 ? 'bg-[var(--ls-sup3)] font-medium text-[var(--ls-t1)] shadow-[inset_0_0_0_1px_var(--ls-linea2)]'
                 : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'
@@ -190,7 +208,7 @@ export function Medidor({
   const base = Math.max(total ?? suma, 1)
   return (
     <div
-      className={cx('flex w-full gap-[2px] overflow-hidden rounded-[4px] bg-[var(--ls-sup3)]', className)}
+      className={cx('flex w-full gap-[2px] overflow-hidden rounded-full bg-[var(--ls-sup3)]', className)}
       style={{ height: alto }}
       role="img"
       aria-label={partes.map((p) => `${p.titulo ?? ''} ${p.valor}`).join(', ')}
@@ -201,7 +219,7 @@ export function Medidor({
           <span
             key={i}
             title={p.titulo ? `${p.titulo}: ${p.valor}` : undefined}
-            className="h-full rounded-[3px] transition-[width] duration-500"
+            className="h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none"
             style={{ width: `${Math.min(100, (p.valor / base) * 100)}%`, background: p.color }}
           />
         ))}

@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Database, Loader2, Save, Undo2 } from 'lucide-react'
+import { AlertTriangle, Database, Save, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { BOTON, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { LineaDePanel } from '@/lib/fba/datos'
-import { cx, Segmentado } from './comun/ui'
+import { Segmentado } from './comun/ui'
 import { EditorDesplegables, type EstadoEditor } from './catalogo/EditorDesplegables'
 import { SelectorProductos, type Elegido } from './SelectorProductos'
 
@@ -156,7 +157,9 @@ export function EditorBoceto({
     }
 
     setGuardando(true)
-    const res = await fetch(`/api/fba/remesas/${remesaId}/lineas`, {
+    let res: Response
+    try {
+      res = await fetch(`/api/fba/remesas/${remesaId}/lineas`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -174,7 +177,12 @@ export function EditorBoceto({
           ean: e.ean ?? null,
         })),
       }),
-    })
+      })
+    } catch {
+      setGuardando(false)
+      toast.error('Se ha cortado la conexión con el servidor. Lo que has cambiado sigue aquí: vuelve a guardar.')
+      return
+    }
     setGuardando(false)
 
     if (!res.ok) {
@@ -217,18 +225,18 @@ export function EditorBoceto({
 
   if (!puedeEditar) {
     return (
-      <div className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-[10px]">
-        <p className="text-[12px] leading-[1.5] text-[var(--ls-t3)]">Este envío todavía es un boceto: la agencia lo está montando. Cuando esté, te llegará para aprobarlo.</p>
+      <div className="rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-3">
+        <p className="text-[13px] leading-[1.55] text-[var(--ls-t3)]">Este envío todavía es un boceto: la agencia lo está montando. Cuando esté, te llegará para aprobarlo.</p>
       </div>
     )
   }
 
   return (
-    <section className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-      <header className="flex min-h-[40px] flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ls-linea)] px-3 py-[6px]">
-        <div className="min-w-0">
-          <h3 className={cx(TIPO.l, 'text-[var(--ls-t1)]')}>Qué se manda</h3>
-          <p className="text-[11px] leading-[1.4] text-[var(--ls-t4)]">
+    <section className="overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)]">
+      <header className="flex min-h-[52px] flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ls-linea)] px-4 py-[10px]">
+        <div className="min-w-0 flex-1 basis-[220px]">
+          <h3 className="text-[13.5px] font-semibold text-[var(--ls-t1)]">Qué se manda</h3>
+          <p className="text-[12px] leading-[1.45] text-[var(--ls-t3)]">
             {modo === 'desplegables' ? 'Elige REF, color y talla, y pon las unidades. Los códigos se rellenan solos.' : 'Busca referencias, pon cuántas van de cada una y quita las que no.'}
           </p>
         </div>
@@ -246,19 +254,17 @@ export function EditorBoceto({
             />
           )}
           {hayCambios && (
-            <button type="button" onClick={deshacer} disabled={guardando} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
-              <Undo2 className="h-3 w-3" />
+            <Boton variante="secundario" tamano="sm" icono={Undo2} disabled={guardando} onClick={deshacer}>
               Deshacer
-            </button>
+            </Boton>
           )}
-          <button type="button" onClick={() => void guardar()} disabled={!hayCambios || guardando || aMedias > 0} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-            {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          <Boton variante="primario" tamano="sm" icono={Save} cargando={guardando} disabled={!hayCambios || aMedias > 0} onClick={() => void guardar()}>
             {guardando ? 'Guardando…' : 'Guardar el boceto'}
-          </button>
+          </Boton>
         </div>
       </header>
 
-      <div className="p-3">
+      <div className="min-w-0 p-3 sm:p-4">
         {modo === 'desplegables' ? (
           <EditorDesplegables
             key={`d${reinicio}`}
@@ -280,7 +286,7 @@ export function EditorBoceto({
       </div>
 
       {/* Lo que se va a guardar, dicho antes de pulsar y no después */}
-      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--ls-linea)] px-3 py-[7px] text-[11.5px]">
+      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--ls-linea)] px-4 py-[9px] text-[12px]">
         <span className="text-[var(--ls-t3)]">
           <b className="font-semibold tabular-nums text-[var(--ls-t1)]">{elegidos.length}</b> referencia{elegidos.length === 1 ? '' : 's'} ·{' '}
           <b className="font-semibold tabular-nums text-[var(--ls-t1)]">{totalUnidades.toLocaleString('es-ES')}</b> unidades

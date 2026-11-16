@@ -167,6 +167,11 @@ export interface SkuInventario {
   /* --- qué hay ahora --- */
   /** Total en la red de Amazon, con lo que viene de camino */
   enAmazon: number
+  /**
+   * Lo que está DENTRO del almacén (lo que paga almacenaje): el total de Amazon menos SU entrante. No se le resta el camino de
+   * las remesas del ERP: `enAmazon` no lo incluye, y restarlo daba «En Amazon» por debajo de las vendibles.
+   */
+  dentro?: number
   /** Lo que se vende ahora mismo */
   vendibles: number
   /**
@@ -613,6 +618,8 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
       precio,
       moneda: listing?.moneda ?? null,
       enAmazon,
+      // Sin el entrante de Amazon leído (migración 271) no se sabe qué parte del total viene de camino: se resta lo del ERP
+      dentro: Math.max(vendibles, Math.max(0, enAmazon - (listing && typeof listing.entranteAmazon === 'number' ? listing.entranteAmazon : enviosDelSku))),
       vendibles,
       entrante: enviosDelSku,
       noDisponibles,
@@ -738,4 +745,9 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
     porDia: [...serie.values()],
     avisos,
   }
+}
+
+/** Lo que está dentro del almacén de una referencia (con el respaldo de antes si el inventario es de una versión anterior) */
+export function dentroDe(k: { dentro?: number; enAmazon: number; entrante: number }): number {
+  return typeof k.dentro === 'number' ? k.dentro : Math.max(0, k.enAmazon - k.entrante)
 }

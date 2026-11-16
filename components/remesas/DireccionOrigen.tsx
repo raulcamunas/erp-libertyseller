@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Check, Loader2, MapPin, Pencil } from 'lucide-react'
+import { Check, MapPin, Pencil, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
+import { Boton, EsqueletoTexto, Tarjeta } from '@/components/ui-ls'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
 
 /**
  * DESDE DÓNDE ENVÍA ESTE CLIENTE.
@@ -16,6 +17,9 @@ import { toast } from 'sonner'
  * Los dos campos que más se equivocan llevan su aviso al lado: el país en dos
  * letras y la provincia en código. Escribir «España» y «Madrid» hace que Amazon
  * rechace el plan con un mensaje que no señala a la causa.
+ *
+ * Quién: la agencia que edita el cliente (antes, solo el administrador; spec remesas-pro §1.4). La ruta
+ * /api/fba/direccion ya pedía editar ese cliente.
  */
 
 interface Direccion {
@@ -45,7 +49,8 @@ const VACIA: Direccion = {
 }
 
 const CAMPO =
-  'w-full rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:border-[#FF6600]/40 focus:outline-none'
+  'h-9 w-full rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-[10px] text-[13px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] ' +
+  'hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)] [@media(pointer:coarse)]:h-11'
 
 export function DireccionOrigen({
   clienteId,
@@ -67,7 +72,7 @@ export function DireccionOrigen({
     ;(async () => {
       try {
         const res = await fetch(`/api/fba/direccion?cliente=${clienteId}`)
-        const p = (await res.json()) as { direccion: Direccion | null }
+        const p = (await res.json().catch(() => ({ direccion: null }))) as { direccion: Direccion | null }
         if (!vivo) return
         setDir(p.direccion)
         setBorrador(p.direccion ?? VACIA)
@@ -100,6 +105,8 @@ export function DireccionOrigen({
       toast.success('Dirección guardada')
       setDir(borrador)
       setEditando(false)
+    } catch {
+      toast.error('Se ha cortado la conexión con el servidor. Vuelve a probar.')
     } finally {
       setGuardando(false)
     }
@@ -107,110 +114,97 @@ export function DireccionOrigen({
 
   if (cargando) {
     return (
-      <div className="glass-card flex items-center gap-2 p-3 text-[12px] text-white/40">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Cargando la dirección…
-      </div>
+      <Tarjeta icono={MapPin} acento="remesas" titulo="Se envía desde">
+        <EsqueletoTexto lineas={3} />
+      </Tarjeta>
     )
   }
 
   if (!editando && dir) {
     return (
-      <div className="glass-card flex items-start gap-3 p-3">
-        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#FF6600]" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] uppercase tracking-wide text-white/35">Se envía desde</p>
-          <p className="mt-0.5 text-[12px] text-white">
-            {dir.empresa} · {dir.nombre}
-          </p>
-          <p className="text-[11px] text-white/50">
-            {dir.linea1}
-            {dir.linea2 ? `, ${dir.linea2}` : ''} · {dir.codigoPostal} {dir.ciudad} ({dir.provincia}
-            ) · {dir.pais}
-          </p>
-          <p className="text-[11px] text-white/35">
-            {dir.telefono} · {dir.email}
-          </p>
-        </div>
-        {puedeEditar && (
-          <button
-            type="button"
-            onClick={() => setEditando(true)}
-            title="Cambiar la dirección"
-            className="rounded p-1.5 text-white/40 hover:bg-white/[0.06] hover:text-white"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+      <Tarjeta
+        icono={MapPin}
+        acento="remesas"
+        titulo="Se envía desde"
+        subtitulo={`${dir.empresa} · ${dir.nombre}`}
+        acciones={
+          puedeEditar ? <Boton variante="fantasma" tamano="sm" soloIcono icono={Pencil} aria-label="Cambiar la dirección" title="Cambiar la dirección" onClick={() => setEditando(true)} /> : undefined
+        }
+      >
+        <p className="text-[13px] leading-[1.55] text-[var(--ls-t2)]">
+          {dir.linea1}
+          {dir.linea2 ? `, ${dir.linea2}` : ''} · {dir.codigoPostal} {dir.ciudad} ({dir.provincia}) · {dir.pais}
+        </p>
+        <p className="mt-[2px] break-words text-[12.5px] text-[var(--ls-t3)]">
+          {dir.telefono} · {dir.email}
+        </p>
+      </Tarjeta>
     )
   }
 
   if (!puedeEditar) {
     return (
-      <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3 text-[11px] text-amber-200/90">
-        Falta la dirección desde la que envía {clienteNombre}. Amazon la exige para crear el envío, y
-        no tienes permiso para meterla.
+      <div className="flex items-start gap-2 rounded-[14px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 py-3 text-[12.5px] leading-[1.5] text-[var(--ls-t2)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
+        <TriangleAlert className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} aria-hidden />
+        Falta la dirección desde la que envía {clienteNombre}. Amazon la exige para crear el envío, y no tienes permiso para meterla.
       </div>
     )
   }
 
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <MapPin className="h-4 w-4 text-[#FF6600]" />
-        <p className="text-[12px] font-semibold text-white">Desde dónde se envía</p>
-      </div>
-      <p className="mb-3 text-[11px] leading-relaxed text-white/40">
-        Amazon la exige para crear el envío y no la da por su API, así que se mete una vez. Es el
-        almacén de {clienteNombre}, no la dirección de Liberty Seller.
-      </p>
+  const campo = (k: keyof Direccion) => ({
+    value: (borrador[k] ?? '') as string,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setBorrador({ ...borrador, [k]: e.target.value }),
+  })
 
-      <div className="grid grid-cols-2 gap-2">
+  return (
+    <Tarjeta
+      icono={MapPin}
+      acento="remesas"
+      titulo="Desde dónde se envía"
+      subtitulo={`El almacén de ${clienteNombre}`}
+      pie={
+        <div className="flex flex-wrap justify-end gap-2">
+          {dir && (
+            <Boton
+              variante="fantasma"
+              tamano="sm"
+              onClick={() => {
+                setBorrador(dir)
+                setEditando(false)
+              }}
+            >
+              Cancelar
+            </Boton>
+          )}
+          <Boton variante="primario" tamano="sm" icono={Check} cargando={guardando} onClick={() => void guardar()}>
+            Guardar dirección
+          </Boton>
+        </div>
+      }
+    >
+      <p className="mb-3 text-[12.5px] leading-[1.55] text-[var(--ls-t3)]">
+        Amazon la exige para crear el envío y no la da por su API, así que se mete una vez. Es el almacén de {clienteNombre}, no la dirección de Liberty Seller.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
         <Campo etiqueta="Empresa">
-          <input
-            value={borrador.empresa}
-            onChange={(e) => setBorrador({ ...borrador, empresa: e.target.value })}
-            className={CAMPO}
-          />
+          <input {...campo('empresa')} autoComplete="organization" className={CAMPO} />
         </Campo>
         <Campo etiqueta="Persona de contacto">
-          <input
-            value={borrador.nombre}
-            onChange={(e) => setBorrador({ ...borrador, nombre: e.target.value })}
-            className={CAMPO}
-          />
+          <input {...campo('nombre')} autoComplete="name" className={CAMPO} />
         </Campo>
 
         <Campo etiqueta="Dirección" ancho>
-          <input
-            value={borrador.linea1}
-            onChange={(e) => setBorrador({ ...borrador, linea1: e.target.value })}
-            placeholder="Calle y número"
-            className={CAMPO}
-          />
+          <input {...campo('linea1')} placeholder="Calle y número" autoComplete="address-line1" className={CAMPO} />
         </Campo>
         <Campo etiqueta="Piso, nave, puerta" pista="Opcional" ancho>
-          <input
-            value={borrador.linea2 ?? ''}
-            onChange={(e) => setBorrador({ ...borrador, linea2: e.target.value })}
-            className={CAMPO}
-          />
+          <input {...campo('linea2')} autoComplete="address-line2" className={CAMPO} />
         </Campo>
 
         <Campo etiqueta="Ciudad">
-          <input
-            value={borrador.ciudad}
-            onChange={(e) => setBorrador({ ...borrador, ciudad: e.target.value })}
-            className={CAMPO}
-          />
+          <input {...campo('ciudad')} autoComplete="address-level2" className={CAMPO} />
         </Campo>
         <Campo etiqueta="Código postal">
-          <input
-            value={borrador.codigoPostal}
-            onChange={(e) => setBorrador({ ...borrador, codigoPostal: e.target.value })}
-            className={CAMPO}
-          />
+          <input {...campo('codigoPostal')} inputMode="numeric" autoComplete="postal-code" className={CAMPO} />
         </Campo>
 
         <Campo etiqueta="Provincia" pista="En código: MD, B, V, SE…">
@@ -233,70 +227,24 @@ export function DireccionOrigen({
         </Campo>
 
         <Campo etiqueta="Teléfono" pista="Solo números, puede llevar +">
-          <input
-            value={borrador.telefono}
-            onChange={(e) => setBorrador({ ...borrador, telefono: e.target.value })}
-            placeholder="+34600000000"
-            className={CAMPO}
-          />
+          <input {...campo('telefono')} type="tel" placeholder="+34600000000" autoComplete="tel" className={CAMPO} />
         </Campo>
         <Campo etiqueta="Correo">
-          <input
-            type="email"
-            value={borrador.email}
-            onChange={(e) => setBorrador({ ...borrador, email: e.target.value })}
-            className={CAMPO}
-          />
+          <input {...campo('email')} type="email" autoComplete="email" className={CAMPO} />
         </Campo>
       </div>
-
-      <div className="mt-3 flex justify-end gap-2">
-        {dir && (
-          <button
-            type="button"
-            onClick={() => {
-              setBorrador(dir)
-              setEditando(false)
-            }}
-            className="rounded-lg px-3 py-1.5 text-[12px] text-white/50 hover:text-white"
-          >
-            Cancelar
-          </button>
-        )}
-        <motion.button
-          type="button"
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={guardar}
-          disabled={guardando}
-          className="flex items-center gap-1.5 rounded-lg bg-[#FF6600] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40"
-        >
-          {guardando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          Guardar dirección
-        </motion.button>
-      </div>
-    </motion.div>
+    </Tarjeta>
   )
 }
 
-function Campo({
-  etiqueta,
-  pista,
-  ancho,
-  children,
-}: {
-  etiqueta: string
-  pista?: string
-  ancho?: boolean
-  children: React.ReactNode
-}) {
+function Campo({ etiqueta, pista, ancho, children }: { etiqueta: string; pista?: string; ancho?: boolean; children: React.ReactNode }) {
   return (
-    <div className={ancho ? 'col-span-2' : ''}>
-      <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-white/40">
+    <label className={ancho ? 'block sm:col-span-2' : 'block'}>
+      <span className="mb-1 block text-[12px] font-semibold text-[var(--ls-t3)]">
         {etiqueta}
-        {pista && <span className="ml-1.5 normal-case tracking-normal text-white/25">{pista}</span>}
-      </label>
+        {pista && <span className="ml-[6px] font-normal text-[var(--ls-t4)]">{pista}</span>}
+      </span>
       {children}
-    </div>
+    </label>
   )
 }

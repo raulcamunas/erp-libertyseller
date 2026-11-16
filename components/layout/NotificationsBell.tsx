@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/popover'
 import Link from 'next/link'
 import { AvisosPush } from '@/components/push/AvisosPush'
+import { urlDeAvisoFba } from '@/lib/push/aviso'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -297,9 +298,10 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
       return '/dashboard/correo'
     }
 
-    // Una alerta de logística FBA (rotura de stock, envío parado…) o el resumen del lunes: al tablero de alertas
+    // Una alerta de logística FBA (rotura de stock, envío parado…) o el resumen del lunes: al tablero de alertas. Si es de un envío propuesto
+    // del planificador (vence, pasa a tarde, te lo asignan), al plan con ese envío abierto (spec remesas-pro D24). Misma regla que el push
     if (notification.type === 'fba_alerta' || notification.type === 'fba_resumen') {
-      return '/dashboard/remesas/alertas'
+      return urlDeAvisoFba(notification.datos)
     }
 
     // Vacaciones: alguien las pide (al admin) o te las resuelven (a ti). Las dos llevan a la pantalla de Vacaciones

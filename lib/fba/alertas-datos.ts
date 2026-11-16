@@ -4,19 +4,30 @@ import {
   UMBRALES_ALERTAS,
   FAMILIA_DE_TIPO,
   calcularAlertas,
+  clientesPorUsuario,
+  destinatariosDelCliente,
+  filasDeAlertas,
+  lineaPlanParaAlertas,
+  lotesDeFilas,
   planearAlertas,
+  planVigente,
   plazoValido,
   type AlertaFba,
   type ConfigAlertas,
   type EnvioParaAlertas,
   type FilaDeAlerta,
+  type PerfilParaAvisos,
+  type PlanParaAlertas,
   type Severidad,
   type VentasDelAnoPasado,
 } from './alertas'
 import { FALTA_LA_MIGRACION_267 } from './alertas-mensajes'
 import { enviosDelCliente, inventarioDeCliente } from './inventario-datos'
-import { sumarDiasInv } from './inventario'
+import { sumarDiasInv, type EnvioInventario } from './inventario'
+import { medirCadencia, medirRecepcion, medirTransporte } from './medidas-cliente'
 import { leerTodo } from './paginar'
+import type { MedidasCliente, PlazoEtapas } from './plan-tipos'
+import { esNoComprable, plazoDelCliente } from './planificador'
 import { faltaLaTabla } from './planificacion'
 
 /**
@@ -30,6 +41,23 @@ import { faltaLaTabla } from './planificacion'
  * alertas (migración 267) y en la campana.
  *
  * SIN LA MIGRACIÓN 267 las tablas no existen: se dice (`faltaMigracion`) y no se rompe nada. Las alertas se calculan igual a demanda.
+ *
+ *
+ * ============ CAMBIOS DE COMPORTAMIENTO (remesas-pro, 15 nov 2026) ============
+ *
+ *   · EL CRON DE ALERTAS VUELVE A GUARDAR (spec §0.1). Fallaba desde el 4 nov: un upsert en lote mezclaba filas con y sin
+ *     `primera_vez_at` y saltaba el NOT NULL de la 267. Ahora cada lote tiene una sola forma (`lotesDeFilas`) y además
+ *     `defaultToNull: false`.
+ *   · EL PLAZO YA NO ES EL 45 FIJO (§2.4). `conPlazoDelCliente` usa `plazoDelCliente` (manual > medido > de partida por
+ *     etapa) con lo medido en sus envíos (`medidasDeAlertas`: transporte, recepción p75 y cadencia) → L + M, el mismo número
+ *     que el planificador. Opinas pasa de 45 a unos 24 días y deja de inflar «reponer ya».
+ *   · UN SOLO NÚMERO DE ROTURA (D30). Las alertas de reposición y rotura toman fecha, prioridad, € y moneda de la línea de la
+ *     ÚLTIMA pasada del planificador si tiene ≤ 36 h (`planParaAlertas`, tabla `fba_plan_pasadas` de la 316). Sin la 316, sin
+ *     pasada o vieja: la cuenta de siempre.
+ *   · «NO COMPRABLE» CON LA REGLA DEL PLANIFICADOR (D1). `comprablesDe` (exportada para el plan) usa `esNoComprable`: también
+ *     `activo_manual = false`; una fila sin `listing_status` guardado ya no se acusa.
+ *   · A QUIÉN SE AVISA (D24 y D27). `destinatariosDe` y el resumen del lunes: admins, empleados con la casilla `remesas` y
+ *     quien tenga `fba_accesos` (con `reglaDeAcceso`). Antes solo admins y `fba_accesos`.
  */
 
 type Servicio = ReturnType<typeof createServiceClient>
@@ -45,17 +73,35 @@ const MARKETPLACE_ESPANA = 'A1RKKUPIHCS9HS'
 export interface ConfigDeCliente extends ConfigAlertas {
   /** false = se calculan y se ven las alertas pero no suena la campana */
   avisar: boolean
+  /** El plazo por etapas de `plazoDelCliente` con el que sale `plazoDias` (L + M). null hasta que se calcula */
+  plazo: PlazoEtapas | null
 }
 
-export async function leerConfigAlertas(service: Servicio, clienteId: string): Promise<{ config: ConfigDeCliente; faltaMigracion: boolean }> {
-  const porDefecto: ConfigDeCliente = { ...CONFIG_ALERTAS_POR_DEFECTO, plazoPorSku: {}, avisar: true }
-  const { data, error } = await service
-    .from('fba_alertas_config')
-    .select('plazo_reposicion_dias, antelacion_dias, avisar')
-    .eq('client_id', clienteId)
-    .maybeSingle()
+/** Lo que `plazoDelCliente` necesita de `fba_alertas_config` (etapas de la 291 y el total) */
+type EtapasConfig = Parameters<typeof plazoDelCliente>[0]
+
+export interface ConfigLeida {
+  config: ConfigDeCliente
+  faltaMigracion: boolean
+  /** Las etapas puestas a mano (o solo el total); null si el cliente no tiene fila */
+  etapas: EtapasConfig
+}
+
+const COLUMNAS_CONFIG = 'plazo_reposicion_dias, antelacion_dias, avisar'
+const COLUMNAS_CONFIG_CON_ETAPAS = `${COLUMNAS_CONFIG}, dias_preparacion, dias_transporte, dias_recepcion, margen_dias`
+
+/**
+ * La fila de configuración y los plazos por referencia. El plazo que sale aquí (`plazoDias`) es el VIEJO (el total guardado o 45)
+ * y lo sustituye `conPlazoDelCliente` en cuanto hay medidas: ver `calcularAlertasDeCliente`.
+ */
+export async function leerConfigAlertas(service: Servicio, clienteId: string): Promise<ConfigLeida> {
+  const porDefecto: ConfigDeCliente = { ...CONFIG_ALERTAS_POR_DEFECTO, plazoPorSku: {}, avisar: true, plazo: null }
+  let r = await service.from('fba_alertas_config').select(COLUMNAS_CONFIG_CON_ETAPAS).eq('client_id', clienteId).maybeSingle()
+  // Sin la 291 no hay etapas: se repite sin ellas (el total sigue valiendo)
+  if (r.error && r.error.code === '42703') r = await service.from('fba_alertas_config').select(COLUMNAS_CONFIG).eq('client_id', clienteId).maybeSingle()
+  const { data, error } = r
   if (error) {
-    if (faltaLaTabla(error)) return { config: porDefecto, faltaMigracion: true }
+    if (faltaLaTabla(error)) return { config: porDefecto, faltaMigracion: true, etapas: null }
     throw error
   }
   const { data: filasSku, error: errorSku } = await service
@@ -68,8 +114,16 @@ export async function leerConfigAlertas(service: Servicio, clienteId: string): P
     const p = plazoValido(f.plazo_reposicion_dias)
     if (p !== null) plazoPorSku[f.sku] = p
   }
-  if (!data) return { config: { ...porDefecto, plazoPorSku }, faltaMigracion: false }
-  const fila = data as { plazo_reposicion_dias: number; antelacion_dias: number; avisar: boolean }
+  if (!data) return { config: { ...porDefecto, plazoPorSku }, faltaMigracion: false, etapas: null }
+  const fila = data as unknown as {
+    plazo_reposicion_dias: number | null
+    antelacion_dias: number | null
+    avisar: boolean | null
+    dias_preparacion?: number | null
+    dias_transporte?: number | null
+    dias_recepcion?: number | null
+    margen_dias?: number | null
+  }
   return {
     config: {
       plazoDias: plazoValido(fila.plazo_reposicion_dias) ?? porDefecto.plazoDias,
@@ -77,9 +131,132 @@ export async function leerConfigAlertas(service: Servicio, clienteId: string): P
       antelacionDias: Math.min(120, Math.max(0, Math.round(fila.antelacion_dias ?? porDefecto.antelacionDias))),
       plazoPorSku,
       avisar: fila.avisar !== false,
+      plazo: null,
     },
     faltaMigracion: false,
+    etapas: {
+      diasPreparacion: fila.dias_preparacion ?? null,
+      diasTransporte: fila.dias_transporte ?? null,
+      diasRecepcion: fila.dias_recepcion ?? null,
+      diasMargen: fila.margen_dias ?? null,
+      total: plazoValido(fila.plazo_reposicion_dias),
+    },
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* El plazo: plazoDelCliente con lo medido (spec §2.4, D10 y D14)      */
+/* ------------------------------------------------------------------ */
+
+const ENVIADA_O_CERRADA = ['enviada', 'cerrada']
+/** Envíos con número que se miran para medir transporte y recepción (las funciones se quedan con los 6 últimos que valgan) */
+const ENVIOS_A_MEDIR = 10
+
+/**
+ * Lo que tardan de verdad los envíos de un cliente: transporte (envío → primer Receipt), recepción (p75 del primer Receipt al
+ * 90 % recibido) y cadencia. Los Receipts se leen del libro de la lectura elegida por número de envío
+ * (`fba_movimientos_referencia_idx`). Sin conexión, sin medidas.
+ */
+export async function medidasDeAlertas(
+  service: Servicio,
+  conexion: string | null,
+  mercado: string,
+  envios: readonly EnvioInventario[],
+  hoy: string
+): Promise<MedidasCliente | null> {
+  const enviadas = envios
+    .filter((e) => ENVIADA_O_CERRADA.includes(e.estado) && e.fechaEnvio)
+    .sort((a, b) => b.fechaEnvio.localeCompare(a.fechaEnvio))
+  if (enviadas.length === 0) return null
+  const unidadesDe = (e: EnvioInventario): number => e.lineas.reduce((s, l) => s + (Number(l.unidades) || 0), 0)
+  const cad = medirCadencia(enviadas.map((e) => ({ fechaEnvio: e.fechaEnvio.slice(0, 10), unidades: unidadesDe(e) })))
+
+  const aMedir = enviadas.filter((e) => e.referenciaEnvio).slice(0, ENVIOS_A_MEDIR)
+  const porReferencia = new Map<string, Array<{ fecha: string; cantidad: number }>>()
+  if (conexion && aMedir.length > 0) {
+    const filas = await leerTodo<{ referencia: string; fecha: string; cantidad: number }>((a, b) =>
+      service
+        .from('fba_movimientos')
+        .select('referencia, fecha, cantidad')
+        .eq('connection_id', conexion)
+        .eq('marketplace_id', mercado)
+        .eq('tipo', 'Receipts')
+        .in(
+          'referencia',
+          aMedir.map((e) => e.referenciaEnvio as string)
+        )
+        .order('fecha', { ascending: true })
+        .order('id', { ascending: true })
+        .range(a, b)
+    )
+    for (const f of filas) {
+      const c = Number(f.cantidad) || 0
+      if (!f.referencia || c <= 0) continue
+      const lista = porReferencia.get(f.referencia) ?? []
+      lista.push({ fecha: f.fecha.slice(0, 10), cantidad: c })
+      porReferencia.set(f.referencia, lista)
+    }
+  }
+  const conRecibos = aMedir.map((e) => {
+    const recibos = porReferencia.get(e.referenciaEnvio as string) ?? []
+    const primer = recibos.reduce<string | null>((m, x) => (m === null || x.fecha < m ? x.fecha : m), null)
+    return { e, recibos, primer }
+  })
+  const transporteMediano = medirTransporte(conRecibos.map((x) => ({ fechaEnvio: x.e.fechaEnvio.slice(0, 10), primerReceipt: x.primer })))
+  const recepcionP75 = medirRecepcion(
+    conRecibos.filter((x) => x.recibos.length > 0).map((x) => ({ enviadas: unidadesDe(x.e), receipts: x.recibos })),
+    hoy
+  )
+  const enviosMedidos = Math.min(6, conRecibos.filter((x) => x.primer !== null && x.primer >= x.e.fechaEnvio.slice(0, 10)).length)
+  return { transporteMediano, recepcionP75, enviosMedidos, cadenciaDias: cad.cadenciaDias, tamanoTipico: cad.tamanoTipico }
+}
+
+/**
+ * El plazo de las alertas = L + M de `plazoDelCliente` (manual > medido > de partida, por etapa), el MISMO que usa el
+ * planificador. Cambio de comportamiento (§2.4): antes, sin fila de configuración, 45 días fijos; Opinas pasa a unos 24.
+ * `plazoConfigurado` = el equipo puso el plazo (hay fila) o ninguna etapa queda de partida.
+ * Los plazos por referencia siguen siendo el total que se guardó (sustituyen a L + M, como en el planificador).
+ */
+export function conPlazoDelCliente(leida: ConfigLeida, medidas: MedidasCliente | null, hoy: string): ConfigDeCliente {
+  const plazo = plazoDelCliente(leida.etapas, medidas, hoy, { transporteUrgenteDias: null })
+  const total = plazo.hastaLaVenta + plazo.margen
+  return {
+    ...leida.config,
+    plazoDias: plazoValido(total) ?? leida.config.plazoDias,
+    plazoConfigurado: leida.etapas !== null || !plazo.sinConfirmar,
+    plazo,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* La última pasada del planificador (spec §11 D30)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Las líneas de la ÚLTIMA pasada del planificador si tiene ≤ 36 h y salió bien (`ok` o `provisional`). Sin la migración 316, sin
+ * pasada, o vieja: null, y las alertas hacen su cuenta de siempre.
+ */
+export async function planParaAlertas(service: Servicio, clienteId: string, ahora: string): Promise<PlanParaAlertas | null> {
+  const { data, error } = await service
+    .from('fba_plan_pasadas')
+    .select('calculado_at, estado, lineas')
+    .eq('client_id', clienteId)
+    .order('calculado_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    if (faltaLaTabla(error)) return null
+    throw error
+  }
+  const fila = data as { calculado_at: string; estado: string; lineas: unknown } | null
+  if (!fila || !['ok', 'provisional'].includes(fila.estado) || !planVigente(fila.calculado_at, ahora)) return null
+  const lineas: PlanParaAlertas['lineas'] = {}
+  for (const crudo of Array.isArray(fila.lineas) ? fila.lineas : []) {
+    const l = lineaPlanParaAlertas(crudo)
+    if (l) lineas[l.sku] = l
+  }
+  // Una pasada con las líneas ya vaciadas (> 7 días) no puede ser vigente, pero por si acaso: sin líneas, sin plan
+  return Object.keys(lineas).length > 0 ? { calculadoAt: fila.calculado_at, lineas } : null
 }
 
 /* ------------------------------------------------------------------ */
@@ -159,36 +336,74 @@ async function ajustesRecientes(service: Servicio, conexion: string, mercado: st
   return [...neto.entries()].map(([sku, n]) => ({ sku, neto: n }))
 }
 
+export interface ComprablesDeCliente {
+  /** Algún listing del cliente en ese mercado trae BUYABLE: sin esto no se afirma que nada sea no comprable (D1) */
+  hayBuyableEnCliente: boolean
+  /** Los SKU pedidos que NO se pueden comprar según `esNoComprable` */
+  noComprables: string[]
+}
+
 /**
- * Los SKU con stock y ventas cuyo listing NO figura como comprable.
+ * QUÉ SE PUEDE COMPRAR: la comprobación de la alerta `sin_comprar`, con la regla única `esNoComprable` del planificador (D1).
+ * La exporta S4a para que el plan (S1) use la misma lectura.
  *
- * SOLO SE AFIRMA SI EL DATO EXISTE: si ningún listing del cliente trae el estado BUYABLE, es que el catálogo todavía no ha guardado el estado
- * (o este cliente no lo expone) y acusar a todos de «no comprable» sería una avalancha de falsas alarmas.
+ *   · No comprable = `activo_manual = false`, o (con stock, V > 0) sin BUYABLE. V = 0 sin BUYABLE es AGOTADO (Amazon quita
+ *     BUYABLE al quedarse sin stock), no «no comprable».
+ *   · SOLO SE AFIRMA SI EL DATO EXISTE: si ningún listing del cliente trae BUYABLE, el catálogo todavía no ha guardado el estado
+ *     (o este cliente no lo expone) y acusar a todos sería una avalancha de falsas alarmas.
+ *   · `vendibles`: el stock de cada SKU. Sin él se da por V > 0 (la alerta solo pregunta por los que tienen stock y ventas).
+ *   · Un SKU sin fila de listing no se acusa.
+ * Si algo falla al leer, no se afirma nada (lista vacía): mejor una alerta de menos que una falsa.
  */
-async function noComprables(service: Servicio, conexion: string, mercado: string, skus: readonly string[]): Promise<string[]> {
-  if (skus.length === 0) return []
+export async function comprablesDe(
+  service: Servicio,
+  conexion: string,
+  mercado: string,
+  skus: readonly string[],
+  vendibles?: ReadonlyMap<string, number>
+): Promise<ComprablesDeCliente> {
+  const nada: ComprablesDeCliente = { hayBuyableEnCliente: false, noComprables: [] }
   const { count, error } = await service
     .from('amazon_listings')
     .select('sku', { count: 'exact', head: true })
     .eq('connection_id', conexion)
     .eq('marketplace_id', mercado)
     .contains('listing_status', ['BUYABLE'])
-  if (error || !count) return []
+  if (error) return nada
+  const hayBuyableEnCliente = (count ?? 0) > 0
+  if (skus.length === 0) return { hayBuyableEnCliente, noComprables: [] }
 
   const malos: string[] = []
   for (let i = 0; i < skus.length; i += 150) {
-    const { data, error: e } = await service
+    let r = await service
       .from('amazon_listings')
-      .select('sku, listing_status')
+      .select('sku, listing_status, activo_manual')
       .eq('connection_id', conexion)
       .eq('marketplace_id', mercado)
       .in('sku', skus.slice(i, i + 150))
-    if (e) return []
-    for (const f of (data ?? []) as Array<{ sku: string; listing_status: string[] | null }>) {
-      if (!(f.listing_status ?? []).includes('BUYABLE')) malos.push(f.sku)
+    // Sin la columna `activo_manual` (migración vieja): solo el estado
+    if (r.error && r.error.code === '42703') {
+      r = (await service
+        .from('amazon_listings')
+        .select('sku, listing_status')
+        .eq('connection_id', conexion)
+        .eq('marketplace_id', mercado)
+        .in('sku', skus.slice(i, i + 150))) as typeof r
+    }
+    if (r.error) return { hayBuyableEnCliente, noComprables: [] }
+    for (const f of (r.data ?? []) as Array<{ sku: string; listing_status: string[] | null; activo_manual?: boolean | null }>) {
+      const no = esNoComprable({
+        vendibles: vendibles?.get(f.sku) ?? 1,
+        // null = el catálogo no guardó el estado de esa fila: no se afirma (antes contaba como «sin BUYABLE»)
+        listingStatus: f.listing_status ?? null,
+        hayBuyableEnCliente,
+        suprimido: false,
+        activoManual: f.activo_manual ?? null,
+      })
+      if (no) malos.push(f.sku)
     }
   }
-  return malos
+  return { hayBuyableEnCliente, noComprables: malos }
 }
 
 /* ------------------------------------------------------------------ */
@@ -208,7 +423,9 @@ export interface ResultadoDeCalculo {
 
 /** Las alertas de un cliente, calculadas ahora mismo con lo que hay en la base. No escribe nada */
 export async function calcularAlertasDeCliente(service: Servicio, clienteId: string, hoy: string): Promise<ResultadoDeCalculo> {
-  const { config, faltaMigracion } = await leerConfigAlertas(service, clienteId)
+  const leida = await leerConfigAlertas(service, clienteId)
+  const { faltaMigracion } = leida
+  let config = leida.config
   const inv = await inventarioDeCliente(clienteId, { hoy })
   if (!inv.conectado) return { conectado: false, alertas: [], completo: false, error: 'El cliente no tiene una conexión de Amazon activa', config, faltaMigracion }
 
@@ -220,6 +437,24 @@ export async function calcularAlertasDeCliente(service: Servicio, clienteId: str
   const errores: string[] = []
   const conexion = inv.conexionId
   const mercado = inv.marketplaceId ?? MARKETPLACE_ESPANA
+
+  // El plazo de plazoDelCliente con lo medido (§2.4): si medir falla, el de partida por etapas (nunca el 45 fijo)
+  let medidas: MedidasCliente | null = null
+  try {
+    medidas = await medidasDeAlertas(service, conexion, mercado, envios, hoy)
+  } catch (e) {
+    errores.push(`plazo medido: ${mensaje(e)}`)
+  }
+  config = conPlazoDelCliente({ ...leida, config }, medidas, hoy)
+
+  // Un solo número de rotura (D30): la última pasada del planificador, si tiene ≤ 36 h
+  let plan: PlanParaAlertas | null = null
+  try {
+    plan = await planParaAlertas(service, clienteId, new Date().toISOString())
+  } catch (e) {
+    // Sin el plan, la cuenta de siempre: no es un fallo del cálculo
+    errores.push(`plan: ${mensaje(e)}`)
+  }
 
   let ventasAnoPasado: VentasDelAnoPasado | undefined
   let ajustes: Array<{ sku: string; neto: number }> | undefined
@@ -239,15 +474,22 @@ export async function calcularAlertasDeCliente(service: Servicio, clienteId: str
       errores.push(`ajustes: ${mensaje(e)}`)
     }
     try {
-      const candidatos = inv.skus.filter((s) => s.vendibles > 0 && s.vendidas.d90 > 0).map((s) => s.sku)
-      sinComprar = await noComprables(service, conexion, mercado, candidatos)
+      const candidatos = inv.skus.filter((s) => s.vendibles > 0 && s.vendidas.d90 > 0)
+      const r = await comprablesDe(
+        service,
+        conexion,
+        mercado,
+        candidatos.map((s) => s.sku),
+        new Map(candidatos.map((s) => [s.sku, s.vendibles] as const))
+      )
+      sinComprar = r.noComprables
     } catch (e) {
       completo = false
       errores.push(`listings: ${mensaje(e)}`)
     }
   }
 
-  const alertas = calcularAlertas({ hoy, inventario: inv, envios: enviosAlertas, config, ventasAnoPasado, noComprables: sinComprar, ajustesRecientes: ajustes })
+  const alertas = calcularAlertas({ hoy, inventario: inv, envios: enviosAlertas, config, ventasAnoPasado, noComprables: sinComprar, ajustesRecientes: ajustes, plan })
   // Una lectura del libro que va atrasada (o sin leer) no es un fallo del cálculo, pero sí obliga a no cerrar nada: faltan ventas
   if (inv.libro === 'sin_leer') {
     completo = false
@@ -289,25 +531,16 @@ export async function guardarAlertas(service: Servicio, clienteId: string, alert
   const plan = planearAlertas(guardadas, alertas, hoy, completo)
   const ahora = new Date().toISOString()
 
-  const filas = plan.escribir.map(({ alerta: a, estado, nueva, reabierta }) => ({
-    client_id: clienteId,
-    clave: a.clave,
-    tipo: a.tipo,
-    severidad: a.severidad,
-    sku: a.sku,
-    remesa_id: a.remesaId,
-    titulo: a.titulo,
-    detalle: a.detalle,
-    impacto: Math.round(a.impacto * 100) / 100,
-    datos: a.datos,
-    estado,
-    ultima_vez_at: ahora,
-    ...(nueva || reabierta ? { primera_vez_at: ahora, resuelta_at: null } : {}),
-    // Una silenciada que ya cumplió su fecha vuelve a estar abierta y sin fecha; una que sigue silenciada conserva la suya
-    ...(estado === 'abierta' ? { silenciada_hasta: null } : {}),
-  }))
-  for (let i = 0; i < filas.length; i += TROZO) {
-    const { error: e } = await service.from('fba_alertas').upsert(filas.slice(i, i + TROZO), { onConflict: 'client_id,clave' })
+  /**
+   * EL CRON FALLABA DESDE EL 4 NOV (spec §0.1). Un upsert en lote con filas de columnas distintas: solo las nuevas o reabiertas llevan
+   * `primera_vez_at`, PostgREST arma el lote con la unión de columnas y pone NULL donde una fila no la trae, y saltaba el NOT NULL de
+   * la 267 en las existentes. Ahora `lotesDeFilas` separa las nuevas o reabiertas (con `primera_vez_at` y `resuelta_at: null`) de las
+   * existentes (sin esas columnas) y de las silenciadas (sin `silenciada_hasta`): cada lote, una sola forma (probado en alertas.prueba.ts).
+   * `defaultToNull: false` es la segunda red: lo que una fila no nombra se queda como está.
+   */
+  const filas = filasDeAlertas(clienteId, plan.escribir, ahora)
+  for (const lote of lotesDeFilas(filas, TROZO)) {
+    const { error: e } = await service.from('fba_alertas').upsert(lote, { onConflict: 'client_id,clave', defaultToNull: false })
     if (e) throw e
   }
   for (let i = 0; i < plan.resolver.length; i += TROZO) {
@@ -355,18 +588,48 @@ export async function anotarEstado(service: Servicio, clienteId: string, estado:
 /* La campana                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Quién recibe los avisos de un cliente: toda la agencia con acceso a él y los administradores. Nunca el cliente de fuera */
-export async function destinatariosDe(service: Servicio, clienteId: string): Promise<string[]> {
-  const ids = new Set<string>()
-  const { data: admins } = await service.from('profiles').select('id').eq('role', 'admin')
-  for (const a of (admins ?? []) as Array<{ id: string }>) ids.add(a.id)
-  const { data: accesos } = await service.from('fba_accesos').select('user_id').eq('client_id', clienteId)
-  const conAcceso = ((accesos ?? []) as Array<{ user_id: string }>).map((a) => a.user_id)
-  if (conAcceso.length > 0) {
-    const { data: perfiles } = await service.from('profiles').select('id, role').in('id', conAcceso)
-    for (const p of (perfiles ?? []) as Array<{ id: string; role: string }>) if (p.role !== 'cliente') ids.add(p.id)
+/** El id de la app Remesas en `user_app_permissions` (lib/config/apps.ts) */
+const APP_REMESAS = 'remesas'
+
+/**
+ * Qué clientes ve cada persona de la agencia (`clientesPorUsuario`, con `reglaDeAcceso`, D27): se leen los perfiles de admins y
+ * empleados, quién tiene la casilla `remesas` y los `fba_accesos`. La casilla que no se puede leer no da acceso (lo prudente).
+ */
+export async function agenciaConClientes(service: Servicio): Promise<Map<string, string[] | null>> {
+  let perfiles: PerfilParaAvisos[] = []
+  const conPuesto = await service.from('profiles').select('id, role, puesto').in('role', ['admin', 'employee'])
+  if (conPuesto.error && conPuesto.error.code === '42703') {
+    // Sin la columna `puesto` (migración vieja): solo el rol
+    const soloRol = await service.from('profiles').select('id, role').in('role', ['admin', 'employee'])
+    if (soloRol.error) throw soloRol.error
+    perfiles = ((soloRol.data ?? []) as Array<{ id: string; role: string }>).map((p) => ({ id: p.id, role: p.role, puesto: null }))
+  } else {
+    if (conPuesto.error) throw conPuesto.error
+    perfiles = (conPuesto.data ?? []) as PerfilParaAvisos[]
   }
-  return [...ids]
+  const [casillas, accesos] = await Promise.all([
+    service.from('user_app_permissions').select('user_id').eq('app_id', APP_REMESAS).eq('can_access', true),
+    service.from('fba_accesos').select('user_id, client_id, puede_editar'),
+  ])
+  if (accesos.error && !faltaLaTabla(accesos.error)) throw accesos.error
+  const conCasilla = new Set(casillas.error ? [] : ((casillas.data ?? []) as Array<{ user_id: string }>).map((c) => c.user_id))
+  return clientesPorUsuario(
+    perfiles,
+    conCasilla,
+    ((accesos.data ?? []) as Array<{ user_id: string; client_id: string; puede_editar: boolean | null }>).map((a) => ({
+      userId: a.user_id,
+      clienteId: a.client_id,
+      puedeEditar: a.puede_editar === true,
+    }))
+  )
+}
+
+/**
+ * Quién recibe los avisos de un cliente: los admins, los empleados con la casilla `remesas` y quien tenga fila en `fba_accesos`
+ * de ese cliente (D24 y D27). Nunca el cliente de fuera. Cambio: antes solo admins y `fba_accesos`.
+ */
+export async function destinatariosDe(service: Servicio, clienteId: string): Promise<string[]> {
+  return destinatariosDelCliente(await agenciaConClientes(service), clienteId)
 }
 
 /** Cuántas alertas individuales como mucho antes de juntarlas en un solo aviso: la primera pasada de un cliente trae decenas */
@@ -504,25 +767,12 @@ export async function avisarResumenSemanal(service: Servicio, hoy: string): Prom
   const filas = (data ?? []) as Array<{ client_id: string; severidad: Severidad; tipo: string }>
   if (filas.length === 0) return { avisados: 0, faltaMigracion: false }
 
-  const { data: admins } = await service.from('profiles').select('id').eq('role', 'admin')
-  const { data: accesos } = await service.from('fba_accesos').select('user_id, client_id')
-  const ids = new Set(filas.map((f) => f.client_id))
-  const porUsuario = new Map<string, Set<string>>()
-  for (const a of (admins ?? []) as Array<{ id: string }>) porUsuario.set(a.id, new Set(ids))
-  const conAcceso = [...new Set(((accesos ?? []) as Array<{ user_id: string }>).map((a) => a.user_id))]
-  if (conAcceso.length > 0) {
-    const { data: perfiles } = await service.from('profiles').select('id, role').in('id', conAcceso)
-    const agencia = new Set(((perfiles ?? []) as Array<{ id: string; role: string }>).filter((p) => p.role !== 'cliente').map((p) => p.id))
-    for (const a of (accesos ?? []) as Array<{ user_id: string; client_id: string }>) {
-      if (!agencia.has(a.user_id) || !ids.has(a.client_id)) continue
-      if (!porUsuario.has(a.user_id)) porUsuario.set(a.user_id, new Set())
-      porUsuario.get(a.user_id)!.add(a.client_id)
-    }
-  }
+  // Los mismos que reciben la campana de cada cliente: admins, empleados con la casilla `remesas` y `fba_accesos` (D27)
+  const porUsuario = await agenciaConClientes(service)
 
   let avisados = 0
-  for (const [usuario, clientes] of porUsuario) {
-    const suyas = filas.filter((f) => clientes.has(f.client_id))
+  for (const [usuario, clientes] of Array.from(porUsuario.entries())) {
+    const suyas = clientes === null ? filas : filas.filter((f) => clientes.includes(f.client_id))
     const criticas = suyas.filter((f) => f.severidad === 'critica').length
     const altas = suyas.filter((f) => f.severidad === 'alta').length
     if (criticas + altas === 0) continue

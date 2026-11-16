@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
-import { esClienteConCatalogo } from '@/lib/fba/catalogo/tipos'
+import { tieneCatalogo } from '@/lib/fba/envios-propuestos-servidor'
 import { diaEnEspana } from '@/lib/fba/fechas'
 import { excelDePropuesta } from '@/lib/fba/propuesta-excel'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -19,6 +19,9 @@ import { createServiceClient } from '@/lib/supabase/service'
  * Sirve en cualquier fase —borrador, aprobada, encajando o lista— y también para un envío ya
  * hecho: lo que no cambia es que sea una lista de qué va y cuánto. Quien puede ver la remesa
  * puede bajarse el Excel; el mismo filtro por cliente que el resto de /api/fba.
+ *
+ * La columna de la variante se llama «Talla» si el cliente trabaja con base de datos de referencias (filas en
+ * fba_catalogo, o «shoesf» en el nombre por compatibilidad), no solo por el nombre (spec remesas-pro D40).
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -63,6 +66,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
     if (filas.length === 0) return fail(400, 'Esta propuesta todavía no tiene ninguna referencia: no hay nada que enseñar')
 
     const nombreCliente = (cliente as { name: string } | null)?.name ?? 'Cliente'
+    const conCatalogo = await tieneCatalogo(service, remesa.client_id, nombreCliente)
     const r = excelDePropuesta({
       cliente: nombreCliente,
       nombre: remesa.nombre,
@@ -70,7 +74,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
       nota: remesa.nota,
       hoy: diaEnEspana(),
       lineas: filas,
-      rotuloVariante: esClienteConCatalogo(nombreCliente) ? 'Talla' : 'Variante',
+      rotuloVariante: conCatalogo ? 'Talla' : 'Variante',
     })
 
     return new NextResponse(Buffer.from(r.xlsx), {

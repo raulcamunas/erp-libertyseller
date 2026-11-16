@@ -26,7 +26,8 @@ export interface ClienteRemesas {
   moneda: string
   conectado: boolean
   salud: SaludCliente | null
-  contadores: { envios: number; propuestas: number; enviosNuevos: number }
+  /** `listas` = propuestas encajadas (estado «lista»); opcional para no romper lo que construye el tipo a mano */
+  contadores: { envios: number; propuestas: number; enviosNuevos: number; listas?: number }
   puedeEditar: boolean
 }
 

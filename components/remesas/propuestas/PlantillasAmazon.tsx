@@ -1,10 +1,11 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { BOTON, COLOR_ESTADO } from '@/lib/estilo/denso'
-import { cx, Tarjeta } from '../comun/ui'
+import { Boton, Tarjeta } from '@/components/ui-ls'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
+import { bajarRespuesta } from '../comun/descargar'
 
 /**
  * LOS DOS EXCEL QUE SE SUBEN A SELLER CENTRAL, EN EL ORDEN EN QUE SE SUBEN.
@@ -20,6 +21,8 @@ import { cx, Tarjeta } from '../comun/ui'
  *
  * El orden importa y la pantalla lo dice: primero se descarga y sube el manifiesto, y
  * solo cuando Amazon lo ha procesado da la plantilla del segundo.
+ *
+ * Quién: la agencia que edita el cliente (antes, solo el administrador; spec remesas-pro §1.4).
  */
 
 interface Resultado {
@@ -28,25 +31,9 @@ interface Resultado {
   avisos?: string
 }
 
-/** Baja al disco lo que ha devuelto la ruta, con el nombre que ella propone */
-async function bajarFichero(res: Response, nombreSiFalta: string) {
-  const blob = await res.blob()
-  const nombre = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? nombreSiFalta
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = nombre
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 export function PlantillasAmazon({ remesaId, referencias, unidades }: { remesaId: string; referencias: number; unidades: number }) {
   return (
-    <Tarjeta
-      titulo="Preparar el envío en Seller Central"
-      ayuda="El manifiesto te lo da el ERP. El embalaje, cuando Amazon te dé su plantilla"
-      cuerpo={false}
-    >
+    <Tarjeta icono={FileSpreadsheet} acento="remesas" titulo="Preparar el envío en Seller Central" subtitulo="Primero el manifiesto; luego, el embalaje" sinRelleno>
       <div className="grid divide-y divide-[var(--ls-linea)] md:grid-cols-2 md:divide-x md:divide-y-0">
         <PasoManifiesto remesaId={remesaId} referencias={referencias} unidades={unidades} />
         <PasoEmbalaje remesaId={remesaId} />
@@ -82,7 +69,7 @@ function PasoManifiesto({ remesaId, referencias, unidades }: { remesaId: string;
         toast.error(texto)
         return
       }
-      await bajarFichero(res, 'manifiesto.xlsx')
+      await bajarRespuesta(res, 'manifiesto.xlsx')
       const descartadas = Number(res.headers.get('X-Descartadas') ?? 0)
       const r: Resultado = {
         ok: true,
@@ -99,7 +86,7 @@ function PasoManifiesto({ remesaId, referencias, unidades }: { remesaId: string;
   }
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex min-w-0 flex-col gap-3 p-4">
       <div className="flex items-start gap-2">
         <FileSpreadsheet className="mt-[2px] h-4 w-4 shrink-0 text-[var(--ls-t3)]" />
         <div className="min-w-0">
@@ -110,20 +97,19 @@ function PasoManifiesto({ remesaId, referencias, unidades }: { remesaId: string;
         </div>
       </div>
 
-      <p className="pl-6 text-[12px] text-[var(--ls-t2)]">
+      <p className="text-[12px] sm:pl-6 text-[var(--ls-t2)]">
         <b className="font-semibold tabular-nums text-[var(--ls-t1)]">{referencias}</b> referencia{referencias === 1 ? '' : 's'} ·{' '}
         <b className="font-semibold tabular-nums text-[var(--ls-t1)]">{unidades.toLocaleString('es-ES')}</b> unidades
       </p>
 
-      <div className="pl-6">
-        <button type="button" onClick={descargar} disabled={trabajando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-          {trabajando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+      <div className="sm:pl-6">
+        <Boton variante="primario" tamano="sm" icono={Download} cargando={trabajando} onClick={() => void descargar()}>
           {trabajando ? 'Preparando…' : descargado ? 'Descargar otra vez' : 'Descargar manifiesto'}
-        </button>
+        </Boton>
       </div>
 
       {resultado && (
-        <div className="flex items-start gap-2 pl-6 text-[11.5px] leading-[1.5] text-[var(--ls-t2)]">
+        <div className="flex items-start gap-2 sm:pl-6 text-[11.5px] leading-[1.5] text-[var(--ls-t2)]">
           {resultado.ok ? (
             <CheckCircle2 className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.verde }} />
           ) : (
@@ -136,7 +122,7 @@ function PasoManifiesto({ remesaId, referencias, unidades }: { remesaId: string;
         </div>
       )}
 
-      <ol className="ml-6 list-decimal space-y-[2px] pl-4 text-[11.5px] leading-[1.5] text-[var(--ls-t3)]">
+      <ol className="list-decimal sm:ml-6 space-y-[2px] pl-4 text-[11.5px] leading-[1.5] text-[var(--ls-t3)]">
         <li>
           En Seller Central: <b className="font-medium text-[var(--ls-t2)]">Cadena de suministro → Enviar a Amazon → Crear envío</b> y elige subir un archivo.
         </li>
@@ -145,13 +131,13 @@ function PasoManifiesto({ remesaId, referencias, unidades }: { remesaId: string;
       </ol>
 
       {/* La salida para el día que Amazon cambie el formato: rellenar SU plantilla en vez de la integrada */}
-      <div className="pl-6">
+      <div className="sm:pl-6">
         {!verPropia ? (
           <button type="button" onClick={() => setVerPropia(true)} className="text-[11px] text-[var(--ls-t4)] underline-offset-2 hover:text-[var(--ls-t2)] hover:underline">
             ¿Amazon ha cambiado la plantilla? Usa la tuya
           </button>
         ) : (
-          <div className="space-y-[6px] rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-2">
+          <div className="space-y-[6px] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-3">
             <p className="text-[11px] leading-[1.5] text-[var(--ls-t3)]">
               Si Amazon publica otro formato, baja su plantilla vacía de «Enviar a Amazon» y elígela: el manifiesto se rellena sobre ella en lugar de la que lleva el ERP.
             </p>
@@ -166,16 +152,13 @@ function PasoManifiesto({ remesaId, referencias, unidades }: { remesaId: string;
               }}
             />
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => entrada.current?.click()} className={cx(BOTON.base, BOTON.secundario)}>
-                <Upload className="h-3 w-3" />
+              <Boton variante="secundario" tamano="sm" icono={Upload} onClick={() => entrada.current?.click()}>
                 {propia ? 'Cambiar plantilla' : 'Elegir plantilla (.xlsx)'}
-              </button>
+              </Boton>
               {propia && (
-                <span className="inline-flex max-w-[220px] items-center gap-1 text-[11.5px] text-[var(--ls-t2)]" title={propia.name}>
+                <span className="inline-flex min-w-0 max-w-[220px] items-center gap-1 text-[12px] text-[var(--ls-t2)]" title={propia.name}>
                   <span className="truncate">{propia.name}</span>
-                  <button type="button" onClick={() => setPropia(null)} className={BOTON.icono} aria-label="Quitar la plantilla">
-                    <X className="h-3 w-3" />
-                  </button>
+                  <Boton variante="fantasma" tamano="sm" soloIcono icono={X} aria-label="Quitar la plantilla" onClick={() => setPropia(null)} />
                 </span>
               )}
               <button
@@ -222,7 +205,7 @@ function PasoEmbalaje({ remesaId }: { remesaId: string }) {
         toast.error(texto)
         return
       }
-      await bajarFichero(res, 'embalaje.xlsx')
+      await bajarRespuesta(res, 'embalaje.xlsx')
       const desc = Number(res.headers.get('X-Descuadres') ?? 0)
       const r: Resultado = {
         ok: true,
@@ -238,7 +221,7 @@ function PasoEmbalaje({ remesaId }: { remesaId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex min-w-0 flex-col gap-3 p-4">
       <div className="flex items-start gap-2">
         <FileSpreadsheet className="mt-[2px] h-4 w-4 shrink-0 text-[var(--ls-t3)]" />
         <div className="min-w-0">
@@ -260,26 +243,24 @@ function PasoEmbalaje({ remesaId }: { remesaId: string }) {
           setResultado(null)
         }}
       />
-      <div className="flex flex-wrap items-center gap-2 pl-6">
-        <button type="button" onClick={() => entrada.current?.click()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
-          <Upload className="h-3 w-3" />
+      <div className="flex flex-wrap items-center gap-2 sm:pl-6">
+        <Boton variante="secundario" tamano="sm" icono={Upload} onClick={() => entrada.current?.click()}>
           {archivo ? 'Cambiar plantilla' : 'Elegir la plantilla de Amazon (.xlsx)'}
-        </button>
+        </Boton>
         {archivo && (
           <span className="max-w-[220px] truncate text-[11.5px] text-[var(--ls-t2)]" title={archivo.name}>
             {archivo.name}
           </span>
         )}
       </div>
-      <div className="pl-6">
-        <button type="button" onClick={generar} disabled={!archivo || trabajando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-          {trabajando ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3" />}
+      <div className="sm:pl-6">
+        <Boton variante="primario" tamano="sm" icono={FileSpreadsheet} cargando={trabajando} disabled={!archivo} onClick={() => void generar()}>
           {trabajando ? 'Rellenando…' : 'Rellenar y descargar'}
-        </button>
+        </Boton>
       </div>
 
       {resultado && (
-        <div className="flex items-start gap-2 pl-6 text-[11.5px] leading-[1.5] text-[var(--ls-t2)]">
+        <div className="flex items-start gap-2 sm:pl-6 text-[11.5px] leading-[1.5] text-[var(--ls-t2)]">
           {resultado.ok ? (
             <CheckCircle2 className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.verde }} />
           ) : (

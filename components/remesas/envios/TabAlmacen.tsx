@@ -1,26 +1,31 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
-import { BOTON, CAMPO, TABLA, TEXTO } from '@/lib/estilo/denso'
+import { Boxes, Download } from 'lucide-react'
+import { Boton, Segmentado, TablaAdaptable, type Columna } from '@/components/ui-ls'
 import type { FilaProducto } from '@/lib/fba/analisis'
+import type { LineaDePanel } from '@/lib/fba/datos'
 import { descargarCsv } from '../comun/graficos'
-import { cx, Tarjeta } from '../comun/ui'
+import { entero } from '../formato'
 import { ChipRotacion } from './ChipRotacion'
+import { ventasPorSku } from './reglas'
+import { Buscador, CeldaProducto } from './TablaReferencias'
 
 /**
  * ALMACÉN: LO QUE HAY AHORA DE ESTE ENVÍO, PRODUCTO A PRODUCTO.
  *
- * «Quedan» es lo recibido menos lo vendido de ESTE envío. «En Amazon» es el stock
- * real de ese SKU sumando todos sus envíos, y la diferencia es el descuadre: si
- * no coincide, el número bueno es el de Amazon.
+ * «Quedan» es lo recibido menos lo que ha salido de ESTE envío. «En Amazon» es el stock real de ese SKU sumando todos sus
+ * envíos, y la diferencia es el descuadre: si no coincide, el número bueno es el de Amazon. «Vendidas» son solo ventas;
+ * lo retirado o perdido va en su columna. Tabla en el ordenador y tarjetas en el móvil (TablaAdaptable).
  */
 
 type Filtro = 'con_stock' | 'agotadas' | 'descuadre' | 'todas'
 
-export function TabAlmacen({ filas, nombreArchivo }: { filas: FilaProducto[]; nombreArchivo: string }) {
+export function TabAlmacen({ filas, lineas = [], nombreArchivo }: { filas: FilaProducto[]; lineas?: LineaDePanel[]; nombreArchivo: string }) {
   const [filtro, setFiltro] = useState<Filtro>('con_stock')
   const [busca, setBusca] = useState('')
+  const ventas = useMemo(() => ventasPorSku(lineas), [lineas])
+  const conRetiradas = [...ventas.values()].some((v) => v.retiradasYMermas > 0)
 
   const cuenta = useMemo(
     () => ({
@@ -37,106 +42,111 @@ export function TabAlmacen({ filas, nombreArchivo }: { filas: FilaProducto[]; no
     return filas
       .filter((f) => (filtro === 'con_stock' ? f.quedan > 0 : filtro === 'agotadas' ? f.quedan === 0 : filtro === 'descuadre' ? f.descuadre !== null && f.descuadre !== 0 : true))
       .filter((f) => !t || f.sku.toLowerCase().includes(t) || (f.nombre ?? '').toLowerCase().includes(t))
-      .sort((a, b) => b.quedan - a.quedan || a.sku.localeCompare(b.sku))
   }, [filas, filtro, busca])
 
   const maxQuedan = Math.max(1, ...filas.map((f) => f.quedan))
+  const vendidas = (f: FilaProducto) => ventas.get(f.sku)?.ventas ?? f.vendidas
+
+  const columnas: Columna<FilaProducto>[] = [
+    { id: 'producto', cabecera: 'Producto', celda: (f) => <CeldaProducto f={f} />, ordenar: (f) => f.sku, movil: 'titulo', ancho: '34%' },
+    { id: 'rotacion', cabecera: 'Rotación', celda: (f) => <ChipRotacion clase={f.clase} />, movil: 'insignia' },
+    { id: 'recibidas', cabecera: 'Recibidas', celda: (f) => entero(f.recibidas ?? f.enviadas), ordenar: (f) => f.recibidas ?? f.enviadas, alinear: 'derecha' },
+    { id: 'vendidas', cabecera: 'Vendidas', celda: (f) => entero(vendidas(f)), ordenar: vendidas, alinear: 'derecha' },
+    ...(conRetiradas
+      ? [
+          {
+            id: 'retiradas',
+            cabecera: 'Retir. y mermas',
+            rotuloMovil: 'Retiradas y mermas',
+            celda: (f: FilaProducto) => {
+              const n = ventas.get(f.sku)?.retiradasYMermas ?? 0
+              return n > 0 ? <span className="text-[var(--ls-e-magenta)]">{entero(n)}</span> : <span className="text-[var(--ls-t4)]">—</span>
+            },
+            ordenar: (f: FilaProducto) => ventas.get(f.sku)?.retiradasYMermas ?? 0,
+            alinear: 'derecha' as const,
+          },
+        ]
+      : []),
+    {
+      id: 'quedan',
+      cabecera: 'Quedan',
+      celda: (f) => (
+        <span className="inline-flex items-center justify-end gap-2">
+          <span className="hidden h-[6px] w-[56px] overflow-hidden rounded-full bg-[var(--ls-sup3)] lg:inline-block" aria-hidden>
+            <span className="block h-full rounded-full" style={{ width: `${(f.quedan / maxQuedan) * 100}%`, background: 'var(--viz-2)' }} />
+          </span>
+          <b className="font-semibold text-[var(--ls-t1)]">{entero(f.quedan)}</b>
+        </span>
+      ),
+      ordenar: (f) => f.quedan,
+      alinear: 'derecha',
+    },
+    {
+      id: 'amazon',
+      cabecera: 'En Amazon',
+      celda: (f) => (f.stockReal === null ? '—' : entero(f.stockReal)),
+      ordenar: (f) => f.stockReal ?? -1,
+      alinear: 'derecha',
+    },
+    {
+      id: 'descuadre',
+      cabecera: 'Descuadre',
+      celda: (f) =>
+        f.descuadre === null ? (
+          <span className="text-[var(--ls-t4)]">—</span>
+        ) : (
+          <span className={f.descuadre ? 'font-semibold text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]'} title="Stock real de Amazon menos lo que explican los envíos. Positivo: hay más de lo que los envíos explican">
+            {f.descuadre > 0 ? `+${entero(f.descuadre)}` : entero(f.descuadre)}
+          </span>
+        ),
+      ordenar: (f) => Math.abs(f.descuadre ?? 0),
+      alinear: 'derecha',
+    },
+  ]
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-[6px]">
-        {(
-          [
-            ['con_stock', 'Con stock'],
-            ['agotadas', 'Agotadas'],
-            ['descuadre', 'Con descuadre'],
-            ['todas', 'Todas'],
-          ] as Array<[Filtro, string]>
-        ).map(([k, t]) => (
-          <button key={k} type="button" onClick={() => setFiltro(k)} className={cx(BOTON.chip, filtro === k && BOTON.chipEncendido)}>
-            {t}
-            <span className="tabular-nums text-[var(--ls-t4)]">{cuenta[k]}</span>
-          </button>
-        ))}
-        <label className="relative ml-auto block w-[210px]">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)]" />
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="SKU o nombre" className={cx(CAMPO.input, 'pl-[26px]')} />
-        </label>
-        <button
-          type="button"
-          className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Segmentado
+          etiqueta="Qué referencias"
+          tamano="sm"
+          valor={filtro}
+          onCambio={setFiltro}
+          opciones={[
+            { id: 'con_stock', texto: 'Con stock', cuenta: cuenta.con_stock },
+            { id: 'agotadas', texto: 'Agotadas', cuenta: cuenta.agotadas },
+            { id: 'descuadre', texto: 'Con descuadre', cuenta: cuenta.descuadre },
+            { id: 'todas', texto: 'Todas', cuenta: cuenta.todas },
+          ]}
+        />
+        <Buscador valor={busca} onCambio={setBusca} placeholder="SKU o nombre" className="sm:ml-auto" />
+        <Boton
+          tamano="sm"
+          icono={Download}
           disabled={visibles.length === 0}
           onClick={() =>
-            descargarCsv(`almacen-${nombreArchivo}.csv`, ['SKU', 'Producto', 'Variante', 'Recibidas', 'Vendidas', 'Quedan', 'En Amazon', 'Descuadre'], visibles.map((f) => [f.sku, f.nombre, f.variante, f.recibidas ?? f.enviadas, f.vendidas, f.quedan, f.stockReal, f.descuadre]))
+            descargarCsv(
+              `almacen-${nombreArchivo}.csv`,
+              ['SKU', 'Producto', 'Variante', 'Recibidas', 'Vendidas', 'Retiradas y mermas', 'Quedan', 'En Amazon', 'Descuadre'],
+              visibles.map((f) => [f.sku, f.nombre, f.variante, f.recibidas ?? f.enviadas, vendidas(f), ventas.get(f.sku)?.retiradasYMermas ?? 0, f.quedan, f.stockReal, f.descuadre])
+            )
           }
         >
           CSV
-        </button>
+        </Boton>
       </div>
 
-      <Tarjeta cuerpo={false}>
-        {/* En el móvil la tabla crece con la página (sin alto máximo: un scroll de casi una pantalla dentro de otro se quedaba con el dedo) y la columna fija del producto es estrecha, para que se vean las cifras al deslizar de lado. Desde lg, como siempre */}
-        <div className="overflow-auto lg:max-h-[calc(100vh-300px)] lg:min-h-[260px]">
-          <table className={TABLA.tabla}>
-            <thead>
-              <tr>
-                <th className={cx(TABLA.cabecera, TABLA.cabeceraFija, 'min-w-[150px] lg:min-w-[230px]')}>Producto</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Recibidas</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Vendidas</th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)}>Quedan</th>
-                <th className={cx(TABLA.cabecera, 'w-[80px]')} />
-                <th className={cx(TABLA.cabecera, TABLA.derecha)} title="Lo que Amazon dice que hay AHORA de este SKU, sumando todos sus envíos">
-                  En Amazon
-                </th>
-                <th className={cx(TABLA.cabecera, TABLA.derecha)} title="Stock real de Amazon menos lo que explican las remesas. Positivo: hay más de lo que las remesas explican">
-                  Descuadre
-                </th>
-                <th className={TABLA.cabecera}>Rotación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.map((f) => (
-                <tr key={f.sku} className={cx(TABLA.fila, f.quedan === 0 && 'opacity-60')}>
-                  <td className={cx(TABLA.celda, TABLA.celdaFija, 'max-w-[170px] lg:max-w-[270px]')}>
-                    <div className="flex items-baseline gap-2 overflow-hidden">
-                      <span className="shrink-0 font-mono text-[11.5px] text-[var(--ls-t3)]">{f.sku}</span>
-                      <span className="truncate text-[var(--ls-t1)]" title={f.nombre ?? ''}>
-                        {f.nombre ?? '—'}
-                      </span>
-                      {f.variante && <span className="shrink-0 text-[var(--ls-t4)]">{f.variante}</span>}
-                    </div>
-                  </td>
-                  <td className={cx(TABLA.celda, TABLA.numero)}>{f.recibidas ?? f.enviadas}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero)}>{f.vendidas}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero, 'font-semibold', TEXTO.t1)}>{f.quedan}</td>
-                  <td className={TABLA.celda}>
-                    <div className="h-[6px] w-[64px] overflow-hidden rounded-[3px] bg-[var(--ls-sup3)]">
-                      <div className="h-full rounded-[3px]" style={{ width: `${(f.quedan / maxQuedan) * 100}%`, background: 'var(--viz-2)' }} />
-                    </div>
-                  </td>
-                  <td className={cx(TABLA.celda, TABLA.numero)}>{f.stockReal ?? '—'}</td>
-                  <td className={cx(TABLA.celda, TABLA.numero, f.descuadre ? 'font-semibold text-[var(--ls-e-ambar)]' : 'text-[var(--ls-t4)]')}>
-                    {f.descuadre === null ? '—' : f.descuadre > 0 ? `+${f.descuadre}` : f.descuadre}
-                  </td>
-                  <td className={TABLA.celda}>
-                    <ChipRotacion clase={f.clase} />
-                  </td>
-                </tr>
-              ))}
-              {visibles.length === 0 && (
-                <tr>
-                  <td colSpan={8} className={cx(TABLA.celda, 'h-16 text-center text-[var(--ls-t4)]')}>
-                    Nada que enseñar con este filtro.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Tarjeta>
-      <p className="px-1 text-[11px] leading-[1.5] text-[var(--ls-t4)]">
-        El stock real de Amazon se refresca una vez al día. El reparto entre envíos del mismo producto es una convención contable: Amazon
-        mezcla los lotes físicamente.
+      <TablaAdaptable
+        etiqueta="Lo que queda de cada referencia"
+        columnas={columnas}
+        filas={visibles}
+        claveDe={(f) => f.sku}
+        ordenInicial={{ id: 'quedan', sentido: 'desc' }}
+        vacio={{ icono: Boxes, titulo: 'Nada que enseñar con este filtro', descripcion: 'Prueba con otro filtro o quita la búsqueda.' }}
+      />
+      <p className="px-1 text-[12px] leading-[1.5] text-[var(--ls-t4)]">
+        El stock real de Amazon se refresca una vez al día. El reparto entre envíos del mismo producto es una convención contable: Amazon mezcla los lotes
+        físicamente.
       </p>
     </div>
   )

@@ -9,6 +9,10 @@ import { useEffect, type RefObject } from 'react'
  * flecha abajo y flecha arriba cambian el elegido, y el elegido se mantiene a la
  * vista. Solo escucha cuando el foco está dentro de la lista y NO en un campo de
  * texto, para no pisar la búsqueda ni cualquier cuadro de escritura.
+ *
+ * API
+ *   useTecladoDeLista(contenedorRef, ids, elegido, onElegir)
+ *   El elemento elegido de la lista lleva `aria-current="true"`: así se mantiene a la vista.
  */
 export function useTecladoDeLista(contenedor: RefObject<HTMLElement>, ids: string[], elegido: string | null, onElegir: (id: string) => void) {
   useEffect(() => {

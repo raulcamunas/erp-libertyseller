@@ -4,7 +4,10 @@ import {
   ajustarATope,
   calcularBase,
   combinarConIa,
+  comprometidoQueCuenta,
   normalizarParametros,
+  notaDeComprometido,
+  parametrosDesdeAjustes,
   plazoDeEnvios,
   seleccionarCandidatas,
   type CandidataRepo,
@@ -12,6 +15,8 @@ import {
   type ParametrosReposicion,
   type RespuestaIa,
 } from '@/lib/fba/reposicion'
+import { AJUSTES_DE_PARTIDA } from '@/lib/fba/ajustes-reposicion'
+import type { PlazoEtapas } from '@/lib/fba/plan-tipos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -256,6 +261,70 @@ console.log('\n=== el tope de unidades ===')
   ok('si ni una caja más cabe, esa referencia queda fuera', justo.lineas.length === 1 && justo.fuera.length === 1 && justo.fuera[0].sku === 'Y2' && justo.fuera[0].motivo.includes('ni una caja'), JSON.stringify([justo.lineas.map((x) => [x.sku, x.unidades]), justo.fuera.map((x) => x.sku)]))
   ok('el total nunca pasa del tope', [t, medio, caja].every((r, i) => r.lineas.reduce((s, x) => s + x.unidades, 0) <= [100, 120, 118][i]))
   ok('la nota dice cuántas se han dejado fuera', !!t.nota && t.nota.includes('1 referencia'))
+}
+
+
+console.log('\n=== lo comprometido en remesas sin enviar (spec §3) ===')
+{
+  // Vende 2/día, tiene 20 y nada de camino. Con P (plazo 10, cobertura 60, margen 7): al llegar tendrá 0 y quiere 134 → 134
+  const s = sku({ sku: 'C1', ritmoPlan: 2, vendibles: 20, estado: 'urgente' })
+  const sin = calcularBase(s, P)
+  ok('sin comprometido pide 134', sin.unidades === 134 && sin.comprometido === 0, String(sin.unidades))
+  // Con 100 en una remesa encajando: disponible 120, al llegar 100, faltan 34
+  const con = calcularBase(s, P, 100)
+  ok('con 100 comprometidas pide 34 (no se pide dos veces)', con.unidades === 34 && con.comprometido === 100, String(con.unidades))
+  ok('la explicación dice lo comprometido', con.explicacion.includes('100 en propuestas sin enviar'))
+  ok('el tope también descuenta lo comprometido', con.tope < sin.tope && con.tope >= 1, `${sin.tope} → ${con.tope}`)
+  const todo = calcularBase(s, P, 200)
+  ok('si lo comprometido lo cubre todo, 0', todo.unidades === 0)
+  const agotada = calcularBase(sku({ sku: 'C2', ritmoPlan: 1, vendibles: 0, entrante: 0 }), P, 80)
+  ok('agotada con una remesa abierta ya no es «crítica»', agotada.urgencia !== 'critica', agotada.urgencia)
+  ok('un comprometido negativo o NaN no cuenta', calcularBase(s, P, -5).unidades === 134 && calcularBase(s, P, Number.NaN).unidades === 134)
+
+  const porSku = new Map([
+    ['A', [{ remesaId: 'r1', nombre: 'Encajando', estado: 'encajando', diasParada: 40, unidades: 30 }, { remesaId: 'r2', nombre: 'Borrador vivo', estado: 'borrador', diasParada: 3, unidades: 10 }]],
+    ['B', [{ remesaId: 'r3', nombre: 'Borrador parado', estado: 'borrador', diasParada: 30, unidades: 50 }]],
+    ['C', [{ remesaId: 'r1', nombre: 'Encajando', estado: 'encajando', diasParada: 40, unidades: 5 }]],
+  ])
+  const q = comprometidoQueCuenta(porSku)
+  ok('suma por referencia lo que cuenta (encajando aunque esté parada, y borrador vivo)', q.porSku.get('A') === 40 && q.porSku.get('C') === 5, JSON.stringify([...q.porSku]))
+  ok('un borrador parado 21 días o más no cuenta', !q.porSku.has('B') && q.parado.unidades === 50 && q.parado.remesas === 1)
+  ok('totales: 45 ud en 2 remesas', q.unidades === 45 && q.remesas === 2, `${q.unidades} en ${q.remesas}`)
+  const sinR1 = comprometidoQueCuenta(porSku, 'r1')
+  ok('se puede dejar fuera una remesa (la que se rehace)', sinR1.porSku.get('A') === 10 && !sinR1.porSku.has('C'))
+
+  // seleccionarCandidatas: AGOTA (agotada, vende 1/día) deja de ser candidata si una remesa abierta ya la cubre
+  const cubierta = seleccionarCandidatas(inv, P, new Map([['AGOTA', 500]]))
+  ok('una agotada cubierta por una remesa abierta ya no es candidata', !cubierta.candidatas.some((c) => c.sku.sku === 'AGOTA'), cubierta.candidatas.map((c) => c.sku.sku).join())
+  ok('y se cuenta como cubierta por lo comprometido', cubierta.cubiertasPorComprometido === 1, String(cubierta.cubiertasPorComprometido))
+  // Con 30 comprometidas (más de lo que vende durante el plazo) sigue siendo candidata, pero pide menos
+  const parcial = seleccionarCandidatas(inv, P, new Map([['AGOTA', 30]]))
+  const ag = parcial.candidatas.find((c) => c.sku.sku === 'AGOTA')
+  const antes = sel.candidatas.find((c) => c.sku.sku === 'AGOTA')!.base.unidades
+  ok('con poco comprometido sigue, pidiendo menos', !!ag && ag.base.comprometido === 30 && ag.base.unidades > 0 && ag.base.unidades < antes, `${antes} → ${ag?.base.unidades}`)
+
+  const nota = notaDeComprometido(new Map([['AGOTA', 10], ['OTRA', 5]]), ['AGOTA', 'VENDE'])
+  ok('la nota para la IA lista solo las candidatas con comprometido', !!nota && nota.includes('AGOTA 10 ud') && !nota.includes('OTRA'), String(nota))
+  ok('sin comprometido, sin nota', notaDeComprometido(new Map(), ['AGOTA']) === null)
+}
+
+console.log('\n=== los parámetros de partida salen del cliente (spec §3) ===')
+{
+  const plazo: PlazoEtapas = {
+    preparacion: 7, transporte: 6, recepcion: 4, margen: 7,
+    origen: { preparacion: 'partida', transporte: 'medido', recepcion: 'medido', margen: 'partida' },
+    hastaLaVenta: 17, sinConfirmar: true, transporteUrgente: null,
+  }
+  const p = parametrosDesdeAjustes(AJUSTES_DE_PARTIDA, plazo)
+  ok('plazo = L del planificador (7+6+4 = 17) y margen 7', p.plazoDias === 17 && p.margenDias === 7, `${p.plazoDias} / ${p.margenDias}`)
+  ok('cobertura 45, caja 1 y mínimo 3 de partida', p.coberturaObjetivo === 45 && p.multiplo === 1 && p.minimoLinea === 3, JSON.stringify(p))
+  const c = parametrosDesdeAjustes({ ...AJUSTES_DE_PARTIDA, coberturaObjetivo: 60, multiploCaja: 12, minLinea: 6 }, { ...plazo, transporte: 70, hastaLaVenta: 81 })
+  ok('con los ajustes del cliente: cobertura 60, caja 12, mínimo 6', c.coberturaObjetivo === 60 && c.multiplo === 12 && c.minimoLinea === 6)
+  ok('un plazo de EE. UU. (81) cabe en los límites', c.plazoDias === 81)
+  const n = normalizarParametros({ coberturaObjetivo: 30 }, c)
+  ok('normalizar rellena lo que falta con los del cliente, no con los de siempre', n.coberturaObjetivo === 30 && n.plazoDias === 81 && n.multiplo === 12 && n.minimoLinea === 6, JSON.stringify(n))
+  ok('sin defecto siguen los de siempre', normalizarParametros({}).plazoDias === PARAMETROS_POR_DEFECTO.plazoDias)
+  ok('un tope 0 sigue siendo «sin tope»', normalizarParametros({ topeUnidades: 0 }, { ...c, topeUnidades: 500 }).topeUnidades === null)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

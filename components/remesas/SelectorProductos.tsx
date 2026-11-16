@@ -1,33 +1,32 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Loader2, Package, RefreshCw, Search, X } from 'lucide-react'
+import { Check, Loader2, Package, RefreshCw, Search, TriangleAlert, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { Boton } from '@/components/ui-ls'
+import { COLOR_ESTADO } from '@/lib/estilo/denso'
+import { cx } from './comun/ui'
 
 /**
  * ELEGIR LOS PRODUCTOS DE FBA DEL CLIENTE.
  *
- * Sustituye a pegar una tabla. Pegar sirve para migrar una hoja de cálculo de
- * golpe —y por eso se deja—, pero para montar un envío del día a día obliga a
- * salir a otro sitio a copiar códigos, que es justo lo que este módulo viene a
- * quitar.
+ * Sustituye a pegar una tabla. Pegar sirve para migrar una hoja de cálculo de golpe —y por eso se deja—, pero
+ * para montar un envío del día a día obliga a salir a otro sitio a copiar códigos, que es justo lo que este
+ * módulo viene a quitar.
  *
- * Solo salen los de FBA: un producto que gestiona el vendedor no se manda a un
- * almacén de Amazon, y ofrecerlo aquí solo sirve para que alguien lo elija por
- * error y el envío nazca mal.
+ * Solo salen los de FBA: un producto que gestiona el vendedor no se manda a un almacén de Amazon, y ofrecerlo
+ * aquí solo sirve para que alguien lo elija por error y el envío nazca mal.
  *
  *
- * ============ EL BOTÓN DE REFRESCAR ============
+ * ============ EL BOTÓN DE REFRESCAR (solo administradores, D27) ============
  *
- * Existe para un caso concreto: acabas de crear el producto a mano en Seller
- * Central y todavía no ha entrado por el ciclo de quince minutos. Relee el
- * catálogo contra Amazon en ese momento.
+ * Existe para un caso concreto: acabas de crear el producto a mano en Seller Central y todavía no ha entrado por
+ * el ciclo de quince minutos. Relee el catálogo contra Amazon en ese momento (gasta cupo de Amazon: por eso es
+ * de administrador).
  *
- * Y dice cuántas ha leído de cuántas hay. La API de Amazon no pagina más allá
- * de mil referencias por pasada: con un catálogo de cuarenta mil, una pasada ve
- * el 2 %. Si el producto buscado no cae ahí, el botón parecería no hacer nada —
- * y eso es peor que no tener botón.
+ * Y dice cuántas ha leído de cuántas hay. La API de Amazon no pagina más allá de mil referencias por pasada: con
+ * un catálogo de cuarenta mil, una pasada ve el 2 %. Si el producto buscado no cae ahí, el botón parecería no
+ * hacer nada —y eso es peor que no tener botón.
  */
 
 export interface ProductoFba {
@@ -42,14 +41,18 @@ export interface ProductoFba {
 export interface Elegido extends ProductoFba {
   unidades: number
   /**
-   * Los descriptivos de la hoja de ShoesF: talla, REF y EAN. El catálogo de Amazon no
-   * los trae; sí la base de datos de referencias y una remesa ya guardada. Viajan de
-   * vuelta al guardar para que corregir una cantidad no los borre.
+   * Los descriptivos de la hoja de ShoesF: talla, REF y EAN. El catálogo de Amazon no los trae; sí la base de
+   * datos de referencias y una remesa ya guardada. Viajan de vuelta al guardar para que corregir una cantidad no
+   * los borre.
    */
   variante?: string | null
   referencia?: string | null
   ean?: string | null
 }
+
+const CAMPO =
+  'h-9 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] text-[13px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] ' +
+  'hover:border-[var(--ls-linea2)] focus:border-[var(--ls-acc-graf)] focus:shadow-[inset_0_0_0_1px_var(--ls-acc-graf)] [@media(pointer:coarse)]:h-11'
 
 export function SelectorProductos({
   clienteId,
@@ -58,6 +61,7 @@ export function SelectorProductos({
   onCambio,
 }: {
   clienteId: string
+  /** Solo para «Refrescar» el catálogo contra Amazon */
   esAdmin: boolean
   elegidos: Elegido[]
   onCambio: (e: Elegido[]) => void
@@ -76,19 +80,11 @@ export function SelectorProductos({
       const mia = ++peticion.current
       setCargando(true)
       try {
-        const res = await fetch(
-          `/api/fba/productos?cliente=${clienteId}${q ? `&q=${encodeURIComponent(q)}` : ''}`
-        )
-        // Si mientras tanto se ha lanzado otra búsqueda, esta respuesta ya no
-        // vale: sin esto, una búsqueda lenta pisa a otra más reciente.
+        const res = await fetch(`/api/fba/productos?cliente=${clienteId}${q ? `&q=${encodeURIComponent(q)}` : ''}`)
+        // Si mientras tanto se ha lanzado otra búsqueda, esta respuesta ya no vale: sin esto, una búsqueda lenta
+        // pisa a otra más reciente.
         if (mia !== peticion.current) return
-        const p = (await res.json()) as {
-          productos?: ProductoFba[]
-          total?: number
-          hayMas?: boolean
-          conectado?: boolean
-          error?: string
-        }
+        const p = (await res.json()) as { productos?: ProductoFba[]; total?: number; hayMas?: boolean; conectado?: boolean; error?: string }
         if (!res.ok) {
           toast.error(p.error ?? 'No se han podido leer los productos')
           return
@@ -97,6 +93,8 @@ export function SelectorProductos({
         setTotal(p.total ?? 0)
         setHayMas(p.hayMas ?? false)
         setConectado(p.conectado !== false)
+      } catch {
+        if (mia === peticion.current) toast.error('No se han podido leer los productos: revisa la conexión.')
       } finally {
         if (mia === peticion.current) setCargando(false)
       }
@@ -104,8 +102,7 @@ export function SelectorProductos({
     [clienteId]
   )
 
-  // Se espera a que deje de teclear: una consulta por letra sobre 42.000
-  // referencias es trabajo que nadie llega a leer.
+  // Se espera a que deje de teclear: una consulta por letra sobre 42.000 referencias es trabajo que nadie llega a leer.
   useEffect(() => {
     const t = setTimeout(() => buscar(busqueda), busqueda ? 280 : 0)
     return () => clearTimeout(t)
@@ -115,27 +112,22 @@ export function SelectorProductos({
     setRefrescando(true)
     try {
       const res = await fetch(`/api/fba/productos?cliente=${clienteId}`, { method: 'POST' })
-      const p = (await res.json()) as {
-        referencias?: number
-        declaradas?: number
-        truncado?: boolean
-        error?: string
-      }
+      const p = (await res.json()) as { referencias?: number; declaradas?: number; truncado?: boolean; error?: string }
       if (!res.ok) {
         toast.error(p.error ?? 'No se ha podido refrescar')
         return
       }
       if (p.truncado) {
         toast.warning(`Leídas ${p.referencias} de ${p.declaradas} referencias`, {
-          description:
-            'Amazon no deja leer más de mil por pasada. Si el producto que buscas no aparece, ' +
-            'escribe su SKU en el buscador: se busca sobre todo el catálogo guardado.',
+          description: 'Amazon no deja leer más de mil por pasada. Si el producto que buscas no aparece, escribe su SKU en el buscador: se busca sobre todo el catálogo guardado.',
           duration: 9000,
         })
       } else {
         toast.success(`Catálogo releído: ${p.referencias} referencias`)
       }
       await buscar(busqueda)
+    } catch {
+      toast.error('No se ha podido refrescar: revisa la conexión.')
     } finally {
       setRefrescando(false)
     }
@@ -154,9 +146,9 @@ export function SelectorProductos({
 
   if (!conectado) {
     return (
-      <div className="rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3 text-[11px] text-amber-200/90">
-        Este cliente no tiene la API de Amazon conectada, así que no hay catálogo del que elegir.
-        Pega las referencias a mano abajo.
+      <div className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-[10px] text-[12.5px] leading-[1.5] text-[var(--ls-t2)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
+        <TriangleAlert className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} aria-hidden />
+        Este cliente no tiene la API de Amazon conectada, así que no hay catálogo del que elegir. Pega las referencias con «Pegar una tabla».
       </div>
     )
   }
@@ -164,102 +156,62 @@ export function SelectorProductos({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
-          <input
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por SKU, nombre o ASIN"
-            className="w-full rounded-lg border border-white/10 bg-white/[0.03] py-1.5 pl-8 pr-2 text-[12px] text-white placeholder:text-white/25 focus:border-[#FF6600]/40 focus:outline-none"
-          />
-          {cargando && (
-            <Loader2 className="absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-white/30" />
-          )}
-        </div>
+        <label className="relative min-w-0 flex-1">
+          <span className="sr-only">Buscar productos</span>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-[14px] w-[14px] -translate-y-1/2 text-[var(--ls-t4)]" aria-hidden />
+          <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar por SKU, nombre o ASIN" className={cx(CAMPO, 'w-full pl-9 pr-8')} />
+          {cargando && <Loader2 className="absolute right-3 top-1/2 h-[14px] w-[14px] -translate-y-1/2 animate-spin text-[var(--ls-t4)]" aria-label="Buscando" />}
+        </label>
         {esAdmin && (
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.96 }}
-            onClick={refrescar}
-            disabled={refrescando}
-            title="Releer el catálogo contra Amazon. Para cuando acabas de crear un producto a mano"
-            className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] text-white/60 hover:border-white/25 hover:text-white disabled:opacity-40"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refrescando ? 'animate-spin' : ''}`} />
-            {refrescando ? 'Leyendo…' : 'Refrescar'}
-          </motion.button>
+          <Boton variante="secundario" tamano="sm" icono={RefreshCw} cargando={refrescando} onClick={() => void refrescar()} title="Releer el catálogo contra Amazon. Para cuando acabas de crear un producto a mano">
+            <span className="max-sm:hidden">{refrescando ? 'Leyendo…' : 'Refrescar'}</span>
+          </Boton>
         )}
       </div>
 
       {/* Lo elegido, arriba y siempre visible */}
-      <AnimatePresence initial={false}>
-        {elegidos.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="rounded-lg border border-[#FF6600]/25 bg-[#FF6600]/[0.05] p-2">
-              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-[#FF6600]/80">
-                {elegidos.length} referencia{elegidos.length === 1 ? '' : 's'} ·{' '}
-                {elegidos.reduce((s, e) => s + e.unidades, 0)} unidades
-              </p>
-              <div className="max-h-44 space-y-0.5 overflow-y-auto">
-                {elegidos.map((e) => (
-                  <motion.div
-                    key={e.sku}
-                    layout
-                    initial={{ opacity: 0, x: -6 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-white/[0.03]"
-                  >
-                    <span className="font-mono text-[11px] text-white/70">{e.sku}</span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-white/40">
-                      {e.titulo ?? ''}
-                    </span>
+      {elegidos.length > 0 && (
+        <div className="rounded-[10px] border p-2" style={{ borderColor: 'color-mix(in srgb, var(--ls-mod-remesas) 35%, var(--ls-linea))', background: 'color-mix(in srgb, var(--ls-mod-remesas) 6%, var(--ls-sup))' }}>
+          <p className="mb-[6px] px-1 text-[12px] font-semibold text-[var(--ls-t2)]">
+            {elegidos.length} referencia{elegidos.length === 1 ? '' : 's'} · <span className="tabular-nums">{elegidos.reduce((s, e) => s + e.unidades, 0)}</span> unidades
+          </p>
+          <ul className="max-h-48 space-y-[2px] overflow-y-auto">
+            {elegidos.map((e) => (
+              <li key={e.sku} className="flex items-center gap-2 rounded-[8px] px-1 py-1">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-[12px] text-[var(--ls-t1)]">{e.sku}</span>
+                  <span className="block truncate text-[11.5px] text-[var(--ls-t3)]">
+                    {e.titulo ?? ''}
                     {!e.fnsku && (
-                      <span
-                        className="text-[9px] text-amber-400"
-                        title="Sin FNSKU no se puede imprimir su etiqueta. La pasada de esta noche lo rellena"
-                      >
-                        sin FNSKU
+                      <span className="ml-1 font-medium" style={{ color: COLOR_ESTADO.ambar }} title="Sin FNSKU no se puede imprimir su etiqueta. La pasada de esta noche lo rellena">
+                        · sin FNSKU
                       </span>
                     )}
-                    <input
-                      type="number"
-                      min="1"
-                      value={e.unidades}
-                      onChange={(ev) => cambiarUnidades(e.sku, Math.floor(Number(ev.target.value) || 1))}
-                      className="w-[58px] rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-right text-[11px] tabular-nums text-white focus:border-[#FF6600]/40 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onCambio(elegidos.filter((x) => x.sku !== e.sku))}
-                      className="rounded p-0.5 text-white/30 hover:text-red-400"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                  </span>
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  value={e.unidades}
+                  aria-label={`Unidades de ${e.sku}`}
+                  onChange={(ev) => cambiarUnidades(e.sku, Math.floor(Number(ev.target.value) || 1))}
+                  className={cx(CAMPO, 'w-[68px] shrink-0 px-2 text-right tabular-nums')}
+                />
+                <Boton variante="fantasma" tamano="sm" soloIcono icono={X} aria-label={`Quitar ${e.sku}`} onClick={() => onCambio(elegidos.filter((x) => x.sku !== e.sku))} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* El catálogo */}
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-white/10">
+      <div className="max-h-72 overflow-y-auto rounded-[10px] border border-[var(--ls-linea)]" role="listbox" aria-multiselectable="true" aria-label="Productos de FBA">
         {productos.length === 0 && !cargando && (
-          <div className="flex flex-col items-center gap-1.5 p-6 text-center">
-            <Package className="h-6 w-6 text-white/15" />
-            <p className="text-[11px] text-white/35">
-              {busqueda ? 'Nada que coincida' : 'Este cliente no tiene productos de FBA guardados'}
-            </p>
-            {!busqueda && esAdmin && (
-              <p className="text-[10px] text-white/25">Prueba a refrescar el catálogo</p>
-            )}
+          <div className="flex flex-col items-center gap-[6px] p-6 text-center">
+            <Package className="h-6 w-6 text-[var(--ls-t4)]" aria-hidden />
+            <p className="text-[12.5px] text-[var(--ls-t3)]">{busqueda ? 'Nada que coincida' : 'Este cliente no tiene productos de FBA guardados'}</p>
+            {!busqueda && esAdmin && <p className="text-[12px] text-[var(--ls-t4)]">Prueba a refrescar el catálogo</p>}
           </div>
         )}
         {productos.map((p) => {
@@ -268,24 +220,27 @@ export function SelectorProductos({
             <button
               key={p.sku}
               type="button"
+              role="option"
+              aria-selected={elegido}
               onClick={() => alternar(p)}
-              className={`flex w-full items-center gap-2 border-b border-white/[0.04] px-2 py-1.5 text-left last:border-0 transition-colors ${
-                elegido ? 'bg-[#FF6600]/[0.07]' : 'hover:bg-white/[0.03]'
-              }`}
+              className={cx(
+                'flex min-h-[44px] w-full items-center gap-3 border-b border-[var(--ls-linea)] px-3 py-2 text-left transition-colors last:border-0 motion-reduce:transition-none',
+                elegido ? 'bg-[color-mix(in_srgb,var(--ls-mod-remesas)_9%,var(--ls-sup))]' : 'hover:bg-[var(--ls-sup2)]'
+              )}
             >
-              <div
-                className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                  elegido ? 'border-[#FF6600] bg-[#FF6600]' : 'border-white/20'
-                }`}
+              <span
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border"
+                style={elegido ? { borderColor: 'var(--ls-mod-remesas)', background: 'var(--ls-mod-remesas)', color: 'var(--ls-fondo)' } : { borderColor: 'var(--ls-linea2)' }}
+                aria-hidden
               >
-                {elegido && <Check className="h-2.5 w-2.5 text-white" />}
-              </div>
-              <span className="font-mono text-[11px] text-white/60">{p.sku}</span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-white/45">
-                {p.titulo ?? '—'}
+                {elegido && <Check className="h-3 w-3" strokeWidth={3} />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-[12px] text-[var(--ls-t2)]">{p.sku}</span>
+                <span className="block truncate text-[12px] text-[var(--ls-t3)]">{p.titulo ?? '—'}</span>
               </span>
               {p.stock !== null && (
-                <span className="shrink-0 text-[10px] text-white/30" title="Lo que hay hoy en Amazon">
+                <span className="shrink-0 text-[11.5px] tabular-nums text-[var(--ls-t4)]" title="Lo que hay hoy en Amazon">
                   {p.stock} en FBA
                 </span>
               )}
@@ -294,7 +249,7 @@ export function SelectorProductos({
         })}
       </div>
 
-      <p className="text-[10px] text-white/25">
+      <p className="text-[11.5px] text-[var(--ls-t4)]">
         {total} producto{total === 1 ? '' : 's'} de FBA
         {hayMas && ' · escribe para afinar, solo se ven los primeros'}
       </p>

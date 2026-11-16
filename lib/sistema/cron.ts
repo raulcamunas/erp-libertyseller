@@ -179,6 +179,22 @@ export const TAREAS_CRON = [
   },
   {
     /**
+     * CADA 15 MINUTOS MIRA; SOLO CALCULA SI HAY ALGO NUEVO.
+     *
+     * El planificador de reposición FBA (spec remesas-pro D31): recalcula el plan de los clientes cuyo libro, remesas, envíos propuestos
+     * o ajustes cambiaron desde su última pasada (o que no tienen pasada de hoy), reconcilia los envíos propuestos y avisa. Con el tiempo
+     * que sobra, la IA revisa como mucho 3 planes. Lee de la base del ERP; no llama a Amazon. lib/fba/plan-datos.ts
+     */
+    id: 'fba-planificador',
+    nombre: 'Planificador de reposición FBA',
+    ruta: '/api/fba/cron-planificador',
+    cadaMinutos: 15,
+    que:
+      'Calcula qué hay que enviar a Amazon, cuánto y antes de qué fecha para cada cliente con cambios desde la última vez, guarda los envíos ' +
+      'propuestos y avisa al equipo de los urgentes. Después la IA revisa como mucho 3 planes. Solo lee de la base del ERP (no llama a Amazon).',
+  },
+  {
+    /**
      * CADA 2 MINUTOS RECOGE; CADA 3 HORAS EMPIEZA UNA LECTURA NUEVA POR CUENTA.
      *
      * Trae de Amazon Ads el informe diario de campañas de cada cuenta de anunciante en uso y asignada y lo guarda (ads_rendimiento_diario), para que Marketing Test se abra al instante en vez de esperar
@@ -544,6 +560,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
+  'fba-planificador': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   // El agente PPC escribe en Amazon y vigila el gasto del día: no puede pasar más de media hora sin correr aunque la base vaya justa
   'ads-agente': { prioridad: 'normal', ayunoMaxMin: 30 },

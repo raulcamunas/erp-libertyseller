@@ -1,44 +1,28 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { createServiceClient } from '@/lib/supabase/service'
-import { getUserProfile } from '@/lib/supabase/get-user-profile'
-import { actorDeRol, type SesionFba } from '@/lib/fba/acceso'
-import { leerPanelDeAlertas } from '@/lib/fba/alertas-lectura'
-import { diaEnEspana } from '@/lib/fba/fechas'
-import { PanelAlertas } from '@/components/remesas/alertas/PanelAlertas'
+import { sesionDeRemesas } from '@/lib/fba/clientes-de-sesion'
+import RemesasPage from '../page'
 
 /**
- * ALERTAS FBA · EL TABLERO DE TODOS LOS CLIENTES.
+ * ALERTAS FBA · LA RUTA DE SIEMPRE (spec remesas-pro §1.2 y §8).
  *
- * Lo que va mal en la logística de FBA —productos que se quedan sin stock antes de que llegue una reposición, envíos parados o recibidos de
- * menos, descuadres con Amazon, stock parado y antiguo—, de todos los clientes a la vez y lo más grave primero. Lo calcula una pasada diaria
- * (app/api/fba/cron-alertas); aquí solo se lee, así que se abre al instante.
+ * Las alertas son ahora una vista de Remesas a FBA (`/dashboard/remesas?vista=alertas`). Esta dirección sigue existiendo para no romper los
+ * marcadores, la campana ni los correos: pinta la MISMA carcasa con la vista `alertas`, sin redirección (la carcasa sabe por la ruta que está
+ * aquí). El acceso es el de `clientesDeSesion` (D27): un empleado con la casilla `remesas` ve todas; uno sin ella, las de sus `fba_accesos`.
  *
- * Es de la AGENCIA: un cliente de fuera, aunque entre en Remesas, vuelve a Remesas. Y cada persona de la agencia ve solo los clientes que
- * tiene en fba_accesos; un administrador, todos los que tienen Amazon conectado.
+ * Es de la AGENCIA: un cliente de fuera, aunque entre en Remesas, vuelve a Remesas (como hasta ahora).
  */
 export const dynamic = 'force-dynamic'
 
-export default async function AlertasFbaPage() {
+export default async function AlertasFbaPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const profile = await getUserProfile()
-  if (!profile) redirect('/auth/login')
-  if (profile.role === 'cliente') redirect('/dashboard/remesas')
+  const sesion = await sesionDeRemesas(user.id)
+  if (sesion.actor === 'cliente') redirect('/dashboard/remesas')
 
-  const esAdmin = profile.role === 'admin'
-  let permitidos: string[] | null = null
-  if (!esAdmin) {
-    const { data } = await createServiceClient().from('fba_accesos').select('client_id').eq('user_id', user.id)
-    permitidos = ((data ?? []) as Array<{ client_id: string }>).map((a) => a.client_id)
-    if (permitidos.length === 0) redirect('/dashboard/remesas')
-  }
-  const sesion: SesionFba = { userId: user.id, role: profile.role, esAdmin, actor: actorDeRol(profile.role), clientesPermitidos: permitidos, clientesEditables: permitidos }
-
-  const panel = await leerPanelDeAlertas(sesion, diaEnEspana())
-  return <PanelAlertas panel={panel} esAdmin={esAdmin} />
+  return RemesasPage({ searchParams: { ...searchParams, vista: 'alertas' } })
 }

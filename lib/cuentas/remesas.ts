@@ -7,8 +7,8 @@
  *   · fba_alertas          las alertas abiertas de la pasada diaria (rotura de stock, envíos atascados, descuadres…), migración 267;
  *   · amazon_listings      el stock en Amazon según la última lectura del catálogo (con el desglose de la 271 si está lanzada).
  *
- * QUIÉN LO VE: Remesas tiene su propio permiso (lib/fba/acceso.ts): un administrador ve todos los clientes y cualquier otra persona solo los
- * que tiene en fba_accesos. Aquí se respeta igual: quien lleva la cuenta pero no tiene Remesas de ese cliente ve «sin acceso», no las cifras.
+ * QUIÉN LO VE: Remesas tiene su propio permiso (lib/fba/clientes-de-sesion.ts): un administrador y un empleado con la casilla `remesas` ven
+ * todos los clientes y cualquier otra persona solo los que tiene en fba_accesos. Aquí se respeta igual: quien lleva la cuenta pero no tiene Remesas de ese cliente ve «sin acceso», no las cifras.
  *
  * En la LISTA va lo ligero (dos consultas para TODOS los clientes, sin N+1); en el detalle de UN cliente, además, envíos, alertas y stock.
  * Cada parte falla por su lado y sin la migración 267 la pestaña lo dice en vez de romperse.
@@ -16,6 +16,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
 import { leerTodo } from '@/lib/fba/paginar'
+import { sesionDeRemesas } from '@/lib/fba/clientes-de-sesion'
 
 import { FASES_ABIERTAS, type AlertaFbaResumida, type FaseAbierta, type RemesaAbierta, type ResumenRemesas, type SeveridadFba, type StockFba } from './remesas-tipos'
 
@@ -42,12 +43,19 @@ async function todo<T>(construir: (desde: number, hasta: number) => PromiseLike<
 
 export const SIN_ACCESO: ResumenRemesas = { acceso: false, porFase: vacio(), abiertas: 0, ultimoEnvio: null, totalRemesas: 0, alertas: sinAlertas(), faltaAlertas: false, error: null }
 
-/** Qué clientes de Remesas puede ver esta persona: null = todos (administrador) */
-export async function clientesDeRemesasPermitidos(userId: string, rol: string): Promise<Set<string> | null> {
-  if (rol === 'admin') return null
-  const { data, error } = await createServiceClient().from('fba_accesos').select('client_id').eq('user_id', userId)
-  if (error) return new Set()
-  return new Set(((data ?? []) as Array<{ client_id: string }>).map((a) => a.client_id))
+/**
+ * Qué clientes de Remesas puede ver esta persona: null = todos. La misma regla que Remesas (lib/fba/clientes-de-sesion.ts → reglaDeAcceso):
+ * un admin y un empleado con la casilla `remesas` ven todos; cualquier otro, sus fba_accesos. `_rol` se conserva por compatibilidad de la
+ * firma: el rol se lee de la base (y con él el puesto y la casilla), no se confía en el que llega.
+ * Si la lectura falla, ningún cliente (lo prudente): la pestaña sale «sin acceso», no con las cifras de otro.
+ */
+export async function clientesDeRemesasPermitidos(userId: string, _rol?: string): Promise<Set<string> | null> {
+  try {
+    const sesion = await sesionDeRemesas(userId)
+    return sesion.clientesPermitidos === null ? null : new Set(sesion.clientesPermitidos)
+  } catch {
+    return new Set()
+  }
 }
 
 /** LIGERO, para la lista: fases y alertas de todos los clientes de golpe (dos consultas en total) */

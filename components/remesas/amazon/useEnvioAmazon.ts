@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { EstadoDelEnvio } from '@/lib/fba/envio-amazon-motor'
+import { invalidarRemesas } from '../comun/useAgencia'
 
 /**
  * EL ESTADO DEL ENVÍO A AMAZON, EN VIVO.
@@ -79,6 +80,8 @@ export function useEnvioAmazon(remesaId: string) {
           return false
         }
         if (j && 'paso' in j) setEstado(j)
+        // Un paso dado en Amazon puede mover la remesa: las pantallas de agencia vuelven a pedir sus datos
+        invalidarRemesas()
         return true
       } catch {
         toast.error('Sin conexión con el ERP')

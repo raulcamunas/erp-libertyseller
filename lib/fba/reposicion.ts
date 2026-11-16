@@ -1,4 +1,5 @@
 import { diasEntreInv, type EnvioInventario, type InventarioCliente, type SkuInventario } from './inventario'
+import type { AjustesReposicion, PlazoEtapas } from './plan-tipos'
 
 /**
  * QUÉ MANDAR A AMAZON: EL CÁLCULO BASE Y CÓMO SE JUNTA CON LA OPINIÓN DE LA IA.
@@ -31,9 +32,13 @@ import { diasEntreInv, type EnvioInventario, type InventarioCliente, type SkuInv
  *   cobertura  cuántos días de venta debe aguantar el envío una vez llegado.
  *   margen     un colchón extra de días de venta, porque el ritmo no es una ley.
  *
- *   Lo que habrá cuando llegue el envío:   max(0, stock + de camino − ritmo × plazo)
+ *   Lo que habrá cuando llegue el envío:   max(0, stock + de camino + comprometido − ritmo × plazo)
  *   Lo que se quiere tener entonces:        ritmo × (cobertura + margen)
  *   Lo que hay que mandar:                  lo segundo menos lo primero, redondeado a la caja.
+ *
+ * COMPROMETIDO (spec remesas-pro §3, cambio de comportamiento anotado): lo que ya está en remesas sin enviar
+ * (borrador, aprobada, encajando o lista) se resta igual que lo que va de camino, para no pedir dos veces lo
+ * mismo. Un borrador parado 21 días o más no cuenta (nadie lo está preparando: D3), como en el planificador.
  *
  * Si el producto se va a agotar ANTES de que llegue el envío, esas ventas perdidas no se
  * «recuperan» mandando más: se manda para cubrir los días que vienen, que es lo que
@@ -44,7 +49,10 @@ import { diasEntreInv, type EnvioInventario, type InventarioCliente, type SkuInv
 export interface ParametrosReposicion {
   /** Días de venta que debe cubrir el envío una vez llegado */
   coberturaObjetivo: number
-  /** Días que tarda un envío en estar a la venta desde que sale */
+  /**
+   * Días que tarda un envío en estar a la venta. Con los ajustes del cliente (parametrosDesdeAjustes) es el plazo entero del
+   * planificador, L = preparación + transporte + recepción: la remesa que sale de esta propuesta todavía hay que prepararla.
+   */
   plazoDias: number
   /** Colchón extra, en días de venta */
   margenDias: number
@@ -71,7 +79,8 @@ export const PARAMETROS_POR_DEFECTO: ParametrosReposicion = {
 /** Los límites de lo que se acepta de una pantalla o de una petición */
 export const LIMITES_PARAMETROS = {
   coberturaObjetivo: { min: 7, max: 180 },
-  plazoDias: { min: 1, max: 60 },
+  // 120 y no 60: Portico (EE. UU.) tarda ~70 días en transporte (D9)
+  plazoDias: { min: 1, max: 120 },
   margenDias: { min: 0, max: 60 },
   multiplo: { min: 1, max: 1000 },
   minimoLinea: { min: 1, max: 100 },
@@ -83,14 +92,18 @@ const acotar = (v: unknown, min: number, max: number, defecto: number): number =
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : defecto
 }
 
-/** Lo que llega de fuera, limpio y dentro de los límites. Nunca revienta */
-export function normalizarParametros(crudo: unknown): ParametrosReposicion {
+/**
+ * Lo que llega de fuera, limpio y dentro de los límites. Nunca revienta.
+ * `defecto`: los valores para lo que no venga (los del cliente, `parametrosDesdeAjustes`); sin él, los de siempre.
+ */
+export function normalizarParametros(crudo: unknown, defecto: ParametrosReposicion = PARAMETROS_POR_DEFECTO): ParametrosReposicion {
   const p = (typeof crudo === 'object' && crudo !== null ? crudo : {}) as Record<string, unknown>
   const L = LIMITES_PARAMETROS
-  const D = PARAMETROS_POR_DEFECTO
+  const D = defecto
   // Un tope de cero o negativo no significa «no mandes nada»: significa que no hay tope
   const crudoTope = typeof p.topeUnidades === 'number' ? p.topeUnidades : typeof p.topeUnidades === 'string' ? Number(p.topeUnidades.replace(',', '.')) : Number.NaN
-  const tope = Number.isFinite(crudoTope) && crudoTope >= 1 ? Math.min(1_000_000, Math.round(crudoTope)) : null
+  const sinTope = p.topeUnidades === undefined
+  const tope = Number.isFinite(crudoTope) && crudoTope >= 1 ? Math.min(1_000_000, Math.round(crudoTope)) : sinTope ? D.topeUnidades : null
   return {
     coberturaObjetivo: acotar(p.coberturaObjetivo, L.coberturaObjetivo.min, L.coberturaObjetivo.max, D.coberturaObjetivo),
     plazoDias: acotar(p.plazoDias, L.plazoDias.min, L.plazoDias.max, D.plazoDias),
@@ -99,8 +112,98 @@ export function normalizarParametros(crudo: unknown): ParametrosReposicion {
     minimoLinea: acotar(p.minimoLinea, L.minimoLinea.min, L.minimoLinea.max, D.minimoLinea),
     topeUnidades: tope,
     // Es texto de una persona que acaba dentro de un mensaje a la IA: sin caracteres de control y acotado
-    notas: typeof p.notas === 'string' ? p.notas.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, L.notas) : '',
+    notas: typeof p.notas === 'string' ? p.notas.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, L.notas) : D.notas,
   }
+}
+
+/**
+ * LOS PARÁMETROS DE PARTIDA DE UN CLIENTE (spec remesas-pro §3, cambio de comportamiento anotado).
+ * Antes la propuesta a medida empezaba con los valores sueltos de siempre (60 días de cobertura, plazo 10, margen 7, sin caja).
+ * Ahora salen de lo mismo que usa el planificador:
+ *   plazoDias  = L de `plazoDelCliente` (preparación + transporte + recepción; manual > medido > de partida)
+ *   margenDias = el margen de ese plazo
+ *   cobertura  = `coberturaObjetivo` de los ajustes del cliente (45 de partida)
+ *   multiplo   = la caja del cliente (1 si no tiene)
+ *   minimo     = el mínimo por referencia de los ajustes (3 de partida)
+ * Todo acotado a los límites de la pantalla.
+ */
+export function parametrosDesdeAjustes(ajustes: AjustesReposicion, plazo: PlazoEtapas): ParametrosReposicion {
+  const L = LIMITES_PARAMETROS
+  return {
+    coberturaObjetivo: acotar(ajustes.coberturaObjetivo, L.coberturaObjetivo.min, L.coberturaObjetivo.max, PARAMETROS_POR_DEFECTO.coberturaObjetivo),
+    plazoDias: acotar(plazo.hastaLaVenta, L.plazoDias.min, L.plazoDias.max, PARAMETROS_POR_DEFECTO.plazoDias),
+    margenDias: acotar(plazo.margen, L.margenDias.min, L.margenDias.max, PARAMETROS_POR_DEFECTO.margenDias),
+    multiplo: acotar(ajustes.multiploCaja ?? 1, L.multiplo.min, L.multiplo.max, 1),
+    minimoLinea: acotar(ajustes.minLinea, L.minimoLinea.min, L.minimoLinea.max, PARAMETROS_POR_DEFECTO.minimoLinea),
+    topeUnidades: null,
+    notas: '',
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Lo comprometido en remesas que aún no han salido                    */
+/* ------------------------------------------------------------------ */
+
+/** Lo que lee `leerComprometido` (comprometido-datos.ts), por referencia */
+export interface ComprometidoRemesa {
+  remesaId: string
+  nombre: string | null
+  estado: string
+  diasParada: number | null
+  unidades: number
+}
+
+/** Un borrador parado este tiempo o más no cuenta (el mismo umbral que llegadas.ts, D3) */
+export const BORRADOR_PARADO_DIAS = 21
+
+export interface ComprometidoQueCuenta {
+  /** Unidades que se restan, por referencia */
+  porSku: Map<string, number>
+  /** Totales para la nota de la propuesta */
+  unidades: number
+  remesas: number
+  /** Lo que NO se resta por estar en borradores parados */
+  parado: { unidades: number; remesas: number }
+}
+
+/**
+ * De lo comprometido, lo que se resta: todo lo de `aprobada | encajando | lista` y los borradores que se mueven.
+ * `excluirRemesa`: una remesa que no debe contarse (la que se está rehaciendo).
+ */
+export function comprometidoQueCuenta(porSku: ReadonlyMap<string, readonly ComprometidoRemesa[]>, excluirRemesa: string | null = null): ComprometidoQueCuenta {
+  const cuenta = new Map<string, number>()
+  const remesas = new Set<string>()
+  const paradas = new Set<string>()
+  let unidades = 0
+  let paradoUd = 0
+  for (const [sku, lista] of porSku) {
+    for (const c of lista) {
+      if (c.remesaId === excluirRemesa) continue
+      const u = Number(c.unidades)
+      if (!Number.isFinite(u) || u <= 0) continue
+      if (c.estado === 'borrador' && c.diasParada !== null && c.diasParada >= BORRADOR_PARADO_DIAS) {
+        paradas.add(c.remesaId)
+        paradoUd += u
+        continue
+      }
+      cuenta.set(sku, (cuenta.get(sku) ?? 0) + u)
+      remesas.add(c.remesaId)
+      unidades += u
+    }
+  }
+  return { porSku: cuenta, unidades, remesas: remesas.size, parado: { unidades: paradoUd, remesas: paradas.size } }
+}
+
+/**
+ * Una línea para la IA: qué referencias de las que analiza ya tienen unidades en remesas sin enviar (ya restadas del cálculo
+ * base). Sin ella la IA ve «de camino: 0» y vuelve a pedir lo que ya está en un borrador. Como mucho 15 referencias; null si no hay.
+ */
+export function notaDeComprometido(porSku: ReadonlyMap<string, number>, candidatas: readonly string[]): string | null {
+  const con = candidatas.filter((sku) => (porSku.get(sku) ?? 0) > 0)
+  if (con.length === 0) return null
+  const lista = con.slice(0, 15).map((sku) => `${sku} ${porSku.get(sku)} ud`).join(', ')
+  const mas = con.length > 15 ? ` y ${con.length - 15} referencias más` : ''
+  return `Ya hay unidades en remesas sin enviar, YA RESTADAS en calculoBase (no las pidas otra vez): ${lista}${mas}.`
 }
 
 /* ------------------------------------------------------------------ */
@@ -154,6 +257,8 @@ export interface BaseSku {
   unidades: number
   /** Lo máximo que se acepta para esta referencia, venga de donde venga la cantidad */
   tope: number
+  /** Unidades en remesas sin enviar que se han restado */
+  comprometido: number
   /** Cuánto se espera tener cuando llegue el envío */
   enLlegada: number
   /** Cuánto se quiere tener entonces */
@@ -166,32 +271,35 @@ export interface BaseSku {
 /** Más de lo que sale de la cuenta, hasta aquí: un tope para que nada se dispare */
 const MARGEN_DE_TOPE = 1.6
 
-export function calcularBase(s: SkuInventario, p: ParametrosReposicion): BaseSku {
+export function calcularBase(s: SkuInventario, p: ParametrosReposicion, comprometidoSku = 0): BaseSku {
   const ritmo = s.ritmoPlan
-  const disponible = s.vendibles + s.entrante
+  const comprometido = Number.isFinite(comprometidoSku) && comprometidoSku > 0 ? Math.round(comprometidoSku) : 0
+  const disponible = s.vendibles + s.entrante + comprometido
   const enLlegada = Math.max(0, disponible - ritmo * p.plazoDias)
   const meta = ritmo * (p.coberturaObjetivo + p.margenDias)
   const bruto = ritmo > 0 ? Math.max(0, Math.ceil(meta - enLlegada)) : 0
   const aLaCaja = bruto > 0 ? Math.ceil(bruto / p.multiplo) * p.multiplo : 0
-  const tope = ritmo > 0 ? Math.max(p.multiplo, Math.ceil((ritmo * (p.plazoDias + p.coberturaObjetivo + p.margenDias) * MARGEN_DE_TOPE) / p.multiplo) * p.multiplo) : 0
+  // El máximo razonable cuenta lo que ya está comprometido: si ya hay una remesa con 100, la IA no puede pedir otras tantas
+  const tope = ritmo > 0 ? Math.max(p.multiplo, Math.ceil(Math.max(0, ritmo * (p.plazoDias + p.coberturaObjetivo + p.margenDias) * MARGEN_DE_TOPE - comprometido) / p.multiplo) * p.multiplo) : 0
 
   let urgencia: Urgencia = 'baja'
   if (ritmo > 0) {
-    if (s.vendibles <= 0 && s.entrante === 0) urgencia = 'critica'
+    if (s.vendibles <= 0 && s.entrante === 0 && comprometido === 0) urgencia = 'critica'
     else if (s.cobertura !== null && s.cobertura <= p.plazoDias) urgencia = 'alta'
     else if (s.cobertura !== null && s.cobertura <= p.plazoDias + p.coberturaObjetivo) urgencia = 'normal'
   }
 
   // Los ritmos de una talla suelta son de 0,05 al día: con un decimal saldrían «0 ud/día»
   const f = (n: number) => (Math.round(n * (n < 1 ? 100 : 10)) / (n < 1 ? 100 : 10)).toLocaleString('es-ES')
+  const yaPedido = comprometido > 0 ? ` Ya hay ${f(comprometido)} en propuestas sin enviar y se cuentan.` : ''
   const explicacion =
     ritmo <= 0
       ? 'Sin ventas en el último mes: no hay ritmo con el que calcular.'
       : bruto === 0
-        ? `Vende ${f(ritmo)} ud/día y con lo que tiene (${f(disponible)}) llega de sobra: a la llegada tendrá ${f(enLlegada)} y quiere ${f(meta)}.`
-        : `Vende ${f(ritmo)} ud/día. Cuando llegue el envío (${p.plazoDias} d) tendrá ${f(enLlegada)} y quiere tener ${f(meta)} (${p.coberturaObjetivo} d + ${p.margenDias} d de margen): faltan ${aLaCaja}.`
+        ? `Vende ${f(ritmo)} ud/día y con lo que tiene (${f(disponible)}) llega de sobra: a la llegada tendrá ${f(enLlegada)} y quiere ${f(meta)}.${yaPedido}`
+        : `Vende ${f(ritmo)} ud/día. Cuando llegue el envío (${p.plazoDias} d) tendrá ${f(enLlegada)} y quiere tener ${f(meta)} (${p.coberturaObjetivo} d + ${p.margenDias} d de margen): faltan ${aLaCaja}.${yaPedido}`
 
-  return { sku: s.sku, unidades: aLaCaja, tope, enLlegada: Math.round(enLlegada * 10) / 10, meta: Math.round(meta * 10) / 10, urgencia, explicacion }
+  return { sku: s.sku, unidades: aLaCaja, tope, comprometido, enLlegada: Math.round(enLlegada * 10) / 10, meta: Math.round(meta * 10) / 10, urgencia, explicacion }
 }
 
 /* ------------------------------------------------------------------ */
@@ -217,15 +325,25 @@ export interface SeleccionIa {
   quedanFuera: number
   /** Referencias con stock que NO se proponen y por qué: lo que hay que contarle a la IA */
   sinNecesidad: number
+  /** Referencias que pedirían envío pero ya lo cubre lo comprometido en remesas sin enviar */
+  cubiertasPorComprometido: number
 }
 
-export function seleccionarCandidatas(inv: InventarioCliente, p: ParametrosReposicion): SeleccionIa {
+/**
+ * `comprometido`: unidades por referencia en remesas sin enviar que cuentan (`comprometidoQueCuenta`). Una referencia agotada o
+ * urgente cuya necesidad ya cubre una remesa abierta deja de ser candidata: pedirla otra vez sería mandarla dos veces.
+ */
+export function seleccionarCandidatas(inv: InventarioCliente, p: ParametrosReposicion, comprometido: ReadonlyMap<string, number> = new Map()): SeleccionIa {
   const todas: CandidataRepo[] = []
   let sinNecesidad = 0
+  let cubiertasPorComprometido = 0
   for (const sku of inv.skus) {
-    const base = calcularBase(sku, p)
-    const pide = base.unidades > 0 || (sku.ritmoPlan > 0 && ESTADOS_QUE_PIDEN_ENVIO.has(sku.estado))
+    const yaPedido = comprometido.get(sku.sku) ?? 0
+    const base = calcularBase(sku, p, yaPedido)
+    const pideSinComprometido = base.unidades > 0 || (sku.ritmoPlan > 0 && ESTADOS_QUE_PIDEN_ENVIO.has(sku.estado))
+    const pide = base.unidades > 0 || (sku.ritmoPlan > 0 && ESTADOS_QUE_PIDEN_ENVIO.has(sku.estado) && yaPedido === 0)
     if (pide) todas.push({ sku, base })
+    else if (pideSinComprometido && yaPedido > 0) cubiertasPorComprometido += 1
     else if (sku.enAmazon > 0) sinNecesidad += 1
   }
   todas.sort((a, b) => {
@@ -236,7 +354,7 @@ export function seleccionarCandidatas(inv: InventarioCliente, p: ParametrosRepos
     const vb = b.sku.ritmoPlan * (b.sku.precio ?? 1)
     return vb - va || a.sku.sku.localeCompare(b.sku.sku)
   })
-  return { candidatas: todas.slice(0, MAX_CANDIDATAS_IA), quedanFuera: Math.max(0, todas.length - MAX_CANDIDATAS_IA), sinNecesidad }
+  return { candidatas: todas.slice(0, MAX_CANDIDATAS_IA), quedanFuera: Math.max(0, todas.length - MAX_CANDIDATAS_IA), sinNecesidad, cubiertasPorComprometido }
 }
 
 /* ------------------------------------------------------------------ */
@@ -279,6 +397,8 @@ export interface LineaGenerada {
   enAmazon: number
   vendibles: number
   entrante: number
+  /** Unidades de esta referencia en remesas sin enviar, ya restadas en la cuenta */
+  comprometido: number
   ritmo: number
   cobertura: number | null
   tendencia: SkuInventario['tendencia']
@@ -332,6 +452,7 @@ function lineaDe(c: CandidataRepo, unidades: number, origen: LineaGenerada['orig
     enAmazon: c.sku.enAmazon,
     vendibles: c.sku.vendibles,
     entrante: c.sku.entrante,
+    comprometido: c.base.comprometido,
     ritmo: c.sku.ritmoPlan,
     cobertura: c.sku.cobertura,
     tendencia: c.sku.tendencia,

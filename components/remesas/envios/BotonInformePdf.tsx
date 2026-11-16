@@ -1,12 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText, Loader2 } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { toast } from 'sonner'
-import { BOTON } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
 import { bajarRespuesta } from '../comun/descargar'
 import { sinRespuestaDe } from '../comun/errores'
-import { cx } from '../comun/ui'
 
 /**
  * «INFORME PDF»: CÓMO ESTÁ ESTE PEDIDO A DÍA DE HOY, PARA MANDÁRSELO AL CLIENTE.
@@ -19,7 +18,7 @@ import { cx } from '../comun/ui'
  * la ruta recalcula el reparto del cliente entero: una remesa no se puede contar sin las demás del
  * mismo producto.
  */
-export function BotonInformePdf({ remesaId, sinLineas }: { remesaId: string; sinLineas: boolean }) {
+export function BotonInformePdf({ remesaId, sinLineas, tamano = 'sm' }: { remesaId: string; sinLineas: boolean; tamano?: 'sm' | 'md' }) {
   const [bajando, setBajando] = useState(false)
 
   async function bajar() {
@@ -42,19 +41,19 @@ export function BotonInformePdf({ remesaId, sinLineas }: { remesaId: string; sin
   }
 
   return (
-    <button
-      type="button"
+    <Boton
+      tamano={tamano}
+      icono={FileText}
+      cargando={bajando}
       onClick={() => void bajar()}
-      disabled={bajando || sinLineas}
-      className={cx(BOTON.base, BOTON.secundario)}
+      disabled={sinLineas}
       title={
         sinLineas
           ? 'Este pedido no tiene ninguna referencia: no hay nada que contar'
           : 'Descargar en PDF cómo está este pedido hoy —lo enviado, lo recibido, lo vendido y a qué ritmo— con la marca de Liberty Seller, para enviárselo al cliente'
       }
     >
-      {bajando ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
       {bajando ? 'Generando…' : 'Informe PDF'}
-    </button>
+    </Boton>
   )
 }

@@ -79,6 +79,7 @@ RUN { \
       echo "* * * * * /app/scripts/ubicacion-leads.sh"; \
       echo "* * * * * /app/scripts/ciclo-leads.sh"; \
       echo "* * * * * /app/scripts/fba-alertas.sh"; \
+      echo "* * * * * /app/scripts/fba-planificador.sh"; \
       echo "* * * * * /app/scripts/ads-rendimiento.sh"; \
       echo "* * * * * /app/scripts/ads-agente.sh"; \
       echo "* * * * * /app/scripts/seo-lecturas.sh"; \

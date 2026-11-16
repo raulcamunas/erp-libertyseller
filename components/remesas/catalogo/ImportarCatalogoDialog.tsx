@@ -162,10 +162,12 @@ export function ImportarCatalogoDialog({
               disabled={ocupado}
               className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'mr-auto')}
             >
-              Elegir otro archivo
+              <span className="sm:hidden">Otro archivo</span>
+              <span className="hidden sm:inline">Elegir otro archivo</span>
             </button>
           )}
-          <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
+          {/* En el móvil no cabe: el diálogo se cierra con su X */}
+          <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'hidden sm:inline-flex')}>
             Cancelar
           </button>
           <button type="button" onClick={importar} disabled={!resumen || !!resumen.error || resumen.sinMigrar || aplicables === 0 || ocupado} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
@@ -333,19 +335,19 @@ function Lista({
   if (cuenta === 0 || avisos.length === 0) return null
   return (
     <section className="rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]" style={{ borderLeft: `2px solid ${COLOR_ESTADO[tono]}` }}>
-      <button type="button" onClick={() => setVer((v) => !v)} aria-expanded={ver} className="flex w-full items-center justify-between gap-3 px-[10px] py-[7px] text-left">
+      <button type="button" onClick={() => setVer((v) => !v)} aria-expanded={ver} className="flex min-h-[36px] w-full items-center justify-between gap-3 px-[10px] py-[7px] text-left [@media(pointer:coarse)]:min-h-[44px]">
         <span className="text-[12.5px] font-medium text-[var(--ls-t1)]">
           {titulo} <span className="ml-1 tabular-nums text-[var(--ls-t3)]">{cuenta}</span>
         </span>
-        <ChevronDown className={cx('h-3.5 w-3.5 text-[var(--ls-t4)] transition-transform', ver && 'rotate-180')} />
+        <ChevronDown className={cx('h-3.5 w-3.5 text-[var(--ls-t4)] transition-transform motion-reduce:transition-none', ver && 'rotate-180')} />
       </button>
       {ver && (
         <div className="border-t border-[var(--ls-linea)]">
           {ayuda && <p className="px-[10px] pt-[6px] text-[11.5px] leading-[1.5] text-[var(--ls-t3)]">{ayuda}</p>}
-          <ul className="max-h-[200px] space-y-[1px] overflow-y-auto px-[10px] py-[6px]">
+          <ul className="max-h-[200px] space-y-[1px] overflow-y-auto px-[10px] py-[6px] [overscroll-behavior:contain]">
             {avisos.map((a, i) => (
               <li key={`${a.fila}-${i}`} className="flex gap-2 text-[11.5px] leading-[1.5] text-[var(--ls-t2)]">
-                <span className="w-[64px] shrink-0 whitespace-nowrap text-right font-mono tabular-nums text-[var(--ls-t4)]">fila {a.fila}</span>
+                <span className="w-[52px] shrink-0 whitespace-nowrap text-right font-mono tabular-nums text-[var(--ls-t4)] sm:w-[64px]">fila {a.fila}</span>
                 <span className="min-w-0">{a.texto}</span>
               </li>
             ))}

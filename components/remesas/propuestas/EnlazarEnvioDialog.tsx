@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { AlertTriangle, Check, Loader2, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialogo } from '@/components/plataforma/comun'
-import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
+import { CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import { cx } from '../comun/ui'
+import { EnPortal } from './NuevaPropuestaDialog'
 
 /**
  * MARCAR COMO ENVIADA: ENLAZAR LA PROPUESTA CON SU ENVÍO REAL.
@@ -24,6 +26,9 @@ import { cx } from '../comun/ui'
  * no se puede consultar (el cliente no tiene la API conectada, o contesta mal) sí
  * se puede seguir, pero a propósito y sabiéndolo: la remesa quedará enlazada pero
  * su estado no se seguirá solo.
+ *
+ * Si la remesa nació de un envío propuesto del plan, la ruta de estado lo pasa a «Enviado» a la vez (spec §8).
+ * El diálogo va en un portal, como los demás del módulo.
  */
 
 const FBA = /^FBA[0-9A-Z]{6,20}$/
@@ -81,41 +86,42 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hasta: 'enviada', desde: remesa.estado }),
       })
-      const p = (await res.json().catch(() => null)) as { error?: string; motivos?: string[] } | null
+      const p = (await res.json().catch(() => null)) as { error?: string; motivos?: string[]; envioPropuesto?: unknown } | null
       if (!res.ok) {
         setError(p?.motivos?.join('\n') ?? p?.error ?? 'No se ha podido marcar como enviada')
         return
       }
-      toast.success('Enviada y enlazada con Amazon: ya está en Envíos')
+      toast.success(p?.envioPropuesto ? 'Enviada y enlazada con Amazon: ya está en Envíos, y su envío propuesto del plan pasa a «Enviado»' : 'Enviada y enlazada con Amazon: ya está en Envíos')
       onHecho()
+    } catch {
+      setError('Se ha cortado la conexión con el servidor. Revisa la red y vuelve a probar: lo que ya se hizo no se repite.')
     } finally {
       setFase('quieta')
     }
   }
 
   return (
+    <EnPortal>
     <Dialogo
       titulo="Marcar como enviada"
       entradilla="La propuesta deja de serlo y pasa a la pestaña Envíos, enlazada con su envío de Amazon."
       onCerrar={ocupado ? () => undefined : onCerrar}
       ancho="max-w-[480px]"
       pie={
-        <>
-          <button type="button" onClick={onCerrar} disabled={ocupado} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          <Boton variante="secundario" tamano="sm" onClick={onCerrar} disabled={ocupado}>
             Cancelar
-          </button>
+          </Boton>
           {noSePudoComprobar ? (
-            <button type="button" onClick={() => void ejecutar(true)} disabled={ocupado} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-              {ocupado ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            <Boton variante="primario" tamano="sm" icono={Send} cargando={ocupado} onClick={() => void ejecutar(true)}>
               Marcar sin comprobar
-            </button>
+            </Boton>
           ) : (
-            <button type="button" onClick={() => void ejecutar(false)} disabled={!valido || ocupado} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-              {ocupado ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            <Boton variante="primario" tamano="sm" icono={Send} cargando={ocupado} disabled={!valido} onClick={() => void ejecutar(false)}>
               Marcar como enviada
-            </button>
+            </Boton>
           )}
-        </>
+        </div>
       }
     >
       <div>
@@ -134,7 +140,9 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
           spellCheck={false}
           autoFocus
           disabled={ocupado}
-          className={cx(CAMPO.input, 'h-[30px] font-mono text-[13px]')}
+          autoCapitalize="characters"
+          autoComplete="off"
+          className={cx(CAMPO.input, 'h-10 font-mono text-[14px] [@media(pointer:coarse)]:h-11')}
         />
         <p className={CAMPO.nota}>
           Lo da Seller Central al crear el envío y empieza por <span className="font-mono">FBA</span>. No es el de la remesa ni el del transportista.
@@ -142,7 +150,7 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
         </p>
       </div>
 
-      <ol className="space-y-[6px] rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-[10px] py-[8px]">
+      <ol className="space-y-[6px] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-[10px] py-[8px]">
         {(
           [
             ['guardando', 'Guardar el número en la remesa'],
@@ -166,7 +174,7 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
 
       {error && (
         <div
-          className="flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t1)]"
+          className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12.5px] leading-[1.5] text-[var(--ls-t1)]"
           style={{ borderLeft: `3px solid ${COLOR_ESTADO.rojo}` }}
           role="alert"
         >
@@ -176,7 +184,7 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
       )}
       {noSePudoComprobar && (
         <div
-          className="flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t1)]"
+          className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12.5px] leading-[1.5] text-[var(--ls-t1)]"
           style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}
           role="alert"
         >
@@ -187,5 +195,6 @@ export function EnlazarEnvioDialog({ remesa, onCerrar, onHecho }: { remesa: Reme
         </div>
       )}
     </Dialogo>
+    </EnPortal>
   )
 }

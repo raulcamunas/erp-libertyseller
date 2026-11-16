@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
+import { invalidarCaches, seguirARemesa } from '@/lib/fba/envios-propuestos-servidor'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -9,6 +10,10 @@ import { createServiceClient } from '@/lib/supabase/service'
  * Corregir la fecha es lo que más se va a usar y por eso el reparto no guarda
  * contadores: se cambia la fecha aquí y TODO el histórico se recalcula solo la
  * próxima vez que alguien abra el panel. Con contadores habría que reprocesar.
+ *
+ * BORRAR una remesa que nació de un envío propuesto (spec remesas-pro D19) devuelve ese envío a «hablado»
+ * con la nota `remesa_borrada` en su historial: lo hablado con el cliente sigue valiendo y el plan no lo
+ * cuenta ya como comprometido. Sin la migración 316 no hay envío propuesto que devolver y se borra como siempre.
  */
 export const dynamic = 'force-dynamic'
 
@@ -83,6 +88,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (error) throw error
     if (!data) return fail(404, 'Esa remesa ya no existe')
 
+    // La fecha de envío cambia el resumen y las ventas por lote: fuera las cachés en memoria (D32)
+    invalidarCaches(clienteDeLaRemesa)
     return NextResponse.json({ ok: true })
   } catch (error) {
     return errorResponse(error, 'No se ha podido cambiar la remesa')
@@ -96,13 +103,34 @@ export async function DELETE(_request: NextRequest, { params }: { params: { id: 
     if (!UUID.test(params.id)) return fail(400, 'Esa remesa no existe')
 
     const service = createServiceClient()
+
+    // El envío propuesto enlazado se busca ANTES de borrar: la 316 pone `remesa_id = NULL` al borrar la remesa
+    // (ON DELETE SET NULL) y después ya no habría por dónde encontrarlo. Sin la 316 la consulta falla y se sigue.
+    const envioEnlazado = await envioPropuestoDeRemesa(service, params.id)
+
     // Las líneas caen con ella (CASCADE). Los movimientos NO se tocan: son de
     // Amazon, no de la remesa, y el día que se cree otra vuelven a contar.
     const { error } = await service.from('fba_remesas').delete().eq('id', params.id)
     if (error) throw error
 
-    return NextResponse.json({ ok: true })
+    // D19: el envío propuesto vuelve a «hablado» con la nota remesa_borrada. Nunca tumba el borrado
+    const envioPropuesto = envioEnlazado ? await seguirARemesa(service, params.id, 'borrada', session.userId, envioEnlazado) : null
+    // Sin la remesa cambian el resumen y las ventas por lote: fuera las cachés en memoria (D32)
+    invalidarCaches()
+
+    return NextResponse.json({ ok: true, envioPropuesto })
   } catch (error) {
     return errorResponse(error, 'No se ha podido borrar la remesa')
   }
+}
+
+/** El envío propuesto que nació con esta remesa (por cualquiera de los dos enlaces). null sin la 316 o si no hay */
+async function envioPropuestoDeRemesa(service: ReturnType<typeof createServiceClient>, remesaId: string): Promise<string | null> {
+  const [porEnvio, porRemesa] = await Promise.all([
+    service.from('fba_envios_propuestos').select('id').eq('remesa_id', remesaId).limit(1),
+    service.from('fba_remesas').select('envio_propuesto_id').eq('id', remesaId).maybeSingle(),
+  ])
+  const a = porEnvio.error ? null : ((porEnvio.data ?? []) as Array<{ id: string }>)[0]?.id ?? null
+  const b = porRemesa.error ? null : (porRemesa.data as { envio_propuesto_id?: string | null } | null)?.envio_propuesto_id ?? null
+  return a ?? b
 }

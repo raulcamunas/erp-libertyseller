@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { puedeEditar, requireFbaAccess } from '@/lib/fba/acceso'
 import { cajasDeRemesa } from '@/lib/fba/cajas'
+import { eventoDeCambioDeRemesa, invalidarCaches, seguirARemesa } from '@/lib/fba/envios-propuestos-servidor'
 import { puedeAvanzar, type EstadoRemesa } from '@/lib/fba/flujo'
 import { registrarEnHistorial } from '@/lib/fba/historial'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -23,6 +24,11 @@ import { createServiceClient } from '@/lib/supabase/service'
  *
  * Ya NO hay ningún paso con ruta aparte: el envío se crea en Seller Central a
  * mano, así que todos los pasos son una actualización de estado y pasan por aquí.
+ *
+ * EL ENVÍO PROPUESTO SIGUE A SU REMESA (spec remesas-pro D19). Si la remesa nació de un envío propuesto del
+ * planificador: al pasar a «enviada» ese envío queda en «enviado», y al volver de «enviada» a «lista» («se
+ * marcó por error») vuelve a «en preparación». La regla es `efectoDeRemesa` (trabajo-plan.ts). Sin la
+ * migración 316 no hay envío propuesto y se ignora; un fallo ahí nunca deshace el paso de la remesa.
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -213,7 +219,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       detalle: resumenAprobacion ?? (typeof cambios.version === 'number' ? { version: cambios.version } : {}),
     })
 
-    return NextResponse.json({ ok: true, estado: hasta })
+    // El envío propuesto enlazado sigue a la remesa (D19). seguirARemesa no lanza nunca
+    const evento = eventoDeCambioDeRemesa(remesa.estado, hasta)
+    const envioPropuesto = evento ? await seguirARemesa(service, params.id, evento, sesion.userId) : null
+    // Lo que sale, vuelve o se cierra cambia el resumen y las ventas por lote: fuera las cachés en memoria (D32)
+    invalidarCaches(remesa.client_id)
+
+    return NextResponse.json({ ok: true, estado: hasta, envioPropuesto })
   } catch (error) {
     return errorResponse(error, 'No se ha podido mover la remesa')
   }

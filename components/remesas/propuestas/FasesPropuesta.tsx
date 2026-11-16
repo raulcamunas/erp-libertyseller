@@ -57,14 +57,14 @@ export function FasesPropuesta({ estado }: { estado: EstadoRemesa }) {
 
   return (
     // En el móvil las cinco fases no caben (los rótulos se pisaban): la fila mantiene su ancho y se desliza de lado dentro de la tarjeta
-    <div ref={caja} className="overflow-x-auto rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 pb-[10px] pt-[12px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <ol className="grid min-w-[600px] grid-cols-5 sm:min-w-0" aria-label="Fases de la propuesta">
+    <div ref={caja} className="overflow-x-auto [contain:inline-size] rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 pb-3 pt-[14px] shadow-[var(--ls-sombra-1)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ol className="grid min-w-[560px] grid-cols-5 sm:min-w-0" aria-label="Fases de la propuesta">
         {FASES_PROPUESTA.map((f, i) => {
           const info = INFO_FASE[f]
           const hecha = i < actual
           const enCurso = i === actual
           return (
-            <li key={f} data-en-curso={enCurso} className="relative min-w-0" title={info.pista}>
+            <li key={f} data-en-curso={enCurso} aria-current={enCurso ? 'step' : undefined} className="relative min-w-0" title={info.pista}>
               <span
                 className="absolute left-[calc(50%+16px)] right-[calc(-50%+16px)] top-[13px] h-[2px] rounded-full"
                 style={{ background: hecha ? 'var(--ls-e-verde)' : 'var(--ls-linea2)', opacity: hecha ? 0.75 : 1 }}
@@ -73,9 +73,9 @@ export function FasesPropuesta({ estado }: { estado: EstadoRemesa }) {
                 <span
                   className={cx('relative z-10 flex h-[28px] w-[28px] items-center justify-center rounded-full border-2 bg-[var(--ls-sup)]')}
                   style={{
-                    borderColor: hecha ? 'var(--ls-e-verde)' : enCurso ? 'var(--ls-acc-graf)' : 'var(--ls-linea2)',
-                    background: hecha ? 'var(--ls-e-verde)' : enCurso ? 'var(--ls-acc-suave)' : undefined,
-                    color: hecha ? '#0F1114' : enCurso ? 'var(--ls-acc)' : 'var(--ls-t4)',
+                    borderColor: hecha ? 'var(--ls-e-verde)' : enCurso ? 'var(--ls-mod-remesas)' : 'var(--ls-linea2)',
+                    background: hecha ? 'var(--ls-e-verde)' : enCurso ? 'color-mix(in srgb, var(--ls-mod-remesas) 16%, var(--ls-sup))' : undefined,
+                    color: hecha ? 'var(--ls-fondo)' : enCurso ? 'var(--ls-mod-remesas)' : 'var(--ls-t4)',
                   }}
                 >
                   {hecha ? <Check className="h-[14px] w-[14px]" strokeWidth={3} /> : info.icono}

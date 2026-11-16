@@ -58,6 +58,22 @@ export type EdadAmazon = Record<IdTramoAmazon, number>
 
 export const edadVacia = (): EdadAmazon => ({ a0: 0, a61: 0, a91: 0, a181: 0, a331: 0, a366: 0, a456: 0 })
 
+/**
+ * Fracción (0..1) de las unidades de una fila de antigüedad de Amazon con más de 180 días (181-330, 331-365, 366-455 y más):
+ * las que pagan recargo. Acepta la columna `edad` tal cual sale de la base; null si no hay unidades.
+ */
+export function fraccionMasDe180(edad: unknown): number | null {
+  if (typeof edad !== 'object' || edad === null) return null
+  const o = edad as Record<string, unknown>
+  const v = (id: IdTramoAmazon) => {
+    const n = Number(o[id])
+    return Number.isFinite(n) && n > 0 ? n : 0
+  }
+  const total = TRAMOS_AMAZON.reduce((t, x) => t + v(x.id), 0)
+  if (!(total > 0)) return null
+  return Math.round(((v('a181') + v('a331') + v('a366') + v('a456')) / total) * 1000) / 1000
+}
+
 /** Los tramos de más de 90 días: lo que Seller Central llama «antiguo» y empieza a costar */
 export const TRAMOS_MAS_DE_90: IdTramoAmazon[] = ['a91', 'a181', 'a331', 'a366', 'a456']
 

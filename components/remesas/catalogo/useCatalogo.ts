@@ -1,8 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { filasACsv } from '@/lib/fba/catalogo/exportar'
 import { construirIndice, type IndiceCatalogo } from '@/lib/fba/catalogo/indice'
 import type { DatosFila, FilaCatalogo } from '@/lib/fba/catalogo/tipos'
+import type { LineaPlan, PlanParaCliente } from '@/lib/fba/plan-tipos'
+import { bajarBlob } from '../comun/descargar'
+import { esPlanDeAgencia, usePlan } from '../comun/usePlan'
+import { datosPorSku, refsQueVendenFuera, type DatoTalla, type LineaParaTalla, type RefFuera } from './plan-por-talla'
 
 /**
  * LA BASE DE DATOS DE REFERENCIAS, EN EL NAVEGADOR.
@@ -19,6 +24,14 @@ import type { DatosFila, FilaCatalogo } from '@/lib/fba/catalogo/tipos'
  *
  * Es un almacén de módulo y no un contexto de React a propósito: la propuesta vive
  * en un diálogo y la base de datos en otra pantalla, y no comparten ningún padre.
+ *
+ * API
+ *   useCatalogo(clienteId, activo?)        → EstadoCatalogo + recargar()
+ *   cargarCatalogo(clienteId, forzar?)     pide la lista (las peticiones a la vez se comparten)
+ *   anadirReferencias / corregirReferencias / quitarReferencias   escriben (corregir es optimista y revierte)
+ *   exportarCatalogo(filas, cliente, hoy)  baja el CSV con el formato de la hoja (se puede volver a importar)
+ *   usePlanDeLaBase(clienteId, activo)     las líneas de la ÚLTIMA pasada del plan cruzadas por SKU (spec §8, D43.4)
+ *   useEsEstrecho(px?)                     true por debajo de `lg` (1024 px): tarjetas apiladas en vez de tablas
  */
 
 export interface EstadoCatalogo {
@@ -175,4 +188,91 @@ export async function quitarReferencias(clienteId: string, ids: string[]): Promi
   const r = await enviar(`/api/fba/catalogo?cliente=${clienteId}&ids=${ids.join(',')}`, 'DELETE')
   if (r.ok) await cargarCatalogo(clienteId, true)
   return r
+}
+
+/* ------------------------------------------------------------------ */
+/* Exportar                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Descarga la base de datos en el formato de la hoja: se puede pegar de vuelta o volver a importar */
+export function exportarCatalogo(filas: FilaCatalogo[], clienteNombre: string, hoy: string): void {
+  const csv = '\ufeff' + filasACsv(filas)
+  const nombre = clienteNombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  bajarBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `base-de-datos-${nombre || 'cliente'}-${hoy}.csv`)
+}
+
+/* ------------------------------------------------------------------ */
+/* El plan, cruzado con la base                                        */
+/* ------------------------------------------------------------------ */
+
+export interface PlanDeLaBase {
+  /** Por SKU normalizado (claveSku) */
+  datos: Map<string, DatoTalla>
+  /** La agencia ve la cantidad y el motivo; el cliente externo, solo stock y ritmo */
+  deAgencia: boolean
+  /** Hay pasada (o plan para el cliente) con líneas */
+  hayPlan: boolean
+  calculadoAt: string | null
+  /** De la calidad del plan (D5.5); null si no se sabe (cliente externo o sin plan) */
+  refsFueraDeCatalogo: number | null
+  /** Las líneas que venden y no están en la base, para enseñar la lista */
+  fueraDeLaBase: RefFuera[]
+  cargando: boolean
+  error: string | null
+  /** false = falta lanzar la migración 316 (sin pasadas guardadas) */
+  migracion316: boolean | null
+}
+
+/**
+ * Las cifras de la última pasada del plan para las tallas de la base de datos: stock en FBA, ritmo (con su
+ * confianza) y lo que propone (o por qué no). Pide TODAS las líneas (`?todas=1`): la base de datos tiene
+ * cientos de tallas y casi ninguna rompe en 60 días. El GET nunca calcula si ya hay pasada (D28).
+ */
+export function usePlanDeLaBase(clienteId: string, filas: FilaCatalogo[] | null, activo = true): PlanDeLaBase {
+  const r = usePlan(activo ? clienteId : null, { todas: true })
+  const lineas = useMemo(() => ((r.plan?.lineas ?? []) as unknown as LineaParaTalla[]), [r.plan])
+  const datos = useMemo(() => datosPorSku(lineas), [lineas])
+  const fueraDeLaBase = useMemo(() => (r.deAgencia && filas && filas.length > 0 ? refsQueVendenFuera(lineas, filas) : []), [r.deAgencia, lineas, filas])
+  const plan = r.plan
+  const deAgencia = esPlanDeAgencia(plan)
+  const calculadoAt = r.pasada?.calculadoAt ?? (plan ? (deAgencia ? plan.calidad.calculadoAt : (plan as PlanParaCliente).calculadoAt) : null)
+  const refsFuera = deAgencia ? plan.calidad.refsFueraDeCatalogo : null
+  return {
+    datos,
+    deAgencia: r.deAgencia,
+    hayPlan: lineas.length > 0,
+    calculadoAt,
+    refsFueraDeCatalogo: typeof refsFuera === 'number' ? refsFuera : null,
+    fueraDeLaBase,
+    cargando: r.cargando,
+    error: r.error,
+    migracion316: r.migracion316,
+  }
+}
+
+/** Para comprobar que la forma de LineaPlan sigue valiendo como LineaParaTalla (si cambia el contrato, falla aquí) */
+type Afirmar<T extends true> = T
+export type _LineaPlanCompatible = Afirmar<LineaPlan extends LineaParaTalla ? true : false>
+
+/* ------------------------------------------------------------------ */
+/* Móvil                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * true por debajo de `px` (1024 por defecto, el `lg` de Tailwind). Lo usan las piezas que en el móvil
+ * cambian de forma —la tabla de tallas y el editor de desplegables pasan a tarjetas apiladas— y que no
+ * pueden pintar las dos versiones a la vez (registran casillas para el foco). En el servidor y en el
+ * primer pintado del navegador vale false (escritorio): así no salta la hidratación.
+ */
+export function useEsEstrecho(px = 1024): boolean {
+  const [estrecho, setEstrecho] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia(`(max-width: ${px - 0.02}px)`)
+    const cambiar = () => setEstrecho(mq.matches)
+    cambiar()
+    mq.addEventListener?.('change', cambiar)
+    return () => mq.removeEventListener?.('change', cambiar)
+  }, [px])
+  return estrecho
 }

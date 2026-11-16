@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, Loader2, Printer, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Printer, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { BOTON, CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
+import { Boton } from '@/components/ui-ls'
+import { CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
 import { FORMATOS } from '@/lib/fba/formatos-etiqueta'
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import { cx, Tarjeta } from '../comun/ui'
@@ -19,6 +20,9 @@ import { fecha } from '../formato'
  * Y se avisa cuando lo impreso es de una versión anterior: si la propuesta se
  * reabrió después de imprimir, hay pegatinas puestas en mercancía que pueden
  * haber dejado de valer.
+ *
+ * Lo usan la agencia y el cliente con `puede_editar` (D39), por versión: el aviso compara la versión impresa con
+ * la de la propuesta.
  */
 
 export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel; destacado?: boolean }) {
@@ -106,7 +110,7 @@ export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel
     >
       {vieja && remesa.ultimaImpresion && (
         <div
-          className="mb-3 flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t2)]"
+          className="mb-3 flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t2)]"
           style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}
         >
           <AlertTriangle className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
@@ -119,28 +123,23 @@ export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={imprimir}
-          disabled={imprimiendo}
-          className={cx(BOTON.base, 'h-8 px-3 text-[12.5px]', destacado ? BOTON.primario : BOTON.secundario)}
-        >
-          {imprimiendo ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <Printer className="h-[14px] w-[14px]" />}
+        <Boton variante={destacado ? 'primario' : 'secundario'} tamano="sm" icono={Printer} cargando={imprimiendo} onClick={() => void imprimir()}>
           {imprimiendo ? 'Generando…' : 'Imprimir etiquetas'}
-        </button>
-        <button
-          type="button"
-          onClick={actualizarFnsku}
-          disabled={leyendo || imprimiendo}
+        </Boton>
+        <Boton
+          variante="secundario"
+          tamano="sm"
+          icono={RefreshCw}
+          cargando={leyendo}
+          disabled={imprimiendo}
           title="Le pregunta a Amazon ahora el FNSKU de cada referencia de este envío. Las etiquetas también lo piden solas si falta alguno"
-          className={cx(BOTON.base, 'h-8 px-3 text-[12.5px]', BOTON.secundario)}
+          onClick={() => void actualizarFnsku()}
         >
-          {leyendo ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           {leyendo ? 'Leyendo…' : 'Actualizar FNSKU'}
-        </button>
-        <label className="flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
+        </Boton>
+        <label className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--ls-t4)]">
           Hoja
-          <select value={formato} onChange={(e) => setFormato(e.target.value)} title="En qué hoja se van a imprimir" className={cx(CAMPO.input, 'h-[30px] w-auto pr-6')}>
+          <select value={formato} onChange={(e) => setFormato(e.target.value)} title="En qué hoja se van a imprimir" className={cx(CAMPO.input, 'h-8 w-auto min-w-0 max-w-[220px] pr-6 [@media(pointer:coarse)]:h-11')}>
             {FORMATOS.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.nombre}

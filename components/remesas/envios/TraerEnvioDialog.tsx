@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, Download, Loader2, Search } from 'lucide-react'
+import { AlertTriangle, Download, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialogo } from '@/components/plataforma/comun'
-import { BOTON, CAMPO, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
+import { Boton, TACTIL } from '@/components/ui-ls'
+import { CAMPO, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { ESTADO_INBOUND_TEXTO } from '@/lib/fba/inbound-estados'
 import { diaDeCreacionDeEnvio } from '@/lib/fba/mercados'
 import type { AmazonRegion } from '@/lib/types/amazon'
@@ -17,6 +18,8 @@ import { cx } from '../comun/ui'
  * Central, así que lo que se mandó y lo que ha llegado lo dice Amazon. Se busca,
  * se revisa lo que ha devuelto y se trae. A partir de ahí se sigue solo: su estado
  * cada hora y lo que se va vendiendo cada día.
+ *
+ * Quien lo monta, en `onTraido`, hace el `router.refresh()` de siempre seguido de `invalidarRemesas(clienteId)`.
  */
 
 const FBA = /^FBA[0-9A-Z]{6,20}$/
@@ -117,37 +120,35 @@ export function TraerEnvioDialog({
       ancho="max-w-[760px]"
       pie={
         <>
-          <button type="button" onClick={onCerrar} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)}>
+          <Boton tamano="sm" onClick={onCerrar}>
             Cancelar
-          </button>
-          <button type="button" onClick={traer} disabled={!traido || !!traido.existente || guardando} className={cx(BOTON.base, BOTON.alto, BOTON.primario)}>
-            {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+          </Boton>
+          <Boton tamano="sm" variante="primario" icono={Download} cargando={guardando} onClick={() => void traer()} disabled={!traido || !!traido.existente}>
             Traer este envío
-          </button>
+          </Boton>
         </>
       }
     >
       <form
-        className="flex items-end gap-2"
+        className="flex flex-wrap items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault()
           if (valido && !buscando) void buscar()
         }}
       >
-        <div className="flex-1">
+        <div className="min-w-[180px] flex-1">
           <label className={CAMPO.etiqueta} htmlFor="te-numero">
             Número de envío FBA
           </label>
-          <input id="te-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="FBA15ABCDEF" spellCheck={false} autoFocus className={cx(CAMPO.input, 'h-[30px] font-mono text-[13px]')} />
+          <input id="te-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="FBA15ABCDEF" spellCheck={false} autoFocus className={cx(CAMPO.input, 'h-9 rounded-[10px] px-3 font-mono text-[13px]', TACTIL)} />
         </div>
-        <button type="submit" disabled={!valido || buscando} className={cx(BOTON.base, 'h-[30px] px-3', BOTON.primario)}>
-          {buscando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+        <Boton type="submit" tamano="md" variante={traido ? 'secundario' : 'primario'} icono={Search} cargando={buscando} disabled={!valido}>
           Buscar en Amazon
-        </button>
+        </Boton>
       </form>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.rojo}` }} role="alert">
+        <div className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12px] leading-[1.5] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.rojo}` }} role="alert">
           <AlertTriangle className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.rojo }} />
           {error}
         </div>
@@ -163,7 +164,7 @@ export function TraerEnvioDialog({
           </p>
 
           {traido.existente ? (
-            <div className="flex items-start gap-2 rounded-[6px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-[10px] py-[8px] text-[12px] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
+            <div className="flex items-start gap-2 rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12px] text-[var(--ls-t1)]" style={{ borderLeft: `3px solid ${COLOR_ESTADO.ambar}` }}>
               <AlertTriangle className="mt-[2px] h-[14px] w-[14px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
               Este envío ya está en el ERP{traido.existente.nombre ? ` como «${traido.existente.nombre}»` : ''}. No se vuelve a crear.
             </div>
@@ -173,19 +174,19 @@ export function TraerEnvioDialog({
                 <label className={CAMPO.etiqueta} htmlFor="te-nombre">
                   Nombre
                 </label>
-                <input id="te-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} className={CAMPO.input} />
+                <input id="te-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} className={cx(CAMPO.input, 'h-9 rounded-[10px] px-3 text-[13px]', TACTIL)} />
               </div>
               <div>
                 <label className={CAMPO.etiqueta} htmlFor="te-fecha">
                   Fecha de envío
                 </label>
-                <input id="te-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={CAMPO.input} />
+                <input id="te-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={cx(CAMPO.input, 'h-9 rounded-[10px] px-3 text-[13px]', TACTIL)} />
                 <p className={CAMPO.nota}>Desde aquí empiezan a contar las ventas, hasta que Amazon confirme la llegada.</p>
               </div>
             </div>
           )}
 
-          <div className="max-h-[260px] overflow-auto rounded-[6px] border border-[var(--ls-linea)]">
+          <div className="max-h-[260px] overflow-auto rounded-[10px] border border-[var(--ls-linea)]">
             <table className={TABLA.tabla}>
               <thead>
                 <tr>
@@ -199,7 +200,7 @@ export function TraerEnvioDialog({
                 {traido.lineas.map((l) => (
                   <tr key={l.sku} className={TABLA.fila}>
                     <td className={cx(TABLA.celda, 'font-mono text-[11.5px] text-[var(--ls-t3)]')}>{l.sku}</td>
-                    <td className={cx(TABLA.celda, 'max-w-[340px] truncate text-[var(--ls-t1)]')}>{l.nombre ?? '—'}</td>
+                    <td className={cx(TABLA.celda, 'max-w-[140px] truncate text-[var(--ls-t1)] sm:max-w-[340px]')}>{l.nombre ?? '—'}</td>
                     <td className={cx(TABLA.celda, TABLA.numero, 'font-semibold text-[var(--ls-t1)]')}>{l.enviadas}</td>
                     <td className={cx(TABLA.celda, TABLA.numero)} style={l.recibidas < l.enviadas ? { color: COLOR_ESTADO.ambar } : undefined}>
                       {l.recibidas}

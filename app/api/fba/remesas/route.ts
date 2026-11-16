@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { requireFbaAccess } from '@/lib/fba/acceso'
-import { limpiarAnalisis } from '@/lib/fba/analisis-ia'
+import { ErrorDeRemesa, crearRemesa, textoLimpio, validarRemesaNueva } from '@/lib/fba/crear-remesa'
+import { invalidarCaches } from '@/lib/fba/envios-propuestos-servidor'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -14,28 +15,12 @@ import { createServiceClient } from '@/lib/supabase/service'
  *
  * Supabase no da transacciones desde el cliente REST, así que el rescate es
  * manual y explícito. Es feo y es correcto.
+ *
+ * La lógica del alta vive en lib/fba/crear-remesa.ts: la usa también «Convertir en remesa» de un envío
+ * propuesto (POST /api/fba/envios-propuestos/[id]/convertir).
  */
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
-
-const MAX_LINEAS = 3000
-
-interface LineaEntrante {
-  sku?: unknown
-  unidades?: unknown
-  referencia?: unknown
-  nombre?: unknown
-  variante?: unknown
-  ean?: unknown
-  fnsku?: unknown
-  asin?: unknown
-}
-
-const texto = (v: unknown, max = 200): string | null => {
-  if (typeof v !== 'string') return null
-  const t = v.trim().slice(0, max)
-  return t.length > 0 ? t : null
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -73,129 +58,25 @@ export async function POST(request: NextRequest) {
       analisisIa?: unknown
     }
 
-    const clienteId = texto(body.clienteId, 40) ?? ''
+    const clienteId = textoLimpio(body.clienteId, 40) ?? ''
     if (!UUID.test(clienteId)) return fail(400, 'Elige el cliente de la remesa')
 
     // Crear exige poder EDITAR ese cliente. Un acceso de solo lectura se para aquí.
     const session = await requireFbaAccess('editar', clienteId)
     if (session instanceof NextResponse) return session
 
-    const marketplaceId = texto(body.marketplaceId, 20)
-    if (!marketplaceId) return fail(400, 'Falta el mercado de la remesa')
+    // Se valida TODO antes de escribir nada: media remesa es peor que ninguna (lib/fba/crear-remesa.ts)
+    const validada = validarRemesaNueva(body, clienteId)
+    if (!validada.ok) return fail(validada.estado, validada.error)
 
-    const fechaEnvio = texto(body.fechaEnvio, 10)
-    if (!fechaEnvio || !/^\d{4}-\d{2}-\d{2}$/.test(fechaEnvio)) {
-      return fail(400, 'La fecha de envío tiene que ser un día, con el formato 2026-09-18')
-    }
+    // El análisis de la IA lo guarda la agencia que edita este cliente, no solo el admin (D21)
+    const creada = await crearRemesa(createServiceClient(), session, validada.datos)
+    // Una propuesta nueva es comprometido para el plan y cambia el resumen: fuera las cachés en memoria (D32)
+    invalidarCaches(clienteId)
 
-    if (!Array.isArray(body.lineas) || body.lineas.length === 0) {
-      return fail(400, 'Una remesa sin referencias no es una remesa. Añade al menos una')
-    }
-    if (body.lineas.length > MAX_LINEAS) {
-      return fail(400, `Son demasiadas referencias de golpe (máximo ${MAX_LINEAS})`)
-    }
-
-    // Se valida TODO antes de escribir nada: media remesa es peor que ninguna.
-    const vistos = new Set<string>()
-    const lineas: Array<Record<string, unknown>> = []
-    for (const [i, cruda] of (body.lineas as LineaEntrante[]).entries()) {
-      const sku = texto(cruda.sku, 120)
-      if (!sku) return fail(400, `La línea ${i + 1} no tiene SKU`)
-      if (vistos.has(sku)) {
-        return fail(
-          400,
-          `El SKU ${sku} está dos veces. En una misma remesa cada referencia va una sola vez: ` +
-            'si mandaste dos cajas del mismo, suma las unidades en una línea'
-        )
-      }
-      vistos.add(sku)
-
-      const unidades = Number(cruda.unidades)
-      if (!Number.isInteger(unidades) || unidades <= 0) {
-        return fail(400, `Las unidades de ${sku} tienen que ser un número entero mayor que cero`)
-      }
-
-      lineas.push({
-        sku,
-        unidades,
-        referencia: texto(cruda.referencia, 120),
-        nombre: texto(cruda.nombre, 400),
-        variante: texto(cruda.variante, 80),
-        ean: texto(cruda.ean, 40),
-        fnsku: texto(cruda.fnsku, 40),
-        asin: texto(cruda.asin, 20),
-      })
-    }
-
-    const service = createServiceClient()
-
-    // La conexión del cliente, si la tiene. ShoesF no la tiene y es un caso
-    // normal: sus remesas se llevan igual, solo que sin ventas automáticas.
-    const { data: conexion } = await service
-      .from('amazon_connections')
-      .select('id')
-      .eq('client_id', clienteId)
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle()
-
-    const cabecera = {
-      client_id: clienteId,
-      connection_id: (conexion as { id: string } | null)?.id ?? null,
-      marketplace_id: marketplaceId,
-      nombre: texto(body.nombre, 120),
-      fecha_envio: fechaEnvio,
-      referencia_envio: texto(body.referenciaEnvio, 120),
-      nota: texto(body.nota, 1000),
-      // Una remesa nueva NACE en borrador: es una propuesta hasta que el
-      // cliente la aprueba. El DEFAULT de la tabla es 'cerrada' porque las
-      // que ya existían son historia, pero eso no vale para las nuevas.
-      estado: 'borrador',
-      created_by: session.userId,
-    }
-
-    /**
-     * EL ANÁLISIS DE LA IA VA APARTE, Y SU FALTA NO ES UN ERROR.
-     *
-     * Solo lo trae una propuesta nacida de la IA, y solo lo puede escribir la agencia: la IA la
-     * lanza la agencia, y un acceso de cliente que mandara su propio «análisis» estaría
-     * poniendo palabras en boca de Liberty Seller. Lo que llega se reconstruye campo a campo
-     * (lib/fba/analisis-ia.ts).
-     *
-     * La columna es de la migración 230, que se lanza a mano: si todavía no está, la
-     * propuesta se crea igual y lo único que se pierde es el análisis. Reintentar sin la
-     * columna es lo que evita dejar al equipo sin poder crear propuestas por un retraso en
-     * pegar un SQL.
-     */
-    const analisis = session.esAdmin ? limpiarAnalisis(body.analisisIa) : null
-    let alta = await service
-      .from('fba_remesas')
-      .insert(analisis ? { ...cabecera, analisis_ia: analisis } : cabecera)
-      .select('id')
-      .single()
-    let analisisGuardado = analisis !== null
-    if (alta.error && analisis && ['42703', 'PGRST204', 'PGRST205'].includes(alta.error.code ?? '')) {
-      alta = await service.from('fba_remesas').insert(cabecera).select('id').single()
-      analisisGuardado = false
-    }
-    const { data: creada, error: errorAlta } = alta
-    if (errorAlta) throw errorAlta
-
-    const remesaId = (creada as { id: string }).id
-
-    const { error: errorLineas } = await service
-      .from('fba_remesa_lineas')
-      .insert(lineas.map((l) => ({ ...l, remesa_id: remesaId })))
-
-    if (errorLineas) {
-      // El rescate. Sin esto queda una cabecera sin líneas que el panel pinta
-      // como un envío de cero unidades, o sea como un envío que no vendió nada.
-      await service.from('fba_remesas').delete().eq('id', remesaId)
-      throw errorLineas
-    }
-
-    return NextResponse.json({ id: remesaId, lineas: lineas.length, analisisGuardado })
+    return NextResponse.json({ id: creada.id, lineas: creada.lineas, analisisGuardado: creada.analisisGuardado })
   } catch (error) {
+    if (error instanceof ErrorDeRemesa) return fail(error.estado, error.message)
     return errorResponse(error, 'No se ha podido crear la remesa')
   }
 }
