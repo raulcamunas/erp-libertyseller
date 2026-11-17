@@ -95,7 +95,7 @@ export function ColdCallingApp({ perfil, activa }: Props) {
     const columnas = 'id, full_name, email, role, calendar_color'
     void (async () => {
       // Los comerciales y los managers comerciales. Si la base no tiene todavía el puesto (migración 257), solo los comerciales, como antes
-      let r = await supabase.from('profiles').select(columnas).or('is_comercial.eq.true,puesto.eq.manager_comercial').order('full_name', { ascending: true })
+      let r = await supabase.from('profiles').select(columnas).or('is_comercial.eq.true,puesto.eq.manager_comercial,puesto.eq.comercial_autonomo').order('full_name', { ascending: true })
       if (r.error) r = await supabase.from('profiles').select(columnas).eq('is_comercial', true).order('full_name', { ascending: true })
       if (vivo) setTeam((r.data as CalendarPerson[] | null) ?? [])
     })()
