@@ -10,6 +10,7 @@ import type { FilaMercado } from '@/lib/pccomponentes/mercado'
 import { juzgar, type JuicioDeMercado } from '@/lib/pccomponentes/margenes'
 import { cx } from '@/components/remesas/comun/ui'
 import { PreciosDinamicos } from './PreciosDinamicos'
+import { VentasPcc } from './VentasPcc'
 
 /**
  * ENTRAIS · PCCOMPONENTES: EL PANEL DE SU TIENDA.
@@ -28,7 +29,7 @@ export type EstadoDelPanel =
   | { tipo: 'sin_clave'; mensaje: string }
   | { tipo: 'error'; mensaje: string }
 
-type Pestana = 'ofertas' | 'probar' | 'mercado' | 'dinamicos'
+type Pestana = 'ofertas' | 'probar' | 'mercado' | 'dinamicos' | 'ventas'
 
 const euros = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`)
 const POR_PAGINA = 50
@@ -138,6 +139,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
         <nav aria-label="Vistas" className="flex items-center gap-[2px] rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]">
           {(
             [
+              ['ventas', 'Ventas'],
               ['ofertas', 'Ofertas'],
               ['probar', 'Probar un producto'],
               ['mercado', 'Mercado y margen'],
@@ -195,6 +197,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
             {pestana === 'probar' && <ProbarUnProducto ofertas={lista?.ofertas ?? []} onSubido={releer} />}
             {pestana === 'mercado' && <MercadoYMargen ofertas={lista?.ofertas ?? []} />}
             {pestana === 'dinamicos' && <PreciosDinamicos />}
+            {pestana === 'ventas' && <VentasPcc />}
           </div>
         </>
       )}

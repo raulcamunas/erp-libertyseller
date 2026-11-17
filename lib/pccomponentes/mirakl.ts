@@ -229,6 +229,18 @@ export async function ofertasDeProductos(eans: readonly string[]): Promise<Map<s
   return salida
 }
 
+/** Los pedidos de un periodo (OR11), página a página (100 por llamada), con un tope por si acaso. `desde`/`hasta` en ISO */
+export async function leerPedidos(desde: string, hasta: string, tope = 5000): Promise<Array<Record<string, unknown>>> {
+  const salida: Array<Record<string, unknown>> = []
+  for (let offset = 0; salida.length < tope; offset += 100) {
+    const r = json((await llamar('/api/orders', { query: { start_date: desde, end_date: hasta, max: 100, offset, sort: 'dateCreated', order: 'desc' } })).texto) as { orders?: Array<Record<string, unknown>>; total_count?: number } | null
+    const pagina = r?.orders ?? []
+    salida.push(...pagina)
+    if (pagina.length < 100 || salida.length >= (r?.total_count ?? 0)) break
+  }
+  return salida
+}
+
 export async function leerImportacion(id: string): Promise<ImportacionPcc> {
   if (!/^\d+$/.test(id)) throw new MiraklError('El identificador de la importación no es válido', 400)
   return importacionDeRespuesta(json((await llamar(`/api/offers/imports/${id}`)).texto))
