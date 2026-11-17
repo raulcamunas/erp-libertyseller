@@ -104,6 +104,22 @@ export default async function HoursPage() {
     supabase.from('payroll_manual_appointments').select('*'),
   ])
 
+  /**
+   * QUIEN TIENE HORAS APUNTADAS SALE EN EL SELECTOR, AUNQUE YA NO SEA COMERCIAL.
+   *
+   * La lista de personas era solo `is_comercial`: a quien se le quitaba la marca (dejó de serlo, se fue) desaparecía del selector y con ella sus
+   * horas, que siguen siendo lo que se le paga. 17 nov 2026: María Fernanda, con 64 h del ciclo 15 oct–14 nov, no se podía consultar.
+   */
+  let equipo = (team.data as CalendarPerson[]) || []
+  if (puedeVerHorasDelEquipo) {
+    const conocidos = new Set(equipo.map((p) => p.id))
+    const faltan = [...new Set((hours as WorkHourEntry[]).map((h) => h.user_id))].filter((id) => id && !conocidos.has(id))
+    if (faltan.length > 0) {
+      const { data: extra } = await supabase.from('profiles').select('id, full_name, email, role, calendar_color').in('id', faltan)
+      equipo = [...equipo, ...((extra as CalendarPerson[]) || [])].sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? '', 'es'))
+    }
+  }
+
   // SCROLL NATURAL: antes iba en un contenedor de alto fijo (calc(100dvh-8rem)) que en el móvil comprimía el calendario
   // o desbordaba el resumen. La cabecera del módulo y el título los pinta ahora HoursTracker.
   return (
@@ -113,7 +129,7 @@ export default async function HoursPage() {
         initialRates={(rates.data as PayrollRate[]) || []}
         qualifiedAppointments={qualified}
         initialManual={(manual.data as ManualAppointment[]) || []}
-        team={(team.data as CalendarPerson[]) || []}
+        team={equipo}
         currentUser={profile}
         isAdmin={isAdmin}
         puedeVerHorasDelEquipo={puedeVerHorasDelEquipo}
