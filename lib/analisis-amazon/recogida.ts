@@ -123,7 +123,7 @@ async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola, clientes
   return { ok: true, nombre: v.tienda, tokens: e.gastado }
 }
 
-async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon, clientes: Clientes, comercialId: string | null): Promise<Hecho & { tokens: number }> {
+export async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon, clientes: Clientes, comercialId: string | null): Promise<Hecho & { tokens: number }> {
   const { data: lead, error } = await s.from('cold_leads').select('id, store_name, web, cif, company, vende_en_amazon, seller_url').eq('id', v.lead).maybeSingle()
   if (error) throw error
   const l = lead as { store_name: string | null; web: string | null; cif: string | null; company: string | null; vende_en_amazon: string | null; seller_url: string | null } | null
@@ -170,7 +170,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     if (saldo.tokens < necesitaLoSiguiente) return nada(`ningún informe nuevo · esperando saldo de Keepa (${saldo.tokens}/${necesitaLoSiguiente})`)
 
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
@@ -180,15 +180,26 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       ultimosInformes(s),
       // La bitácora (~2 MB) solo se baja en las pasadas con saldo: de ella sale el turno, con el comercial de la cola
       leerJson<EventoDeBitacora[]>(s, 'bitacora.json', []).catch(() => [] as EventoDeBitacora[]),
+      // prioridad.json: ids de leads (en orden) que se hacen ANTES que el turno, sin consumirlo. Se vacía solo según se hacen (17 nov 2026)
+      leerJson<string[]>(s, 'prioridad.json', []).catch(() => [] as string[]),
     ])
     if (!cola.length && !colaSin.length) return nada('no hay cola (cola.json en Storage)')
-    const pendientes = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
-    const pendientesSin = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`])
-    if (!pendientes.length && !pendientesSin.length) {
+    const pendientesTodas = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
+    const pendientesSinTodas = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`])
+    // Los prioritarios salen del reparto normal y van delante, en el orden de prioridad.json
+    const ordenPrio = new Map((Array.isArray(prioridad) ? prioridad : []).map((id, i) => [id, i] as const))
+    const prioritarios: Tarea[] = [
+      ...pendientesTodas.filter((v) => ordenPrio.has(v.lead)).map((v): Tarea => ({ tipo: 'amazon', v })),
+      ...pendientesSinTodas.filter((v) => ordenPrio.has(v.lead)).map((v): Tarea => ({ tipo: 'sin', v })),
+    ].sort((a, b) => (ordenPrio.get(a.v.lead) ?? 0) - (ordenPrio.get(b.v.lead) ?? 0))
+    const pendientes = pendientesTodas.filter((v) => !ordenPrio.has(v.lead))
+    const pendientesSin = pendientesSinTodas.filter((v) => !ordenPrio.has(v.lead))
+    if (!pendientes.length && !pendientesSin.length && !prioritarios.length) {
       necesitaLoSiguiente = TOKENS_POR_TIENDA
       return nada('cola terminada')
     }
 
+    const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length
     const porNombre = idPorNombre(gente)
     const comercialIdDe = (v: EnCola | EnColaSinAmazon) => comercialDe(v, porNombre)
     const reparto = new Repartidor<EnCola, EnColaSinAmazon>(pendientes, pendientesSin, comercialIdDe)
@@ -211,9 +222,10 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     }
 
     while (Date.now() < fin) {
-      const eleccion = reparto.siguiente(turno)
-      if (!eleccion) break
-      const tarea: Tarea = eleccion.tipo === 'amazon' ? { tipo: 'amazon', v: eleccion.v } : { tipo: 'sin', v: eleccion.v }
+      const prio = prioritarios[0]
+      const eleccion = prio ? null : reparto.siguiente(turno)
+      if (!prio && !eleccion) break
+      const tarea: Tarea = prio ?? (eleccion!.tipo === 'amazon' ? { tipo: 'amazon', v: eleccion!.v as EnCola } : { tipo: 'sin', v: eleccion!.v as EnColaSinAmazon })
       const necesita = costeDe(tarea.tipo)
       // El primer saldo es el de hace un momento; luego se vuelve a preguntar antes de cada tienda
       const ahora = saldo ?? (await saldoKeepa(clave))
@@ -225,7 +237,8 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       }
       const llave = tarea.tipo === 'amazon' ? tarea.v.seller : `lead:${tarea.v.lead}`
       const comercialId = comercialIdDe(tarea.v)
-      reparto.quitar(eleccion)
+      if (prio) prioritarios.shift()
+      else reparto.quitar(eleccion!)
       try {
         const r = tarea.tipo === 'amazon' ? await hacerAmazon(s, clave, tarea.v, clientes) : await hacerSinAmazon(s, clave, tarea.v, clientes, comercialId)
         tokens += r.tokens
@@ -233,11 +246,11 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
           fallos.delete(llave)
           hechas++
           nombres.push(r.nombre)
-          turno = trasHecho(turno, eleccion)
+          if (eleccion) turno = trasHecho(turno, eleccion)
           apuntar(tarea, comercialId, 'hecho', r.tokens)
         } else if (r.parar) {
           await guardarLoApuntado()
-          return nada(r.parar, pendientes.length + pendientesSin.length - hechas, tokens)
+          return nada(r.parar, totalAlEmpezar - hechas, tokens)
         } else if (r.saltar) {
           // Un saltado no consume el turno: el mismo comercial sigue con su siguiente
           saltados[llave] = r.saltar.slice(0, 200)
@@ -266,10 +279,10 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     await guardarLoApuntado()
 
     // Lo que necesitará lo siguiente, para que la próxima pasada sepa sin leer nada si le llega el saldo
-    const proxima = reparto.siguiente(turno)
+    const proxima = prioritarios[0] ?? reparto.siguiente(turno)
     necesitaLoSiguiente = proxima ? costeDe(proxima.tipo) : TOKENS_POR_TIENDA
 
-    const quedan = pendientes.length + pendientesSin.length - hechas
+    const quedan = totalAlEmpezar - hechas
     const resumen = componerResumen(hechas, nombres, `${quedan} en cola (${pendientes.length} de Amazon, ${pendientesSin.length} sin Amazon)`, tokens, motivoDeParar)
     return { hechos: hechas, tokens, pendientes: quedan, resumen }
   } finally {
