@@ -249,3 +249,224 @@ export function excelDeMercado(d: DatosDelExcel): Uint8Array {
   hojaDeTabla(libro, 'Nadie lo vende', nadie, d, 'de más a menos coste')
   return libro.empaquetar()
 }
+
+/* ================================================================== */
+/* EL EXCEL PARA ENTRAIS: POR QUÉ CADA PRECIO                          */
+/* ================================================================== */
+
+/**
+ * Para dárselo al cliente (Domingo, de Entrais): de dónde sale el precio que se pondría en PcComponentes, producto a producto, con TODAS las cuentas a
+ * la vista y que sumen: lo que cuesta (proveedor + canon + porte) + lo que cobra PcComponentes + el beneficio = precio sin IVA; + IVA = precio de venta.
+ * Al lado, el precio más bajo que hay hoy en PcComponentes (la Buy Box, con IVA), sin análisis de margen a ese precio: solo si el nuestro queda por
+ * debajo, igual o por encima. Sin vocabulario interno ni promesas.
+ */
+
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+interface Desglose {
+  proveedor: number | null
+  canon: number | null
+  porte: number | null
+  coste: number
+  pct: number
+  fija: number
+  porDefecto: boolean
+  base: number | null
+  comision: number | null
+  beneficio: number | null
+  iva: number | null
+  precio: number | null
+}
+
+/** Las cuentas de un producto, redondeadas a céntimos de forma que SUMEN exactamente (lo que ve el cliente tiene que cuadrar a mano) */
+export function desgloseDelPrecio(f: FilaParaExcel): Desglose {
+  const c = f.j.comision
+  const precio = f.j.suelo
+  const base = precio === null ? null : r2(precio / 1.21)
+  const comision = base === null ? null : r2(c.fija + c.pct * base)
+  return {
+    proveedor: f.precioProveedor,
+    canon: f.canon,
+    porte: f.porte,
+    coste: r2(f.coste),
+    pct: c.pct,
+    fija: c.fija,
+    porDefecto: c.porDefecto,
+    base,
+    comision,
+    beneficio: base === null || comision === null ? null : r2(base - comision - f.coste),
+    iva: precio === null || base === null ? null : r2(precio - base),
+    precio,
+  }
+}
+
+export function excelParaEntrais(d: DatosDelExcel): Uint8Array {
+  const m = `${(Math.round(d.margenObjetivo * 1000) / 10).toLocaleString('es-ES')} %`
+  const libro = new Libro()
+  libro.titulo = 'Entrais · Precios en PcComponentes'
+  libro.creado = `${d.hoy}T12:00:00Z`
+  const filas = [...d.filas].sort((a, b) => (a.categoria ?? '').localeCompare(b.categoria ?? '', 'es') || a.titulo.localeCompare(b.titulo, 'es'))
+
+  /* ---------- 1. Cómo se calcula ---------- */
+  {
+    const hoja = libro.hoja('Cómo se calcula el precio')
+    hoja.colorPestana = COLOR_PESTANA
+    hoja.anchoColumna(1, 2)
+    hoja.anchoColumna(2, 46)
+    hoja.anchoColumna(3, 16)
+    hoja.anchoColumna(4, 70)
+    hoja.anchoColumna(5, 2)
+    banda(hoja, 5, 'Precios en PcComponentes · cómo se calculan', `Entrais · ${d.hoy} · beneficio del ${m} sobre el precio sin IVA`)
+    const rotulo: Estilo = { nombre: FUENTE.titulo, tam: 11, negrita: true, color: COLOR.naranja }
+    const cuerpo: Estilo = { nombre: FUENTE.cuerpo, tam: 10, color: COLOR.tinta, v: 'center', ajustar: true }
+    const nota: Estilo = { nombre: FUENTE.cuerpo, tam: 9, color: COLOR.etiqueta, v: 'center', ajustar: true }
+    let f = 8
+    hoja.poner(f, 2, 'LA IDEA', rotulo)
+    f += 1
+    const idea = [
+      `El precio de cada producto se calcula para que, después de pagar el producto, el canon, el porte y la comisión de PcComponentes, a Entrais le quede un beneficio del ${m} del precio sin IVA.`,
+      'El cliente final paga el precio CON IVA. El IVA no es de Entrais: se ingresa a Hacienda. Por eso todas las cuentas se hacen sobre el precio sin IVA.',
+      'PcComponentes cobra su comisión sobre el precio sin IVA: un porcentaje que depende de la categoría del producto y, en algunas categorías, una cantidad fija por unidad.',
+    ]
+    for (const t of idea) {
+      hoja.poner(f, 2, t, cuerpo)
+      hoja.combinar(f, 2, f, 4)
+      hoja.altoFila(f, 30)
+      f += 1
+    }
+
+    const ejemplo = filas.find((x) => x.j.suelo !== null && x.precioProveedor !== null && x.precioMin !== null && x.coste < 300) ?? filas.find((x) => x.j.suelo !== null)
+    if (ejemplo) {
+      const e = desgloseDelPrecio(ejemplo)
+      f += 1
+      hoja.poner(f, 2, 'UN EJEMPLO, PASO A PASO', rotulo)
+      f += 1
+      hoja.poner(f, 2, `${ejemplo.titulo}`, { ...cuerpo, negrita: true })
+      hoja.combinar(f, 2, f, 4)
+      hoja.altoFila(f, 22)
+      f += 1
+      const paso = (t: string, v: number | null, n: string, fuerte = false, relleno?: string) => {
+        const base: Estilo = { ...cuerpo, ...(relleno ? { relleno } : {}), abajo: fino }
+        hoja.poner(f, 2, t, { ...base, negrita: fuerte })
+        hoja.poner(f, 3, v, { ...base, formato: EUR, h: 'right', negrita: fuerte, nombre: fuerte ? FUENTE.titulo : FUENTE.cuerpo })
+        hoja.poner(f, 4, n, { ...nota, ...(relleno ? { relleno } : {}), abajo: fino })
+        hoja.altoFila(f, 24)
+        f += 1
+      }
+      paso('Precio del proveedor', e.proveedor, 'Lo que cuesta el producto al proveedor, sin IVA')
+      paso('+ Canon', e.canon, 'Canon digital u otros que lleve el producto (0 si no tiene)')
+      paso('+ Porte (envío al cliente)', e.porte, 'El envío del pedido hasta el cliente')
+      paso('= Coste total (sin IVA)', e.coste, 'Lo que le cuesta a Entrais poner el producto en casa del cliente', true, COLOR.crema)
+      paso(`+ Comisión de PcComponentes`, e.comision, `${(Math.round(e.pct * 1000) / 10).toLocaleString('es-ES')} % del precio sin IVA${e.fija ? ` + ${e.fija.toFixed(2).replace('.', ',')} € fijos` : ''}${e.porDefecto ? ' (categoría sin histórico: se usa la comisión más alta vista)' : ''}`)
+      paso(`+ Beneficio de Entrais (${m})`, e.beneficio, `El ${m} del precio sin IVA`)
+      paso('= Precio sin IVA', e.base, `Se despeja: (coste + comisión fija) ÷ (1 − ${m} − % de comisión)`, true, COLOR.crema)
+      paso('+ IVA (21 %)', e.iva, 'Lo paga el cliente y se ingresa a Hacienda')
+      paso('= PRECIO DE VENTA EN PCCOMPONENTES', e.precio, 'Lo que pagaría el cliente final', true, COLOR.aviso)
+      paso('Precio más bajo hoy en PcComponentes (con IVA)', ejemplo.precioMin, `La oferta más barata de ese producto ahora mismo${ejemplo.tiendaMin ? ` (${ejemplo.tiendaMin})` : ''}`)
+    }
+
+    f += 1
+    hoja.poner(f, 2, 'A TENER EN CUENTA', rotulo)
+    f += 1
+    for (const t of [
+      'La comisión de cada categoría sale de las ventas reales de Entrais en PcComponentes. Si una categoría no aparece en esas ventas, se usa la comisión más alta vista (17 % + 0,70 €), para no quedarse corto.',
+      'El «precio más bajo hoy» es el de la oferta más barata que hay ahora mismo en PcComponentes para ese producto, con IVA. Cambia a diario.',
+      'Las cuentas no descuentan las devoluciones.',
+    ]) {
+      hoja.poner(f, 2, t, nota)
+      hoja.combinar(f, 2, f, 4)
+      hoja.altoFila(f, 28)
+      f += 1
+    }
+  }
+
+  /* ---------- 2. Producto a producto ---------- */
+  {
+    const hoja = libro.hoja('Precios producto a producto')
+    hoja.colorPestana = COLOR_PESTANA
+    hoja.vertical = false
+    type Col = { t: string; a: number; g: string; fmt?: string; h?: 'left' | 'center' | 'right'; v: (f: FilaParaExcel, e: Desglose) => string | number | null; fuerte?: boolean }
+    const G = {
+      p: { titulo: 'EL PRODUCTO', relleno: 'EDE6DC', tinta: COLOR.tinta },
+      c: { titulo: '1 · LO QUE CUESTA (sin IVA)', relleno: 'DCEBF7', tinta: '1F4E79' },
+      k: { titulo: '2 · COMISIÓN DE PCCOMPONENTES', relleno: 'FBEFE8', tinta: '9A3F07' },
+      v: { titulo: '3 · EL PRECIO DE VENTA', relleno: 'E2F2E6', tinta: '1E5E32' },
+      b: { titulo: '4 · PCCOMPONENTES HOY', relleno: 'E8E0F5', tinta: '4B2E83' },
+    } as const
+    const frente = (f: FilaParaExcel, e: Desglose) => {
+      if (f.precioMin === null) return 'Nadie lo vende'
+      if (e.precio === null) return '—'
+      const dif = r2(e.precio - f.precioMin)
+      return Math.abs(dif) < 0.005 ? 'Igual' : dif < 0 ? 'Más barato' : 'Más caro'
+    }
+    const cols: Col[] = [
+      { t: 'SKU', a: 9, g: 'p', v: (f) => f.sku },
+      { t: 'EAN', a: 15, g: 'p', v: (f) => f.ean },
+      { t: 'Producto', a: 50, g: 'p', v: (f) => f.titulo },
+      { t: 'Categoría', a: 18, g: 'p', v: (f) => f.categoria ?? '' },
+      { t: 'Precio del proveedor', a: 12, g: 'c', fmt: EUR, h: 'right', v: (_, e) => e.proveedor },
+      { t: 'Canon', a: 9, g: 'c', fmt: EUR, h: 'right', v: (_, e) => e.canon },
+      { t: 'Porte (envío al cliente)', a: 11, g: 'c', fmt: EUR, h: 'right', v: (_, e) => e.porte },
+      { t: 'Coste total', a: 12, g: 'c', fmt: EUR, h: 'right', fuerte: true, v: (_, e) => e.coste },
+      { t: 'Comisión % (sobre el precio sin IVA)', a: 13, g: 'k', fmt: PCT, h: 'right', v: (_, e) => e.pct },
+      { t: 'Comisión fija', a: 10, g: 'k', fmt: EUR, h: 'right', v: (_, e) => e.fija },
+      { t: 'Comisión total', a: 11, g: 'k', fmt: EUR, h: 'right', fuerte: true, v: (_, e) => e.comision },
+      { t: `Beneficio de Entrais (${m})`, a: 12, g: 'v', fmt: EUR, h: 'right', v: (_, e) => e.beneficio },
+      { t: 'Precio sin IVA', a: 12, g: 'v', fmt: EUR, h: 'right', v: (_, e) => e.base },
+      { t: 'IVA (21 %)', a: 10, g: 'v', fmt: EUR, h: 'right', v: (_, e) => e.iva },
+      { t: 'PRECIO DE VENTA (con IVA)', a: 14, g: 'v', fmt: EUR, h: 'right', fuerte: true, v: (_, e) => e.precio },
+      { t: 'Precio más bajo hoy (con IVA)', a: 14, g: 'b', fmt: EUR, h: 'right', v: (f) => f.precioMin },
+      { t: 'Tienda', a: 18, g: 'b', v: (f) => f.tiendaMin ?? '' },
+      { t: 'Nuestro precio frente al más bajo', a: 16, g: 'b', h: 'center', v: frente },
+      { t: 'Diferencia (con IVA)', a: 12, g: 'b', fmt: '+#,##0.00 "€";-#,##0.00 "€";0.00 "€"', h: 'right', v: (f, e) => (f.precioMin === null || e.precio === null ? null : r2(e.precio - f.precioMin)) },
+    ]
+    const primera = 2
+    const ultima = primera + cols.length - 1
+    hoja.anchoColumna(1, 2)
+    cols.forEach((c, i) => hoja.anchoColumna(primera + i, c.a))
+    hoja.anchoColumna(ultima + 1, 2)
+    banda(hoja, ultima + 1, 'Precios en PcComponentes · producto a producto', `${filas.length.toLocaleString('es-ES')} productos · coste + comisión + beneficio del ${m} = precio sin IVA; + IVA = precio de venta · ${d.hoy}`)
+
+    const fg = 8
+    const fc = 9
+    let c = primera
+    while (c <= ultima) {
+      const g = cols[c - primera].g
+      let fin = c
+      while (fin + 1 <= ultima && cols[fin + 1 - primera].g === g) fin += 1
+      const o = G[g as keyof typeof G]
+      hoja.pintar(fg, c, fin, { relleno: o.relleno, color: o.tinta, nombre: FUENTE.titulo, tam: 9, negrita: true, h: 'center', v: 'center' })
+      hoja.poner(fg, c, o.titulo, { relleno: o.relleno, color: o.tinta, nombre: FUENTE.titulo, tam: 9, negrita: true, h: 'center', v: 'center' })
+      hoja.combinar(fg, c, fg, fin)
+      c = fin + 1
+    }
+    hoja.altoFila(fg, 20)
+    cols.forEach((col, i) => hoja.poner(fc, primera + i, col.t, { relleno: COLOR.banda, color: COLOR.blanco, nombre: FUENTE.titulo, tam: 9, negrita: true, h: col.h ?? 'left', v: 'center', ajustar: true, abajo: { estilo: 'medium', color: COLOR.naranja } }))
+    hoja.altoFila(fc, 40)
+
+    const tono: Record<string, Estilo> = {
+      'Más barato': { relleno: 'E2F2E6', color: '1E5E32', negrita: true },
+      Igual: { relleno: 'E2F2E6', color: '1E5E32', negrita: true },
+      'Más caro': { relleno: 'FDF0D8', color: '8A5A00', negrita: true },
+      'Nadie lo vende': { relleno: 'EEEEEE', color: '5E5852', negrita: true },
+    }
+    filas.forEach((f, n) => {
+      const e = desgloseDelPrecio(f)
+      const fila = fc + 1 + n
+      const alterna = n % 2 === 1 ? { relleno: COLOR.crema } : {}
+      cols.forEach((col, i) => {
+        const v = col.v(f, e)
+        let est: Estilo = { ...alterna, nombre: FUENTE.cuerpo, tam: 10, color: COLOR.tinta, h: col.h ?? 'left', v: 'center', formato: col.fmt, abajo: fino, negrita: col.fuerte }
+        if (col.t === 'PRECIO DE VENTA (con IVA)') est = { ...est, relleno: 'E2F2E6', color: '1E5E32', nombre: FUENTE.titulo }
+        if (col.t === 'Nuestro precio frente al más bajo' && typeof v === 'string') est = { ...est, ...tono[v] }
+        if ((col.t === 'SKU' || col.t === 'EAN') && v !== null) est = { ...est, color: COLOR.etiqueta }
+        if (col.t.startsWith('Comisión %') && e.porDefecto) est = { ...est, color: '9A3F07', cursiva: true }
+        hoja.poner(fila, primera + i, v, est)
+      })
+    })
+    hoja.congelar = { filas: fc, columnas: primera + 2 }
+    if (filas.length) hoja.filtro = { fila: fc, desde: primera, hasta: ultima, hastaFila: fc + filas.length }
+  }
+
+  return libro.empaquetar()
+}

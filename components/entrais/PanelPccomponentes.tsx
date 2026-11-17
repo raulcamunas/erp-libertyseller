@@ -694,15 +694,16 @@ function MercadoYMargen({ ofertas }: { ofertas: OfertaPcc[] }) {
   const trozo = visibles.slice(actual * POR_PAGINA, (actual + 1) * POR_PAGINA)
 
   /** El Excel lleva TODO lo que existe en PcComponentes (no solo lo filtrado), con la marca y por pestañas: lib/pccomponentes/mercado-excel.ts */
-  async function descargar() {
+  async function descargar(paraEntrais = false) {
     if (!datos) return
-    const { excelDeMercado } = await import('@/lib/pccomponentes/mercado-excel')
+    const { excelDeMercado, excelParaEntrais } = await import('@/lib/pccomponentes/mercado-excel')
     const hoy = new Date().toISOString().slice(0, 10)
-    const bytes = excelDeMercado({ filas, margenObjetivo, conEan: datos.conEan, existen: datos.existen, actualizadoAt: datos.actualizadoAt, hoy })
+    const entrada = { filas, margenObjetivo, conEan: datos.conEan, existen: datos.existen, actualizadoAt: datos.actualizadoAt, hoy }
+    const bytes = paraEntrais ? excelParaEntrais(entrada) : excelDeMercado(entrada)
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `entrais-pccomponentes-mercado-${hoy}.xlsx`
+    a.download = paraEntrais ? `Entrais - precios en PcComponentes ${hoy}.xlsx` : `entrais-pccomponentes-mercado-${hoy}.xlsx`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -737,9 +738,13 @@ function MercadoYMargen({ ofertas }: { ofertas: OfertaPcc[] }) {
           <input value={margenTexto} onChange={(e) => { setMargenTexto(e.target.value); setPagina(0) }} inputMode="decimal" className={cx(CAMPO.input, CAMPO.numero, '!w-[64px]')} />
           %
         </label>
-        <button type="button" disabled={visibles.length === 0} onClick={() => void descargar()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')}>
+        <button type="button" disabled={filas.length === 0} onClick={() => void descargar()} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')} title="Nuestro análisis: margen al precio del mercado, competitivos, etc.">
           <Download className="h-3 w-3" />
           Excel
+        </button>
+        <button type="button" disabled={filas.length === 0} onClick={() => void descargar(true)} className={cx(BOTON.base, BOTON.alto, BOTON.primario)} title="Para el cliente: por qué cada precio (coste, comisión, beneficio, IVA) y el precio más bajo de hoy">
+          <Download className="h-3 w-3" />
+          Excel para Entrais
         </button>
       </div>
 

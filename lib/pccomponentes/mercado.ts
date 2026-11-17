@@ -24,6 +24,11 @@ export interface FilaMercado {
   ean: string
   /** Proveedor + canon + porte, sin IVA */
   coste: number
+  /** El desglose del coste, sin IVA (para explicarle el precio al cliente) */
+  precioProveedor: number | null
+  canon: number | null
+  /** Porte: el envío al cliente */
+  porte: number | null
   titulo: string
   marca: string | null
   categoria: string | null
@@ -46,6 +51,9 @@ interface FilaPrecios {
   sku: string
   ean: string | null
   coste: number | null
+  precio_proveedor: number | null
+  canon: number | null
+  porte: number | null
 }
 
 interface FilaGuardada {
@@ -62,7 +70,7 @@ interface FilaGuardada {
 
 async function productosConEan(): Promise<FilaPrecios[]> {
   const service = createServiceClient()
-  const filas = await fetchAll<FilaPrecios>((a, b) => service.from('entrais_precios').select('sku, ean, coste').not('ean', 'is', null).order('sku', { ascending: true }).range(a, b))
+  const filas = await fetchAll<FilaPrecios>((a, b) => service.from('entrais_precios').select('sku, ean, coste, precio_proveedor, canon, porte').not('ean', 'is', null).order('sku', { ascending: true }).range(a, b))
   return filas.filter((f) => f.ean)
 }
 
@@ -88,6 +96,9 @@ export async function leerMercado(): Promise<LecturaMercado> {
       sku: p.sku,
       ean: p.ean!,
       coste,
+      precioProveedor: p.precio_proveedor === null ? null : Number(p.precio_proveedor),
+      canon: p.canon === null ? null : Number(p.canon),
+      porte: p.porte === null ? null : Number(p.porte),
       titulo: g.titulo ?? '',
       marca: g.marca,
       categoria: g.categoria,
