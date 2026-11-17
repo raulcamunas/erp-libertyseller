@@ -69,7 +69,7 @@ export function AvisosPush() {
       const { clave } = await pedirJson<{ clave: string | null }>('/api/push/clave')
       if (!clave) return setEstado('sin_migracion')
       const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: aBytes(clave) as unknown as BufferSource }))
-      await pedirJson('/api/push/suscribir', 'POST', { suscripcion: sub.toJSON(), categoria: 'tareas' })
+      await pedirJson('/api/push/suscribir', 'POST', { suscripcion: sub.toJSON(), categoria: 'todo' })
       await revisar()
       toast.success('Avisos activados en este dispositivo')
     } catch (e) {
@@ -134,7 +134,7 @@ export function AvisosPush() {
       {estado === 'inactivo' && <button type="button" onClick={() => void activar()} disabled={ocupado} className="tc-boton-primario !h-7 shrink-0">{ocupado ? <Loader2 className="h-3 w-3 animate-spin" /> : <BellRing className="h-3 w-3" />} Activar</button>}
       {estado === 'activo' && (
         <div className="flex shrink-0 items-center gap-1.5">
-          <select aria-label="Qué avisos recibir" value={dispositivo?.categoria ?? 'tareas'} onChange={(e) => void cambiarCategoria(e.target.value as 'tareas' | 'todo')} className="h-7 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-1.5 text-[11.5px]">
+          <select aria-label="Qué avisos recibir" value={dispositivo?.categoria ?? 'todo'} onChange={(e) => void cambiarCategoria(e.target.value as 'tareas' | 'todo')} className="h-7 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-1.5 text-[11.5px]">
             <option value="tareas">Solo tareas</option>
             <option value="todo">Todos los avisos</option>
           </select>
