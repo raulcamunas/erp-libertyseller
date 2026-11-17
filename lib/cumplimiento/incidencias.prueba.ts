@@ -251,8 +251,11 @@ console.log('\n=== el resumen de un listing ===')
   ok('limpio: no necesita atención', !necesitaAtencion(limpio))
 
   const r = resumir(normalizarIncidencias([avisoImagen, faltaFabricante, gtinOculta]), AHORA)
-  ok('cuenta errores', r.errores === 2, String(r.errores))
-  ok('cuenta avisos', r.avisos === 1, String(r.avisos))
+  // El error de «datos» que no oculta (faltaFabricante) cuenta como aviso desde el 17 nov 2026: solo es ERROR lo que oculta o es normativa
+  ok('cuenta errores', r.errores === 1, String(r.errores))
+  ok('cuenta avisos', r.avisos === 2, String(r.avisos))
+  const soloDatos = resumir(normalizarIncidencias([faltaFabricante]), AHORA)
+  ok('un error de datos que no oculta no pide atención', soloDatos.errores === 0 && soloDatos.avisos === 1 && !necesitaAtencion(soloDatos), JSON.stringify(soloDatos))
   ok('suprimido', r.suprimido)
   ok('el tema lo pone la que oculta', r.tema === 'identificadores', String(r.tema))
   ok('todos los temas, de más a menos grave', r.temas.join() === 'identificadores,datos,imagenes', r.temas.join())

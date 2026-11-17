@@ -629,7 +629,7 @@ function FilaLista({
   const ficha = estadoDeFicha(f.estado)
   const fichaTono: TonoEstado = ficha === 'comprable' ? 'verde' : ficha === 'visible' ? 'gris' : 'rojo'
   const FichaIcono = ficha === 'comprable' ? CheckCircle2 : ficha === 'visible' ? Info : EyeOff
-  const rotuloFicha = ficha === 'comprable' ? 'Comprable' : ficha === 'visible' ? 'Solo visible' : 'Oculto'
+  const rotuloFicha = ficha === 'comprable' ? 'Comprable' : ficha === 'visible' ? (f.con_stock ? 'Solo visible' : 'Sin stock') : 'Oculto'
   const producto = urlProducto(f.marketplace_id, f.asin)
   const inventario = urlInventario(f.marketplace_id, f.sku)
   // Los avisos menores (no cambian nada en la venta) van plegados al final: están, pero no tapan lo que importa

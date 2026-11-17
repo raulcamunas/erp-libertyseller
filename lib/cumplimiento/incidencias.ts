@@ -527,8 +527,12 @@ export function resumir(incidencias: readonly IncidenciaNueva[], ahora: Date): R
   let avisos = 0
   let suprimido = false
   for (const i of relevantes) {
-    if (i.gravedad === 'error') errores += 1
-    else if (i.gravedad === 'aviso') avisos += 1
+    // Solo cuenta como ERROR lo que importa: lo que oculta el listing o la normativa (que Amazon retirará). Un error de «datos» que no saca el
+    // listing de la venta (un atributo que falta, una variante que no se crea) es un aviso: se ve, pero no pide atención (17 nov 2026)
+    if (i.gravedad === 'error') {
+      if (ocultaAhora(i, ahora) || i.tema === 'normativa') errores += 1
+      else avisos += 1
+    } else if (i.gravedad === 'aviso') avisos += 1
     if (ocultaAhora(i, ahora)) suprimido = true
   }
 
