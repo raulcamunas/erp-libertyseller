@@ -27,6 +27,8 @@
  * `nota`). Se convierten en doctrina cuando se firma la ficha de cuenta; mientras tanto la vista previa los enseña antes de crear nada.
  */
 
+import { partesDeNombre } from './reglas'
+
 export const ROLES = ['AUTO RADAR', 'MANUAL AMPLIA', 'MANUAL EXACTA / DOMINIO', 'MANUAL EXACTA / ESTABILIDAD', 'ATAQUE ASIN'] as const
 export type Rol = (typeof ROLES)[number]
 
@@ -158,6 +160,8 @@ export interface OpcionesDePlan {
   /** La puja de referencia: de ella salen las de cada campaña */
   pujaBase: number
   roles?: readonly Rol[]
+  /** Entre qué papeles se reparte el presupuesto (por defecto, los que se crean). Para crear SOLO los que faltan, con el reparto que tendría la estructura entera */
+  repartoEntre?: readonly Rol[]
 }
 
 export type ResultadoDelPlan = { ok: true; campanas: CampanaPlan[] } | { ok: false; error: string }
@@ -173,8 +177,10 @@ export function planDeEstructura(producto: ProductoParaEstructura, opciones: Opc
   if (/[|]/.test(producto.resumen)) return { ok: false, error: 'El resumen no puede llevar el carácter «|»: separa los campos del nombre.' }
   if (!(opciones.pujaBase >= PUJA_MINIMA)) return { ok: false, error: `La puja base mínima es ${PUJA_MINIMA.toFixed(2)}.` }
 
-  const reparto = repartoDePresupuesto(opciones.presupuestoDiario, roles)
-  if (!reparto) return { ok: false, error: `Con ${roles.length} campañas el presupuesto diario mínimo es ${roles.length * PRESUPUESTO_MINIMO_CAMPANA}: Amazon pide al menos ${PRESUPUESTO_MINIMO_CAMPANA} por campaña.` }
+  const entre = opciones.repartoEntre ?? roles
+  const repartoTodo = repartoDePresupuesto(opciones.presupuestoDiario, entre)
+  if (!repartoTodo) return { ok: false, error: `Con ${entre.length} campañas el presupuesto diario mínimo es ${entre.length * PRESUPUESTO_MINIMO_CAMPANA}: Amazon pide al menos ${PRESUPUESTO_MINIMO_CAMPANA} por campaña.` }
+  const reparto = repartoTodo.filter((f) => roles.includes(f.rol))
 
   const puja = (factor: number) => Math.max(PUJA_MINIMA, redondear(opciones.pujaBase * factor))
   const campanas: CampanaPlan[] = []
@@ -254,8 +260,59 @@ export function planDeEstructura(producto: ProductoParaEstructura, opciones: Opc
  * Las campañas del plan que YA existen en la cuenta, comparando por nombre (sin mayúsculas ni espacios de más). Es lo que impide crear dos veces lo mismo si el botón se pulsa de nuevo o si una
  * creación quedó a medias.
  */
-export function yaExistentes(plan: readonly CampanaPlan[], nombresDeLaCuenta: readonly string[]): Set<Rol> {
+export function yaExistentes(plan: readonly CampanaPlan[], nombresDeLaCuenta: readonly string[], asin?: string): Set<Rol> {
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase()
   const hay = new Set(nombresDeLaCuenta.map(norm))
-  return new Set(plan.filter((c) => hay.has(norm(c.nombre))).map((c) => c.rol))
+  const ya = new Set(plan.filter((c) => hay.has(norm(c.nombre))).map((c) => c.rol))
+  // Y las que SON de ese producto y de ese papel aunque se llamen de otra manera (el RESUMEN o el SKU distintos, «AUTO» en vez de «AUTO RADAR»…): crear otra sería duplicarla
+  if (asin) for (const r of rolesDelProducto(nombresDeLaCuenta, asin)) ya.add(r)
+  return new Set([...ya].filter((r) => plan.some((c) => c.rol === r)))
+}
+
+export interface CampanaParaDiagnostico {
+  nombre: string
+  estado: string
+  presupuesto: number | null
+}
+
+export interface DiagnosticoDeProducto {
+  existentes: Array<{ rol: Rol; nombre: string; estado: string; presupuesto: number | null }>
+  /** De las 4 de arranque, las que no tiene (en el orden del embudo) */
+  faltan: Rol[]
+  /** El presupuesto diario que tendría la estructura entera, deducido de lo que ya gasta cada campaña según su peso en el SOP. null si no hay con qué deducirlo (ninguna campaña con presupuesto) */
+  presupuestoTotalSugerido: number | null
+}
+
+/**
+ * QUÉ LE FALTA A UN PRODUCTO. PURO. Mira las campañas de la cuenta que llevan su ASIN en la nomenclatura (las archivadas no cuentan) y compara con las 4 de arranque. El presupuesto sugerido para las
+ * que faltan sale de proporción: si lo que ya tiene (p. ej. AMPLIA + EXACTA = 60 de 85 puntos) suma 5,40 €/día, la estructura entera sería 5,40 × 85 / 60 y a cada nueva le toca su parte (mínimo 1).
+ */
+export function diagnosticoDeProducto(asin: string, campanas: readonly CampanaParaDiagnostico[]): DiagnosticoDeProducto {
+  const a = asin.trim().toUpperCase()
+  const existentes: DiagnosticoDeProducto['existentes'] = []
+  for (const c of campanas) {
+    if (c.estado === 'ARCHIVED') continue
+    const p = partesDeNombre(c.nombre)
+    if (p && p.asin.toUpperCase() === a) existentes.push({ rol: p.rol, nombre: c.nombre, estado: c.estado, presupuesto: c.presupuesto })
+  }
+  const tiene = new Set(existentes.map((e) => e.rol))
+  const faltan = ROLES_DE_ARRANQUE.filter((r) => !tiene.has(r))
+  const p = pesos(ROLES_DE_ARRANQUE)
+  const suma = [...p.values()].reduce((x, y) => x + y, 0)
+  const conPresupuesto = existentes.filter((e) => ROLES_DE_ARRANQUE.includes(e.rol) && e.presupuesto != null && e.presupuesto > 0)
+  const pesoQueTiene = conPresupuesto.reduce((x, e) => x + (p.get(e.rol) ?? 0), 0)
+  const gastoQueTiene = conPresupuesto.reduce((x, e) => x + (e.presupuesto ?? 0), 0)
+  const total = pesoQueTiene > 0 ? Math.max(ROLES_DE_ARRANQUE.length * PRESUPUESTO_MINIMO_CAMPANA, redondear((gastoQueTiene * suma) / pesoQueTiene)) : null
+  return { existentes, faltan, presupuestoTotalSugerido: total }
+}
+
+/** Los papeles del embudo que un producto ya tiene en la cuenta, mirando el ASIN y la estrategia del nombre de cada campaña (cualquiera de las nomenclaturas que conviven) */
+export function rolesDelProducto(nombresDeLaCuenta: readonly string[], asin: string): Set<Rol> {
+  const a = asin.trim().toUpperCase()
+  const roles = new Set<Rol>()
+  for (const n of nombresDeLaCuenta) {
+    const p = partesDeNombre(n)
+    if (p && p.asin.toUpperCase() === a) roles.add(p.rol)
+  }
+  return roles
 }

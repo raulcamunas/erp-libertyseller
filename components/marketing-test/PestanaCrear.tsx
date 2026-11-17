@@ -8,7 +8,7 @@ import { CAJA as TARJETA } from './piezas'
 import { Cargando, Vacio } from '@/components/plataforma/comun'
 import type { EstructuraCreada, FichaDeCuenta, ProductoDeAds } from '@/lib/ads/cuenta'
 import type { CampanaPlan } from '@/lib/ads/estructura'
-import type { ResultadoDeCampana } from '@/lib/ads/crear-estructura'
+import type { FaltanDeProducto, ResultadoDeCampana } from '@/lib/ads/crear-estructura'
 import { margenDeProducto, objetivosDesdeAcos, pujaBaseSugerida } from '@/lib/ads/margen'
 import { fmt, llamar } from './llamar'
 import { PanelDeSemillas } from './PanelDeSemillas'
@@ -41,6 +41,9 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
   const [vista, setVista] = useState<Vista | null>(null)
   const [resultados, setResultados] = useState<ResultadoDeCampana[] | null>(null)
   const [ocupado, setOcupado] = useState<'vista' | 'crear' | null>(null)
+  const [faltan, setFaltan] = useState<{ productos: FaltanDeProducto[]; listaTruncada: boolean } | null>(null)
+  const [errorFaltan, setErrorFaltan] = useState<string | null>(null)
+  const [creandoFalta, setCreandoFalta] = useState<string | 'todo' | null>(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -57,9 +60,57 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
     }
   }, [perfilId])
 
+  const cargarFaltan = useCallback(async () => {
+    try {
+      setFaltan(await llamar<{ productos: FaltanDeProducto[]; listaTruncada: boolean }>('/api/ads/cuenta/estructura', { metodo: 'POST', cuerpo: { perfilId, accion: 'faltan' } }))
+      setErrorFaltan(null)
+    } catch (e) {
+      setErrorFaltan(e instanceof Error ? e.message : 'No se ha podido comprobar qué falta.')
+    }
+  }, [perfilId])
+
   useEffect(() => {
     void cargar()
-  }, [cargar])
+    void cargarFaltan()
+  }, [cargar, cargarFaltan])
+
+  /** Lo que se puede crear de un producto con un clic: tiene ya alguna campaña (de ahí sale el presupuesto) y se le puede calcular la puja base */
+  function plan(f: FaltanDeProducto): { ok: true; presupuesto: number; puja: number } | { ok: false; motivo: string } {
+    if (f.existentes.length === 0) return { ok: false, motivo: 'No tiene ninguna campaña: créalas con el formulario de abajo (hay que elegir presupuesto).' }
+    if (f.presupuestoTotalSugerido == null) return { ok: false, motivo: 'Sus campañas no tienen presupuesto con el que calcular el de las nuevas: usa el formulario de abajo.' }
+    const p = productos?.find((x) => x.id === f.productoId)
+    if (!p || !ficha) return { ok: false, motivo: 'Producto sin cargar.' }
+    const o = objetivosDesdeAcos(p.precio, p.acosObjetivoPct, ficha.gastoSinVentaX)
+    const puja = pujaBaseSugerida(p.precio, o?.acosObjetivoPct ?? null)
+    if (puja == null) return { ok: false, motivo: 'Falta el precio o el ACoS objetivo del producto para calcular la puja: ponlo en Productos.' }
+    return { ok: true, presupuesto: f.presupuestoTotalSugerido, puja }
+  }
+
+  async function crearLoQueFalta(lista: FaltanDeProducto[]) {
+    const hacer = lista.map((f) => ({ f, p: plan(f) })).filter((x): x is { f: FaltanDeProducto; p: { ok: true; presupuesto: number; puja: number } } => x.p.ok && x.f.faltan.length > 0)
+    if (hacer.length === 0) return
+    if (faltan?.listaTruncada) { toast.error('La cuenta tiene tantas campañas que no se han visto todas: no se crea nada para no duplicar.'); return }
+    const total = hacer.reduce((a, x) => a + x.f.faltan.length, 0)
+    const detalle = hacer.map((x) => `· ${x.f.resumen} (${x.f.asin}): ${x.f.faltan.join(', ')}`).join('\n')
+    if (!window.confirm(`Se van a crear ${total} campaña${total === 1 ? '' : 's'} PAUSADA${total === 1 ? '' : 's'} en la cuenta de Amazon Ads del cliente:\n\n${detalle}\n\nNo gastan nada hasta que las actives. ¿Seguimos?`)) return
+    setCreandoFalta(lista.length === 1 ? lista[0].productoId : 'todo')
+    let bien = 0
+    let mal = 0
+    try {
+      for (const { f, p } of hacer) {
+        const r = await llamar<{ resultados: ResultadoDeCampana[] }>('/api/ads/cuenta/estructura', { metodo: 'POST', cuerpo: { perfilId, productoId: f.productoId, presupuestoDiario: p.presupuesto, pujaBase: p.puja, accion: 'crear' } })
+        bien += r.resultados.filter((x) => x.estado === 'creada').length
+        mal += r.resultados.filter((x) => x.estado === 'error').length
+      }
+      if (mal === 0) toast.success(`${bien} campaña${bien === 1 ? '' : 's'} creada${bien === 1 ? '' : 's'}, pausada${bien === 1 ? '' : 's'}.`)
+      else toast.error(`${bien} creadas y ${mal} con error: mira el Log de cambios.`)
+    } catch (e) {
+      toast.error(`${e instanceof Error ? e.message : 'No se ha podido crear.'}${bien ? ` (ya se habían creado ${bien})` : ''}`)
+    } finally {
+      setCreandoFalta(null)
+      await Promise.all([cargar(), cargarFaltan()])
+    }
+  }
 
   const producto = productos?.find((p) => p.id === productoId) ?? null
   const margen = useMemo(() => (producto ? margenDeProducto(producto) : null), [producto])
@@ -108,7 +159,7 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
       if (mal === 0) toast.success(`${bien} campañas creadas, pausadas.`)
       else toast.error(`${bien} creadas y ${mal} con error: mira el detalle.`)
       setVista(null)
-      await cargar()
+      await Promise.all([cargar(), cargarFaltan()])
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se ha podido crear.')
     } finally {
@@ -143,6 +194,59 @@ export function PestanaCrear({ perfilId, moneda, irA }: { perfilId: string; mone
           </span>
         </div>
       )}
+
+      <section className={TARJETA.base}>
+        <header className={TARJETA.cabecera}>
+          <h2 className={TITULO.seccion}>Qué falta en esta cuenta</h2>
+        </header>
+        <div className={`${TARJETA.cuerpo} flex flex-col gap-2`}>
+          {errorFaltan ? (
+            <p className={`${TIPO.s} ${TEXTO.t3}`}>{errorFaltan}</p>
+          ) : !faltan ? (
+            <p className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo las campañas de la cuenta…</p>
+          ) : (
+            (() => {
+              const conHueco = faltan.productos.filter((f) => f.faltan.length > 0)
+              const listos = conHueco.filter((f) => plan(f).ok)
+              if (conHueco.length === 0) return <p className={`${TIPO.s} ${TEXTO.t2}`}>Todos los productos activos tienen las 4 campañas (Automática, Amplia, Exacta dominio y Ataque ASIN).</p>
+              return (
+                <>
+                  <p className={`${TIPO.s} ${TEXTO.t3}`}>Se compara cada producto con la estructura de 4 campañas, reconociendo las que ya tiene aunque se llamen de otra forma. Se crean PAUSADAS y, con ellas, el agente ya tiene a dónde promover.</p>
+                  <ul className="flex flex-col divide-y divide-[var(--linea,rgba(255,255,255,0.08))]">
+                    {conHueco.map((f) => {
+                      const pl = plan(f)
+                      return (
+                        <li key={f.productoId} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                          <div className="min-w-0">
+                            <div className={`${TIPO.m} ${TEXTO.t1}`}>{f.resumen} <span className={TEXTO.t3}>· {f.asin}</span></div>
+                            <div className={`${TIPO.s} ${TEXTO.t2}`}>
+                              Falta{f.faltan.length === 1 ? '' : 'n'}: <strong>{f.faltan.map((r) => (r === 'MANUAL EXACTA / DOMINIO' ? 'Exacta dominio' : r === 'MANUAL AMPLIA' ? 'Amplia' : r === 'AUTO RADAR' ? 'Automática' : 'Ataque ASIN')).join(' · ')}</strong>
+                              {f.existentes.length > 0 && <span className={TEXTO.t3}> · ya tiene {f.existentes.length}</span>}
+                            </div>
+                            {!pl.ok && <div className={`${TIPO.s} ${TEXTO.t3}`}>{pl.motivo}</div>}
+                          </div>
+                          {pl.ok && (
+                            <button type="button" disabled={creandoFalta !== null} onClick={() => crearLoQueFalta([f])} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}>
+                              {creandoFalta === f.productoId ? 'Creando…' : `Crear ${f.faltan.length === 1 ? 'la que falta' : `las ${f.faltan.length} que faltan`}`}
+                            </button>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  {listos.length > 1 && (
+                    <div>
+                      <button type="button" disabled={creandoFalta !== null} onClick={() => crearLoQueFalta(listos)} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}>
+                        {creandoFalta === 'todo' ? 'Creando…' : `Crear todo lo que falta (${listos.reduce((a, f) => a + f.faltan.length, 0)} campañas en ${listos.length} productos)`}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )
+            })()
+          )}
+        </div>
+      </section>
 
       <section className={TARJETA.base}>
         <header className={TARJETA.cabecera}>

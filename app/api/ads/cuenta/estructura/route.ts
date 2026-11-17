@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
-import { productoDeCuenta } from '@/lib/ads/cuenta'
-import { crear, previsualizar } from '@/lib/ads/crear-estructura'
+import { productoDeCuenta, productosDeCuenta } from '@/lib/ads/cuenta'
+import { crear, faltantesDeCuenta, previsualizar } from '@/lib/ads/crear-estructura'
 import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
 
 /**
  * CREAR LA ESTRUCTURA DE 4 CAMPAÑAS DE UN PRODUCTO. Solo administradores. ESCRIBE en la cuenta del cliente.
  *
- *   POST {perfilId, productoId, presupuestoDiario, pujaBase, accion: 'previsualizar' | 'crear'}
+ *   POST {perfilId, productoId, presupuestoDiario, pujaBase, accion: 'previsualizar' | 'crear' | 'faltan'}
  *
  * «previsualizar» solo lee (las campañas que ya hay) y devuelve el plan; «crear» lo ejecuta y deja las campañas PAUSADAS. Pausadas y sin keywords: no gastan nada hasta que alguien las active.
  */
@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
     const a = await abrirCuenta(body.perfilId)
     if (a instanceof NextResponse) return a
+    // «faltan»: qué le falta a cada producto de la cuenta (solo lee)
+    if (body.accion === 'faltan') return NextResponse.json(await faltantesDeCuenta(a.cuenta, await productosDeCuenta(a.cuenta.id)))
     if (typeof body.productoId !== 'string' || !UUID.test(body.productoId)) return fail(400, 'Falta el producto.')
     const producto = await productoDeCuenta(a.cuenta.id, body.productoId)
     if (!producto) return fail(404, 'Ese producto no está en esta cuenta.')

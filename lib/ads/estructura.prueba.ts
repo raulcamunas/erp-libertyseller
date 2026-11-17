@@ -1,4 +1,4 @@
-import { nombreDeCampana, planDeEstructura, repartoDePresupuesto, resumenDesdeTitulo, resumenNormalizado, ROLES_DE_ARRANQUE, yaExistentes } from './estructura'
+import { diagnosticoDeProducto, nombreDeCampana, planDeEstructura, repartoDePresupuesto, resumenDesdeTitulo, resumenNormalizado, ROLES_DE_ARRANQUE, yaExistentes } from './estructura'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -83,6 +83,35 @@ console.log('\n=== no crear dos veces lo mismo ===')
     ok('detecta las existentes sin importar mayúsculas ni espacios', ya.size === 2 && ya.has('AUTO RADAR') && ya.has('ATAQUE ASIN'), [...ya].join(','))
     ok('si no hay ninguna, vacío', yaExistentes(r.campanas, []).size === 0)
   }
+}
+
+console.log('\n=== qué le falta a un producto ===')
+{
+  const r = planDeEstructura(producto, { presupuestoDiario: 20, pujaBase: 0.8 })
+  if (r.ok) {
+    // Los nombres de Cobo Family: mismo ASIN y papel pero otro resumen y otro SKU
+    const cuenta = ['B0H5F7RJ5F | FIGURAS | FIGURAS RELIGIOSAS | AUTO RADAR', 'B0H5F7RJ5F | FIGURAS | FIGURAS RELIGIOSAS | MANUAL AMPLIA']
+    const ya = yaExistentes(r.campanas, cuenta, producto.asin)
+    ok('con el ASIN reconoce las de otro nombre', ya.size === 2 && ya.has('AUTO RADAR') && ya.has('MANUAL AMPLIA'), [...ya].join(','))
+    ok('sin el ASIN no las reconoce (como antes)', yaExistentes(r.campanas, cuenta).size === 0)
+    ok('otro ASIN no cuenta', yaExistentes(r.campanas, ['B0XXXXXXXX | A | B | AUTO RADAR'], producto.asin).size === 0)
+  }
+  const d = diagnosticoDeProducto('B0DVVNHWZM', [
+    { nombre: 'B0DVVNHWZM | FIGURAS | RESINA | AUTO RADAR', estado: 'ENABLED', presupuesto: 3 },
+    { nombre: 'B0DVVNHWZM | FIGURAS | RESINA | MANUAL AMPLIA', estado: 'ENABLED', presupuesto: 2.4 },
+    { nombre: 'B0DVVNHWZM | FIGURAS | RESINA | MANUAL EXACTA / DOMINIO', estado: 'PAUSED', presupuesto: 3 },
+    { nombre: 'B0DVVNHWZM | FIGURAS | RESINA | ATAQUE ASIN', estado: 'ARCHIVED', presupuesto: 1 },
+    { nombre: 'B0OTROASIN | X | Y | ATAQUE ASIN', estado: 'ENABLED', presupuesto: 1 },
+  ])
+  ok('le falta Ataque ASIN (la archivada no cuenta, la de otro producto tampoco)', d.faltan.length === 1 && d.faltan[0] === 'ATAQUE ASIN', d.faltan.join(','))
+  ok('ve sus 3 campañas', d.existentes.length === 3)
+  ok('presupuesto de la estructura entera deducido de lo que ya tiene (8,4 € en 75 de 85 puntos ≈ 9,52)', d.presupuestoTotalSugerido === 9.52, String(d.presupuestoTotalSugerido))
+  const nada = diagnosticoDeProducto('B0DVVNHWZM', [])
+  ok('sin campañas: faltan las 4 y no hay presupuesto que deducir', nada.faltan.length === 4 && nada.presupuestoTotalSugerido === null)
+  const completo = diagnosticoDeProducto('B0DVVNHWZM', ['AUTO RADAR', 'MANUAL AMPLIA', 'MANUAL EXACTA / DOMINIO', 'ATAQUE ASIN'].map((e) => ({ nombre: `B0DVVNHWZM | A | B | ${e}`, estado: 'ENABLED', presupuesto: 1 })))
+  ok('completo: no falta nada', completo.faltan.length === 0)
+  const alias = diagnosticoDeProducto('B0DVVNHWZM', [{ nombre: 'B0DVVNHWZM | A | B | EXACTA ASIN', estado: 'ENABLED', presupuesto: 1 }, { nombre: 'B0DVVNHWZM | A | B | AUTO', estado: 'ENABLED', presupuesto: 1 }])
+  ok('reconoce las nomenclaturas alternativas (EXACTA ASIN = Ataque, AUTO = Auto radar)', !alias.faltan.includes('ATAQUE ASIN') && !alias.faltan.includes('AUTO RADAR'), alias.faltan.join(','))
 }
 
 console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)

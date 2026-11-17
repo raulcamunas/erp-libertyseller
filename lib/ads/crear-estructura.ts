@@ -19,7 +19,7 @@
 import { campanasDe } from './campanas'
 import { archivarCampana, configurarAutomatica, crearAnuncio, crearCampana, crearGrupo } from './escritura'
 import { anotarCambio, guardarEstructura, type CuentaDeAnunciante, type ProductoDeAds } from './cuenta'
-import { planDeEstructura, yaExistentes, type CampanaPlan, type OpcionesDePlan, type Rol } from './estructura'
+import { diagnosticoDeProducto, planDeEstructura, yaExistentes, type CampanaPlan, type DiagnosticoDeProducto, type OpcionesDePlan, type Rol } from './estructura'
 import { AdsError } from './oauth'
 
 export interface VistaPrevia {
@@ -35,8 +35,24 @@ export async function previsualizar(cuenta: CuentaDeAnunciante, producto: Produc
   const { campanas, truncado } = await campanasDe(cuenta.conexionId, cuenta.profileId)
   // Las archivadas no cuentan: el nombre de una campaña archivada se puede volver a usar
   const nombres = campanas.filter((c) => c.estado !== 'ARCHIVED').map((c) => c.nombre)
-  const existentes = yaExistentes(plan.campanas, nombres)
+  const existentes = yaExistentes(plan.campanas, nombres, producto.asin)
   return { ok: true, vista: { campanas: plan.campanas.map((c) => ({ ...c, yaExiste: existentes.has(c.rol) })), listaTruncada: truncado } }
+}
+
+export interface FaltanDeProducto extends DiagnosticoDeProducto {
+  productoId: string
+  asin: string
+  resumen: string
+}
+
+/** QUÉ LE FALTA A CADA PRODUCTO ACTIVO de la cuenta. Lee las campañas en vivo y no escribe nada. `listaTruncada`: la lista vino cortada y el diagnóstico podría equivocarse (no se debe crear nada con ella) */
+export async function faltantesDeCuenta(cuenta: CuentaDeAnunciante, productos: readonly ProductoDeAds[]): Promise<{ productos: FaltanDeProducto[]; listaTruncada: boolean }> {
+  const { campanas, truncado } = await campanasDe(cuenta.conexionId, cuenta.profileId)
+  const lista = campanas.map((c) => ({ nombre: c.nombre, estado: c.estado, presupuesto: c.presupuesto }))
+  return {
+    listaTruncada: truncado,
+    productos: productos.filter((p) => p.activo).map((p) => ({ productoId: p.id, asin: p.asin, resumen: p.resumen, ...diagnosticoDeProducto(p.asin, lista) })),
+  }
 }
 
 export interface ResultadoDeCampana {
