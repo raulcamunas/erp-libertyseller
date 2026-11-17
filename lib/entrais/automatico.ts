@@ -398,13 +398,14 @@ async function publicar(
     dif_euros: number | null
     dif_porcentaje: number | null
     origen: string | null
+    coste: number | null
     enviado_precio?: number | null
     enviado_at?: string | null
     intentos_sin_aplicar?: number | null
     pvp_al_enviar?: number | null
   }
 
-  const COLUMNAS = 'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen'
+  const COLUMNAS = 'sku, precio, pvp_actual, dif_euros, dif_porcentaje, origen, coste'
 
   /**
    * SE REINTENTA SIN LAS COLUMNAS DE LA 180 SI TODAVÍA NO ESTÁ LANZADA.
@@ -560,7 +561,15 @@ async function publicar(
     }
 
     const pct = f.dif_porcentaje === null ? 0 : Math.abs(Number(f.dif_porcentaje))
-    if (tope !== null && pct > Number(tope)) {
+    /**
+     * UNA SUBIDA QUE SACA AL PRODUCTO DE PÉRDIDAS NO SE FRENA.
+     *
+     * El tope existe para que un coste mal puesto no dispare un precio absurdo. Pero si en Amazon está HOY por debajo de su coste, cada venta
+     * pierde dinero, y frenar la subida es justo lo contrario de lo que se quiere (17 nov 2026: el 43913 a 6,94 € con un coste de 7,24 €,
+     * frenado porque subir a 11,48 € era un +65 %). Solo subidas, y solo hasta lo que dice el motor.
+     */
+    const enPerdidas = f.coste != null && Number(f.coste) > 0 && Number(f.pvp_actual) < Number(f.coste) && dif > 0
+    if (tope !== null && pct > Number(tope) && !enPerdidas) {
       frenados.push({
         sku: f.sku,
         de: Number(f.pvp_actual),
