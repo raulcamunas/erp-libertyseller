@@ -123,6 +123,16 @@ export const TAREAS_CRON = [
       'han cambiado. La cadencia se ajusta en el motor de precios, no aquí.',
   },
   {
+    // Precios dinámicos de Entrais en PcComponentes (lib/pccomponentes/dinamico-servidor.ts). El reloj está en su configuración (30 min por defecto)
+    id: 'pcc-precios',
+    nombre: 'Precios dinámicos de PcComponentes',
+    ruta: '/api/pccomponentes/cron-precios',
+    cadaMinutos: 1,
+    que:
+      'Compara las ofertas de Entrais en PcComponentes con las de las demás tiendas y las pone unos céntimos por debajo del más barato, ' +
+      'nunca por debajo del margen mínimo. En ensayo solo apunta lo que haría. La cadencia se ajusta en su pantalla.',
+  },
+  {
     /**
      * VA APARTE DEL CICLO DE CATÁLOGO, Y ES EL MOTIVO DE QUE EXISTA.
      *
@@ -557,6 +567,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'shoplamp-precios': { prioridad: 'normal' },
   'auditor-stock': { prioridad: 'baja', pesada: true, ayunoMaxMin: 120 },
   'entrais-precios': { prioridad: 'esencial' },
+  'pcc-precios': { prioridad: 'normal' },
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },

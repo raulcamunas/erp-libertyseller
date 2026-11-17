@@ -187,6 +187,48 @@ export async function buscarProductosPorEan(eans: readonly string[]): Promise<Ma
   return encontrados
 }
 
+/** Una oferta de cualquier tienda sobre un producto (P11), en el orden en que la devuelve PcComponentes (por precio total) */
+export interface OfertaDeMercado {
+  ofertaId: number | null
+  tienda: string | null
+  /** Con IVA, sin envío */
+  precio: number
+  /** Con IVA y envío */
+  total: number
+  activa: boolean
+  cantidad: number
+  valoracion: number | null
+}
+
+/** Todas las ofertas de cada producto, por EAN (P11, 100 por llamada). Para los precios dinámicos: dónde está cada uno y quién está por debajo */
+export async function ofertasDeProductos(eans: readonly string[]): Promise<Map<string, OfertaDeMercado[]>> {
+  const salida = new Map<string, OfertaDeMercado[]>()
+  for (let i = 0; i < eans.length; i += 100) {
+    const trozo = eans.slice(i, i + 100)
+    const r = json((await llamar('/api/products/offers', { query: { product_references: trozo.map((e) => `EAN|${e}`).join(',') } })).texto) as { products?: Array<Record<string, unknown>> } | null
+    for (const p of r?.products ?? []) {
+      const refs = Array.isArray(p.product_references) ? (p.product_references as Array<Record<string, unknown>>) : []
+      const ean = refs.find((x) => x.reference_type === 'EAN')?.reference
+      if (typeof ean !== 'string') continue
+      const ofertas = (Array.isArray(p.offers) ? (p.offers as Array<Record<string, unknown>>) : []).map((o) => {
+        const precio = Number(o.price)
+        const total = Number(o.total_price ?? o.price)
+        return {
+          ofertaId: typeof o.offer_id === 'number' ? o.offer_id : Number.isFinite(Number(o.offer_id)) ? Number(o.offer_id) : null,
+          tienda: typeof o.shop_name === 'string' ? o.shop_name : null,
+          precio,
+          total: Number.isFinite(total) ? total : precio,
+          activa: o.active !== false,
+          cantidad: Number(o.quantity ?? 1),
+          valoracion: typeof o.shop_grade === 'number' ? o.shop_grade : null,
+        }
+      })
+      salida.set(ean, ofertas.filter((o) => Number.isFinite(o.precio)))
+    }
+  }
+  return salida
+}
+
 export async function leerImportacion(id: string): Promise<ImportacionPcc> {
   if (!/^\d+$/.test(id)) throw new MiraklError('El identificador de la importación no es válido', 400)
   return importacionDeRespuesta(json((await llamar(`/api/offers/imports/${id}`)).texto))

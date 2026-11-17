@@ -9,6 +9,7 @@ import type { CuentaPcc, ImportacionPcc, OfertaPcc, ProductoPcc } from '@/lib/pc
 import type { FilaMercado } from '@/lib/pccomponentes/mercado'
 import { juzgar, type JuicioDeMercado } from '@/lib/pccomponentes/margenes'
 import { cx } from '@/components/remesas/comun/ui'
+import { PreciosDinamicos } from './PreciosDinamicos'
 
 /**
  * ENTRAIS · PCCOMPONENTES: EL PANEL DE SU TIENDA.
@@ -27,7 +28,7 @@ export type EstadoDelPanel =
   | { tipo: 'sin_clave'; mensaje: string }
   | { tipo: 'error'; mensaje: string }
 
-type Pestana = 'ofertas' | 'probar' | 'mercado'
+type Pestana = 'ofertas' | 'probar' | 'mercado' | 'dinamicos'
 
 const euros = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`)
 const POR_PAGINA = 50
@@ -89,7 +90,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
   }, [])
 
   // La lista solo se pide cuando se necesita: al abrir «Ofertas» o «Probar» por primera vez
-  const necesitaLista = estado.tipo === 'ok' && pestana !== 'mercado'
+  const necesitaLista = estado.tipo === 'ok' && (pestana === 'ofertas' || pestana === 'probar')
   const pedida = useRef(false)
   useEffect(() => {
     if (necesitaLista && !pedida.current) {
@@ -140,6 +141,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
               ['ofertas', 'Ofertas'],
               ['probar', 'Probar un producto'],
               ['mercado', 'Mercado y margen'],
+              ['dinamicos', 'Precios dinámicos'],
             ] as const
           ).map(([id, rotulo]) => (
             <button
@@ -154,7 +156,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
           ))}
         </nav>
         {/* En «Mercado y margen» no hay nada de la tienda que releer: aquí «Actualizar» pide la lista de ofertas, que es la lectura con límite */}
-        {pestana !== 'mercado' && (
+        {(pestana === 'ofertas' || pestana === 'probar') && (
           <button type="button" disabled={cargandoLista || estado.tipo !== 'ok'} onClick={releer} className={cx(BOTON.base, BOTON.alto, BOTON.secundario, 'ml-auto')} title="Vuelve a leer las ofertas de la tienda de PcComponentes">
             {cargandoLista ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Actualizar
@@ -192,6 +194,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
             )}
             {pestana === 'probar' && <ProbarUnProducto ofertas={lista?.ofertas ?? []} onSubido={releer} />}
             {pestana === 'mercado' && <MercadoYMargen ofertas={lista?.ofertas ?? []} />}
+            {pestana === 'dinamicos' && <PreciosDinamicos />}
           </div>
         </>
       )}
