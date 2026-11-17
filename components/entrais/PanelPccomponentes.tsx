@@ -693,33 +693,21 @@ function MercadoYMargen({ ofertas }: { ofertas: OfertaPcc[] }) {
   const actual = Math.min(pagina, paginas - 1)
   const trozo = visibles.slice(actual * POR_PAGINA, (actual + 1) * POR_PAGINA)
 
+  /** El Excel lleva TODO lo que existe en PcComponentes (no solo lo filtrado), con la marca y por pestañas: lib/pccomponentes/mercado-excel.ts */
   async function descargar() {
-    const XLSX = await import('xlsx')
-    const hoja = XLSX.utils.json_to_sheet(
-      visibles.map((f) => ({
-        SKU: f.sku,
-        EAN: f.ean,
-        PRODUCTO: f.titulo,
-        CATEGORIA: f.categoria ?? '',
-        COSTE: f.coste,
-        COMISION_PCT: f.j.comision.pct,
-        COMISION_FIJA: f.j.comision.fija,
-        COMISION_ESTIMADA: f.j.comision.porDefecto ? 'POR DEFECTO' : f.j.comision.origen,
-        PRECIO_MAS_BAJO: f.precioMin,
-        TIENDA_MAS_BARATA: f.tiendaMin ?? '',
-        TIENDAS: f.ofertas,
-        COMISION_EUR: f.j.alMercado?.comision ?? null,
-        BENEFICIO_EUR: f.j.alMercado?.beneficio ?? null,
-        MARGEN: f.j.alMercado?.margen ?? null,
-        PRECIO_MINIMO_PARA_EL_MARGEN: f.j.suelo,
-        COMPETITIVO: f.j.competitivo ? 'SI' : f.precioMin === null ? 'SIN COMPETENCIA' : 'NO',
-        YA_PUBLICADA: f.publicada ? 'SI' : '',
-      }))
-    )
-    const libro = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(libro, hoja, 'Mercado')
-    XLSX.writeFile(libro, `entrais-pccomponentes-mercado-${new Date().toISOString().slice(0, 10)}.xlsx`)
-    toast.success(`${visibles.length.toLocaleString('es-ES')} filas descargadas`)
+    if (!datos) return
+    const { excelDeMercado } = await import('@/lib/pccomponentes/mercado-excel')
+    const hoy = new Date().toISOString().slice(0, 10)
+    const bytes = excelDeMercado({ filas, margenObjetivo, conEan: datos.conEan, existen: datos.existen, actualizadoAt: datos.actualizadoAt, hoy })
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `entrais-pccomponentes-mercado-${hoy}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    toast.success(`${filas.length.toLocaleString('es-ES')} productos descargados (todos, por pestañas)`)
   }
 
   const celdas: Array<[string, string]> = datos
