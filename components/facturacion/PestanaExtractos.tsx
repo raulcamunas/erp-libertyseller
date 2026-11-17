@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, RefreshCw, Upload } from 'lucide-react'
 import { BOTON, CAMPO, COLOR_ESTADO, TABLA, TARJETA, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { CuentaDelPanel, CuentaQueFalta, Hecho, ResultadoDeImportar } from '@/lib/facturacion/extracto-servidor'
 import { Aviso, dinero, fechaCorta, hoyISO, pedir } from './comun'
+import { CabeceraTarjeta, Pastilla, Tarjeta, velo } from '@/components/contabilidad/ui'
 
 type Cuenta = CuentaDelPanel & { ultimoExtracto?: string | null }
 
@@ -38,6 +39,7 @@ export function PestanaExtractos({ onCambio, onIrACobros }: { onCambio: () => vo
   const [cuentas, setCuentas] = useState<Cuenta[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<'subir' | 'repasar' | null>(null)
+  const [encima, setEncima] = useState(false)
   const [resultado, setResultado] = useState<Respuesta | null>(null)
   const [faltan, setFaltan] = useState<CuentaQueFalta[] | null>(null)
   const [monedas, setMonedas] = useState<Record<string, string>>({})
@@ -91,7 +93,6 @@ export function PestanaExtractos({ onCambio, onIrACobros }: { onCambio: () => vo
 
   const payset = (cuentas ?? []).filter((c) => c.esPayset)
   const atrasado = payset.map((c) => diasDesde(c.ultimoExtracto)).some((d) => d == null || d > DIAS_AVISO)
-  const sinCasar = (cuentas ?? []).reduce((a, c) => a + c.sinCasar, 0)
 
   return (
     <div className="flex max-w-[1200px] flex-col gap-2 pb-6">
@@ -106,71 +107,73 @@ export function PestanaExtractos({ onCambio, onIrACobros }: { onCambio: () => vo
         </Aviso>
       )}
 
-      <section className={TARJETA.base}>
-        <header className={TARJETA.cabecera}>
-          <h2 className={`${TIPO.l} ${TEXTO.t1}`}>Cuentas de banco en Zoho</h2>
-          {sinCasar > 0 && <span className={`${TIPO.s} ${TEXTO.t3}`}>· {sinCasar} movimientos sin casar</span>}
-        </header>
-        <div className={TARJETA.cuerpo}>
-          {!cuentas ? (
-            <p className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo Zoho…</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className={TABLA.tabla}>
-                <thead>
-                  <tr>
-                    <th className={TABLA.cabecera}>Cuenta</th>
-                    <th className={TABLA.cabecera}>Banco</th>
-                    <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Saldo en Zoho</th>
-                    <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Sin casar</th>
-                    <th className={TABLA.cabecera}>Último extracto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cuentas.map((c) => {
-                    const d = diasDesde(c.ultimoExtracto)
-                    return (
-                      <tr key={c.id} className={TABLA.fila}>
-                        <td className={TABLA.celda}>
-                          <span className={TEXTO.t1}>{c.nombre}</span> <span className={TEXTO.t3}>· {c.moneda}{c.ultimas4 ? ` · …${c.ultimas4}` : ''}</span>
-                        </td>
-                        <td className={TABLA.celda}>{c.esPayset ? 'Payset' : 'Wio (llega sola)'}</td>
-                        <td className={`${TABLA.celda} ${TABLA.numero}`}>{dinero(c.saldo, c.moneda)}</td>
-                        <td className={`${TABLA.celda} ${TABLA.numero}`} style={{ color: c.sinCasar > 0 ? COLOR_ESTADO.ambar : COLOR_ESTADO.verde }}>
-                          {c.sinCasar > 0 ? c.sinCasar : '✓'}
-                        </td>
-                        <td className={TABLA.celda} style={c.esPayset && (d == null || d > DIAS_AVISO) ? { color: COLOR_ESTADO.ambar } : undefined}>
-                          {c.esPayset ? (c.ultimoExtracto ? `${fechaCorta(c.ultimoExtracto)} (hace ${d} d)` : 'nunca') : '—'}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {!cuentas &&
+          [0, 1, 2].map((i) => <div key={i} className="h-[118px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />)}
+        {(cuentas ?? []).map((c) => {
+          const d = diasDesde(c.ultimoExtracto)
+          const viejo = c.esPayset && (d == null || d > DIAS_AVISO)
+          const t = c.sinCasar > 0 || viejo ? 'ambar' : 'verde'
+          return (
+            <Tarjeta key={c.id} acento={c.esPayset ? 'violeta' : 'cian'} className="px-4 py-3.5">
+              <div className="flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded-lg text-[11px] font-bold" style={{ background: velo(c.esPayset ? 'violeta' : 'cian', 18), color: COLOR_ESTADO[c.esPayset ? 'violeta' : 'cian'] }}>
+                  {c.esPayset ? 'P' : 'W'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-semibold text-[var(--ls-t1)]">{c.esPayset ? c.nombre : `Wio ${c.moneda}`}</div>
+                  <div className="text-[11px] text-[var(--ls-t3)]">
+                    {c.moneda}
+                    {c.ultimas4 ? ` · …${c.ultimas4}` : ''} · {c.esPayset ? 'se sube cada semana' : 'llega sola'}
+                  </div>
+                </div>
+                <Pastilla tono={t}>{c.sinCasar > 0 ? `${c.sinCasar} sin casar` : viejo ? 'extracto viejo' : 'al día'}</Pastilla>
+              </div>
+              <div className="mt-3 text-[24px] font-semibold leading-none tabular-nums text-[var(--ls-t1)]">{dinero(c.saldo, c.moneda)}</div>
+              <div className="mt-1.5 text-[11.5px] text-[var(--ls-t3)]">{c.esPayset ? (c.ultimoExtracto ? `Último extracto: ${fechaCorta(c.ultimoExtracto)} (hace ${d} d)` : 'Nunca se ha subido un extracto') : 'Saldo en Zoho'}</div>
+            </Tarjeta>
+          )
+        })}
+      </div>
 
-      <section className={TARJETA.base}>
-        <header className={TARJETA.cabecera}>
-          <h2 className={`${TIPO.l} ${TEXTO.t1}`}>Subir el extracto de Payset</h2>
-        </header>
-        <div className={`${TARJETA.cuerpo} flex flex-col gap-2`}>
-          <p className={`${TIPO.s} ${TEXTO.t2}`}>
-            En Payset: <strong>Account statement → Accounting statement</strong>, marca <strong>todas las cuentas</strong> (EUR, AED, USD), el periodo desde la última vez y formato <strong>CSV</strong>. Si se solapa con el anterior no pasa nada: lo que ya está en Zoho no se vuelve a meter.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input ref={fichero} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void elegirFichero(e.target.files?.[0])} />
-            <button type="button" disabled={ocupado !== null} onClick={() => fichero.current?.click()} className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}>
-              <Upload className="h-[14px] w-[14px]" />
-              {ocupado === 'subir' ? 'Subiendo y casando…' : 'Elegir el CSV y subir'}
+      <Tarjeta>
+        <CabeceraTarjeta
+          icono={Upload}
+          titulo="Subir el extracto de Payset"
+          sub="Account statement → Accounting statement · todas las cuentas (EUR, AED, USD) · CSV"
+          tonoIcono="naranja"
+          accion={
+            <button type="button" disabled={ocupado !== null} onClick={() => void mandar({ accion: 'repasar' }, 'repasar')} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--ls-linea)] px-3 text-[12px] font-medium text-[var(--ls-t2)] hover:border-[var(--ls-linea2)] disabled:opacity-50">
+              <RefreshCw className={`h-3.5 w-3.5 ${ocupado === 'repasar' ? 'animate-spin' : ''}`} />
+              {ocupado === 'repasar' ? 'Repasando…' : 'Repasar sin casar (Wio incluido)'}
             </button>
-            <button type="button" disabled={ocupado !== null} onClick={() => void mandar({ accion: 'repasar' }, 'repasar')} className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}>
-              <RefreshCw className="h-[14px] w-[14px]" />
-              {ocupado === 'repasar' ? 'Repasando…' : 'Repasar lo que está sin casar (Wio incluido)'}
-            </button>
-          </div>
+          }
+        />
+        <div className="flex flex-col gap-3 px-4 pb-4">
+          <input ref={fichero} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void elegirFichero(e.target.files?.[0])} />
+          <button
+            type="button"
+            disabled={ocupado !== null}
+            onClick={() => fichero.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setEncima(true)
+            }}
+            onDragLeave={() => setEncima(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setEncima(false)
+              void elegirFichero(e.dataTransfer.files?.[0])
+            }}
+            className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors disabled:opacity-60"
+            style={{ borderColor: encima ? COLOR_ESTADO.naranja : 'var(--ls-linea2)', background: encima ? velo('naranja', 8) : 'var(--ls-sup2)' }}
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-xl" style={{ background: velo('naranja', 15), color: COLOR_ESTADO.naranja }}>
+              {ocupado === 'subir' ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+            </span>
+            <span className="text-[14px] font-semibold text-[var(--ls-t1)]">{ocupado === 'subir' ? 'Subiendo y casando en Zoho…' : 'Arrastra aquí el CSV de Payset o pulsa para elegirlo'}</span>
+            <span className="max-w-[560px] text-[12px] text-[var(--ls-t3)]">Lo que ya está en Zoho no se vuelve a meter, así que da igual que se solape con el anterior. Lo seguro se casa solo; lo dudoso queda en «Cobros y banco».</span>
+          </button>
 
           {faltan && (
             <div className="mt-1 flex flex-col gap-2 rounded-[6px] border border-[var(--ls-linea)] p-2">
@@ -201,7 +204,7 @@ export function PestanaExtractos({ onCambio, onIrACobros }: { onCambio: () => vo
             </div>
           )}
         </div>
-      </section>
+      </Tarjeta>
 
       {resultado && <Resultado r={resultado} onIrACobros={onIrACobros} />}
     </div>

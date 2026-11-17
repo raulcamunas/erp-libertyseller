@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react'
-import { COLOR_ESTADO, TABLA, TARJETA, TEXTO, TIPO } from '@/lib/estilo/denso'
+import { AlertTriangle, ArrowRight, BadgeCheck, Banknote, CircleDollarSign, Clock3, HandCoins, Landmark, Receipt, Upload, Wallet } from 'lucide-react'
+import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import type { CuentaDelPanel } from '@/lib/facturacion/extracto-servidor'
-import { Aviso, dinero, fechaCorta } from '@/components/facturacion/comun'
+import { dinero, fechaCorta } from '@/components/facturacion/comun'
+import { BarraReparto, CabeceraTarjeta, Iniciales, Kpi, Pastilla, Tarjeta, velo } from './ui'
 
 interface Resumen {
   hoy: string
@@ -23,8 +24,12 @@ interface CosteEquipo {
 const DIAS_AVISO = 8
 const importes = (t: Record<string, number>) => {
   const filas = Object.entries(t).filter(([, v]) => v !== 0)
-  return filas.length ? filas.map(([m, v]) => dinero(v, m)).join(' + ') : '0'
+  return filas.length ? filas.map(([m, v]) => dinero(v, m)).join(' + ') : dinero(0, 'EUR')
 }
+const TONOS_GASTO: TonoEstado[] = ['naranja', 'violeta', 'cian', 'azul', 'magenta', 'ambar', 'verde']
+
+/** El nombre corto de una cuenta: «Wio AED», «Payset EUR» */
+const nombreCorto = (c: CuentaDelPanel) => (c.esPayset ? c.nombre.replace(/\s*\(.*\)\s*/, '') : `Wio ${c.moneda}`)
 
 /**
  * CONTABILIDAD · EL RESUMEN.
@@ -51,130 +56,170 @@ export function PanelContabilidad({ esAdmin }: { esAdmin: boolean }) {
       .catch(() => setEquipo(null))
   }, [])
 
-  if (error) return <Aviso tono="rojo" icono={AlertTriangle}>{error}</Aviso>
-  if (!r) return <p className={`${TIPO.s} ${TEXTO.t3}`}>Leyendo Zoho…</p>
+  if (error)
+    return (
+      <Tarjeta acento="rojo" className="flex items-center gap-2 px-4 py-3 text-[13px]">
+        <AlertTriangle className="h-4 w-4" style={{ color: COLOR_ESTADO.rojo }} /> {error}
+      </Tarjeta>
+    )
+  if (!r) return <Esqueleto />
 
   const sinCasar = r.cuentas.reduce((a, c) => a + c.sinCasar, 0)
-  const extractoViejo = r.cuentas.filter((c) => c.esPayset).some((c) => !c.ultimoExtracto || (Date.parse(r.hoy) - Date.parse(c.ultimoExtracto)) / 86_400_000 > DIAS_AVISO)
+  const dias = (iso: string | null) => (iso ? Math.round((Date.parse(r.hoy) - Date.parse(iso)) / 86_400_000) : null)
+  const extractoViejo = r.cuentas.filter((c) => c.esPayset).some((c) => (dias(c.ultimoExtracto) ?? 99) > DIAS_AVISO)
   const alDia = sinCasar === 0 && !extractoViejo
   const coste = equipo?.totals?.[0]
+  const maxGasto = r.gastadoMes.porCuenta[0]?.total || 1
 
   return (
-    <div className="flex max-w-[1200px] flex-col gap-2 pb-6">
-      <div className="flex items-center gap-2 rounded-[6px] border px-3 py-2" style={{ borderColor: alDia ? COLOR_ESTADO.verde : COLOR_ESTADO.ambar }}>
-        {alDia ? <CheckCircle2 className="h-4 w-4" style={{ color: COLOR_ESTADO.verde }} /> : <AlertTriangle className="h-4 w-4" style={{ color: COLOR_ESTADO.ambar }} />}
-        <span className={`${TIPO.m} ${TEXTO.t1}`}>
-          {alDia
-            ? 'La contabilidad está al día: todos los bancos casados en Zoho.'
-            : [sinCasar > 0 ? `${sinCasar} movimientos de banco sin casar` : null, extractoViejo ? `hace más de ${DIAS_AVISO} días que no se sube el extracto de Payset` : null].filter(Boolean).join(' · ')}
+    <div className="flex max-w-[1280px] flex-col gap-3 pb-8">
+      {/* Estado general */}
+      <Tarjeta acento={alDia ? 'verde' : 'ambar'} className="flex flex-wrap items-center gap-3 px-4 py-3" style={{ borderColor: velo(alDia ? 'verde' : 'ambar', 35) }}>
+        <span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: velo(alDia ? 'verde' : 'ambar', 16), color: COLOR_ESTADO[alDia ? 'verde' : 'ambar'] }}>
+          {alDia ? <BadgeCheck className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
         </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold text-[var(--ls-t1)]">{alDia ? 'La contabilidad está al día' : 'Hay cosas por cuadrar'}</p>
+          <p className="text-[12px] text-[var(--ls-t3)]">
+            {alDia
+              ? `Todos los bancos casados en Zoho · último extracto de Payset hace ${dias(r.cuentas.find((c) => c.esPayset)?.ultimoExtracto ?? null) ?? '—'} días`
+              : [sinCasar > 0 ? `${sinCasar} movimientos de banco sin casar` : null, extractoViejo ? `más de ${DIAS_AVISO} días sin subir el extracto de Payset` : null].filter(Boolean).join(' · ')}
+          </p>
+        </div>
         {!alDia && (
-          <Link href="/dashboard/facturacion?pestana=extractos" className={`ml-auto inline-flex items-center gap-1 ${TIPO.s} ${TEXTO.acento}`}>
-            Ir a Bancos <ArrowRight className="h-3 w-3" />
+          <Link href="/dashboard/facturacion?pestana=extractos" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--ls-acc-relleno)] px-3 text-[12px] font-semibold text-[var(--ls-acc-tinta)]">
+            Ir a Bancos <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         )}
-      </div>
+      </Tarjeta>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Cifra titulo="Por cobrar" valor={importes(r.porCobrar.total)} nota={`${r.porCobrar.facturas} facturas abiertas`} href="/dashboard/facturacion?pestana=cobros" />
-        <Cifra titulo="Vencido" valor={importes(r.vencidas.total)} nota={`${r.vencidas.facturas} facturas`} tono={r.vencidas.facturas > 0 ? COLOR_ESTADO.ambar : undefined} href="/dashboard/facturacion?pestana=cobros" />
-        <Cifra titulo="Cobrado este mes" valor={importes(r.cobradoMes.total)} nota={`${r.cobradoMes.cobros} cobros`} tono={COLOR_ESTADO.verde} href="/dashboard/facturacion?pestana=cobros" />
+      {/* Las cuatro cifras */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi icono={Wallet} titulo="Por cobrar" valor={importes(r.porCobrar.total)} nota={`${r.porCobrar.facturas} facturas abiertas`} tono="azul" href="/dashboard/facturacion?pestana=cobros" />
+        <Kpi icono={Clock3} titulo="Vencido" valor={importes(r.vencidas.total)} nota={`${r.vencidas.facturas} facturas pasadas de fecha`} tono={r.vencidas.facturas ? 'ambar' : 'gris'} href="/dashboard/facturacion?pestana=cobros" />
+        <Kpi icono={Banknote} titulo="Cobrado este mes" valor={importes(r.cobradoMes.total)} nota={`${r.cobradoMes.cobros} cobros`} tono="verde" href="/dashboard/facturacion?pestana=cobros" />
         {coste ? (
-          <Cifra titulo="Equipo este mes" valor={dinero(coste.eur, 'EUR')} nota={`${coste.headcount} personas${coste.usd ? ` · ${dinero(coste.usd, 'USD')}` : ''}`} href={esAdmin ? '/dashboard/empleados' : '/dashboard/tesoreria'} />
+          <Kpi icono={HandCoins} titulo="Equipo este mes" valor={dinero(coste.eur, 'EUR')} nota={`${coste.headcount} personas · ${dinero(coste.usd, 'USD')}`} tono="violeta" href={esAdmin ? '/dashboard/empleados' : '/dashboard/tesoreria'} />
         ) : (
-          <Cifra titulo="Gastado este mes" valor={dinero(r.gastadoMes.total, 'AED')} nota="en Zoho, en dirhams" href="/dashboard/tesoreria" />
+          <Kpi icono={Receipt} titulo="Gastado este mes" valor={dinero(r.gastadoMes.total, 'AED')} nota="en Zoho, en dirhams" tono="violeta" href="/dashboard/tesoreria" />
         )}
       </div>
 
-      <div className="grid gap-2 lg:grid-cols-2">
-        <section className={TARJETA.base}>
-          <header className={TARJETA.cabecera}>
-            <h2 className={`${TIPO.l} ${TEXTO.t1}`}>Bancos</h2>
-            <Link href="/dashboard/facturacion?pestana=extractos" className={`ml-auto ${TIPO.s} ${TEXTO.acento}`}>
-              Subir extracto
-            </Link>
-          </header>
-          <div className={TARJETA.cuerpo}>
-            <table className={TABLA.tabla}>
-              <tbody>
-                {r.cuentas.map((c) => (
-                  <tr key={c.id} className={TABLA.fila}>
-                    <td className={TABLA.celda}>
-                      <span className={TEXTO.t1}>{c.esPayset ? c.nombre : `Wio ${c.moneda}`}</span>
-                      {c.esPayset && <span className={TEXTO.t3}> · extracto {c.ultimoExtracto ? fechaCorta(c.ultimoExtracto) : 'nunca'}</span>}
-                    </td>
-                    <td className={`${TABLA.celda} ${TABLA.numero}`}>{dinero(c.saldo, c.moneda)}</td>
-                    <td className={`${TABLA.celda} ${TABLA.numero}`} style={{ color: c.sinCasar ? COLOR_ESTADO.ambar : COLOR_ESTADO.verde }}>
-                      {c.sinCasar ? `${c.sinCasar} sin casar` : 'al día'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="grid gap-3 lg:grid-cols-[1fr_1.25fr]">
+        {/* Bancos */}
+        <Tarjeta>
+          <CabeceraTarjeta
+            icono={Landmark}
+            titulo="Bancos"
+            sub="Saldo en Zoho y lo que falta por casar"
+            tonoIcono="cian"
+            accion={
+              <Link href="/dashboard/facturacion?pestana=extractos" className="inline-flex h-7 items-center gap-1 rounded-lg border border-[var(--ls-linea)] px-2.5 text-[11.5px] font-medium text-[var(--ls-t2)] hover:border-[var(--ls-linea2)]">
+                <Upload className="h-3.5 w-3.5" /> Subir extracto
+              </Link>
+            }
+          />
+          <div className="grid gap-2 px-4 pb-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            {r.cuentas.map((c) => {
+              const d = dias(c.ultimoExtracto)
+              const viejo = c.esPayset && (d ?? 99) > DIAS_AVISO
+              const t: TonoEstado = c.sinCasar || viejo ? 'ambar' : 'verde'
+              return (
+                <div key={c.id} className="rounded-xl border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3.5 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-6 w-6 place-items-center rounded-md text-[10px] font-bold" style={{ background: velo(c.esPayset ? 'violeta' : 'cian', 18), color: COLOR_ESTADO[c.esPayset ? 'violeta' : 'cian'] }}>
+                      {c.esPayset ? 'P' : 'W'}
+                    </span>
+                    <span className="truncate text-[12.5px] font-medium text-[var(--ls-t2)]">{nombreCorto(c)}</span>
+                    <span className="ml-auto">
+                      <Pastilla tono={t}>{c.sinCasar ? `${c.sinCasar} sin casar` : viejo ? 'extracto viejo' : 'al día'}</Pastilla>
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[20px] font-semibold tabular-nums text-[var(--ls-t1)]">{dinero(c.saldo, c.moneda)}</div>
+                  <div className="text-[11px] text-[var(--ls-t3)]">{c.esPayset ? `Extracto ${c.ultimoExtracto ? `del ${fechaCorta(c.ultimoExtracto)}` : 'sin subir'}` : 'Llega sola desde Wio'}</div>
+                </div>
+              )
+            })}
           </div>
-        </section>
+        </Tarjeta>
 
-        <section className={TARJETA.base}>
-          <header className={TARJETA.cabecera}>
-            <h2 className={`${TIPO.l} ${TEXTO.t1}`}>Facturas vencidas</h2>
-            <Link href="/dashboard/facturacion?pestana=cobros" className={`ml-auto ${TIPO.s} ${TEXTO.acento}`}>
-              Cobros
-            </Link>
-          </header>
-          <div className={TARJETA.cuerpo}>
-            {r.vencidas.lista.length === 0 ? (
-              <p className={`${TIPO.s} ${TEXTO.t3}`}>Ninguna.</p>
-            ) : (
-              <table className={TABLA.tabla}>
-                <tbody>
-                  {r.vencidas.lista.map((f) => (
-                    <tr key={f.numero} className={TABLA.fila}>
-                      <td className={TABLA.celda}>
-                        <span className={TEXTO.t1}>{f.cliente}</span> <span className={TEXTO.t3}>· {f.numero}</span>
-                      </td>
-                      <td className={`${TABLA.celda} ${TABLA.numero}`}>{dinero(f.saldo, f.moneda)}</td>
-                      <td className={`${TABLA.celda} ${TABLA.numero}`} style={{ color: f.dias > 15 ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }}>
-                        {f.dias} d
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
+        {/* Facturas vencidas */}
+        <Tarjeta>
+          <CabeceraTarjeta
+            icono={CircleDollarSign}
+            titulo="Facturas vencidas"
+            sub={r.vencidas.facturas ? `${importes(r.vencidas.total)} pendientes de cobro` : 'Ninguna'}
+            tonoIcono="ambar"
+            accion={
+              <Link href="/dashboard/facturacion?pestana=cobros" className="text-[12px] font-medium text-[var(--ls-acc)]">
+                Ir a cobros
+              </Link>
+            }
+          />
+          <ul className="px-2 pb-3">
+            {r.vencidas.lista.length === 0 && <li className="px-2 py-4 text-[12.5px] text-[var(--ls-t3)]">Ninguna factura vencida.</li>}
+            {r.vencidas.lista.map((f) => {
+              const t: TonoEstado = f.dias > 30 ? 'rojo' : f.dias > 15 ? 'naranja' : 'ambar'
+              return (
+                <li key={f.numero} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-[var(--ls-sup2)]">
+                  <Iniciales nombre={f.cliente} tono={t} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium text-[var(--ls-t1)]">{f.cliente}</div>
+                    <div className="truncate text-[11.5px] text-[var(--ls-t3)]">{f.numero}</div>
+                  </div>
+                  <span className="text-[13px] font-semibold tabular-nums text-[var(--ls-t1)]">{dinero(f.saldo, f.moneda)}</span>
+                  <Pastilla tono={t}>{f.dias} d</Pastilla>
+                </li>
+              )
+            })}
+          </ul>
+        </Tarjeta>
       </div>
 
-      <section className={TARJETA.base}>
-        <header className={TARJETA.cabecera}>
-          <h2 className={`${TIPO.l} ${TEXTO.t1}`}>Gastos de este mes en Zoho</h2>
-          <span className={`${TIPO.s} ${TEXTO.t3}`}>· {dinero(r.gastadoMes.total, 'AED')} en total</span>
-        </header>
-        <div className={`${TARJETA.cuerpo} flex flex-col gap-[6px]`}>
-          {r.gastadoMes.porCuenta.length === 0 && <p className={`${TIPO.s} ${TEXTO.t3}`}>Sin gastos apuntados este mes.</p>}
-          {r.gastadoMes.porCuenta.map((g) => (
-            <div key={g.cuenta} className="flex items-center gap-2">
-              <span className={`${TIPO.s} ${TEXTO.t2} w-[200px] shrink-0 truncate`}>{g.cuenta}</span>
-              <div className="h-[8px] flex-1 overflow-hidden rounded-full bg-[var(--ls-sup3)]">
-                <div className="h-full rounded-full bg-[var(--ls-acc-graf)]" style={{ width: `${Math.max(2, (g.total / (r.gastadoMes.porCuenta[0]?.total || 1)) * 100)}%` }} />
-              </div>
-              <span className={`${TIPO.s} ${TEXTO.t2} w-[110px] shrink-0 text-right tabular-nums`}>{dinero(g.total, 'AED')}</span>
+      {/* Gastos del mes */}
+      <Tarjeta>
+        <CabeceraTarjeta icono={Receipt} titulo="Gastos de este mes en Zoho" sub={`${dinero(r.gastadoMes.total, 'AED')} en total`} tonoIcono="violeta" />
+        <div className="px-4 pb-4">
+          {r.gastadoMes.porCuenta.length > 0 && (
+            <div className="mb-3">
+              <BarraReparto alto={10} partes={r.gastadoMes.porCuenta.map((g, i) => ({ valor: g.total, tono: TONOS_GASTO[i % TONOS_GASTO.length], titulo: `${g.cuenta}: ${dinero(g.total, 'AED')}` }))} />
             </div>
-          ))}
+          )}
+          {r.gastadoMes.porCuenta.length === 0 && <p className="text-[12.5px] text-[var(--ls-t3)]">Sin gastos apuntados este mes.</p>}
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {r.gastadoMes.porCuenta.map((g, i) => {
+              const t = TONOS_GASTO[i % TONOS_GASTO.length]
+              return (
+                <div key={g.cuenta} className="flex items-center gap-2.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: COLOR_ESTADO[t] }} />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--ls-t2)]">{g.cuenta}</span>
+                  <div className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-[var(--ls-sup3)] sm:block">
+                    <div className="h-full rounded-full" style={{ width: `${Math.max(4, (g.total / maxGasto) * 100)}%`, background: COLOR_ESTADO[t] }} />
+                  </div>
+                  <span className="w-[92px] text-right text-[12.5px] font-semibold tabular-nums text-[var(--ls-t1)]">{dinero(g.total, 'AED')}</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </section>
+      </Tarjeta>
     </div>
   )
 }
 
-function Cifra({ titulo, valor, nota, tono, href }: { titulo: string; valor: string; nota: string; tono?: string; href: string }) {
+function Esqueleto() {
   return (
-    <Link href={href} className={`${TARJETA.base} block px-3 py-2 transition-colors hover:border-[var(--ls-linea2)]`}>
-      <div className={`${TIPO.xs} ${TEXTO.t4}`}>{titulo}</div>
-      <div className="mt-[2px] text-[17px] font-semibold tabular-nums" style={{ color: tono ?? 'var(--ls-t1)' }}>
-        {valor}
+    <div className="flex max-w-[1280px] flex-col gap-3">
+      <div className="h-[62px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-[112px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />
+        ))}
       </div>
-      <div className={`${TIPO.s} ${TEXTO.t3}`}>{nota}</div>
-    </Link>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="h-[240px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />
+        <div className="h-[240px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />
+      </div>
+    </div>
   )
 }

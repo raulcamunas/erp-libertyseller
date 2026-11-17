@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { BarraContabilidad } from '@/components/contabilidad/BarraContabilidad'
-import { DatosDePagoEquipo } from '@/components/empleados/DatosDePagoEquipo'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { EmployeesBoard } from '@/components/empleados/EmployeesBoard'
@@ -151,10 +150,7 @@ export default async function EmployeesPage() {
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
       <BarraContabilidad rol={profile.role} />
       <div className="mb-3 flex-shrink-0">
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-          <h1 className="heading-medium text-white">Control empleados</h1>
-          <DatosDePagoEquipo />
-        </div>
+        <h1 className="heading-medium text-white mb-1">Pagos a empleados</h1>
         <p className="text-white/50 text-sm">
           Todo lo que se paga cada mes: los comerciales por su ciclo del 15 al 14, el resto por su
           sueldo, y las comisiones o extras que apuntes a mano. Lo que salga aquí es lo que suma en Tesorería.

@@ -1,11 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Palmtree, Plus } from 'lucide-react'
+import { CalendarClock, ChevronLeft, ChevronRight, Palmtree, Plus, TrendingUp, UserPlus, Wallet } from 'lucide-react'
 import {
+  MONTHS_SHORT,
+  addMonths,
   employeesMonthTotal,
   futureSteps,
   isWithinContract,
@@ -24,11 +26,12 @@ import {
 import type { PersonCost } from '@/lib/payroll/cost'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
 import type { VacationsView } from '@/lib/vacations/client'
-import { EmployeesList } from './EmployeesList'
 import { SalaryMatrix } from './SalaryMatrix'
 import { EmployeeDetail } from './EmployeeDetail'
 import { CellEditor } from './CellEditor'
-import { ResumenDelMes } from './ResumenDelMes'
+import { PagosDelMes } from './PagosDelMes'
+import { DatosDePagoEquipo } from './DatosDePagoEquipo'
+import { BarraReparto, CabeceraTarjeta, Pastilla, Tarjeta, velo } from '@/components/contabilidad/ui'
 import { NuevoPago } from './NuevoPago'
 import { shortMoney } from './shared'
 import { VacacionesPanel } from '@/components/vacaciones/VacacionesPanel'
@@ -61,8 +64,6 @@ export interface EmployeesBoardProps {
    */
   initialVacations: VacationsView
 }
-
-type Pestana = 'mes' | 'plantilla' | 'prevision'
 
 /**
  * CONTROL EMPLEADOS
@@ -101,7 +102,6 @@ export function EmployeesBoard({
   const [adding, setAdding] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [cell, setCell] = useState<{ employeeId: string; period: string } | null>(null)
-  const [pestana, setPestana] = useState<Pestana>('mes')
   // El mes que se mira en «Este mes»: por defecto el en curso, pero se puede ir a otro
   const [period, setPeriod] = useState(currentPeriod)
   const [moneda, setMoneda] = useState<EmployeeCurrency>('USD')
@@ -208,25 +208,6 @@ export function EmployeesBoard({
   const activeCount = employees.filter((e) => isWithinContract(e, currentPeriod)).length
 
   const otraMoneda = moneda === 'USD' ? ('EUR' as const) : ('USD' as const)
-  const kpis = [
-    {
-      label: `Total a pagar · ${monthLongLabel(period)}`,
-      value: shortMoney(mes.total, moneda),
-      hint: `${shortMoney(mes.t[otraMoneda === 'EUR' ? 'eur' : 'usd'], otraMoneda)} · cambio ${usdEur}`,
-      tone: 'text-white',
-      destacado: true,
-    },
-    { label: 'Comerciales', value: shortMoney(mes.comerciales, moneda), hint: 'Horas y citas del ciclo 15 → 14', tone: 'text-white', destacado: false },
-    { label: 'Sueldos estipulados', value: shortMoney(mes.sueldos, moneda), hint: 'El resto del equipo', tone: 'text-white', destacado: false },
-    {
-      label: 'Pagos sueltos',
-      value: shortMoney(mes.sueltos, moneda),
-      hint: mes.nSueltos === 0 ? 'Ninguno apuntado' : `${mes.nSueltos} ${mes.nSueltos === 1 ? 'pago' : 'pagos'} · comisiones, bonus, encargos`,
-      tone: mes.nSueltos > 0 ? 'text-[#FF8A3D]' : 'text-white/40',
-      destacado: false,
-    },
-  ]
-
   // ---------- Escrituras ----------
   async function patchEmployee(employee: Employee, patch: Partial<Employee>) {
     /**
@@ -344,128 +325,144 @@ export function EmployeesBoard({
   const openEmployee = employees.find((e) => e.id === openId) ?? null
   const cellEmployee = cell ? employees.find((e) => e.id === cell.employeeId) ?? null : null
 
-  const pestanas: Array<[Pestana, string, string | null]> = [
-    ['mes', 'Este mes', mes.t.warnings > 0 ? String(mes.t.warnings) : null],
-    ['plantilla', 'Plantilla', String(activeCount)],
-    ['prevision', 'Previsión', upcoming.length > 0 ? `${upcoming.length} subidas` : null],
-  ]
+  // ---------- El mes que se mira ----------
+  const idx = periods.indexOf(period)
+  const [, mesNum] = period.split('-').map(Number)
+  const [, mesAnt] = addMonths(period, -1).split('-').map(Number)
+  const ciclo = `15 ${MONTHS_SHORT[mesAnt - 1]} → 14 ${MONTHS_SHORT[mesNum - 1]}`
+  const abierto = period === currentPeriod && new Date().getDate() <= 14
+  const verPrevision = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="flex flex-col h-full gap-3 min-w-0">
-      {/* Acciones: pestañas a la izquierda, lo que se hace a la derecha */}
-      <div className="flex items-center justify-between gap-2 flex-shrink-0 flex-wrap">
-        <div className="flex items-center rounded-full border border-white/10 bg-white/[0.03] p-0.5">
-          {pestanas.map(([id, label, badge]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setPestana(id)}
-              className={`h-7 px-3.5 rounded-full text-[12px] font-medium flex items-center gap-1.5 transition-colors ${
-                pestana === id ? 'bg-[#FF6600] text-white' : 'text-white/55 hover:text-white'
-              }`}
-            >
-              {label}
-              {badge && (
-                <span className={`text-[10px] px-1.5 rounded-full tabular-nums ${pestana === id ? 'bg-black/25' : 'bg-white/10 text-white/60'}`}>{badge}</span>
-              )}
+    <div className="flex h-full min-w-0 flex-col gap-3 overflow-y-auto pb-8 pr-1">
+      {/* Barra: el mes a la izquierda, lo que se hace a la derecha */}
+      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-xl border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-1">
+            <button type="button" disabled={idx <= 0} onClick={() => setPeriod(periods[idx - 1])} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)] disabled:opacity-30" aria-label="Mes anterior">
+              <ChevronLeft className="h-4 w-4" />
             </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-full border border-white/10 p-0.5 text-[11px]">
+            <span className="min-w-[150px] px-2 text-center text-[13.5px] font-semibold capitalize text-[var(--ls-t1)]">{monthLongLabel(period)}</span>
+            <button type="button" disabled={idx < 0 || idx >= periods.length - 1} onClick={() => setPeriod(periods[idx + 1])} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)] disabled:opacity-30" aria-label="Mes siguiente">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          {period !== currentPeriod && (
+            <button type="button" onClick={() => setPeriod(currentPeriod)} className="h-10 rounded-xl border border-[var(--ls-linea)] px-3 text-[12px] text-[var(--ls-t3)] hover:text-[var(--ls-t1)]">
+              Volver a este mes
+            </button>
+          )}
+          <div className="flex rounded-xl border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-1 text-[12px]">
             {(['USD', 'EUR'] as const).map((c) => (
-              <button key={c} type="button" onClick={() => setMoneda(c)} className={`px-2.5 py-1 rounded-full ${moneda === c ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white'}`}>
+              <button key={c} type="button" onClick={() => setMoneda(c)} className={`h-8 rounded-lg px-3 font-medium ${moneda === c ? 'bg-[var(--ls-sup3)] text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'}`}>
                 {c === 'USD' ? 'US$' : '€'}
               </button>
             ))}
           </div>
+        </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <DatosDePagoEquipo />
           <button
             type="button"
             onClick={() => setVacationsOpen(true)}
             disabled={vacations.missingTables}
-            title={
-              vacations.missingTables
-                ? 'Falta lanzar la migración 116_vacations.sql en Supabase'
-                : pendingVacations > 0
-                  ? `${pendingVacations} ${pendingVacations === 1 ? 'petición' : 'peticiones'} esperando respuesta`
-                  : 'Saldos del equipo y peticiones de vacaciones'
-            }
-            className={`h-8 pl-3 pr-2.5 rounded-full border text-[12px] font-medium flex items-center gap-2 flex-shrink-0 transition-colors disabled:opacity-40 ${
-              pendingVacations > 0
-                ? 'border-[#FF6600]/50 bg-[#FF6600]/[0.12] text-white hover:bg-[#FF6600]/[0.18]'
-                : 'border-white/10 bg-white/[0.03] text-white/75 hover:bg-white/[0.06] hover:border-white/20'
-            }`}
+            title={vacations.missingTables ? 'Falta lanzar la migración 116_vacations.sql en Supabase' : pendingVacations > 0 ? `${pendingVacations} ${pendingVacations === 1 ? 'petición' : 'peticiones'} esperando respuesta` : 'Saldos del equipo y peticiones de vacaciones'}
+            className="inline-flex h-7 items-center gap-1.5 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[11px] text-[11.5px] font-medium text-[var(--ls-t2)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t1)] disabled:opacity-40"
           >
-            <Palmtree className={`h-3.5 w-3.5 flex-shrink-0 ${pendingVacations > 0 ? 'text-[#FF6600]' : ''}`} />
-            <span className="hidden sm:inline">Vacaciones</span>
-            {pendingVacations > 0 && (
-              <span className="h-5 min-w-[20px] px-1 rounded-full bg-[#FF6600] text-white text-[11px] font-bold flex items-center justify-center tabular-nums">
-                {pendingVacations > 9 ? '9+' : pendingVacations}
-              </span>
-            )}
+            <Palmtree className="h-[14px] w-[14px]" style={pendingVacations > 0 ? { color: 'var(--ls-acc)' } : undefined} />
+            Vacaciones
+            {pendingVacations > 0 && <span className="grid h-4 min-w-[16px] place-items-center rounded-full bg-[var(--ls-acc-relleno)] px-1 text-[10px] font-bold text-[var(--ls-acc-tinta)]">{pendingVacations > 9 ? '9+' : pendingVacations}</span>}
           </button>
-
-          <button type="button" onClick={() => setNuevoPago({ employeeId: null })} className="h-8 px-3.5 rounded-full bg-gradient-to-b from-[#FF7A1F] to-[#FF6600] text-white text-[12px] font-semibold flex items-center gap-1.5">
-            <Plus className="h-3.5 w-3.5" /> Añadir pago
+          <button type="button" onClick={addEmployee} disabled={adding} className="inline-flex h-7 items-center gap-1.5 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-[11px] text-[11.5px] font-medium text-[var(--ls-t2)] hover:border-[var(--ls-linea2)] hover:text-[var(--ls-t1)] disabled:opacity-40">
+            <UserPlus className="h-[14px] w-[14px]" />
+            {adding ? 'Dando de alta…' : 'Persona'}
+          </button>
+          <button type="button" onClick={() => setNuevoPago({ employeeId: null })} className="inline-flex h-7 items-center gap-1.5 rounded-[6px] bg-[var(--ls-acc-relleno)] px-[11px] text-[11.5px] font-semibold text-[var(--ls-acc-tinta)] hover:brightness-110">
+            <Plus className="h-[14px] w-[14px]" /> Añadir pago
           </button>
         </div>
       </div>
 
-      {/* Resultado del mes que se mira */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-shrink-0">
-        {kpis.map((k) => (
-          <div
-            key={k.label}
-            className={`rounded-xl border px-3.5 py-2.5 ${k.destacado ? 'border-[#FF6600]/35 bg-[#FF6600]/[0.06]' : 'border-white/10 bg-white/[0.02]'}`}
-          >
-            <p className="text-[10px] uppercase tracking-wider text-white/40 truncate">{k.label}</p>
-            <p className={`font-bold text-[22px] mt-0.5 tabular-nums leading-tight ${k.tone}`}>{k.value}</p>
-            <p className="text-[10.5px] text-white/35 truncate">{k.hint}</p>
+      {/* Lo que hay que pagar este mes, de un vistazo */}
+      <div className="grid flex-shrink-0 gap-3 lg:grid-cols-[1.15fr_1fr]">
+        <Tarjeta acento="naranja" className="px-5 py-4" style={{ borderColor: 'color-mix(in srgb, var(--ls-e-naranja) 35%, transparent)' }}>
+          <div className="flex items-center gap-2 text-[12px] font-medium text-[var(--ls-t3)]">
+            <span className="grid h-7 w-7 place-items-center rounded-lg" style={{ background: velo('naranja', 16), color: 'var(--ls-e-naranja)' }}>
+              <Wallet className="h-[15px] w-[15px]" />
+            </span>
+            Total a pagar · <span className="capitalize">{monthLongLabel(period)}</span>
           </div>
-        ))}
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-[36px] font-semibold leading-none tracking-[-0.025em] tabular-nums text-[var(--ls-t1)]">{shortMoney(mes.total, moneda)}</span>
+            <span className="text-[13px] tabular-nums text-[var(--ls-t3)]">
+              {shortMoney(mes.t[otraMoneda === 'EUR' ? 'eur' : 'usd'], otraMoneda)} · cambio {usdEur}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-[var(--ls-t3)]">
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarClock className="h-3.5 w-3.5" /> Se paga el <strong className="font-semibold text-[var(--ls-t2)]">15 de {MONTHS_SHORT[mesNum - 1]}</strong>
+            </span>
+            <span>· ciclo de los comerciales {ciclo}</span>
+            {abierto && <Pastilla tono="naranja">todavía abierto</Pastilla>}
+            {reviewCount > 0 && <Pastilla tono="ambar" title="Meses pasados sin apuntar o personas por horas sin perfil enlazado">{reviewCount} por revisar</Pastilla>}
+          </div>
+        </Tarjeta>
+
+        <Tarjeta className="flex flex-col justify-center gap-3 px-5 py-4">
+          <BarraReparto
+            alto={12}
+            partes={[
+              { valor: mes.comerciales, tono: 'naranja', titulo: 'Comerciales' },
+              { valor: mes.sueldos, tono: 'azul', titulo: 'Sueldos estipulados' },
+              { valor: mes.sueltos, tono: 'violeta', titulo: 'Pagos sueltos' },
+            ]}
+          />
+          <div className="grid grid-cols-3 gap-3">
+            {(
+              [
+                ['Comerciales', mes.comerciales, 'naranja', 'Horas y citas del ciclo'],
+                ['Sueldos', mes.sueldos, 'azul', `${activeCount} en plantilla`],
+                ['Sueltos', mes.sueltos, 'violeta', mes.nSueltos === 0 ? 'Ninguno' : `${mes.nSueltos} ${mes.nSueltos === 1 ? 'pago' : 'pagos'}`],
+              ] as const
+            ).map(([label, valor, t, nota]) => (
+              <div key={label} className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t3)]">
+                  <span className="h-2 w-2 rounded-full" style={{ background: `var(--ls-e-${t})` }} />
+                  {label}
+                </div>
+                <div className="mt-1 text-[18px] font-semibold tabular-nums text-[var(--ls-t1)]">{shortMoney(valor, moneda)}</div>
+                <div className="truncate text-[11px] text-[var(--ls-t4)]">{nota}</div>
+              </div>
+            ))}
+          </div>
+          {upcoming.length > 0 && (
+            <button type="button" onClick={() => verPrevision.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center gap-1.5 self-start text-[12px] font-medium text-[var(--ls-acc)]">
+              <TrendingUp className="h-3.5 w-3.5" /> {upcoming.length} subidas programadas · ver previsión
+            </button>
+          )}
+        </Tarjeta>
       </div>
 
-      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-        {pestana === 'mes' && (
-          <ResumenDelMes
-            employees={sorted}
-            data={data}
-            hoursDetail={hoursDetail}
-            periods={periods}
-            period={period}
-            currentPeriod={currentPeriod}
-            usdEur={usdEur}
-            moneda={moneda}
-            onPeriod={setPeriod}
-            onAdd={(employeeId) => setNuevoPago({ employeeId: employeeId ?? null })}
-            onOpenEmployee={(e) => setOpenId(e.id)}
-            extras={extras}
-            onExtrasChange={setExtras}
-          />
-        )}
+      <PagosDelMes
+        employees={sorted}
+        data={data}
+        hoursDetail={hoursDetail}
+        period={period}
+        currentPeriod={currentPeriod}
+        usdEur={usdEur}
+        moneda={moneda}
+        onAdd={(employeeId) => setNuevoPago({ employeeId: employeeId ?? null })}
+        onOpenEmployee={(e) => setOpenId(e.id)}
+        extras={extras}
+        onExtrasChange={setExtras}
+      />
 
-        {pestana === 'plantilla' && (
-          <EmployeesList
-            className="flex h-full"
-            employees={sorted}
-            data={data}
-            currentPeriod={currentPeriod}
-            hoursDetail={hoursDetail}
-            onPatch={patchEmployee}
-            onOpen={(e) => setOpenId(e.id)}
-            onAdd={addEmployee}
-            adding={adding}
-          />
-        )}
-
-        {pestana === 'prevision' && (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 min-w-0 overflow-hidden h-full">
-            <div className="px-3 py-2 border-b border-white/[0.06] flex items-center justify-between gap-2 flex-shrink-0">
-              <h3 className="text-[10px] font-semibold text-white/45 uppercase tracking-wider">Cuánto cobra y cuánto va a cobrar</h3>
-              <span className="text-[10px] text-white/30 hidden sm:block">Pulsa una celda para cambiar el sueldo o programar una subida</span>
-            </div>
+      {/* El desglose mes a mes: lo que cobra y va a cobrar cada uno (aquí se programan las subidas) */}
+      <div ref={verPrevision} className="scroll-mt-2">
+        <Tarjeta className="flex h-[620px] flex-col">
+          <CabeceraTarjeta icono={TrendingUp} titulo="Mes a mes: lo que cobra y lo que va a cobrar" sub="Pulsa una celda para cambiar el sueldo o programar una subida" tonoIcono="verde" />
+          <div className="min-h-0 flex-1 px-1 pb-1">
             <SalaryMatrix
               employees={sorted}
               data={data}
@@ -477,7 +474,7 @@ export function EmployeesBoard({
               onOpenEmployee={(employee) => setOpenId(employee.id)}
             />
           </div>
-        )}
+        </Tarjeta>
       </div>
 
       {openEmployee && (

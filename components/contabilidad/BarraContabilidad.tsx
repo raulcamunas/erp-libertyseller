@@ -52,25 +52,32 @@ function Barra({ rol }: { rol: string | null | undefined }) {
     return true
   }
   return (
-    <nav aria-label="Apartados de contabilidad" className="mb-2 flex min-w-0 items-center gap-1 overflow-x-auto border-b border-[var(--ls-linea)] pb-[6px]">
-      <span className="mr-2 shrink-0 text-[13px] font-semibold text-[var(--ls-t1)]">Contabilidad</span>
-      {APARTADOS.filter((a) => !a.soloAdmin || rol === 'admin').map((a) => {
-        const on = activo(a)
-        const Icono = a.icono
-        return (
-          <Link
-            key={a.id}
-            href={a.pestana ? `${a.ruta}?pestana=${a.pestana}` : a.ruta}
-            aria-current={on ? 'page' : undefined}
-            className={`inline-flex h-7 shrink-0 items-center gap-[6px] rounded-[6px] border px-[10px] text-[12px] font-medium transition-colors ${
-              on ? 'border-[var(--ls-acc-borde)] bg-[var(--ls-sel)] text-[var(--ls-t1)]' : 'border-transparent text-[var(--ls-t3)] hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-t1)]'
-            }`}
-          >
-            <Icono className="h-[14px] w-[14px]" />
-            {a.nombre}
-          </Link>
-        )
-      })}
+    <nav aria-label="Apartados de contabilidad" className="mb-3 flex min-w-0 items-center gap-3 overflow-x-auto pb-1">
+      <span className="flex shrink-0 items-center gap-2 pr-1">
+        <span className="grid h-8 w-8 place-items-center rounded-xl bg-[var(--ls-acc-relleno)] text-[var(--ls-acc-tinta)]">
+          <BookOpenText className="h-4 w-4" />
+        </span>
+        <span className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">Contabilidad</span>
+      </span>
+      <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-1">
+        {APARTADOS.filter((a) => !a.soloAdmin || rol === 'admin').map((a) => {
+          const on = activo(a)
+          const Icono = a.icono
+          return (
+            <Link
+              key={a.id}
+              href={a.pestana ? `${a.ruta}?pestana=${a.pestana}` : a.ruta}
+              aria-current={on ? 'page' : undefined}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium transition-all ${
+                on ? 'bg-[var(--ls-sup3)] text-[var(--ls-t1)] shadow-[inset_0_0_0_1px_var(--ls-linea2)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]'
+              }`}
+            >
+              <Icono className="h-[14px] w-[14px]" style={on ? { color: 'var(--ls-acc)' } : undefined} />
+              {a.nombre}
+            </Link>
+          )
+        })}
+      </div>
     </nav>
   )
 }
