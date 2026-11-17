@@ -108,6 +108,12 @@ export async function enviarPrueba(usuarioId: string): Promise<{ enviados: numbe
   return { enviados, fallidos }
 }
 
+/** El push inmediato: sin esperar y sin que un fallo del push toque a quien lo llama */
+export function empujarYa(usuarios: readonly string[]): void {
+  if (usuarios.length === 0) return
+  void pasadaDePush(usuarios).catch((e) => console.error('[push] no se ha podido mandar el aviso inmediato:', e instanceof Error ? e.message : e))
+}
+
 export interface ResumenDePush {
   resumen: string
   avisos: number
@@ -115,10 +121,16 @@ export interface ResumenDePush {
   muertos: number
 }
 
-export async function pasadaDePush(): Promise<ResumenDePush> {
+/**
+ * `soloUsuarios`: el push INMEDIATO (17 nov 2026). Quien acaba de crear avisos (un mensaje del chat) llama aquí con las personas a las que ha avisado, sin esperar al cron del minuto:
+ * llega en 1-3 segundos, como en Slack. Es la misma pasada (misma reserva en `push_enviados`), así que el cron no lo repite.
+ */
+export async function pasadaDePush(soloUsuarios?: readonly string[]): Promise<ResumenDePush> {
   const vacio = (resumen: string): ResumenDePush => ({ resumen, avisos: 0, enviados: 0, muertos: 0 })
   const service = createServiceClient()
-  const { data: suscripciones, error } = await service.from('push_suscripciones').select('id, usuario_id, endpoint, p256dh, auth, categoria, fallos').lt('fallos', FALLOS_MAXIMOS).limit(2000)
+  let consultaSuscripciones = service.from('push_suscripciones').select('id, usuario_id, endpoint, p256dh, auth, categoria, fallos').lt('fallos', FALLOS_MAXIMOS)
+  if (soloUsuarios) consultaSuscripciones = consultaSuscripciones.in('usuario_id', [...soloUsuarios])
+  const { data: suscripciones, error } = await consultaSuscripciones.limit(2000)
   if (error) return vacio(faltaLaTabla(error) ? 'falta la migración 280' : `error: ${error.message}`)
   const lista = (suscripciones ?? []) as FilaDeSuscripcion[]
   if (lista.length === 0) return vacio('nadie con avisos activados')

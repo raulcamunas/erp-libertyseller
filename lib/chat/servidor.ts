@@ -1,4 +1,5 @@
 import { esCanalDeVoz, origenDeVoz } from './voz'
+import { empujarYa } from '@/lib/push/servidor'
 import { APP_CHAT } from '@/lib/config/apps'
 import { createServiceClient } from '@/lib/supabase/service'
 import { esRutaDe } from './archivos'
@@ -531,6 +532,7 @@ async function avisarDelMensaje(quien: QuienEscribe, canal: FilaCanal, miembros:
     if (filas.length > 0) {
       const { error } = await db().from('notifications').upsert(filas, { onConflict: 'user_id,clave', ignoreDuplicates: true })
       if (error) console.error('Chat: no se han podido escribir los avisos en la campana:', error.message)
+      else empujarYa([...new Set(filas.map((f) => String(f.user_id)))]) // push inmediato, sin esperar al cron del minuto
     }
   } catch (e) {
     console.error('Chat: no se han podido escribir los avisos en la campana:', e instanceof Error ? e.message : e)
