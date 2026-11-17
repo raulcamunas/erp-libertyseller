@@ -10,6 +10,7 @@ import {
   Banknote,
   BellRing,
   CheckCircle2,
+  Trash2,
   Clock,
   ExternalLink,
   FileClock,
@@ -120,6 +121,25 @@ export function PestanaCobros({
     for (const f of datos?.pendientes ?? []) totales.set(f.moneda, (totales.get(f.moneda) ?? 0) + f.saldo)
     return [...totales.entries()].sort((a, b) => b[1] - a[1])
   }, [datos])
+
+  const [anulando, setAnulando] = useState<string | null>(null)
+  async function anular(f: { id: string; numero: string; cliente: string; total: number; moneda: string }) {
+    const ok = window.confirm(
+      `¿Anular la factura «${f.numero}» de ${f.cliente} (${dinero(f.total, f.moneda)})?\n\nSale de «por cobrar» y de las cuentas. En Zoho queda con su número como ANULADA (no se borra, para no dejar huecos en la numeración) y ese mes se puede volver a facturar.\n\nNo se puede deshacer desde aquí.`
+    )
+    if (!ok) return
+    setAnulando(f.id)
+    try {
+      await pedir(`/api/facturacion/factura?id=${encodeURIComponent(f.id)}&modo=anular`, { metodo: 'DELETE' })
+      toast.success(`${f.numero} anulada`)
+      void traer()
+      onCambio()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido anular')
+    } finally {
+      setAnulando(null)
+    }
+  }
 
   const alTerminar = () => {
     setVentana(null)
@@ -284,6 +304,17 @@ export function PestanaCobros({
                             <button type="button" onClick={() => setVentana({ tipo: 'cobro', factura: f, movimiento: null })} className={`${BOTON.base} ${BOTON.secundario}`}>
                               <Banknote className="h-3 w-3" style={{ color: COLOR_ESTADO.verde }} />
                               Registrar cobro
+                            </button>
+                            <button
+                              type="button"
+                              disabled={anulando !== null || f.saldo < f.total - 0.005}
+                              onClick={() => void anular(f)}
+                              className={`${BOTON.base} ${BOTON.secundario} ml-1.5`}
+                              title={f.saldo < f.total - 0.005 ? 'Tiene cobros apuntados: no se puede anular' : 'Anular la factura (sale de por cobrar; el número queda en Zoho como anulado)'}
+                              aria-label={`Anular ${f.numero}`}
+                            >
+                              <Trash2 className="h-3 w-3" style={{ color: COLOR_ESTADO.rojo }} />
+                              {anulando === f.id ? 'Anulando…' : 'Anular'}
                             </button>
                           </td>
                         </tr>

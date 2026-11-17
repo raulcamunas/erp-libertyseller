@@ -291,8 +291,33 @@ export async function DELETE(request: NextRequest) {
   try {
     const ruta = `invoices/${encodeURIComponent(id)}`
     const { invoice } = await zoho<{ invoice: FacturaCompleta }>(ruta)
+    // Una factura ya enviada no se borra: se ANULA. Sale de «por cobrar» y de las cuentas, pero el número queda en Zoho como anulado (la
+    // numeración sin huecos es lo que pide cualquier auditoría) y se puede volver a facturar ese mes.
+    if (invoice.status !== 'draft' && request.nextUrl.searchParams.get('modo') === 'anular') {
+      if (invoice.status === 'void') return NextResponse.json({ error: 'Esta factura ya está anulada.' }, { status: 409 })
+      if (invoice.status === 'paid' || Number(invoice.balance ?? invoice.total) < Number(invoice.total) - 0.005) {
+        return NextResponse.json({ error: 'Esta factura tiene cobros apuntados. Quita antes el cobro en Zoho (o déjala como está).' }, { status: 409 })
+      }
+      await zoho(`${ruta}/status/void`, { metodo: 'POST' })
+      const service = createServiceClient()
+      const { data: reflejo } = await service.from('invoices').select('treasury_client_id, period').eq('zoho_invoice_id', id).maybeSingle()
+      await service.from('invoices').update({ status: 'cancelled' }).eq('zoho_invoice_id', id)
+      // El mes vuelve a «sin factura»: si se hace otra, la sincronización lo marca otra vez
+      const r = reflejo as { treasury_client_id?: string | null; period?: string | null } | null
+      if (r?.treasury_client_id && r.period) await service.from('treasury_client_months').update({ invoice_sent: false }).eq('client_id', r.treasury_client_id).eq('period', r.period)
+      await registrar(permiso, {
+        tipo: 'borrador_borrado',
+        zohoId: id,
+        numero: invoice.invoice_number,
+        cliente: invoice.customer_name,
+        importe: Number(invoice.total),
+        moneda: invoice.currency_code,
+        detalle: { anulada: true, estadoAntes: invoice.status },
+      })
+      return NextResponse.json({ ok: true, anulada: true })
+    }
     if (invoice.status !== 'draft') {
-      return NextResponse.json({ error: 'Solo se puede borrar un borrador. Esta factura ya se ha enviado.' }, { status: 409 })
+      return NextResponse.json({ error: 'Solo se puede borrar un borrador. Una factura enviada se anula.' }, { status: 409 })
     }
     await zoho(ruta, { metodo: 'DELETE' })
     await createServiceClient().from('invoices').delete().eq('zoho_invoice_id', id)

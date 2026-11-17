@@ -51,6 +51,9 @@ function resumen(f: FilaRegistro): string {
 const esRecordatorio = (f: FilaRegistro) => f.tipo === 'envio' && (f.detalle as { recordatorio?: boolean }).recordatorio === true
 
 /** Un «borrador editado» que en realidad era una factura enviada (corregida desde el 11 nov 2026) */
+/** Un «borrador borrado» que en realidad era una factura enviada que se anuló (desde Cobros, 17 nov 2026) */
+const esAnulacion = (f: FilaRegistro) => f.tipo === 'borrador_borrado' && (f.detalle as { anulada?: boolean }).anulada === true
+
 const esCorreccion = (f: FilaRegistro) => f.tipo === 'borrador_editado' && (f.detalle as { enviada?: boolean }).enviada === true
 
 const claveDeDia = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
@@ -153,7 +156,7 @@ export function PestanaRegistro() {
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className={`truncate text-[12.5px] ${TEXTO.t1}`}>
-                        <span className="font-medium">{esCorreccion(f) ? 'Factura enviada corregida' : esRecordatorio(f) ? 'Recordatorio de pago' : ETIQUETA_REGISTRO[f.tipo]}</span>
+                        <span className="font-medium">{esCorreccion(f) ? 'Factura enviada corregida' : esAnulacion(f) ? 'Factura anulada' : esRecordatorio(f) ? 'Recordatorio de pago' : ETIQUETA_REGISTRO[f.tipo]}</span>
                         {f.cliente ? <span className={TEXTO.t2}> · {f.cliente}</span> : null}
                       </span>
                       {(f.numero || detalle) && (
