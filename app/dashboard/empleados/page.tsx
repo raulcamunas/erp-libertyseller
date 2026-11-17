@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { BarraContabilidad } from '@/components/contabilidad/BarraContabilidad'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { EmployeesBoard } from '@/components/empleados/EmployeesBoard'
@@ -147,6 +148,7 @@ export default async function EmployeesPage() {
 
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+      <BarraContabilidad rol={profile.role} />
       <div className="mb-3 flex-shrink-0">
         <h1 className="heading-medium text-white mb-1">Control empleados</h1>
         <p className="text-white/50 text-sm">

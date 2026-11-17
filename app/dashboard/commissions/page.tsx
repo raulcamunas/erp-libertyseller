@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { BarraContabilidad } from '@/components/contabilidad/BarraContabilidad'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { redirect } from 'next/navigation'
 import { CommissionsCalculator } from '@/components/commissions/CommissionsCalculator'
@@ -36,6 +37,7 @@ export default async function CommissionsPage() {
 
   return (
     <div>
+      <BarraContabilidad rol={profile.role} />
       <div className="mb-5">
         <h1 className="heading-medium text-white mb-2">
           {esAdmin ? 'Comisiones' : 'Calculadora de Comisiones'}

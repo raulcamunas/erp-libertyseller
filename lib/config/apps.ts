@@ -214,6 +214,17 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
+    // El panel de Contabilidad: el resumen (bancos, por cobrar, vencido, cobrado, equipo) y la barra que une Tesorería, Facturación, Bancos, Empleados,
+    // Comisiones y Tax Reports (components/contabilidad/BarraContabilidad.tsx). Solo administradores y socios, como Tesorería.
+    id: 'contabilidad',
+    name: 'Resumen',
+    description: 'Contabilidad de un vistazo: bancos, cobros, vencidos y equipo',
+    icon: BookOpenText,
+    route: '/dashboard/contabilidad',
+    status: 'new',
+    category: 'core'
+  },
+  {
     id: 'tesoreria',
     name: 'Tesorería',
     description: 'Ingresos por cliente, gastos y beneficio mes a mes',
@@ -590,6 +601,8 @@ export const apps: AppConfig[] = [
 export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   // Los sueldos de todo el equipo.
   'empleados',
+  // El resumen contable (saldos de los bancos de la empresa). Un socio entra por la dirección, como a Tesorería.
+  'contabilidad',
   // Las llaves de las tiendas de los clientes y el botón que les cambia el precio.
   'amazon-api',
   // Una pantalla de decisión, con nombres reales de clientes en las maquetas.
@@ -905,7 +918,7 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     name: 'Contabilidad',
     description: 'Tesorería, facturación, control de empleados, comisiones y Tax Reports',
     icon: BookOpenText,
-    apps: ['tesoreria', 'facturacion', 'empleados', 'commissions', 'tax-reports'],
+    apps: ['contabilidad', 'tesoreria', 'facturacion', 'empleados', 'commissions', 'tax-reports'],
     despuesDe: 'correo',
   },
   {

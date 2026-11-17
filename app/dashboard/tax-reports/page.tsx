@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { BarraContabilidad } from '@/components/contabilidad/BarraContabilidad'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
 import { APP_TAX_REPORTS } from '@/lib/config/apps'
@@ -83,6 +84,7 @@ export default async function TaxReportsPage() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-2">
+      <BarraContabilidad rol={profile.role} />
       <div className="min-w-0">
         <h1 className={TITULO.pantalla}>Tax Reports</h1>
         <p className={`${TITULO.entradilla} mt-[2px] max-w-[92ch]`}>

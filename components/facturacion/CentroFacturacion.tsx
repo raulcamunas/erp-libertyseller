@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
 import { PANTALLA, TITULO } from '@/lib/estilo/denso'
 import type { FilaFacturacion, Tablero } from '@/lib/facturacion/tipos'
 import { Aviso, hoyISO, pedir } from './comun'
 import { PanelFactura } from './PanelFactura'
 import { PestanaCobros } from './PestanaCobros'
+import { PestanaExtractos } from './PestanaExtractos'
 import { PestanaFacturar } from './PestanaFacturar'
 import { PestanaPlantillas } from './PestanaPlantillas'
 import { PestanaRegistro } from './PestanaRegistro'
@@ -20,6 +22,7 @@ import { PestanaRegistro } from './PestanaRegistro'
 const PESTANAS = [
   { id: 'facturar', nombre: 'Facturar' },
   { id: 'cobros', nombre: 'Cobros y banco' },
+  { id: 'extractos', nombre: 'Extractos' },
   { id: 'plantillas', nombre: 'Plantillas' },
   { id: 'registro', nombre: 'Registro' },
 ] as const
@@ -89,12 +92,16 @@ export function CentroFacturacion() {
   const [facturaARecordar, setFacturaARecordar] = useState<string | null>(null)
 
   // El aviso de la campana de una factura sin pagar trae «?pestana=cobros&recordar=<factura>»: se abre Cobros con su recordatorio
+  // Y la barra de Contabilidad trae «?pestana=extractos» (el apartado «Bancos»): se sigue al cambiar sin recargar
+  const params = useSearchParams()
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search)
-    const recordar = q.get('recordar')
-    if (q.get('pestana') === 'cobros' || recordar) setPestana('cobros')
+    const recordar = params?.get('recordar')
+    const pedida = params?.get('pestana')
+    if (pedida === 'cobros' || recordar) setPestana('cobros')
+    else if (pedida === 'extractos') setPestana('extractos')
+    else setPestana((p) => (p === 'extractos' ? 'facturar' : p))
     if (recordar) setFacturaARecordar(recordar)
-  }, [])
+  }, [params])
 
   const traer = useCallback(async () => {
     setCargando(true)
@@ -149,6 +156,7 @@ export function CentroFacturacion() {
           />
         )}
         {pestana === 'cobros' && <PestanaCobros zohoOrgId={tablero?.zohoOrgId ?? null} facturaInicial={facturaACobrar} recordarInicial={facturaARecordar} onCambio={() => void traer()} />}
+        {pestana === 'extractos' && <PestanaExtractos onCambio={() => void traer()} onIrACobros={() => setPestana('cobros')} />}
         {pestana === 'plantillas' && <PestanaPlantillas />}
         {pestana === 'registro' && <PestanaRegistro />}
       </div>

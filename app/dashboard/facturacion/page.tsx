@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile } from '@/lib/supabase/get-user-profile'
+import { Suspense } from 'react'
 import { CentroFacturacion } from '@/components/facturacion/CentroFacturacion'
+import { BarraContabilidad } from '@/components/contabilidad/BarraContabilidad'
 
 /**
  * FACTURACIÓN: EL MES ENTERO EN UNA PANTALLA, CONTRA ZOHO BOOKS.
@@ -24,6 +26,11 @@ export default async function FacturacionPage() {
   if (profile.role !== 'admin' && profile.role !== 'partner') redirect('/dashboard')
 
   return (
-    <CentroFacturacion />
+    <>
+      <BarraContabilidad rol={profile.role} />
+      <Suspense fallback={null}>
+        <CentroFacturacion />
+      </Suspense>
+    </>
   )
 }
