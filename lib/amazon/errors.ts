@@ -337,6 +337,23 @@ export function describeHttpError(params: {
     })
   }
 
+  // ---- 400 por la dirección de origen: es el dato, no el ERP ----
+  // createInboundPlan contesta 400 «WARNING: Address was unable to be verified» cuando Amazon no encuentra la
+  // dirección de origen en su callejero. La petición está bien montada: lo que falla es la dirección guardada.
+  if (httpStatus === 400 && /address was unable to be verified|address.*(invalid|not valid|could not be validated)/i.test(detail ?? '')) {
+    return new AmazonApiError({
+      kind: 'peticion',
+      message: tecnico,
+      humanMessage:
+        'Amazon no reconoce la dirección de origen del cliente (no la encuentra en su callejero). Corrígela en «Sale desde» ' +
+        'para que sea igual que la dirección «Enviar desde» que el cliente tiene en Seller Central: calle completa sin abreviar, ' +
+        'número, localidad con sus acentos y provincia. Luego reintenta el paso.',
+      httpStatus,
+      requestId,
+      code,
+    })
+  }
+
   // ---- 400 y demás: bug nuestro ----
   // No se reintenta. Un 400 es determinista: volver a mandarlo solo gasta cupo
   // y retrasa el resto de la cola.
