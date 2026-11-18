@@ -189,6 +189,8 @@ export interface EstadoDelEnvio {
   inventario: { problemas: Problema[]; referencias: number; unidades: number }
   cajas: { problemas: Problema[]; cajas: number; pesoKg: number; cuadra: boolean }
   direccion: DireccionOrigen | null
+  /** Para editar la dirección desde la pantalla del envío */
+  clienteId: string | null
   opcionesEmbalaje: OpcionEmbalaje[]
   packingOptionId: string | null
   opcionesReparto: Array<OpcionRepartoResumida & { destinos: Array<{ shipmentId: string; destino: string | null; ciudad: string | null }> }>
@@ -289,6 +291,7 @@ export async function estadoDelEnvio(remesaId: string, service: ClienteDeBase = 
     },
     cajas: { problemas: problemasCajas, cajas: cajas.cajas.length, pesoKg: cajas.pesoTotalKg, cuadra: cajas.cuadre.cuadra },
     direccion,
+    clienteId: f.client_id,
     opcionesEmbalaje: datos.opcionesEmbalaje ?? [],
     packingOptionId: f.packing_option_id,
     opcionesReparto: resumirReparto(datos.opcionesReparto ?? [], ahora).map((o) => ({ ...o, destinos: (datos.opcionesReparto ?? []).find((x) => x.placementOptionId === o.placementOptionId)?.destinos ?? [] })),
@@ -333,6 +336,7 @@ function vacio(): EstadoDelEnvio {
     inventario: { problemas: [], referencias: 0, unidades: 0 },
     cajas: { problemas: [], cajas: 0, pesoKg: 0, cuadra: false },
     direccion: null,
+    clienteId: null,
     opcionesEmbalaje: [],
     packingOptionId: null,
     opcionesReparto: [],

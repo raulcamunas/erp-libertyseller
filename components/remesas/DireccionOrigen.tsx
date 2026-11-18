@@ -56,10 +56,13 @@ export function DireccionOrigen({
   clienteId,
   clienteNombre,
   puedeEditar,
+  onGuardada,
 }: {
   clienteId: string
   clienteNombre: string
   puedeEditar: boolean
+  /** Tras guardar (la pantalla del envío vuelve a leer su estado) */
+  onGuardada?: () => void
 }) {
   const [dir, setDir] = useState<Direccion | null>(null)
   const [borrador, setBorrador] = useState<Direccion>(VACIA)
@@ -105,6 +108,7 @@ export function DireccionOrigen({
       toast.success('Dirección guardada')
       setDir(borrador)
       setEditando(false)
+      onGuardada?.()
     } catch {
       toast.error('Se ha cortado la conexión con el servidor. Vuelve a probar.')
     } finally {

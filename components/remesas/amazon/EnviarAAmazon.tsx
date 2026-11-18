@@ -37,6 +37,7 @@ import { FASES_ENVIO, cuantoQueda, faseDelPaso, type FaseEnvio, type Problema } 
 import type { EstadoDelEnvio } from '@/lib/fba/envio-amazon-motor'
 import { invalidarRemesas } from '../comun/useAgencia'
 import { useEnvioAmazon } from './useEnvioAmazon'
+import { DireccionOrigen } from '../DireccionOrigen'
 
 /**
  * «ENVIAR A AMAZON» DENTRO DEL DETALLE DE LA REMESA (solo administradores).
@@ -133,7 +134,7 @@ export function EnviarAAmazon({ remesaId, soloSeguimiento = false }: { remesaId:
           <BarraDeFasesEnvio actual={faseActual} vista={fase} onVer={setVista} cancelado={e.paso === 'cancelado'} />
           <AnimatePresence mode="wait" initial={false}>
             <motion.div key={fase} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}>
-              {fase === 'inventario' && <FaseInventario e={e} remesaId={remesaId} trabajando={trabajando} enviar={enviar} />}
+              {fase === 'inventario' && <FaseInventario e={e} remesaId={remesaId} trabajando={trabajando} enviar={enviar} onDireccion={refrescar} />}
               {fase === 'embalaje' && <FaseEmbalaje e={e} trabajando={trabajando} enviar={enviar} onReabierto={refrescar} />}
               {fase === 'reparto' && <FaseReparto e={e} trabajando={trabajando} enviar={enviar} ahora={ahora} />}
               {fase === 'transporte' && <FaseTransporte e={e} trabajando={trabajando} enviar={enviar} ahora={ahora} />}
@@ -309,7 +310,7 @@ function ListaDeProblemas({ problemas, vacio }: { problemas: Problema[]; vacio: 
 
 /* 1 · Inventario --------------------------------------------------- */
 
-function FaseInventario({ e, remesaId, trabajando, enviar }: { e: EstadoDelEnvio; remesaId: string; trabajando: string | null; enviar: Enviar }) {
+function FaseInventario({ e, remesaId, trabajando, enviar, onDireccion }: { e: EstadoDelEnvio; remesaId: string; trabajando: string | null; enviar: Enviar; onDireccion: () => void }) {
   const [confirmar, setConfirmar] = useState(false)
   const [sonda, setSonda] = useState<{ ok: boolean; texto: string } | null>(null)
   const [sondando, setSondando] = useState(false)
@@ -341,22 +342,27 @@ function FaseInventario({ e, remesaId, trabajando, enviar }: { e: EstadoDelEnvio
         <Tarjeta indice={1} icono={ShieldCheck} titulo="Comprobaciones antes de mandar" subtitulo="Límites de Amazon: 63,5 cm por lado y 23 kg por caja">
           <ListaDeProblemas problemas={problemas} vacio="Todo en orden: se puede mandar a Amazon" />
         </Tarjeta>
-        <Tarjeta indice={2} icono={MapPin} titulo="Sale desde" subtitulo="La dirección de origen del cliente">
-          {e.direccion ? (
-            <address className="text-[12.5px] not-italic leading-[1.55] text-[var(--ls-t2)]">
-              <span className="font-semibold text-[var(--ls-t1)]">{e.direccion.empresa}</span>
-              <br />
-              {e.direccion.linea1}
-              {e.direccion.linea2 ? `, ${e.direccion.linea2}` : ''}
-              <br />
-              {e.direccion.codigoPostal} {e.direccion.ciudad} ({e.direccion.provincia}) · {e.direccion.pais}
-              <br />
-              {e.direccion.nombre} · {e.direccion.telefono}
-            </address>
-          ) : (
-            <p className="text-[12.5px] text-[var(--ls-t3)]">Falta. Se rellena en «Lo que toca» → Dirección de origen.</p>
-          )}
-        </Tarjeta>
+        {/* Mientras Amazon no tenga el plan, la dirección se puede corregir aquí mismo (si la rechaza, se arregla y se reintenta sin salir) */}
+        {e.clienteId && !e.inboundPlanId ? (
+          <DireccionOrigen key={e.clienteId} clienteId={e.clienteId} clienteNombre={e.direccion?.empresa ?? 'el cliente'} puedeEditar onGuardada={onDireccion} />
+        ) : (
+          <Tarjeta indice={2} icono={MapPin} titulo="Sale desde" subtitulo="La dirección de origen del cliente">
+            {e.direccion ? (
+              <address className="text-[12.5px] not-italic leading-[1.55] text-[var(--ls-t2)]">
+                <span className="font-semibold text-[var(--ls-t1)]">{e.direccion.empresa}</span>
+                <br />
+                {e.direccion.linea1}
+                {e.direccion.linea2 ? `, ${e.direccion.linea2}` : ''}
+                <br />
+                {e.direccion.codigoPostal} {e.direccion.ciudad} ({e.direccion.provincia}) · {e.direccion.pais}
+                <br />
+                {e.direccion.nombre} · {e.direccion.telefono}
+              </address>
+            ) : (
+              <p className="text-[12.5px] text-[var(--ls-t3)]">Falta. Se rellena en «Lo que toca» → Dirección de origen.</p>
+            )}
+          </Tarjeta>
+        )}
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
