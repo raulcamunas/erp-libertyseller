@@ -378,7 +378,9 @@ export function excelParaEntrais(d: DatosDelExcel): Uint8Array {
     f += 1
     parrafo(`1. Un margen mínimo para cada producto: un ${bajo} del precio sin IVA si el producto cuesta menos de ${POLITICA_ENTRAIS.limiteCoste} €, y un ${alto} si cuesta ${POLITICA_ENTRAIS.limiteCoste} € o más. En lo barato hace falta más margen porque una devolución (porte de ida y vuelta) se come el beneficio de varias ventas.`, cuerpo, 42)
     parrafo('2. El precio que se pone es un céntimo por debajo de la oferta más barata que hay hoy en PcComponentes, para quedar los primeros. Nunca por debajo del mínimo: si el más barato está por debajo de nuestro mínimo, se pone el mínimo (no se vende a pérdida). Si nadie más lo vende, también el mínimo.', cuerpo, 42)
-    parrafo('Todas las cuentas se hacen sobre el precio SIN IVA: el IVA lo paga el cliente final y se ingresa a Hacienda. PcComponentes cobra su comisión también sobre el precio sin IVA: un porcentaje según la categoría y, en algunas, una cantidad fija por unidad.', cuerpo, 42)
+    parrafo('El margen se cuenta sobre el precio SIN IVA: el IVA lo paga el cliente final y se ingresa a Hacienda, no es de Entrais.', cuerpo, 30)
+    parrafo('La comisión de PcComponentes, en cambio, se calcula sobre el precio CON IVA (el que paga el cliente): un porcentaje según la categoría y, en algunas, una cantidad fija por unidad. Por eso en las tablas el porcentaje sale de dos formas: el de PcComponentes sobre el precio con IVA (el que se ve en su panel) y lo que ese mismo importe supone sobre el precio sin IVA. Es la misma comisión en euros, contada sobre dos bases.', cuerpo, 54)
+    parrafo('PcComponentes añade el 21 % de IVA a su comisión. Ese IVA no es un gasto: Entrais lo recupera en su declaración de IVA, así que no se resta.', cuerpo, 30)
 
     f += 1
     hoja.poner(f, 2, 'EN CIFRAS', rotulo)
@@ -418,7 +420,7 @@ export function excelParaEntrais(d: DatosDelExcel): Uint8Array {
       paso('− Precio del proveedor', e.proveedor, 'Lo que cuesta el producto, sin IVA')
       paso('− Canon', e.canon, 'Canon digital u otros (0 si no tiene)')
       paso('− Porte (envío al cliente)', e.porte, 'El envío del pedido hasta el cliente')
-      paso('− Comisión de PcComponentes', e.comision, `${pctTexto(e.pct)} del precio sin IVA${e.fija ? ` + ${e.fija.toFixed(2).replace('.', ',')} € fijos` : ''}`)
+      paso('− Comisión de PcComponentes', e.comision, `${pctTexto(e.pct / 1.21)} del precio con IVA (= ${pctTexto(e.pct)} del precio sin IVA)${e.fija ? ` + ${e.fija.toFixed(2).replace('.', ',')} € fijos` : ''}`)
       paso('= BENEFICIO DE ENTRAIS', e.beneficio, 'Lo que queda por cada unidad vendida', true, 'E2F2E6')
     }
 
@@ -426,7 +428,7 @@ export function excelParaEntrais(d: DatosDelExcel): Uint8Array {
     hoja.poner(f, 2, 'A TENER EN CUENTA', rotulo)
     f += 1
     for (const t of [
-      'La comisión de cada categoría sale de las ventas reales de Entrais en PcComponentes. Si una categoría no aparece en esas ventas, se usa la comisión más alta vista (17 % + 0,70 €), para no quedarse corto.',
+      'La comisión de cada categoría sale de las ventas reales de Entrais en PcComponentes. Si una categoría no aparece en esas ventas, se usa la comisión más alta vista (14 % del precio con IVA + 0,70 €), para no quedarse corto.',
       'La oferta más barata cambia a diario: el precio recomendado es el de hoy.',
       'Las cuentas no descuentan las devoluciones.',
     ])
@@ -462,7 +464,8 @@ export function excelParaEntrais(d: DatosDelExcel): Uint8Array {
       { t: 'Canon', a: 8, g: 'c', fmt: EUR, h: 'right', v: (_, e) => e.canon },
       { t: 'Porte (envío al cliente)', a: 10, g: 'c', fmt: EUR, h: 'right', v: (_, e) => e.porte },
       { t: 'Coste total', a: 11, g: 'c', fmt: EUR, h: 'right', fuerte: true, v: (_, e) => e.coste },
-      { t: 'Comisión %', a: 9, g: 'k', fmt: PCT, h: 'right', v: (_, e) => e.pct },
+      { t: 'Comisión % sobre precio CON IVA', a: 11, g: 'k', fmt: PCT, h: 'right', fuerte: true, v: (_, e) => e.pct / 1.21 },
+      { t: 'Equivale sobre precio SIN IVA', a: 11, g: 'k', fmt: PCT, h: 'right', v: (_, e) => e.pct },
       { t: 'Comisión fija', a: 9, g: 'k', fmt: EUR, h: 'right', v: (_, e) => e.fija },
       { t: 'Comisión total', a: 10, g: 'k', fmt: EUR, h: 'right', fuerte: true, v: (_, e) => e.comision },
       { t: 'Precio sin IVA', a: 11, g: 'v', fmt: EUR, h: 'right', v: (_, e) => e.base },
@@ -508,7 +511,7 @@ export function excelParaEntrais(d: DatosDelExcel): Uint8Array {
         if (col.t === 'Cómo se ha fijado') est = { ...est, ...tono[e.como] }
         if (col.t === 'Beneficio por unidad' && typeof v === 'number') est = { ...est, color: v >= 0 ? '1E5E32' : 'B42318' }
         if ((col.t === 'SKU' || col.t === 'EAN') && v !== null) est = { ...est, color: COLOR.etiqueta }
-        if (col.t === 'Comisión %' && e.porDefecto) est = { ...est, color: '9A3F07', cursiva: true }
+        if (col.t.startsWith('Comisión %') && e.porDefecto) est = { ...est, color: '9A3F07', cursiva: true }
         hoja.poner(fila, primera + i, v, est)
       })
     })
