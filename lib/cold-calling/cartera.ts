@@ -1,6 +1,6 @@
 import { CAJAS_DEL_CICLO, cajaDelCiclo, enCiclo, esListaDeCiclo, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { contarPrioridadesDe } from '@/lib/cold-calling/partners'
-import { COLD_STATUSES, esPartner, esTiendaOnline, pesoOrden, type ColdLead, type ColdSort } from '@/lib/types/cold-leads'
+import { COLD_STATUSES, esPartner, esTiendaOnline, facturacionEnEuros, pesoOrden, type ColdLead, type ColdSort } from '@/lib/types/cold-leads'
 
 /**
  * LA CARTERA DE COLD CALLING: FILTRAR, ORDENAR, CONTAR Y SACAR LAS RELLAMADAS.
@@ -124,7 +124,8 @@ function dentroDelRango(lead: ColdLead, min: number | null, max: number | null):
   // Regla 2: a una tienda online no se le aplica (ni a un partner: tampoco tiene facturación); a un seller sin importe, con rango activo, no se le deja pasar
   if (esTiendaOnline(lead) || esPartner(lead)) return true
   if (min === null && max === null) return true
-  const rev = lead.revenue_monthly == null ? null : Number(lead.revenue_monthly)
+  // En euros: la de los vendedores de México viene en dólares y se pasa con el tipo de cambio del día (si aún no lo hay, se compara en dólares)
+  const rev = lead.revenue_monthly == null ? null : (facturacionEnEuros(Number(lead.revenue_monthly), lead) ?? Number(lead.revenue_monthly))
   if (rev == null || Number.isNaN(rev)) return false
   if (min !== null && rev < min) return false
   if (max !== null && rev > max) return false

@@ -4,7 +4,9 @@ import { ventasCompactas } from '@/lib/cold-calling/cifras'
 import { estadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { esPrioridadDePartner, PRIORIDADES_DE_PARTNER } from '@/lib/cold-calling/partners'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
-import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, esDeAmazonMexico, esPartner, esTiendaOnline, formatVentasEstimadas } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_NIVEL_LABELS, type ColdLead, esDeAmazonMexico, esPartner, esTiendaOnline, facturacionOriginal, formatVentasEstimadas } from '@/lib/types/cold-leads'
+import { useTiposDeCambio } from '@/lib/divisas/cliente'
+import { aEuros } from '@/lib/divisas/estado'
 
 /**
  * LAS PIEZAS VISUALES COMUNES DE COLD CALLING: el glifo de cada estado, las insignias de lista y de nivel.
@@ -135,11 +137,25 @@ export function CifraDeLista({ lead }: { lead: Pick<ColdLead, 'tipo_lead' | 'niv
     )
   }
   if (lead.revenue_monthly == null) return null
-  const n = Number(lead.revenue_monthly)
-  return <span className="shrink-0 text-[11px] tabular-nums text-[var(--ls-t4)]">{esDeAmazonMexico(lead) ? (n >= 1000 ? `${Math.round(n / 1000).toLocaleString('es-ES')} k$` : `${Math.round(n)} $`) : n >= 1000 ? `${Math.round(n / 1000).toLocaleString('es-ES')} k€` : `${Math.round(n)} €`}</span>
+  return <CifraDeFacturacion lead={lead} />
 }
 
 /** Una tecla del teclado, para las pistas de atajos */
 export function Tecla({ children }: { children: ReactNode }) {
   return <kbd className="inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-[4px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-1 font-sans text-[10px] font-medium text-[var(--ls-t3)]">{children}</kbd>
+}
+
+/** La facturación de un vendedor en la lista, en euros (los de México vienen en dólares y se pasan con el tipo de cambio del día) */
+function CifraDeFacturacion({ lead }: { lead: Pick<ColdLead, 'revenue_monthly'> & Partial<Pick<ColdLead, 'seller_url'>> }) {
+  useTiposDeCambio()
+  const original = Number(lead.revenue_monthly)
+  const mx = esDeAmazonMexico(lead)
+  const n = mx ? (aEuros(original, 'USD') ?? original) : original
+  const unidad = mx && aEuros(original, 'USD') === null ? '$' : '€'
+  return (
+    <span title={facturacionOriginal(original, lead)} className="shrink-0 text-[11px] tabular-nums text-[var(--ls-t4)]">
+      {mx && unidad === '€' ? '≈ ' : ''}
+      {n >= 1000 ? `${Math.round(n / 1000).toLocaleString('es-ES')} k${unidad}` : `${Math.round(n)} ${unidad}`}
+    </span>
+  )
 }

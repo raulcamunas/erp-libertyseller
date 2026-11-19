@@ -1,5 +1,6 @@
 'use client'
 
+import { useTiposDeCambio } from '@/lib/divisas/cliente'
 import { ChevronRight, Contact, Copy, ExternalLink, Handshake, Link2, ShoppingBag, Store, UserRound, Users, type LucideIcon } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -13,6 +14,7 @@ import {
   esPartner,
   esTiendaOnline,
   formatRevenue,
+  facturacionOriginal,
   formatVentasEstimadas,
   type ColdLead,
 } from '@/lib/types/cold-leads'
@@ -86,6 +88,7 @@ function copiar(texto: string, aviso: string) {
 }
 
 export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: Props) {
+  useTiposDeCambio() // la facturación de los vendedores de México se pinta en euros en cuanto llega el tipo de cambio
   const [extrasAbiertos, setExtrasAbiertos] = useState(false)
   const [todosLosDirectivos, setTodosLosDirectivos] = useState(false)
   const escribirAlLead = useEscribirAlLead()
@@ -287,7 +290,7 @@ export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: 
             </Casilla>
             <Casilla etiqueta="Facturación">
               {lead.revenue_monthly != null ? (
-                <span className="font-semibold tabular-nums">
+                <span className="font-semibold tabular-nums" title={facturacionOriginal(lead.revenue_monthly, lead)}>
                   {formatRevenue(lead.revenue_monthly, lead)} <span className="font-normal text-[var(--ls-t3)]">/ mes</span>
                 </span>
               ) : (

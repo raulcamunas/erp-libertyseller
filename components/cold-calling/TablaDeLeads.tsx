@@ -1,5 +1,6 @@
 'use client'
 
+import { useTiposDeCambio } from '@/lib/divisas/cliente'
 import { ChevronRight, Copy, ExternalLink, Maximize2 } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -96,6 +97,7 @@ export function CeldaEditable({ valor, onGuardar, deshabilitada, placeholder }: 
 }
 
 export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos, selectedId, onSelect, onOpenDetail, onPatched, nombres, version, hoy, generacion }: Props) {
+  useTiposDeCambio() // la facturación de los vendedores de México se pinta en euros en cuanto llega el tipo de cambio
   const escribirAlLead = useEscribirAlLead()
   const supabase = useMemo(() => createClient(), [])
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set())

@@ -1,3 +1,4 @@
+import { aEuros } from '@/lib/divisas/estado'
 import type { CodigoCcaa } from '@/lib/ubicacion/zonas'
 import type { FaseDelCiclo } from '@/lib/cold-calling/ciclo'
 import { CalendarPerson } from './appointments'
@@ -267,10 +268,26 @@ export function colorForList(name: string | null): string {
   return LIST_PALETTE[Math.abs(hash) % LIST_PALETTE.length]
 }
 
+/**
+ * La facturación mensual, SIEMPRE en euros. La de los vendedores de Amazon México viene en dólares (SmartScout): se pasa a euros con el tipo de cambio del día
+ * (lib/divisas, BCE) con «≈» delante; mientras no hay tipo, en dólares. El componente que la pinta llama a `useTiposDeCambio()` para repintarse al llegar.
+ */
 export function formatRevenue(n: number | null, lead?: { seller_url?: string | null } | null): string {
   if (n == null) return '—'
-  return esDeAmazonMexico(lead) ? `${Math.round(n).toLocaleString('es-ES')} $` : `${Math.round(n).toLocaleString('es-ES')} €`
+  if (!esDeAmazonMexico(lead)) return `${Math.round(n).toLocaleString('es-ES')} €`
+  const eur = aEuros(n, 'USD')
+  return eur === null ? `${Math.round(n).toLocaleString('es-ES')} $` : `≈ ${Math.round(eur).toLocaleString('es-ES')} €`
 }
+
+/** La facturación en euros (los de México, convertidos de dólares); null si no hay o falta el tipo de cambio */
+export function facturacionEnEuros(n: number | null, lead?: { seller_url?: string | null } | null): number | null {
+  if (n == null) return null
+  return esDeAmazonMexico(lead) ? aEuros(n, 'USD') : n
+}
+
+/** El texto con la cifra original, para el «title»: «3.907.596 $ al mes (USD)» */
+export const facturacionOriginal = (n: number | null, lead?: { seller_url?: string | null } | null): string | undefined =>
+  n != null && esDeAmazonMexico(lead) ? `${Math.round(n).toLocaleString('es-ES')} $ al mes (USD), pasado a euros con el tipo de cambio del BCE de hoy` : undefined
 
 /** Un vendedor de Amazon México (lista de México («MEX … · Ciclo»), 19 nov 2026): su facturación viene en DÓLARES y se llama con el número virtual de México */
 export const esDeAmazonMexico = (lead?: { seller_url?: string | null } | null): boolean => /amazon\.com\.mx/i.test(lead?.seller_url ?? '')

@@ -1,5 +1,6 @@
 'use client'
 
+import { useTiposDeCambio } from '@/lib/divisas/cliente'
 import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, Linkedin, Mail, MapPin, Phone, ShoppingBag, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -107,6 +108,7 @@ const chipDeEstado = (activo: boolean, tono: (typeof ESTADO_VISUAL)[ColdLeadStat
 })
 
 export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched, onSiguiente, onAnterior, posicion, hoy, nombres, version, onVolver }: Props) {
+  useTiposDeCambio() // la facturación de los vendedores de México se pinta en euros en cuanto llega el tipo de cambio
   const supabase = useMemo(() => createClient(), [])
 
   const [detalle, setDetalle] = useState<Partial<ColdLead>>(() => DETALLES.get(delaLista.id) ?? {})
