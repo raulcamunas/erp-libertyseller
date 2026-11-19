@@ -13,7 +13,7 @@
  * El orden es el de una conversación de venta: lo que ya hace bien, dónde se
  * escapa la venta y cuánto, el detalle, por dónde empezaríamos y la llamada.
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   ArrowDown,
   ArrowRight,
@@ -73,7 +73,7 @@ const AREA: Record<Area, string> = {
   expansion: 'Expansión',
 }
 
-const BANDERA: Record<PaisAnalisis['codigo'], string> = { es: '🇪🇸', fr: '🇫🇷', it: '🇮🇹', de: '🇩🇪', uk: '🇬🇧' }
+const BANDERA: Record<PaisAnalisis['codigo'], string> = { es: '🇪🇸', fr: '🇫🇷', it: '🇮🇹', de: '🇩🇪', uk: '🇬🇧', mx: '🇲🇽', us: '🇺🇸', ca: '🇨🇦', br: '🇧🇷' }
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -94,8 +94,11 @@ function mesAnio(iso: string | null): string {
   return `${MESES[m - 1]} de ${a}`
 }
 
-const eur = (n: number | null) =>
-  n === null ? '—' : n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: n >= 100 ? 0 : 2 })
+/** La moneda del informe: euros (Amazon España) o pesos (Amazon México, desde el 19 nov 2026) */
+const MonedaDelInforme = createContext<'EUR' | 'MXN'>('EUR')
+const formatoDeDinero = (moneda: 'EUR' | 'MXN') => (n: number | null) =>
+  n === null ? '—' : n.toLocaleString(moneda === 'MXN' ? 'es-MX' : 'es-ES', { style: 'currency', currency: moneda, maximumFractionDigits: n >= 100 ? 0 : 2 })
+const useEur = () => formatoDeDinero(useContext(MonedaDelInforme))
 /** Miles con punto también en números de 4 cifras («1.583»), que es-ES deja sin separar. */
 const miles = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 const entero = (n: number | null) => (n === null ? '—' : miles(n))
@@ -444,6 +447,7 @@ function EstadoAhora({ p }: { p: ProductoAnalisis }) {
 
 /** El producto en vertical, para la rejilla de cinco por fila del ordenador. */
 function TarjetaProducto({ p, i }: { p: ProductoAnalisis; i: number }) {
+  const eur = useEur()
   const avisos = avisosDe(p)
   const dato = (valor: string, rotulo: string, mal?: boolean) => (
     <div className="min-w-0">
@@ -576,6 +580,7 @@ function Catalogo({ productos }: { productos: ProductoAnalisis[] }) {
 }
 
 function FilaProducto({ p, i }: { p: ProductoAnalisis; i: number }) {
+  const eur = useEur()
   const avisos = avisosDe(p)
 
   const celda = (valor: string, rotulo: string, mal?: boolean) => (
@@ -754,6 +759,7 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
 /* ------------------------------------------------------------------ */
 
 function SeccionCompetencia({ c }: { c: NonNullable<Informe['competencia']> }) {
+  const eur = useEur()
   const filas = [...(c.estrella ? [{ p: c.estrella, suyo: true }] : []), ...c.rivales.map((p) => ({ p, suyo: false }))]
   const lider = c.rivales[0]
   return (
@@ -903,7 +909,15 @@ function IconoWhatsapp({ className }: { className?: string }) {
   )
 }
 
-export function InformeAnalisis({
+export function InformeAnalisis(props: { informe: Informe; contacto?: ContactoComercial | null }) {
+  return (
+    <MonedaDelInforme.Provider value={props.informe.moneda ?? 'EUR'}>
+      <InformeAnalisisEnSuMoneda {...props} />
+    </MonedaDelInforme.Provider>
+  )
+}
+
+function InformeAnalisisEnSuMoneda({
   informe,
   contacto,
 }: {
@@ -1082,7 +1096,7 @@ export function InformeAnalisis({
           <Revelar retraso={250}>
             <Ventana brillo titulo={`Resumen · datos del ${fechaCorta(informe.fecha)}`}>
               <div className="grid grid-cols-2 gap-2.5">
-                <Dato valor={entero(cifras.productos)} rotulo="productos en España" />
+                <Dato valor={entero(cifras.productos)} rotulo={`productos en ${informe.mercado === 'mx' ? 'México' : 'España'}`} />
                 <Dato valor={cifras.buyBox === null ? '—' : `${cifras.buyBox} %`} rotulo="Buy Box en tus ofertas" />
                 <Dato
                   valor={v12.positivas === null ? '—' : `${v12.positivas} %`}
@@ -1359,7 +1373,7 @@ export function InformeAnalisis({
                 </span>
                 {informe.ventas.importe > 0 && (
                   <span className="text-[24px] font-extrabold tracking-[-0.03em]" style={{ color: N }}>
-                    ≈ <Contador texto={`${miles(informe.ventas.importe)} €`} />
+                    ≈ <Contador texto={`${miles(informe.ventas.importe)} ${informe.moneda === 'MXN' ? '$' : '€'}`} />
                   </span>
                 )}
               </div>

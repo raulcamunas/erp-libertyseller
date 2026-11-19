@@ -111,9 +111,9 @@ type Hecho = { ok: true; nombre: string } | { ok: false; saltar?: string; parar?
 
 async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola, clientes: Clientes): Promise<Hecho & { tokens: number }> {
   if (esCliente(clientes, { seller: v.seller, nombres: [v.tienda] })) return { ok: false, saltar: 'es cliente nuestro', tokens: 0 }
-  const e = await estudiarVendedor(clave, v.seller)
+  const e = await estudiarVendedor(clave, v.seller, v.mercado ?? 'es')
   if (e.sinDatos) return { ok: false, saltar: 'sin datos en Keepa', tokens: e.gastado }
-  const informe = construirAnalisis({ vendedorEs: e.vendedorEs, paises: e.paises, productos: e.productos, competencia: e.competencia, fecha: e.productos.fecha })
+  const informe = construirAnalisis({ vendedorEs: e.vendedorEs, paises: e.paises, productos: e.productos, competencia: e.competencia, fecha: e.productos.fecha, mercado: v.mercado ?? 'es' })
   const r = await guardarAnalisis(s, v, informe, e.productos.fecha)
   if (!r.ok) {
     if (falta303(r.error)) return { ok: false, parar: 'falta la migración 303', tokens: e.gastado }
@@ -170,7 +170,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     if (saldo.tokens < necesitaLoSiguiente) return nada(`ningún informe nuevo · esperando saldo de Keepa (${saldo.tokens}/${necesitaLoSiguiente})`)
 
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, foco] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
@@ -182,7 +182,10 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       leerJson<EventoDeBitacora[]>(s, 'bitacora.json', []).catch(() => [] as EventoDeBitacora[]),
       // prioridad.json: ids de leads (en orden) que se hacen ANTES que el turno, sin consumirlo. Se vacía solo según se hacen (17 nov 2026)
       leerJson<string[]>(s, 'prioridad.json', []).catch(() => [] as string[]),
+      // foco.json { solo: true }: SOLO se hacen los de prioridad.json; el reparto normal se para (19 nov 2026: foco en las listas de México)
+      leerJson<{ solo?: boolean }>(s, 'foco.json', {}).catch(() => ({}) as { solo?: boolean }),
     ])
+    const soloPrioridad = foco?.solo === true
     if (!cola.length && !colaSin.length) return nada('no hay cola (cola.json en Storage)')
     const pendientesTodas = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
     const pendientesSinTodas = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`])
@@ -192,11 +195,11 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       ...pendientesTodas.filter((v) => ordenPrio.has(v.lead)).map((v): Tarea => ({ tipo: 'amazon', v })),
       ...pendientesSinTodas.filter((v) => ordenPrio.has(v.lead)).map((v): Tarea => ({ tipo: 'sin', v })),
     ].sort((a, b) => (ordenPrio.get(a.v.lead) ?? 0) - (ordenPrio.get(b.v.lead) ?? 0))
-    const pendientes = pendientesTodas.filter((v) => !ordenPrio.has(v.lead))
-    const pendientesSin = pendientesSinTodas.filter((v) => !ordenPrio.has(v.lead))
+    const pendientes = soloPrioridad ? [] : pendientesTodas.filter((v) => !ordenPrio.has(v.lead))
+    const pendientesSin = soloPrioridad ? [] : pendientesSinTodas.filter((v) => !ordenPrio.has(v.lead))
     if (!pendientes.length && !pendientesSin.length && !prioritarios.length) {
       necesitaLoSiguiente = TOKENS_POR_TIENDA
-      return nada('cola terminada')
+      return nada(soloPrioridad ? 'foco terminado: no queda nada en prioridad.json (y el resto está parado por foco.json)' : 'cola terminada')
     }
 
     const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length

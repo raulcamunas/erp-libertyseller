@@ -69,9 +69,15 @@ export async function saldoKeepa(clave: string): Promise<Saldo> {
   return { tokens: Number(d.tokensLeft ?? 0), ritmo: Number(d.refillRate ?? 0) }
 }
 
-export const finder = (seleccion: object) => 'query?domain=9&selection=' + encodeURIComponent(JSON.stringify(seleccion))
+export const finder = (seleccion: object, dominio = 9) => `query?domain=${dominio}&selection=` + encodeURIComponent(JSON.stringify(seleccion))
 
-export async function estudiarVendedor(clave: string, sellerId: string): Promise<EstudioKeepa> {
+/** Los países con los que se compara a un vendedor de México (dominios de Keepa) */
+const PAISES_MX = { us: 1, ca: 6, br: 12 } as const
+
+/** `mercado` = de qué Amazon es el vendedor: España (dominio 9 de Keepa, por defecto) o México (11) */
+export async function estudiarVendedor(clave: string, sellerId: string, mercado: 'es' | 'mx' = 'es'): Promise<EstudioKeepa> {
+  const dom = mercado === 'mx' ? 11 : 9
+  const otros: Record<string, number> = mercado === 'mx' ? PAISES_MX : PAISES
   let gastado = 0
   const fecha = hoy()
   const anotar = (d: K) => {
@@ -79,21 +85,21 @@ export async function estudiarVendedor(clave: string, sellerId: string): Promise
     return d
   }
 
-  const vendedorEs = anotar(await pedir(clave, `seller?domain=9&seller=${sellerId}&storefront=1`))
+  const vendedorEs = anotar(await pedir(clave, `seller?domain=${dom}&seller=${sellerId}&storefront=1`))
   const s = vendedorEs?.sellers?.[sellerId]
   const vacio = { products: [] as K[], fecha }
   if (!s) return { vendedorEs, paises: {}, productos: vacio, competencia: { ...vacio, nota: 'Keepa no conoce a este vendedor' }, gastado, sinDatos: true }
 
   const paises: Record<string, K | null> = {}
-  for (const [p, dom] of Object.entries(PAISES)) {
-    const d = anotar(await pedir(clave, `seller?domain=${dom}&seller=${sellerId}`))
+  for (const [p, domOtro] of Object.entries(otros)) {
+    const d = anotar(await pedir(clave, `seller?domain=${domOtro}&seller=${sellerId}`))
     paises[p] = d?.sellers?.[sellerId] ?? null
   }
 
   let top: string[] = []
   try {
     const d = anotar(
-      await pedir(clave, finder({ sellerIds: [sellerId], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 })),
+      await pedir(clave, finder({ sellerIds: [sellerId], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }, dom)),
     )
     top = d?.asinList ?? []
   } catch (e) {
@@ -105,7 +111,7 @@ export async function estudiarVendedor(clave: string, sellerId: string): Promise
 
   const productos: K[] = []
   for (let i = 0; i < top.length; i += 10) {
-    const d = anotar(await pedir(clave, `product?domain=9&asin=${top.slice(i, i + 10).join(',')}&stats=90&buybox=1&rating=1&history=0`))
+    const d = anotar(await pedir(clave, `product?domain=${dom}&asin=${top.slice(i, i + 10).join(',')}&stats=90&buybox=1&rating=1&history=0`))
     productos.push(...(d?.products ?? []))
   }
   if (!productos.length) return { vendedorEs, paises, productos: vacio, competencia: { ...vacio }, gastado, sinDatos: true }
@@ -123,14 +129,14 @@ export async function estudiarVendedor(clave: string, sellerId: string): Promise
     let candidatos: string[] = []
     try {
       const d = anotar(
-        await pedir(clave, finder({ categories_include: [hoja.catId], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 })),
+        await pedir(clave, finder({ categories_include: [hoja.catId], current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }, dom)),
       )
       candidatos = ((d?.asinList ?? []) as string[]).filter((a) => !propios.has(a)).slice(0, 6)
     } catch (e) {
       if (e instanceof SinTokens) throw e
     }
     if (candidatos.length) {
-      const d = anotar(await pedir(clave, `product?domain=9&asin=${candidatos.join(',')}&stats=90&buybox=1&rating=1&history=0`))
+      const d = anotar(await pedir(clave, `product?domain=${dom}&asin=${candidatos.join(',')}&stats=90&buybox=1&rating=1&history=0`))
       competencia.products = ((d?.products ?? []) as K[]).filter((p) => !marcasPropias.has(String(p.brand ?? '').toLowerCase())).slice(0, 5)
     }
   }

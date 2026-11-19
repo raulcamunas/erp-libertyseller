@@ -13,7 +13,8 @@ import type { TipoDeCola } from './turnos'
 export const BUCKET = 'analisis-keepa'
 
 /** `comercial` es el nombre de pila (los ficheros de hasta el 16 nov solo traen eso); `comercialId`, el id del perfil si se puso al montar */
-export type EnCola = { lead: string; seller: string; tienda: string; comercial?: string; comercialId?: string }
+/** `mercado`: de qué Amazon es el vendedor (sin él, España). Los de México (listas «MEX … · Ciclo») van con 'mx' */
+export type EnCola = { lead: string; seller: string; tienda: string; comercial?: string; comercialId?: string; mercado?: 'es' | 'mx' }
 export type EnColaSinAmazon = { lead: string; tienda: string; web: string; comercial?: string; comercialId?: string; fact?: number | null }
 
 export type ResultadoDeEvento = 'hecho' | 'saltado' | 'fallo'

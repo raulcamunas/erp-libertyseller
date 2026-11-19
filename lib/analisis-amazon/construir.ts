@@ -32,9 +32,21 @@ export type EntradaAnalisis = {
   fecha: string
   /** competencia.json de la recogida: los que más venden en la categoría de su producto estrella */
   competencia?: K
+  /** De qué Amazon es el vendedor: España (por defecto) o México (19 nov 2026, listas «MEX … · Ciclo») */
+  mercado?: Mercado
 }
 
-export type CodigoPais = 'es' | 'fr' | 'it' | 'de' | 'uk'
+export type CodigoPais = 'es' | 'fr' | 'it' | 'de' | 'uk' | 'mx' | 'us' | 'ca' | 'br'
+export type Mercado = 'es' | 'mx'
+
+/**
+ * Cada mercado: su Amazon, los países con los que se compara (dónde más podría vender), su moneda y su dominio en Keepa.
+ * España: Francia, Italia, Alemania y Reino Unido, en euros. México: Estados Unidos, Canadá y Brasil, en pesos.
+ */
+export const MERCADOS: Record<Mercado, { principal: CodigoPais; otros: CodigoPais[]; moneda: 'EUR' | 'MXN'; keepa: number; region: string }> = {
+  es: { principal: 'es', otros: ['fr', 'it', 'de', 'uk'], moneda: 'EUR', keepa: 9, region: 'europeos' },
+  mx: { principal: 'mx', otros: ['us', 'ca', 'br'], moneda: 'MXN', keepa: 11, region: 'de América' },
+}
 
 /* ------------------------------------------------------------------ */
 /* Salida: el modelo del informe                                        */
@@ -205,6 +217,9 @@ export type InformeAnalisis = {
   competencia: CompetenciaAnalisis | null
   ventas: VentasAnalisis
   resumen: string
+  /** De qué Amazon es (los informes de antes del 19 nov 2026 no lo llevan: son de España) y en qué moneda van los precios */
+  mercado?: Mercado
+  moneda?: 'EUR' | 'MXN'
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,6 +243,10 @@ const NOMBRE_PAIS: Record<CodigoPais, string> = {
   it: 'Italia',
   de: 'Alemania',
   uk: 'Reino Unido',
+  mx: 'México',
+  us: 'Estados Unidos',
+  ca: 'Canadá',
+  br: 'Brasil',
 }
 
 const DOMINIO_PAIS: Record<CodigoPais, string> = {
@@ -236,6 +255,10 @@ const DOMINIO_PAIS: Record<CodigoPais, string> = {
   it: 'amazon.it',
   de: 'amazon.de',
   uk: 'amazon.co.uk',
+  mx: 'amazon.com.mx',
+  us: 'amazon.com',
+  ca: 'amazon.ca',
+  br: 'amazon.com.br',
 }
 
 /* ------------------------------------------------------------------ */
@@ -263,8 +286,8 @@ function lista(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`
 }
 
-/** Amazon como vendedor, en los mercados europeos */
-const AMAZON_IDS = new Set(['A1AT7YVPFBWXBL', 'A1X6FK5RDHNB96', 'A3JWKAKR8XB7XF', 'A11IL2PNWYJU7H', 'A3P5ROKL5A1OLE', 'ATVPDKIKX0DER'])
+/** Amazon como vendedor, en los mercados europeos, Estados Unidos y México (AVDBXBAVVSXLQ, amazon.com.mx) */
+const AMAZON_IDS = new Set(['A1AT7YVPFBWXBL', 'A1X6FK5RDHNB96', 'A3JWKAKR8XB7XF', 'A11IL2PNWYJU7H', 'A3P5ROKL5A1OLE', 'ATVPDKIKX0DER', 'AVDBXBAVVSXLQ'])
 
 const MEDIA = /libros|música|musica|películas|peliculas|cine|dvd|blu-ray|kindle/i
 const esMedia = (categoria: string | null) => Boolean(categoria && MEDIA.test(categoria))
@@ -311,7 +334,7 @@ function sacarVendedor(raw: K, id?: string): K | null {
 /* Producto                                                             */
 /* ------------------------------------------------------------------ */
 
-function leerProducto(p: K, sellerId: string): ProductoAnalisis {
+function leerProducto(p: K, sellerId: string, host = 'amazon.es'): ProductoAnalisis {
   const st = p.stats ?? {}
   const cur: number[] = st.current ?? []
   const imagenes: K[] = Array.isArray(p.images) ? p.images : []
@@ -333,7 +356,7 @@ function leerProducto(p: K, sellerId: string): ProductoAnalisis {
     titulo,
     marca: p.brand ?? null,
     imagen: principal ? `https://m.media-amazon.com/images/I/${principal}` : null,
-    url: `https://www.amazon.es/dp/${p.asin}`,
+    url: `https://www.${host}/dp/${p.asin}`,
     precio: precioCent !== null ? precioCent / 100 : null,
     estrellas,
     resenas: num(cur[17]),
@@ -375,12 +398,16 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
   const s = sacarVendedor(e.vendedorEs)
   if (!s) throw new Error('Keepa no devolvió datos de este vendedor')
   const sellerId: string = s.sellerId
+  const mercado: Mercado = e.mercado ?? 'es'
+  const M = MERCADOS[mercado]
+  const host = DOMINIO_PAIS[M.principal]
+  const nombrePrincipal = NOMBRE_PAIS[M.principal]
 
   /* --- productos -------------------------------------------------- */
   const crudos: K[] = Array.isArray(e.productos) ? e.productos : e.productos?.products ?? []
   const productos = crudos
     .filter((p) => p && p.asin && p.title)
-    .map((p) => leerProducto(p, sellerId))
+    .map((p) => leerProducto(p, sellerId, host))
     .sort((a, b) => (a.ranking ?? Infinity) - (b.ranking ?? Infinity))
 
   /* --- marcas y tipo de vendedor ---------------------------------- */
@@ -458,12 +485,12 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     .map((f) => ({ fecha: fechaKeepa(f.date) ?? '', estrellas: Math.round((f.rating ?? 0) / 10) }))
 
   /* --- países ------------------------------------------------------ */
-  const paises: PaisAnalisis[] = (['es', 'fr', 'it', 'de', 'uk'] as CodigoPais[]).map((c) => {
-    const consultado = c === 'es' || (e.paises != null && c in e.paises)
-    const v = c === 'es' ? s : sacarVendedor(e.paises?.[c], sellerId)
+  const paises: PaisAnalisis[] = ([M.principal, ...M.otros] as CodigoPais[]).map((c) => {
+    const consultado = c === M.principal || (e.paises != null && c in e.paises)
+    const v = c === M.principal ? s : sacarVendedor(e.paises?.[c], sellerId)
     const total = v?.ratingCount?.[3] ?? 0
-    const catalogo = c === 'es' ? (s.asinList?.length ?? 0) : 0
-    const presente = !consultado ? null : c === 'es' ? catalogo > 0 || total > 0 : total > 0
+    const catalogo = c === M.principal ? (s.asinList?.length ?? 0) : 0
+    const presente = !consultado ? null : c === M.principal ? catalogo > 0 || total > 0 : total > 0
     return {
       codigo: c,
       nombre: NOMBRE_PAIS[c],
@@ -646,9 +673,9 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     op.push({
       area: 'expansion',
       prioridad: 'media',
-      titulo: 'Mercados europeos sin abrir',
-      cifra: `${mercadosActivos} de 5`,
-      detalle: `Vendes en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre)) || 'ningún mercado'}. En ${enumerar(sinAbrir.map((p) => p.nombre))} no tienes ventas registradas. Abrir cada país pide traducir las fichas y cumplir su normativa (por ejemplo, EPR en Alemania y Francia).`,
+      titulo: `Mercados ${M.region} sin abrir`,
+      cifra: `${mercadosActivos} de ${paises.length}`,
+      detalle: `Vendes en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre)) || 'ningún mercado'}. En ${enumerar(sinAbrir.map((p) => p.nombre))} no tienes ventas registradas. ${mercado === 'mx' ? 'Abrir cada país pide adaptar las fichas al idioma y cumplir su normativa e importación (aduanas, etiquetado).' : 'Abrir cada país pide traducir las fichas y cumplir su normativa (por ejemplo, EPR en Alemania y Francia).'}`,
       umbral: 'Sin valoraciones de vendedor en el país',
       asins: [],
     })
@@ -718,7 +745,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
   if (tipo === 'marca_propia')
     fortalezas.push({ cifra: `${cuota} %`, titulo: 'Marca propia', detalle: 'La ficha y el margen son tuyos: lo que se mejora en la ficha se queda en casa.' })
   const activos = paises.filter((p) => p.presente === true).length
-  if (activos >= 2) fortalezas.push({ cifra: `${activos} países`, titulo: 'Ya vendes fuera de España', detalle: `Tienes ventas en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre))}.` })
+  if (activos >= 2) fortalezas.push({ cifra: `${activos} países`, titulo: `Ya vendes fuera de ${nombrePrincipal}`, detalle: `Tienes ventas en ${enumerar(paises.filter((p) => p.presente === true).map((p) => p.nombre))}.` })
   const mejor = productos.find((p) => p.ranking !== null)
   if (mejor?.ranking && mejor.ranking <= 20000)
     fortalezas.push({ cifra: `#${String(mejor.ranking).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`, titulo: 'Tu mejor producto', detalle: `En ${mejor.categoria ?? 'tu categoría'}: hay demanda y Amazon ya te da visibilidad.` })
@@ -760,13 +787,13 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     distribuidor: 'varias marcas propias o en exclusiva',
     mixto: 'una marca principal junto a productos de otras marcas',
   }
-  const resumen = `Vendes en Amazon ${queVende[tipo]} con ${String(s.asinList?.length ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} ${(s.asinList?.length ?? 0) === 1 ? 'producto' : 'productos'} en España${mercadosActivos > 1 ? ` y presencia en ${mercadosActivos - 1} ${mercadosActivos - 1 === 1 ? 'país más' : 'países más'}` : ''}.${claves.length ? ` Lo que más pesa ahora: ${enumerar(claves)}.` : ''}`
+  const resumen = `Vendes en Amazon ${queVende[tipo]} con ${String(s.asinList?.length ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} ${(s.asinList?.length ?? 0) === 1 ? 'producto' : 'productos'} en ${nombrePrincipal}${mercadosActivos > 1 ? ` y presencia en ${mercadosActivos - 1} ${mercadosActivos - 1 === 1 ? 'país más' : 'países más'}` : ''}.${claves.length ? ` Lo que más pesa ahora: ${enumerar(claves)}.` : ''}`
 
   /* --- competencia ------------------------------------------------ */
   let competencia: CompetenciaAnalisis | null = null
   const comp_ = e.competencia
   if (comp_ && Array.isArray(comp_.products) && comp_.products.length) {
-    const rivales = (comp_.products as K[]).filter((p) => p?.asin && p.title).map((p) => leerProducto(p, ''))
+    const rivales = (comp_.products as K[]).filter((p) => p?.asin && p.title).map((p) => leerProducto(p, '', host))
     competencia = {
       categoria: comp_.categoria ?? null,
       estrella: productos.find((p) => p.asin === comp_.estrella) ?? productos[0] ?? null,
@@ -801,7 +828,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
   }
   const codigosActivos = paises.filter((p) => p.presente === true).map((p) => p.codigo.toUpperCase())
   const porAbrir = paises.filter((p) => p.presente === false).map((p) => p.codigo.toUpperCase())
-  if (porAbrir.length) frases.push(`Vendes en ${codigosActivos.join(', ') || 'ES'}; no en ${porAbrir.join(', ')}.`)
+  if (porAbrir.length) frases.push(`Vendes en ${codigosActivos.join(', ') || M.principal.toUpperCase()}; no en ${porAbrir.join(', ')}.`)
   const guion = { tipo: tipoTexto, frases: frases.slice(0, 6) }
 
   return {
@@ -812,7 +839,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
       empresa: s.businessName ?? null,
       ciudad: Array.isArray(s.address) && s.address.length >= 3 ? capitalizar(String(s.address[s.address.length - 3])) : null,
       desde: fechaKeepa(s.trackedSince),
-      url: `https://www.${DOMINIO_PAIS.es}/sp?seller=${sellerId}`,
+      url: `https://www.${host}/sp?seller=${sellerId}`,
     },
     tipo,
     tipoTexto,
@@ -842,5 +869,7 @@ export function construirAnalisis(e: EntradaAnalisis): InformeAnalisis {
     competencia,
     ventas,
     resumen,
+    mercado,
+    moneda: M.moneda,
   }
 }
