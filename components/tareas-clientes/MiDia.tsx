@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { AlertCircle, AtSign, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Eye, ListChecks, Loader2, Lock, MessageSquare, NotebookPen, Plus, Sun, Trash2, UserPlus, X } from 'lucide-react'
+import { AlertCircle, AtSign, CheckCircle2, ChevronLeft, ChevronRight, Eye, ListChecks, Loader2, Lock, MessageSquare, NotebookPen, Plus, Sun, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from './AvatarTC'
 import { hoyEnEspana } from '@/lib/tareas-clientes/filtros'
@@ -10,14 +10,15 @@ import type { DatosDeMiDia } from '@/lib/tareas-clientes/mi-dia-servidor'
 import type { TareaLigera } from '@/lib/tareas-clientes/servidor'
 import type { ClienteTC, PersonaTC } from '@/lib/tareas-clientes/tipos'
 import { BASE, pedir } from './api'
-import { Calendario } from './Calendario'
+import { CalendarioDelBriefing } from './CalendarioDelBriefing'
 import { useBloqueadas } from './contexto'
 import { fechaCorta } from './ui'
 import { estaHechaLaTarea, type MapaDeClientes } from './vistas'
 
 /**
- * «MI DÍA»: el sitio desde el que se trabaja. Arriba, el briefing de hoy (el plan como checklist y las anotaciones del día, lo que antes eran las páginas «Briefing de …» de
- * Notion); debajo, mis tareas por fecha o en calendario; a la derecha, lo que ha pasado desde la última vez (comentarios y menciones, tareas nuevas) y mi bloc fijo. Los avisos están en la campana.
+ * «MI DÍA»: el sitio desde el que se trabaja. A la izquierda, el calendario: cada día con plan o anotaciones lleva su marca y con un clic se abre lo que se hizo ese día (lo
+ * que antes eran las páginas «Briefing de …» de Notion). En el centro, el briefing del día elegido: el plan como checklist y las anotaciones. A la derecha, mis tareas, lo
+ * que ha pasado desde la última vez (comentarios y menciones, tareas nuevas) y el bloc fijo. Los avisos están en la campana.
  * Un administrador puede mirar el briefing de cualquiera del equipo (solo leer).
  */
 
@@ -80,7 +81,7 @@ function FilaDeTarea({ t, mapa, activa, onAbrir, alPlan }: { t: TareaLigera; map
   )
 }
 
-export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta, onAbrir, onCambiar }: PropsDeMiDia) {
+export function MiDia({ miId, esAdmin, personas, tareas, mapa, abierta, onAbrir }: PropsDeMiDia) {
   const [hoy, setHoy] = useState(hoyEnEspana())
   const [dia, setDia] = useState(hoyEnEspana())
   const [usuario, setUsuario] = useState<string | null>(null)
@@ -90,7 +91,6 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
   const [revision, setRevision] = useState('')
   const [notas, setNotas] = useState('')
   const [nuevo, setNuevo] = useState('')
-  const [pestana, setPestana] = useState<'tareas' | 'calendario'>('tareas')
   const [guardado, setGuardado] = useState<'ok' | 'guardando' | 'error'>('ok')
   const sucioPlan = useRef(false)
   const sucioRevision = useRef(false)
@@ -220,6 +220,14 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
   /* ---- Mis tareas ---- */
   const lasDe = useMemo(() => tareas.filter((t) => t.responsables.includes(de) && !estaHechaLaTarea(t, mapa)), [tareas, de, mapa])
   const reparto = useMemo(() => repartirPorFecha(lasDe, hoy), [lasDe, hoy])
+  const tareasPorDia = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of lasDe) {
+      const d = (t.fecha_fin ?? t.fecha_inicio)?.slice(0, 10)
+      if (d) m.set(d, (m.get(d) ?? 0) + 1)
+    }
+    return m
+  }, [lasDe])
   const lasTareasDe = useMemo(() => new Map(tareas.map((t) => [t.id, t])), [tareas])
   const progreso = progresoDelPlan(plan)
   const enPlan = new Set(plan.map((p) => p.tarea_id).filter(Boolean))
@@ -289,6 +297,10 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
       )}
 
       <div className="tc-dia-rejilla">
+        <div className="tc-dia-col-calendario">
+          <CalendarioDelBriefing dia={dia} hoy={hoy} usuario={usuario} plan={plan} revision={revision} tareasPorDia={tareasPorDia} onElegir={setDia} />
+        </div>
+
         <div className="tc-dia-principal">
           <section className="tc-dia-tarjeta" aria-label="Plan del día">
             <h2 className="tc-seccion-titulo"><ListChecks className="h-3.5 w-3.5" /> Plan del día <span className="tc-contador">{progreso.hechos}/{progreso.total}</span></h2>
@@ -319,7 +331,7 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
                   </li>
                 )
               })}
-              {datos && plan.length === 0 && <li className="px-1 py-2 text-[12.5px] text-[var(--ls-t4)]">{soloLectura ? 'No hay plan este día.' : 'Escribe qué vas a hacer hoy, o añade tareas con el «+» de la lista de abajo.'}</li>}
+              {datos && plan.length === 0 && <li className="px-1 py-2 text-[12.5px] text-[var(--ls-t4)]">{soloLectura ? 'No hay plan este día.' : 'Escribe qué vas a hacer, o añade tareas con el «+» de «Mis tareas».'}</li>}
             </ul>
             {!soloLectura && (
               <div className="mt-1 flex items-center gap-2">
@@ -331,37 +343,29 @@ export function MiDia({ miId, esAdmin, personas, tareas, clientes, mapa, abierta
 
           <section className="tc-dia-tarjeta" aria-label="Anotaciones del día">
             <h2 className="tc-seccion-titulo"><NotebookPen className="h-3.5 w-3.5" /> Anotaciones del día
-              <span className="ml-auto text-[11px] font-normal normal-case tracking-normal text-[var(--ls-t4)]">Cada día tiene las suyas: cambia de día arriba para ver las anteriores</span>
+              <span className="ml-auto hidden text-[11px] font-normal normal-case tracking-normal text-[var(--ls-t4)] sm:inline">Cada día tiene las suyas: elige otro día en el calendario para verlas</span>
             </h2>
-            <textarea value={revision} readOnly={soloLectura} onChange={(e) => guardarRevision(e.target.value)} rows={7} maxLength={5000} placeholder={soloLectura ? 'Sin anotaciones este día.' : 'Apunta lo que pase hoy: lo que has hecho, lo que se ha atascado, lo que queda para mañana, números, recordatorios… se guarda solo.'} aria-label="Anotaciones del día" className="tc-dia-texto" />
+            <textarea value={revision} readOnly={soloLectura} onChange={(e) => guardarRevision(e.target.value)} rows={18} maxLength={30000} placeholder={soloLectura ? 'Sin anotaciones este día.' : 'Apunta lo que pase hoy: lo que has hecho, lo que se ha atascado, lo que queda para mañana, números, recordatorios… se guarda solo.'} aria-label="Anotaciones del día" className="tc-dia-texto" />
           </section>
 
-          <section className="tc-dia-tarjeta" aria-label={soloLectura ? 'Tareas' : 'Mis tareas'}>
-            <div className="mb-2 flex items-center gap-1">
-              <div className="tc-vistas" role="tablist">
-                <button type="button" role="tab" aria-selected={pestana === 'tareas'} onClick={() => setPestana('tareas')} className="tc-vista-boton"><ListChecks className="h-3.5 w-3.5" /> {soloLectura ? 'Sus tareas' : 'Mis tareas'} <span className="tc-contador">{lasDe.length}</span></button>
-                <button type="button" role="tab" aria-selected={pestana === 'calendario'} onClick={() => setPestana('calendario')} className="tc-vista-boton"><CalendarDays className="h-3.5 w-3.5" /> Calendario</button>
-              </div>
-            </div>
-            {pestana === 'tareas' ? (
-              lasDe.length === 0 ? (
-                <p className="px-1 py-3 text-[12.5px] text-[var(--ls-t4)]">Nada pendiente. 🎉</p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {grupo('Vencidas', reparto.vencidas, 'var(--tc-red)')}
-                  {grupo('Hoy', reparto.hoy, 'var(--tc-orange)')}
-                  {grupo('Esta semana', reparto.semana, 'var(--tc-blue)')}
-                  {grupo('Más adelante', reparto.despues, undefined, false)}
-                  {grupo('Sin fecha', reparto.sinFecha, undefined, reparto.vencidas.length + reparto.hoy.length + reparto.semana.length === 0)}
-                </div>
-              )
-            ) : (
-              <div className="tc-dia-calendario"><Calendario tareas={lasDe} clientes={mapa} tareaAbierta={abierta} onAbrir={onAbrir} onCambiar={onCambiar} /></div>
-            )}
-          </section>
         </div>
 
         <aside className="tc-dia-lateral">
+          <section className="tc-dia-tarjeta" aria-label={soloLectura ? 'Sus tareas' : 'Mis tareas'}>
+            <h2 className="tc-seccion-titulo"><ListChecks className="h-3.5 w-3.5" /> {soloLectura ? 'Sus tareas' : 'Mis tareas'} <span className="tc-contador">{lasDe.length}</span></h2>
+            {lasDe.length === 0 ? (
+              <p className="px-1 py-2 text-[12.5px] text-[var(--ls-t4)]">Nada pendiente. 🎉</p>
+            ) : (
+              <div className="tc-dia-mis-tareas flex flex-col gap-2">
+                {grupo('Vencidas', reparto.vencidas, 'var(--tc-red)')}
+                {grupo('Hoy', reparto.hoy, 'var(--tc-orange)')}
+                {grupo('Esta semana', reparto.semana, 'var(--tc-blue)')}
+                {grupo('Más adelante', reparto.despues, undefined, false)}
+                {grupo('Sin fecha', reparto.sinFecha, undefined, reparto.vencidas.length + reparto.hoy.length + reparto.semana.length === 0)}
+              </div>
+            )}
+          </section>
+
           <section className="tc-dia-tarjeta" aria-label="Comentarios y menciones">
             <h2 className="tc-seccion-titulo"><MessageSquare className="h-3.5 w-3.5" /> Comentarios <span className="tc-contador">{comentarios.length}</span></h2>
             {comentarios.length === 0 && <p className="text-[12px] text-[var(--ls-t4)]">Nada nuevo en los últimos 14 días.</p>}

@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
-import { arrastrarPendientes, esDiaValido, limpiarPlan, limpiarTexto, MAX_NOTAS, MAX_REVISION, progresoDelPlan, sumarDiasA, type PuntoDelPlan } from './mi-dia'
+import { arrastrarPendientes, esDiaValido, limpiarPlan, limpiarTexto, MAX_NOTAS, MAX_REVISION, progresoDelPlan, resumirDia, sumarDiasA, type DiaConApuntes, type PuntoDelPlan } from './mi-dia'
 import { filtrarPorCliente, type Permitidos } from './permisos'
 import { ErrorDeTareas, esUuid, personasConAcceso } from './servidor'
 import { estadosDe, estaHecha, type ClienteTC } from './tipos'
@@ -213,4 +213,21 @@ export async function actividadDelDia(userId: string, dia: unknown): Promise<{ c
     .filter((t) => estaHecha({ estado: t.estado }, estadosDe(clientes.get(t.cliente_id))))
     .map((t) => `${clientes.get(t.cliente_id)?.nombre ? `${clientes.get(t.cliente_id)?.nombre} ⇒ ` : ''}${t.titulo || 'Tarea sin título'}`)
   return { cerradas, comentarios: comentarios.count ?? 0 }
+}
+
+/** Los días con algo apuntado (plan o anotaciones) entre dos fechas, para el calendario. Como mucho 75 días. Lo de otra persona, solo un administrador */
+export async function diasConApuntes(quien: Quien, desde: unknown, hasta: unknown, usuario: string | null): Promise<{ disponible: boolean; dias: DiaConApuntes[] }> {
+  if (!esDiaValido(desde) || !esDiaValido(hasta) || hasta < desde) throw new ErrorDeTareas('Las fechas no son válidas.')
+  if (Date.parse(hasta) - Date.parse(desde) > 75 * 86_400_000) throw new ErrorDeTareas('Como mucho 75 días de una vez.')
+  const de = usuario && esUuid(usuario) && usuario !== quien.userId ? usuario : quien.userId
+  if (de !== quien.userId && !quien.esAdmin) throw new ErrorDeTareas('Solo un administrador puede ver el briefing de otra persona.', 403)
+  const { data, error } = await createServiceClient().from('tc_briefings').select('dia, plan, revision').eq('usuario_id', de).gte('dia', desde).lte('dia', hasta).order('dia')
+  if (error) {
+    if (faltaLaTabla(error)) return { disponible: false, dias: [] }
+    throw new ErrorDeTareas(`No se han podido leer los días: ${error.message}`, 500)
+  }
+  const dias = ((data ?? []) as Array<{ dia: string; plan: unknown; revision: string | null }>)
+    .map((f) => resumirDia(f.dia, limpiarPlan(f.plan) ?? [], f.revision ?? ''))
+    .filter((d): d is DiaConApuntes => d !== null)
+  return { disponible: true, dias }
 }

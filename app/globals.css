@@ -4164,7 +4164,7 @@ body.tc-marcando * { cursor: crosshair !important; }
 
 
 /* ---- Mi día ---- */
-.tc-dia { display: flex; flex-direction: column; gap: 14px; padding: 6px 0 24px; max-width: 1320px; margin: 0 auto; }
+.tc-dia { display: flex; flex-direction: column; gap: 14px; padding: 6px 0 24px; max-width: 1640px; margin: 0 auto; }
 .tc-dia-cabecera { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-right: 46px; }
 .tc-dia-aviso { display: flex; align-items: center; gap: 8px; border-radius: 10px; border: 1px solid var(--ls-linea2); background: var(--ls-acc-suave); padding: 8px 12px; font-size: 12.5px; color: var(--ls-t1); text-align: left; }
 .tc-dia-aviso[data-tono='ambar'] { border-color: color-mix(in srgb, var(--tc-orange) 45%, transparent); background: color-mix(in srgb, var(--tc-orange) 14%, transparent); }
@@ -4172,7 +4172,31 @@ body.tc-marcando * { cursor: crosshair !important; }
 .tc-dia-persona { display: inline-flex; height: 30px; max-width: 170px; align-items: center; gap: 7px; border-radius: 10px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup) 80%, transparent); padding: 0 10px 0 6px; font-size: 12.5px; color: var(--ls-t2); }
 .tc-dia-persona:hover { border-color: var(--ls-linea2); color: var(--ls-t1); }
 .tc-dia-persona[aria-pressed='true'] { border-color: color-mix(in srgb, var(--ls-acc-graf) 60%, transparent); background: var(--ls-acc-suave); color: var(--ls-t1); }
-.tc-dia-rejilla { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.tc-dia-rejilla { display: grid; grid-template-columns: 296px minmax(0, 1fr) 360px; grid-template-areas: 'cal dia lat'; gap: 14px; align-items: start; }
+.tc-dia-col-calendario { grid-area: cal; min-width: 0; position: sticky; top: 8px; }
+.tc-dia-rejilla > .tc-dia-principal { grid-area: dia; }
+.tc-dia-rejilla > .tc-dia-lateral { grid-area: lat; }
+.tc-dia-mis-tareas { max-height: 460px; overflow-y: auto; margin-right: -6px; padding-right: 6px; }
+.tc-cal-mes { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.tc-cal-cabecera { padding: 2px 0 4px; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--ls-t4); }
+.tc-cal-dia { position: relative; display: flex; aspect-ratio: 1 / 1; min-height: 34px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 9px; border: 1px solid transparent; font-size: 12.5px; color: var(--ls-t2); transition: background 0.12s ease, border-color 0.12s ease; }
+.tc-cal-dia:hover { background: var(--ls-sup3); color: var(--ls-t1); }
+.tc-cal-dia[data-fuera='true'] { color: var(--ls-t4); opacity: 0.55; }
+.tc-cal-dia[data-estado] { background: color-mix(in srgb, var(--ls-acc-graf) 9%, transparent); color: var(--ls-t1); }
+.tc-cal-dia[data-estado='completo'] { background: color-mix(in srgb, var(--ls-e-verde) 12%, transparent); }
+.tc-cal-dia[data-hoy='true'] .tc-cal-numero { color: var(--ls-acc); font-weight: 700; }
+.tc-cal-dia[aria-selected='true'] { border-color: var(--ls-acc-graf); background: var(--ls-acc-suave); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ls-acc-graf) 40%, transparent); }
+.tc-cal-numero { line-height: 1; font-variant-numeric: tabular-nums; }
+.tc-cal-marcas { display: flex; height: 5px; gap: 3px; }
+.tc-cal-punto { display: inline-block; width: 5px; height: 5px; border-radius: 999px; background: var(--ls-acc-graf); }
+.tc-cal-dia[data-estado='completo'] .tc-cal-punto:not([data-tipo]), .tc-cal-punto[data-leyenda='completo'] { background: var(--ls-e-verde); }
+.tc-cal-punto[data-tipo='tarea'] { background: var(--tc-blue); }
+.tc-cal-lista { display: flex; max-height: 340px; flex-direction: column; gap: 2px; overflow-y: auto; margin: 4px -6px 0 -8px; padding-right: 4px; }
+.tc-cal-lista .tc-dia-item[aria-current='date'] { background: var(--ls-acc-suave); }
+@media (max-width: 1400px) {
+  .tc-dia-rejilla { grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: 'dia cal' 'dia lat'; }
+  .tc-dia-col-calendario { position: static; }
+}
 .tc-dia-principal, .tc-dia-lateral { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
 .tc-dia-tarjeta { border-radius: 16px; border: 1px solid var(--ls-linea); background: color-mix(in srgb, var(--ls-sup) 88%, transparent); padding: 14px 16px; backdrop-filter: blur(6px); }
 .tc-dia-tarjeta > .tc-seccion-titulo { margin-bottom: 8px; }
@@ -4190,7 +4214,7 @@ body.tc-marcando * { cursor: crosshair !important; }
 .tc-dia-enlace { flex-shrink: 0; border-radius: 6px; padding: 2px 7px; font-size: 11.5px; color: var(--ls-t3); }
 .tc-dia-enlace:hover { background: var(--ls-sup3); color: var(--ls-t1); }
 .tc-dia-calendario { min-height: 420px; }
-@media (max-width: 1100px) { .tc-dia-rejilla { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1100px) { .tc-dia-rejilla { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'cal' 'dia' 'lat'; } .tc-dia-col-calendario .tc-cal-mes { max-width: 420px; } }
 
 
 /* ---- Tareas propuestas tras una reunión ---- */

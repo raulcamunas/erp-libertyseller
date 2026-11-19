@@ -10,7 +10,7 @@ import { hoyEnEspana, semanaDe } from './filtros'
 
 export const MAX_PUNTOS = 60
 export const MAX_TEXTO_PUNTO = 300
-export const MAX_REVISION = 5000
+export const MAX_REVISION = 30_000
 export const MAX_NOTAS = 20_000
 
 export interface PuntoDelPlan {
@@ -130,4 +130,36 @@ export const esDiaValido = (d: unknown): d is string => typeof d === 'string' &&
 export const sumarDiasA = (dia: string, n: number): string => {
   const [a, m, d] = dia.split('-').map(Number)
   return new Date(Date.UTC(a, m - 1, d + n)).toISOString().slice(0, 10)
+}
+
+/** Lo que se pinta de un día en el calendario de «Mi día»: cuántos puntos, cuántos hechos y el principio de las anotaciones */
+export interface DiaConApuntes {
+  dia: string
+  total: number
+  hechos: number
+  /** Letras de las anotaciones del día (0 = sin anotaciones) */
+  letras: number
+  /** La primera línea con algo de las anotaciones (o el primer punto del plan), recortada */
+  extracto: string
+}
+
+export function resumirDia(dia: string, plan: readonly Pick<PuntoDelPlan, 'hecho' | 'texto'>[], revision: string): DiaConApuntes | null {
+  const texto = (revision ?? '').trim()
+  if (plan.length === 0 && !texto) return null
+  const primera = texto.split('\n').map((l) => l.replace(/^[\s•\-*·]+/, '').trim()).find(Boolean) ?? plan[0]?.texto ?? ''
+  return { dia, total: plan.length, hechos: plan.filter((p) => p.hecho).length, letras: texto.length, extracto: primera.length > 140 ? `${primera.slice(0, 139)}…` : primera }
+}
+
+/** Las 6 semanas (lunes a domingo) que enseña el calendario de un mes `AAAA-MM` */
+export function semanasDelMes(mes: string): string[][] {
+  const [a, m] = mes.split('-').map(Number)
+  const primero = new Date(Date.UTC(a, m - 1, 1))
+  const desplazamiento = (primero.getUTCDay() + 6) % 7
+  const inicio = sumarDiasA(primero.toISOString().slice(0, 10), -desplazamiento)
+  return Array.from({ length: 6 }, (_, s) => Array.from({ length: 7 }, (_, d) => sumarDiasA(inicio, s * 7 + d)))
+}
+
+export const sumarMeses = (mes: string, n: number): string => {
+  const [a, m] = mes.split('-').map(Number)
+  return new Date(Date.UTC(a, m - 1 + n, 1)).toISOString().slice(0, 7)
 }
