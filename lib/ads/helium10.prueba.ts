@@ -29,5 +29,8 @@ ok('un fichero que no es de Cerebro se dice', !leerCerebro('ASIN,Price\nB0ABCDEF
 const grabber = leerGrabber('Product Name,ASIN,Brand,Price,Ratings,Review Count\n"Jamón, 7kg",B0ABCDEFGH,Marca,"€89,90",4.5,"1,203"\nbasura,XYZ,,,,\n')
 ok('lee ASIN Grabber y descarta lo que no es un ASIN', grabber.ok && grabber.filas.length === 1 && grabber.filas[0].precio === 89.9 && grabber.filas[0].resenas === 1203 && grabber.filas[0].titulo === 'Jamón, 7kg', JSON.stringify(grabber))
 
+const cerebroEs = leerCerebro('\ufeff"Frase clave","Venta de palabras clave","Puntuación IQ Cerebro","Volumen de búsqueda","Tendencia del volumen de búsqueda","ASIN auspiciados","Productos competidores","CPR","Densidad del título","Recomendado por Amazon","Auspiciados","Organico","Clasificación rec. de Amazon","Clasificación auspiciados","Clasificación orgánica"\n"juego de mesa",2,4966,293,77,57,59,8,3,1,1,1,6,4,12\n')
+ok('lee el Cerebro con Helium 10 en español (Frase clave, Clasificación orgánica…)', cerebroEs.ok && cerebroEs.filas[0].keyword === 'juego de mesa' && cerebroEs.filas[0].volumen === 293 && cerebroEs.filas[0].cerebroIq === 4966 && cerebroEs.filas[0].tendencia === 77 && cerebroEs.filas[0].densidad === 3 && cerebroEs.filas[0].rankingOrganico === 12 && cerebroEs.filas[0].rangoPatrocinado === 4, JSON.stringify(cerebroEs))
+
 console.log(fallos ? `\n${fallos} FALLOS\n` : '\nTodo bien\n')
 if (fallos) process.exit(1)

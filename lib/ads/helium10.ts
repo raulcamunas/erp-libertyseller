@@ -137,29 +137,29 @@ function columnasDeAsin(cabecera: string[]): Array<{ i: number; asin: string }> 
 /** ¿Qué export es? Por las columnas: Keyword Tracker (rango y fecha, sin IQ), Magnet (Magnet IQ) o Cerebro (lo demás) */
 export function detectarTipoH10(texto: string): TipoH10 {
   const filas = partirCsv(texto.slice(0, 20000))
-  const i = cabeceraDe(filas, ['keyword phrase', 'frase de palabra clave', 'palabra clave', 'keyword'])
+  const i = cabeceraDe(filas, ['keyword phrase', 'frase de palabra clave', 'frase clave', 'palabra clave', 'keyword'])
   const cab = (filas[Math.max(0, i)] ?? []).map(normal)
   const tiene = (t: string) => cab.some((h) => h.includes(t))
-  if (tiene('magnet iq')) return 'magnet'
-  if (tiene('cerebro iq')) return 'cerebro'
-  if ((tiene('organic rank') || tiene('rango organico') || tiene('posicion organica')) && (tiene('date') || tiene('fecha') || tiene('sponsored position') || tiene('keyword sales'))) return 'keyword_tracker'
+  if (tiene('magnet iq') || tiene('iq magnet')) return 'magnet'
+  if (tiene('cerebro iq') || tiene('iq cerebro')) return 'cerebro'
+  if ((tiene('organic rank') || tiene('rango organico') || tiene('posicion organica') || tiene('clasificacion organica')) && (tiene('date') || tiene('fecha') || tiene('sponsored position') || tiene('keyword sales'))) return 'keyword_tracker'
   return 'cerebro'
 }
 
 export function leerCerebro(texto: string, asinPropio?: string | null): ResultadoCsv<FilaCerebro> {
   const filas = partirCsv(texto)
-  const i = cabeceraDe(filas, ['keyword phrase', 'frase de palabra clave', 'palabra clave', 'keyword'])
-  if (i < 0) return { ok: false, error: 'No parece un export de Cerebro o Magnet: no encuentro la columna «Keyword Phrase».' }
+  const i = cabeceraDe(filas, ['keyword phrase', 'frase de palabra clave', 'frase clave', 'palabra clave', 'keyword'])
+  if (i < 0) return { ok: false, error: 'No parece un export de Cerebro o Magnet: no encuentro la columna «Keyword Phrase» ni «Frase clave».' }
   const cab = filas[i]
-  const k = columna(cab, 'keyword phrase', 'frase de palabra clave', 'palabra clave', 'keyword')
+  const k = columna(cab, 'keyword phrase', 'frase de palabra clave', 'frase clave', 'palabra clave', 'keyword')
   const v = columna(cab, 'search volume', 'volumen de busqueda', 'volumen')
   const comp = columna(cab, 'competing products', 'productos competidores', 'competing')
   const dens = columna(cab, 'title density', 'densidad del titulo', 'densidad')
   const puja = columna(cab, 'h10 ppc sugg bid', 'sugg bid', 'puja sugerida')
-  const org = columna(cab, 'organic rank', 'posicion organica', 'ranking organico')
-  const iq = columna(cab, 'cerebro iq score', 'magnet iq score', 'iq score')
+  const org = columna(cab, 'organic rank', 'clasificacion organica', 'posicion organica', 'ranking organico')
+  const iq = columna(cab, 'cerebro iq score', 'magnet iq score', 'iq score', 'puntuacion iq')
   const tend = columna(cab, 'search volume trend', 'tendencia del volumen', 'tendencia')
-  const spon = columna(cab, 'sponsored rank', 'sponsored position', 'posicion patrocinada')
+  const spon = columna(cab, 'sponsored rank', 'sponsored position', 'clasificacion auspiciados', 'posicion patrocinada')
   const deAsin = columnasDeAsin(cab).filter((c) => ![k, v, comp, dens, puja, org, iq, tend, spon].includes(c.i))
   const propia = asinPropio ? deAsin.find((c) => c.asin === asinPropio.toUpperCase()) : undefined
   const salida: FilaCerebro[] = []
@@ -197,7 +197,7 @@ export function leerCerebro(texto: string, asinPropio?: string | null): Resultad
 /** Los ASIN que trae un Cerebro multi-ASIN como columnas (sin el propio): candidatos a seguir en la competencia */
 export function asinsDelCerebro(texto: string, asinPropio?: string | null): string[] {
   const filas = partirCsv(texto.slice(0, 20000))
-  const i = cabeceraDe(filas, ['keyword phrase', 'frase de palabra clave', 'palabra clave', 'keyword'])
+  const i = cabeceraDe(filas, ['keyword phrase', 'frase de palabra clave', 'frase clave', 'palabra clave', 'keyword'])
   if (i < 0) return []
   return [...new Set(columnasDeAsin(filas[i]).map((c) => c.asin))].filter((a) => a !== asinPropio?.toUpperCase())
 }
@@ -213,8 +213,8 @@ export function leerKeywordTracker(texto: string, asinPropio?: string | null): R
   const cab = filas[i]
   const k = columna(cab, 'keyword', 'palabra clave')
   const v = columna(cab, 'search volume', 'volumen de busqueda', 'volumen')
-  const org = columna(cab, 'organic rank', 'rango organico', 'posicion organica')
-  const spon = columna(cab, 'sponsored position', 'sponsored rank', 'posicion patrocinada')
+  const org = columna(cab, 'organic rank', 'clasificacion organica', 'rango organico', 'posicion organica')
+  const spon = columna(cab, 'sponsored position', 'sponsored rank', 'clasificacion auspiciados', 'posicion patrocinada')
   const fecha = columna(cab, 'date', 'fecha')
   const asinCol = columna(cab, 'asin')
   if (org < 0) return { ok: false, error: 'El fichero no trae la columna «Organic Rank»: ¿es un export del Keyword Tracker?' }
