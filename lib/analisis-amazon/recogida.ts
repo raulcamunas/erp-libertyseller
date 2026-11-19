@@ -47,6 +47,15 @@ export interface FocoDeInformes {
   solo?: boolean
   hasta?: string
   orden?: Array<{ id: string; nombre?: string; soloPrioridad?: boolean }>
+  /** Lo que entra cuando pasa `hasta` (otra fase, con su propio `hasta` o sin él). Sin `despues`, al caducar vuelve el reparto de siempre */
+  despues?: FocoDeInformes
+}
+
+/** La fase del foco que toca ahora: se salta las caducadas que tengan `despues` */
+export function focoVigente(f: FocoDeInformes | null | undefined, ahora: number): FocoDeInformes {
+  let x: FocoDeInformes = f ?? {}
+  for (let i = 0; i < 10 && x.hasta && Date.parse(x.hasta) <= ahora && x.despues; i++) x = x.despues
+  return x
 }
 
 export { BUCKET, type EnCola, type EnColaSinAmazon } from './almacen'
@@ -181,7 +190,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     if (saldo.tokens < necesitaLoSiguiente) return nada(`ningún informe nuevo · esperando saldo de Keepa (${saldo.tokens}/${necesitaLoSiguiente})`)
 
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, foco] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, focoLeido] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
@@ -197,6 +206,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       leerJson<FocoDeInformes>(s, 'foco.json', {}).catch(() => ({}) as FocoDeInformes),
     ])
     const ahoraMs = Date.now()
+    const foco = focoVigente(focoLeido, ahoraMs)
     const focoVivo = foco?.solo === true && (!foco.hasta || Date.parse(foco.hasta) > ahoraMs)
     const focoCaducado = foco?.solo === true && Boolean(foco.hasta) && !focoVivo
     // Con turnos propios (foco.orden): se reparte con ese orden; a los de México solo les tocan sus leads de prioridad.json. Sin orden: solo prioridad.json
