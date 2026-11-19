@@ -36,7 +36,18 @@ import { leerCatalogo } from '@/lib/analisis-sin-amazon/catalogo'
 import { estudiarTienda, planDeEstudio } from '@/lib/analisis-sin-amazon/estudio'
 import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon/construir'
 import { apuntarEnBitacora, escribirJson, leerJson, type EnCola, type EnColaSinAmazon, type EventoDeBitacora } from './almacen'
-import { COSTE_DE_TIPO, comercialDe, estadoDelTurno, hechosDelTurno, idPorNombre, Repartidor, trasHecho, type HechoDelTurno, type TipoDeCola } from './turnos'
+import { COSTE_DE_TIPO, comercialDe, estadoDelTurno, hechosDelTurno, IDS_DEL_ORDEN, idPorNombre, Repartidor, trasHecho, type HechoDelTurno, type TipoDeCola } from './turnos'
+
+/**
+ * foco.json (Storage): un reparto especial con caducidad. `solo`: está puesto. `hasta`: ISO; pasado, se vuelve al reparto de siempre y prioridad.json deja
+ * de ir delante. `orden`: los turnos durante el foco (uno de cada, en ese orden); `soloPrioridad` = ese comercial solo hace sus leads de prioridad.json
+ * (los vendedores de México), los demás su cola normal. Sin `orden`, solo se hace lo de prioridad.json. (19 nov 2026, Raúl)
+ */
+export interface FocoDeInformes {
+  solo?: boolean
+  hasta?: string
+  orden?: Array<{ id: string; nombre?: string; soloPrioridad?: boolean }>
+}
 
 export { BUCKET, type EnCola, type EnColaSinAmazon } from './almacen'
 /** Lo que hace falta para empezar cada tipo de tienda (110 y 280; el porqué, en turnos.ts COSTE_DE_TIPO) */
@@ -182,15 +193,34 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       leerJson<EventoDeBitacora[]>(s, 'bitacora.json', []).catch(() => [] as EventoDeBitacora[]),
       // prioridad.json: ids de leads (en orden) que se hacen ANTES que el turno, sin consumirlo. Se vacía solo según se hacen (17 nov 2026)
       leerJson<string[]>(s, 'prioridad.json', []).catch(() => [] as string[]),
-      // foco.json { solo: true }: SOLO se hacen los de prioridad.json; el reparto normal se para (19 nov 2026: foco en las listas de México)
-      leerJson<{ solo?: boolean }>(s, 'foco.json', {}).catch(() => ({}) as { solo?: boolean }),
+      // foco.json: un reparto especial con fecha de caducidad (ver FocoDeInformes). Sin él, o caducado, el reparto de siempre
+      leerJson<FocoDeInformes>(s, 'foco.json', {}).catch(() => ({}) as FocoDeInformes),
     ])
-    const soloPrioridad = foco?.solo === true
+    const ahoraMs = Date.now()
+    const focoVivo = foco?.solo === true && (!foco.hasta || Date.parse(foco.hasta) > ahoraMs)
+    const focoCaducado = foco?.solo === true && Boolean(foco.hasta) && !focoVivo
+    // Con turnos propios (foco.orden): se reparte con ese orden; a los de México solo les tocan sus leads de prioridad.json. Sin orden: solo prioridad.json
+    const ordenDelFoco = focoVivo && Array.isArray(foco.orden) && foco.orden.length ? foco.orden : null
+    const soloPrioridad = focoVivo && !ordenDelFoco
     if (!cola.length && !colaSin.length) return nada('no hay cola (cola.json en Storage)')
     const pendientesTodas = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
     const pendientesSinTodas = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`])
-    // Los prioritarios salen del reparto normal y van delante, en el orden de prioridad.json
-    const ordenPrio = new Map((Array.isArray(prioridad) ? prioridad : []).map((id, i) => [id, i] as const))
+    // Los prioritarios salen del reparto normal y van delante, en el orden de prioridad.json. Con el foco caducado o con turnos propios, no hay «delante»
+    const porNombre = idPorNombre(gente)
+    const comercialIdDe = (v: EnCola | EnColaSinAmazon) => comercialDe(v, porNombre)
+    const ordenPrio = new Map((Array.isArray(prioridad) && !focoCaducado ? prioridad : []).map((id, i) => [id, i] as const))
+    if (ordenDelFoco) {
+      const deMexico = new Set(ordenDelFoco.filter((c) => c.soloPrioridad).map((c) => c.id))
+      const ids = new Set(ordenDelFoco.map((c) => c.id))
+      const enElFoco = (v: EnCola | EnColaSinAmazon, tipo: TipoDeCola) => {
+        const c = comercialIdDe(v)
+        if (!c || !ids.has(c)) return false
+        return deMexico.has(c) ? tipo === 'amazon' && ordenPrio.has(v.lead) : !ordenPrio.has(v.lead)
+      }
+      pendientesTodas.splice(0, pendientesTodas.length, ...pendientesTodas.filter((v) => enElFoco(v, 'amazon')))
+      pendientesSinTodas.splice(0, pendientesSinTodas.length, ...pendientesSinTodas.filter((v) => enElFoco(v, 'sin')))
+      ordenPrio.clear()
+    }
     const prioritarios: Tarea[] = [
       ...pendientesTodas.filter((v) => ordenPrio.has(v.lead)).map((v): Tarea => ({ tipo: 'amazon', v })),
       ...pendientesSinTodas.filter((v) => ordenPrio.has(v.lead)).map((v): Tarea => ({ tipo: 'sin', v })),
@@ -203,10 +233,9 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     }
 
     const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length
-    const porNombre = idPorNombre(gente)
-    const comercialIdDe = (v: EnCola | EnColaSinAmazon) => comercialDe(v, porNombre)
-    const reparto = new Repartidor<EnCola, EnColaSinAmazon>(pendientes, pendientesSin, comercialIdDe)
-    let turno = estadoDelTurno(hechosDelTurno(Array.isArray(bitacora) ? bitacora : [], ultimos, INFORMES_PARA_EL_TURNO))
+    const orden = ordenDelFoco ? ordenDelFoco.map((c) => c.id) : IDS_DEL_ORDEN
+    const reparto = new Repartidor<EnCola, EnColaSinAmazon>(pendientes, pendientesSin, comercialIdDe, orden)
+    let turno = estadoDelTurno(hechosDelTurno(Array.isArray(bitacora) ? bitacora : [], ultimos, INFORMES_PARA_EL_TURNO), orden)
 
     const fin = Date.now() + MINUTOS_POR_PASADA * 60_000
     let hechas = 0
