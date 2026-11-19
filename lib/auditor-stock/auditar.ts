@@ -522,6 +522,18 @@ async function ejecutar(
         .from('stock_cruce_actual')
         .upsert({ connection_id: cuenta.connectionId, marketplace_id: marketplaceId, auditoria_id: (data as { id: string }).id, creada_at: new Date().toISOString(), filas: foto }, { onConflict: 'connection_id,marketplace_id' })
       if (eFoto && !isMissingSchema(eFoto)) console.warn('[auditor-stock] no se ha podido guardar la foto del cruce:', eFoto.message)
+      // Y la de ESTA revisión, para poder verla luego en la página del cliente (migración 325). Se conservan 7 días
+      const idAud = (data as { id: string }).id
+      const { error: ePasada } = await service.from('stock_cruce_pasadas').insert({ auditoria_id: idAud, connection_id: cuenta.connectionId, marketplace_id: marketplaceId, filas: foto })
+      if (ePasada && !isMissingSchema(ePasada)) console.warn('[auditor-stock] no se ha podido guardar la foto de la revisión:', ePasada.message)
+      if (!ePasada) {
+        void service
+          .from('stock_cruce_pasadas')
+          .delete()
+          .eq('connection_id', cuenta.connectionId)
+          .lt('creada_at', new Date(Date.now() - 7 * 86_400_000).toISOString())
+          .then(({ error: e }) => e && console.warn('[auditor-stock] no se han podido limpiar las fotos antiguas:', e.message))
+      }
     }
 
     // El «último precio visto» se apunta DESPUÉS de guardar la auditoría: si el

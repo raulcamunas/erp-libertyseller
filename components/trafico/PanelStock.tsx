@@ -60,13 +60,15 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
   const base = `/api/stock-cliente/${token}`
   const [lista, setLista] = useState<AuditoriaResumen[] | null>(null)
   const [detalle, setDetalle] = useState<Detalle | null>(null)
-  const [cruce, setCruce] = useState<{ creada_at: string; filas: TuplaCruce[] } | null>(null)
+  const [cruceUltimo, setCruce] = useState<{ creada_at: string; filas: TuplaCruce[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ahora, setAhora] = useState(() => Date.now())
   const [filtro, setFiltro] = useState<EstadoCruce | 'todos'>('todos')
   const [busca, setBusca] = useState('')
   const [cuantas, setCuantas] = useState(200)
   const [pasadaAbierta, setPasadaAbierta] = useState<string | null>(null)
+  // La revisión que se está mirando (null = la última): la tabla y las cifras pasan a ser las de ese momento
+  const [seleccion, setSeleccion] = useState<{ id: string; detalle: Detalle | null; cruce: { creada_at: string; filas: TuplaCruce[] } | null; cargando: boolean } | null>(null)
   const ultimaVista = useRef<string | null>(null)
 
   const pedir = useCallback(
@@ -114,8 +116,27 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
     alSalir()
   }
 
+  const elegir = useCallback(
+    async (id: string, esLaUltima: boolean) => {
+      if (esLaUltima) return setSeleccion(null)
+      setSeleccion({ id, detalle: null, cruce: null, cargando: true })
+      try {
+        const [d, c] = await Promise.all([pedir<Detalle>({ accion: 'detalle', id }), pedir<{ cruce: { creada_at: string; filas: TuplaCruce[] } | null }>({ accion: 'cruce', id })])
+        setSeleccion((s) => (s && s.id === id ? { id, detalle: d, cruce: c?.cruce ?? null, cargando: false } : s))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'No se ha podido abrir esa revisión.')
+        setSeleccion(null)
+      }
+    },
+    [pedir]
+  )
+  const vDetalle = seleccion ? seleccion.detalle : detalle
+  const vCruce = seleccion ? seleccion.cruce : cruceUltimo
+
   /* ---- las filas: la foto del cruce (solo FBM) ---- */
   const filas: Fila[] = useMemo(() => {
+    const detalle = vDetalle
+    const cruce = vCruce
     if (!detalle) return []
     const salida: Fila[] = []
     if (cruce) {
@@ -133,7 +154,7 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
     }
     for (const [sku, asin, cantidad, canal] of detalle.detalle) if (canal === 'M' && !vistos.has(sku)) salida.push({ sku, asin, amazon: cantidad, tienda: null, estado: 'n' })
     return salida
-  }, [detalle, cruce])
+  }, [vDetalle, vCruce])
 
   const cuenta = useMemo(() => {
     const c: Record<EstadoCruce, { skus: number; amazon: number; tienda: number }> = { s: z(), v: z(), d: z(), c: z(), n: z(), p: z() }
@@ -178,7 +199,9 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
     URL.revokeObjectURL(url)
   }
 
-  const ultima = lista?.find((f) => f.estado === 'completa') ?? null
+  const ultimaReal = lista?.find((f) => f.estado === 'completa') ?? null
+  const ultima = seleccion ? (lista?.find((f) => f.id === seleccion.id) ?? ultimaReal) : ultimaReal
+  const cruce = vCruce
   const pasadas = (lista ?? []).filter((f) => f.estado === 'completa').slice(0, 36)
 
   return (
@@ -186,12 +209,19 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
       <Cabecera
         titulo={titulo}
         etiqueta={ETIQUETA}
-        subtitulo={ultima ? `Última revisión a las ${hora.format(new Date(ultima.creada_at))} (${haceCuanto(ultima.creada_at, ahora)}) · se revisa cada 20 minutos y esta página se actualiza sola` : 'Se revisa cada 20 minutos y esta página se actualiza sola'}
+        subtitulo={ultimaReal ? `Última revisión a las ${hora.format(new Date(ultimaReal.creada_at))} (${haceCuanto(ultimaReal.creada_at, ahora)}) · se revisa cada 20 minutos y esta página se actualiza sola` : 'Se revisa cada 20 minutos y esta página se actualiza sola'}
         derecha={<button type="button" onClick={() => void salir()} title="Salir" className="rounded-lg p-1.5 text-[#B8AE9F] hover:text-white"><LogOut className="h-4 w-4" /></button>}
       />
       <main className="mx-auto max-w-[1400px] px-4 pb-16 sm:px-8">
         {error && <p className="mt-6 flex items-center gap-2 text-[13px] text-[#C0432E]" role="alert"><AlertCircle className="h-4 w-4" /> {error}</p>}
-        {!detalle || !ultima ? (
+        {seleccion && ultima && (
+          <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#F26212]/40 bg-[#FEF3EC] px-4 py-2.5 text-[13.5px]">
+            <span>Estás viendo la revisión de las <b>{hora.format(new Date(ultima.creada_at))}</b> del {dia.format(new Date(ultima.creada_at))}: la tabla y las cifras son las de ese momento.</span>
+            {seleccion.cargando && <Loader2 className="h-4 w-4 animate-spin text-[#F26212]" />}
+            <button type="button" onClick={() => setSeleccion(null)} className="ml-auto rounded-lg bg-[#141414] px-3 py-1.5 text-[12.5px] font-semibold text-white">Volver a la última</button>
+          </div>
+        )}
+        {!vDetalle || !ultima ? (
           <div className="mt-16 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-[#F26212]" /></div>
         ) : (
           <>
@@ -227,7 +257,7 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
                   </label>
                   <button type="button" onClick={descargar} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#F26212] px-3 text-[12.5px] font-semibold text-white"><Download className="h-3.5 w-3.5" /> CSV</button>
                 </div>
-                {!cruce && <p className="border-b border-[#E5E1DB] bg-[#FEF3EC] px-3 py-2 text-[12.5px] text-[#5E5852]">El stock de la tienda de todos los productos estará en la próxima revisión (como mucho 20 minutos). De momento salen con dato solo los que no cuadran.</p>}
+                {!cruce && <p className="border-b border-[#E5E1DB] bg-[#FEF3EC] px-3 py-2 text-[12.5px] text-[#5E5852]">{seleccion ? 'De esta revisión solo se guardó el stock de la tienda de los productos que no cuadraban: los demás salen sin ese dato.' : 'El stock de la tienda de todos los productos estará en la próxima revisión (como mucho 20 minutos). De momento salen con dato solo los que no cuadran.'}</p>}
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse text-[13px]">
                     <thead>
@@ -265,9 +295,21 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
               {/* ---- las pasadas ---- */}
               <aside className="flex min-w-0 flex-col gap-2">
                 <h2 className="text-[16px] font-semibold" style={{ fontFamily: 'var(--font-sora), system-ui' }}>Cada revisión</h2>
-                <p className="-mt-1 text-[12px] text-[#8C857C]">Pulsa una para ver qué tenía stock antes y qué lo tiene ahora.</p>
+                <p className="-mt-1 text-[12px] text-[#8C857C]">Pulsa una para ver la tabla de ese momento y qué tenía stock antes y qué lo tiene ahora.</p>
                 {pasadas.map((p, i) => (
-                  <Pasada key={p.id} p={p} anterior={pasadas[i + 1] ?? null} abierta={pasadaAbierta === p.id} alternar={() => setPasadaAbierta(pasadaAbierta === p.id ? null : p.id)} pedir={pedir} />
+                  <Pasada
+                    key={p.id}
+                    p={p}
+                    anterior={pasadas[i + 1] ?? null}
+                    abierta={pasadaAbierta === p.id}
+                    elegida={(seleccion?.id ?? ultimaReal?.id) === p.id}
+                    alternar={() => {
+                      const abrir = pasadaAbierta !== p.id
+                      setPasadaAbierta(abrir ? p.id : null)
+                      if (abrir) void elegir(p.id, p.id === ultimaReal?.id)
+                    }}
+                    pedir={pedir}
+                  />
                 ))}
               </aside>
             </div>
@@ -303,7 +345,7 @@ function Barra({ valor, max, color }: { valor: number; max: number; color: strin
   )
 }
 
-function Pasada({ p, anterior, abierta, alternar, pedir }: { p: AuditoriaResumen; anterior: AuditoriaResumen | null; abierta: boolean; alternar: () => void; pedir: <T>(c: Record<string, unknown>) => Promise<T | null> }) {
+function Pasada({ p, anterior, abierta, elegida, alternar, pedir }: { p: AuditoriaResumen; anterior: AuditoriaResumen | null; abierta: boolean; elegida: boolean; alternar: () => void; pedir: <T>(c: Record<string, unknown>) => Promise<T | null> }) {
   const [d, setD] = useState<Detalle | null>(null)
   const [cargando, setCargando] = useState(false)
   useEffect(() => {
@@ -320,7 +362,7 @@ function Pasada({ p, anterior, abierta, alternar, pedir }: { p: AuditoriaResumen
   const entran = (d?.cambios?.entran ?? []).filter(([sku]) => !fba.has(sku) && !pareceFba(sku))
   const delta = anterior ? p.con_stock_fbm - anterior.con_stock_fbm : null
   return (
-    <div className="rounded-xl border border-[#E5E1DB] bg-white">
+    <div className={`rounded-xl border bg-white ${elegida ? 'border-[#F26212] ring-1 ring-[#F26212]' : 'border-[#E5E1DB]'}`}>
       <button type="button" onClick={alternar} aria-expanded={abierta} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
         {abierta ? <ChevronDown className="h-4 w-4 text-[#8C857C]" /> : <ChevronRight className="h-4 w-4 text-[#8C857C]" />}
         <span className="text-[13.5px] font-semibold tabular-nums">{hora.format(new Date(p.creada_at))}</span>

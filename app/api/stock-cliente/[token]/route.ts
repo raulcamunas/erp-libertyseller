@@ -8,7 +8,7 @@ import { isMissingSchema } from '@/lib/plataforma/eventos'
 /**
  * EL AUDITOR DE STOCK PARA EL CLIENTE (enlace con clave, migración 323). Lo mismo que lee la pantalla del ERP —la lista de auditorías y el detalle de una—, SOLO LEER:
  * desde aquí no se lanza ninguna auditoría ni se toca la tienda. El cliente y el país no llegan de fuera: el auditor es de una sola cuenta.
- *   POST { accion: 'lista' } · { accion: 'detalle', id } · { accion: 'cruce' }
+ *   POST { accion: 'lista' } · { accion: 'detalle', id } · { accion: 'cruce', id? }
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -33,7 +33,12 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
     }
     if (body.accion === 'cruce') {
       // La foto completa del cruce (migración 324): Stock Amazon y Stock PrestaShop de cada SKU con stock en algún lado. null si aún no hay
-      const { data, error } = await createServiceClient().from('stock_cruce_actual').select('creada_at, auditoria_id, filas').eq('connection_id', cuenta.connectionId).eq('marketplace_id', MERCADO_AUDITADO).maybeSingle()
+      // Con `id`, la de ESA revisión (migración 325, últimos 7 días); sin él, la última
+      const id = (body.id ?? '').trim()
+      const service = createServiceClient()
+      const { data, error } = UUID.test(id)
+        ? await service.from('stock_cruce_pasadas').select('creada_at, auditoria_id, filas').eq('connection_id', cuenta.connectionId).eq('auditoria_id', id).maybeSingle()
+        : await service.from('stock_cruce_actual').select('creada_at, auditoria_id, filas').eq('connection_id', cuenta.connectionId).eq('marketplace_id', MERCADO_AUDITADO).maybeSingle()
       if (error && !isMissingSchema(error)) throw error
       return NextResponse.json({ ok: true, cruce: error ? null : (data ?? null) }, { headers: { 'Cache-Control': 'no-store' } })
     }
