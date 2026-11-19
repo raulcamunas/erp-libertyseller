@@ -36,6 +36,7 @@ import {
   SearchCheck,
   ClipboardCheck,
   BriefcaseBusiness,
+  ChartNoAxesCombined,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -316,6 +317,17 @@ export const apps: AppConfig[] = [
     description: 'Los informes de Amazon Ads de un cliente, en Excel',
     icon: Megaphone,
     route: '/dashboard/marketing-ads',
+    status: 'new',
+    category: 'core'
+  },
+  {
+    // TRÁFICO PARA CLIENTES (migración 322) — la página con enlace y clave donde un cliente (o su agencia) ve sus sesiones, unidades, conversión y Buy Box por juego y día,
+    // al día, en vez de pedirnos el Excel. Aquí se crean los enlaces y se agrupan los ASIN en juegos. Solo administradores: da acceso a datos de un cliente a gente de fuera.
+    id: 'trafico',
+    name: 'Tráfico para clientes',
+    description: 'Enlaces con clave para que un cliente vea su tráfico y conversión por juego, al día',
+    icon: ChartNoAxesCombined,
+    route: '/dashboard/trafico',
     status: 'new',
     category: 'core'
   },
@@ -610,6 +622,8 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   // Las credenciales de un cliente contra el sistema de su proveedor, y sus
   // precios de COMPRA, que es de lo más sensible que hay en su negocio.
   'entrais-test',
+  // Da a gente de FUERA (el cliente o su agencia) acceso a los datos de venta de un cliente
+  'trafico',
   'entrais-pccomponentes',
   'limpieza-ofertas',
   // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
@@ -926,7 +940,7 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     name: 'Herramientas Agencia',
     description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads'],
+    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'trafico'],
     despuesDe: 'correo',
   },
   {

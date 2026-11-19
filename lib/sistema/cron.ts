@@ -252,6 +252,17 @@ export const TAREAS_CRON = [
       'impresiones, clics y compras que se llevan. Solo lee: no toca nada en la cuenta del cliente.',
   },
   {
+    /**
+     * EL TRÁFICO DE LOS CLIENTES CON ENLACE (migración 322). Un informe de Ventas y tráfico por día y cliente: recoge los terminados y pide los que faltan
+     * (al crear un enlace rellena el histórico, ~30 días por hora). Si no hay enlaces activos, contesta sin abrir fila. lib/trafico/sincronizar.ts
+     */
+    id: 'trafico-cliente',
+    nombre: 'Tráfico para clientes (enlace)',
+    ruta: '/api/trafico/cron',
+    cadaMinutos: 2,
+    que: 'Lee de Seller Central, día a día y por ASIN, las sesiones, visitas, Buy Box, unidades y ventas de los clientes con enlace de tráfico, para su página. Solo lee de Amazon.',
+  },
+  {
     id: 'seo-competencia',
     nombre: 'Competencia de SEO (foto diaria)',
     ruta: '/api/seo/competencia-diaria',
@@ -577,6 +588,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'ads-agente': { prioridad: 'normal', ayunoMaxMin: 30 },
   'seo-lecturas': { prioridad: 'baja', ayunoMaxMin: 12 * 60 },
   'seo-competencia': { prioridad: 'baja', ayunoMaxMin: 24 * 60 },
+  'trafico-cliente': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   'stock-verificacion': { prioridad: 'normal' },
   cumplimiento: { prioridad: 'baja', pesada: true, ayunoMaxMin: 180 },
   'rinkel-llamadas': { prioridad: 'esencial' },

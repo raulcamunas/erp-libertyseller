@@ -85,6 +85,7 @@ RUN { \
       echo "* * * * * /app/scripts/ads-agente.sh"; \
       echo "* * * * * /app/scripts/seo-lecturas.sh"; \
       echo "* * * * * /app/scripts/seo-competencia.sh"; \
+      echo "* * * * * /app/scripts/trafico-cliente.sh"; \
       echo "* * * * * /app/scripts/tareas-notion.sh"; \
       echo "* * * * * /app/scripts/tareas-reuniones.sh"; \
       echo "* * * * * /app/scripts/push-avisos.sh"; \

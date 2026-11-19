@@ -107,6 +107,8 @@ export async function middleware(request: NextRequest) {
                        pathname.startsWith('/tareas-cliente/') ||
                        // El informe de una cuenta para su CLIENTE (migración 307): el token de la dirección es la credencial y solo abre ESE informe
                        pathname.startsWith('/informe/') ||
+                       // El tráfico y la conversión de un cliente (migración 322): el token de la dirección Y una clave (cookie firmada) abren SOLO ese panel
+                       pathname.startsWith('/trafico/') ||
                        // El formulario donde un EMPLEADO envía sus datos de pago (migración 320): el token es la credencial, sirve UNA vez y solo para enviar
                        pathname.startsWith('/datos-de-pago/') ||
                        // El PORTAL del cliente para ese mismo envío (propuesta, etiquetas, cajas y envío), con el
