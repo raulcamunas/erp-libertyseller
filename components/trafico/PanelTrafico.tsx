@@ -375,7 +375,7 @@ function Panel({ token, titulo, alSalir }: { token: string; titulo: string; alSa
           <p className="mt-6 rounded-xl border border-[#F26212]/30 bg-[#FEF3EC] px-4 py-2.5 text-[13px] text-[#141414]">Estamos cargando el histórico de Seller Central: faltan {entero(datos.diasPorLeer)} días por traer. Los periodos más antiguos se irán completando solos en las próximas horas.</p>
         )}
         {provisional && (
-          <p className="mt-6 rounded-xl border border-[#E5E1DB] bg-[#FFFFFF] px-4 py-2.5 text-[13px] text-[#5E5852]">Los últimos días son provisionales: Amazon tarda unos tres días en consolidar las sesiones y pueden cambiar.</p>
+          <p className="mt-6 rounded-xl border border-[#E5E1DB] bg-[#FFFFFF] px-4 py-2.5 text-[13px] text-[#5E5852]">Los últimos días son provisionales: Amazon da las ventas al día siguiente, pero las sesiones tardan uno o dos días más (el último día puede salir aún sin sesiones). Se completan solas.</p>
         )}
         {error && <p className="mt-4 text-[13px] text-[#C0432E]" role="alert">{error}</p>}
         {!calc ? (
