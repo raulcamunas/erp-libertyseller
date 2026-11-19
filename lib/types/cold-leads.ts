@@ -272,7 +272,7 @@ export function formatRevenue(n: number | null, lead?: { seller_url?: string | n
   return esDeAmazonMexico(lead) ? `${Math.round(n).toLocaleString('es-ES')} $` : `${Math.round(n).toLocaleString('es-ES')} €`
 }
 
-/** Un vendedor de Amazon México (lista «Vendedores México», 19 nov 2026): su facturación viene en DÓLARES y se llama con el número virtual de México */
+/** Un vendedor de Amazon México (lista de México («MEX … · Ciclo»), 19 nov 2026): su facturación viene en DÓLARES y se llama con el número virtual de México */
 export const esDeAmazonMexico = (lead?: { seller_url?: string | null } | null): boolean => /amazon\.com\.mx/i.test(lead?.seller_url ?? '')
 
 /* ==========================================================================

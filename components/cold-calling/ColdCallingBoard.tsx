@@ -363,9 +363,9 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // quedaba en una tira de abajo sin poder bajar. Vuelven al pulsar «‹» (volver a la lista)
   const fichaAPantallaCompleta = esMovil && Boolean(seleccionado) && vista !== 'tabla' && !vistaDePanel
 
-  // El teléfono de Zadarma (llamadas a México) solo se enciende con la lista «Vendedores México» abierta y mirando la cartera propia: no se solapa con Rinkel y a quien
+  // El teléfono de Zadarma (llamadas a México) solo se enciende con una lista de México («MEX … · Ciclo») abierta y mirando la cartera propia: no se solapa con Rinkel y a quien
   // no tiene extensión de Zadarma no le sale (la ruta de la llave contesta 404)
-  const telefonoMexico = filtrosEfectivos.lista.startsWith('Vendedores México') && (propietario === currentUser.id || !puedeVerTodos)
+  const telefonoMexico = filtrosEfectivos.lista.startsWith('MEX ') && (propietario === currentUser.id || !puedeVerTodos)
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">

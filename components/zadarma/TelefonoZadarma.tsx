@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { ponerEstado } from '@/lib/zadarma/cliente'
 
 /**
- * EL TELÉFONO DE ZADARMA DENTRO DEL ERP (llamadas a México). Solo se enciende cuando la comercial tiene abierta su lista «Vendedores México» (decisión de Raúl,
+ * EL TELÉFONO DE ZADARMA DENTRO DEL ERP (llamadas a México). Solo se enciende cuando la comercial tiene abierta su lista de México («MEX … · Ciclo») (decisión de Raúl,
  * 19 nov 2026: que no se solape con Rinkel ni les salga a los demás). Al encenderse pide al servidor la llave de SU extensión y carga el widget WebRTC de Zadarma:
  * habla con el micrófono del ordenador y recibe las llamadas a su número de México mientras el ERP esté abierto. Al cambiar de lista se esconde y deja de recibir.
  * Las llamadas, con su grabación, llegan al historial del lead por el aviso de Zadarma (app/api/zadarma/webhook).

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Carga el CSV «Vendedores_Mexico_10k_contactos_15nov - Para llamar.csv» en Cold Calling: vendedores de Amazon México repartidos en TRES listas (19 nov 2026, Raúl):
-  «Vendedores México · Alejandro» (360) · «Vendedores México · Jhanna» (400) · «Vendedores México · Daniela» (el resto).
+  «MEX Alejandro · Ciclo» (360) · «MEX Jhanna · Ciclo» (400) · «MEX Daniela · Ciclo» (el resto), ya en el ciclo comercial.
 
     python3 -I scripts/cargar-vendedores-mexico.py --comprobar RUTA_CSV     cuenta qué haría; NO escribe
     python3 -I scripts/cargar-vendedores-mexico.py --si RUTA_CSV            lo hace en PRODUCCIÓN (API REST con la clave de servicio de .env.local)
@@ -14,7 +14,7 @@ import csv, json, os, re, subprocess, sys, time, urllib.parse
 
 CARPETA = os.path.dirname(os.path.abspath(__file__))
 ENV_LOCAL = os.path.join(CARPETA, '..', '.env.local')
-CUPOS = [('alejandro@libertyseller.com', 'Vendedores México · Alejandro', 360), ('jhanna@libertyseller.es', 'Vendedores México · Jhanna', 400), ('daniela@libertyseller.es', 'Vendedores México · Daniela', None)]
+CUPOS = [('alejandro@libertyseller.com', 'MEX Alejandro · Ciclo', 360), ('jhanna@libertyseller.es', 'MEX Jhanna · Ciclo', 400), ('daniela@libertyseller.es', 'MEX Daniela · Ciclo', None)]
 DESCRIPCION = 'Vendedores de Amazon México (SmartScout + Google Maps, CSV del 15 nov 2026). Se llaman con el número virtual de México (Zadarma).'
 
 
@@ -83,6 +83,7 @@ def fila_a_lead(f):
         'seller_url': limpio(f['Tienda en Amazon']),
         'tipo_lead': 'seller_amazon',
         'vende_en_amazon': 'vende',
+        'ciclo_vuelta': 1,
     }
 
 
