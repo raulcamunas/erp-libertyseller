@@ -338,7 +338,8 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
                   <button
                     type="button"
                     onClick={() => {
-                      if (!llamarConZadarma(marcable)) toast.error('El teléfono de Zadarma no está listo. Espera un momento o recarga la página.')
+                      const error = llamarConZadarma(marcable, lead.store_name || lead.company || null)
+                      if (error) toast.error(error)
                     }}
                     title={`Llamar desde el ERP con tu número de México${telefonoZadarma.numero ? ` (${telefonoZadarma.numero})` : ''}`}
                     className="inline-flex items-center gap-2 px-2.5 text-[13.5px] font-semibold tabular-nums text-[var(--ls-t1)] transition-colors hover:bg-[var(--ls-sup3)]"

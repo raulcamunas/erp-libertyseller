@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { AppsPersistentes } from '@/components/layout/AppsPersistentes'
 import { AvisosEnVivo } from '@/components/avisos/AvisosEnVivo'
+import { TelefonoZadarma } from '@/components/zadarma/TelefonoZadarma'
 import { DockDelChat } from '@/components/chat/DockDelChat'
 import { ProveedoresDelChat } from '@/components/chat/ProveedoresDelChat'
 import { AvisoDeVersion } from '@/components/layout/AvisoDeVersion'
@@ -83,6 +84,8 @@ export default async function DashboardLayout({
         {/* Correo nuevo y noticias del equipo, abajo a la derecha, en cualquier pantalla. Fuera del recuadro animado de arriba a propósito:
             ahí dentro `fixed` sería relativo a ese recuadro y no a la ventana */}
         <AvisosEnVivo perfil={profile} />
+        {/* El teléfono de México (Zadarma): fuera de las apps, para que una llamada no se corte al cambiar de pantalla */}
+        <TelefonoZadarma />
         {/* «Nueva actualización disponible»: la pestaña compara la versión con la que se pintó con la de ahora (components/layout/AvisoDeVersion.tsx) */}
         <AvisoDeVersion idInicial={idDeLaVersion()} />
         {puedeChat && <DockDelChat />}

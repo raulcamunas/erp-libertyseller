@@ -40,7 +40,7 @@ import { useCartera } from './useCartera'
 import { usePreferencias } from './usePreferencias'
 import { useAbrirLead } from './useAbrirLead'
 import { useSincronizarRinkel } from './useSincronizarRinkel'
-import { TelefonoZadarma } from '@/components/zadarma/TelefonoZadarma'
+import { pedirTelefono } from '@/lib/zadarma/cliente'
 
 /**
  * COLD CALLING: LA CARTERA DE LEADS DE UNA PERSONA.
@@ -366,10 +366,13 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
   // El teléfono de Zadarma (llamadas a México) solo se enciende con una lista de México («MEX … · Ciclo») abierta y mirando la cartera propia: no se solapa con Rinkel y a quien
   // no tiene extensión de Zadarma no le sale (la ruta de la llave contesta 404)
   const telefonoMexico = filtrosEfectivos.lista.startsWith('MEX ') && (propietario === currentUser.id || !puedeVerTodos)
+  useEffect(() => {
+    pedirTelefono(telefonoMexico)
+  }, [telefonoMexico])
+  useEffect(() => () => pedirTelefono(false), [])
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2.5">
-      <TelefonoZadarma activo={telefonoMexico} />
       {!fichaAPantallaCompleta && (
       <BarraDeCartera
         resumen={resumen}
