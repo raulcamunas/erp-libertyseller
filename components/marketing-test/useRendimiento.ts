@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FilaDiaria } from '@/lib/ads/rendimiento-calculo'
 import type { VentaDeAsin } from '@/lib/ads/ventas-totales'
 import { llamar } from './llamar'
+import { consultaDePeriodo, type Periodo } from './piezas'
 
 export interface CampanaViva {
   campaignId: string
@@ -26,6 +27,8 @@ export interface Informe {
   datosHasta: string | null
   /** Las ventas TOTALES de cada ASIN en el mismo periodo (de la cuenta de vendedor), para el TACoS. Vacío si aún no se han leído */
   ventasTotales: { porAsin: Record<string, VentaDeAsin>; leidoAt: string | null; error: string | null }
+  /** El día más antiguo guardado: hasta ahí se puede elegir un periodo a mano */
+  primerDia: string | null
 }
 
 export type Carga<T> = { fase: 'cargando'; nota?: string } | { fase: 'listo'; datos: T; en: number } | { fase: 'error'; mensaje: string }
@@ -40,6 +43,7 @@ interface Guardado {
   actual: FilaDiaria[]
   anterior: FilaDiaria[]
   ventasTotales?: Informe['ventasTotales']
+  primerDia?: string | null
 }
 
 /** Las campañas en vivo, por cuenta: cambiar de pestaña no vuelve a pedirlas (15 min). El rendimiento NO se guarda aquí: viene de la base y es instantáneo */
@@ -55,7 +59,8 @@ const MAX_PREGUNTAS = 90 // ≈ 9 minutos: la primera lectura de una cuenta trae
  * Lo guardado se enseña AL INSTANTE. Si hay una lectura en marcha (o es la primera vez que se abre esta cuenta, y todavía no hay nada guardado), se sigue preguntando cada pocos segundos y la pantalla se
  * actualiza sola cuando Amazon termina.
  */
-export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
+export function useRendimiento(perfilId: string, periodo: Periodo) {
+  const consulta = consultaDePeriodo(periodo)
   const [campanas, setCampanas] = useState<Carga<CampanaViva[]>>(() => {
     const c = CACHE_CAMPANAS.get(perfilId)
     return c && Date.now() - c.en < VIGENCIA_MS ? { fase: 'listo', datos: c.datos, en: c.en } : { fase: 'cargando' }
@@ -87,12 +92,12 @@ export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
         if (forzar) await llamar('/api/ads/cuenta/rendimiento', { metodo: 'POST', cuerpo: { perfilId, accion: 'actualizar' } })
         for (let i = 0; i < MAX_PREGUNTAS; i++) {
           if (!vigente()) return
-          const g = await llamar<Guardado>(`/api/ads/cuenta/rendimiento?perfilId=${perfilId}&dias=${dias}`)
+          const g = await llamar<Guardado>(`/api/ads/cuenta/rendimiento?perfilId=${perfilId}&${consulta}`)
           if (!vigente()) return
           if (g.hayDatos) {
             setInforme({
               fase: 'listo',
-              datos: { actual: g.actual, anterior: g.anterior, periodos: g.periodos, sincronizando: g.sincronizando, aviso: g.error, datosHasta: g.datosHasta, ventasTotales: g.ventasTotales ?? { porAsin: {}, leidoAt: null, error: null } },
+              datos: { actual: g.actual, anterior: g.anterior, periodos: g.periodos, sincronizando: g.sincronizando, aviso: g.error, datosHasta: g.datosHasta, ventasTotales: g.ventasTotales ?? { porAsin: {}, leidoAt: null, error: null }, primerDia: g.primerDia ?? null },
               en: g.actualizadoAt ? Date.parse(g.actualizadoAt) : Date.now(),
             })
           } else if (!g.sincronizando && g.error) {
@@ -110,7 +115,7 @@ export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
         if (vigente()) setInforme({ fase: 'error', mensaje: e instanceof Error ? e.message : 'No se ha podido leer el rendimiento.' })
       }
     },
-    [perfilId, dias]
+    [perfilId, consulta]
   )
 
   useEffect(() => {
@@ -120,5 +125,16 @@ export function useRendimiento(perfilId: string, dias: 7 | 14 | 30) {
     }
   }, [cargar])
 
-  return { campanas, informe, actualizar: () => cargar(true) }
+  /** Una campaña pausada o activada desde la pantalla: se cambia aquí (y en lo guardado) sin volver a pedir la lista a Amazon */
+  const cambiarEstado = useCallback(
+    (campaignId: string, estado: CampanaViva['estado']) => {
+      const cambiar = (lista: CampanaViva[]) => lista.map((c) => (c.campaignId === campaignId ? { ...c, estado } : c))
+      const cc = CACHE_CAMPANAS.get(perfilId)
+      if (cc) CACHE_CAMPANAS.set(perfilId, { ...cc, datos: cambiar(cc.datos) })
+      setCampanas((prev) => (prev.fase === 'listo' ? { ...prev, datos: cambiar(prev.datos) } : prev))
+    },
+    [perfilId]
+  )
+
+  return { campanas, informe, actualizar: () => cargar(true), cambiarEstado }
 }

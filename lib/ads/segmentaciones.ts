@@ -71,9 +71,9 @@ async function listarTodo<T>(conexionId: string, profileId: number, ruta: string
 
 const desplazar = (dia: string, dias: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + dias * 86_400_000).toISOString().slice(0, 10)
 
-export async function detalleDeCampana(cuenta: { id: string; conexionId: string; profileId: number }, campaignId: string, dias: number): Promise<DetalleDeCampana> {
-  const hasta = desplazar(new Date().toISOString().slice(0, 10), -1)
-  const desde = desplazar(hasta, -(dias - 1))
+export async function detalleDeCampana(cuenta: { id: string; conexionId: string; profileId: number }, campaignId: string, dias: number, rango?: { desde: string; hasta: string } | null): Promise<DetalleDeCampana> {
+  const hasta = rango?.hasta ?? desplazar(new Date().toISOString().slice(0, 10), -1)
+  const desde = rango?.desde ?? desplazar(hasta, -(dias - 1))
   const filtro = { campaignIdFilter: { include: [campaignId] }, stateFilter: { include: ['ENABLED', 'PAUSED'] } }
 
   const [grupos, keywords, targets, metricas] = await Promise.all([
@@ -213,6 +213,22 @@ export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObje
     await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo, origen, userId: ctx.userId, entidadId: o.id })
   } catch (e) {
     await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, motivo, origen, ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId, entidadId: o.id })
+    throw e
+  }
+  })
+}
+
+/** Pausa o activa una campaña entera */
+export async function cambiarEstadoDeCampana(ctx: ContextoDeCambio, o: { activar: boolean }): Promise<'ENABLED' | 'PAUSED'> {
+  return enRastro(async () => {
+  const state = o.activar ? 'ENABLED' : 'PAUSED'
+  const datos = { perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad: 'campaña' as const, accion: (o.activar ? 'activar' : 'pausar') as 'activar' | 'pausar', campo: 'estado de la campaña', valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo: 'Cambio a mano', origen: 'manual' as const, userId: ctx.userId, entidadId: ctx.campaignId }
+  try {
+    comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/campaigns', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_CAMPANA), cuerpo: { campaigns: [{ campaignId: ctx.campaignId, state }] } }), 'campaigns')
+    await anotarCambio(datos)
+    return state
+  } catch (e) {
+    await anotarCambio({ ...datos, ok: false, error: e instanceof Error ? e.message : String(e) })
     throw e
   }
   })

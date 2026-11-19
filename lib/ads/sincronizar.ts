@@ -20,7 +20,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { AdsError } from './oauth'
-import { descargarCrudas, descargarFilas, estadoDeInforme, pedirInforme, pedirInformeDeObjetivos, periodosDe, type Periodo } from './rendimiento'
+import { descargarCrudas, descargarFilas, estadoDeInforme, pedirInforme, pedirInformeDeObjetivos, periodosDe, periodosDelRango, type Periodo } from './rendimiento'
 import { filasDeObjetivos, type FilaDeObjetivo } from './segmentaciones-calculo'
 import type { FilaDiaria } from './rendimiento-calculo'
 
@@ -301,13 +301,18 @@ export interface RendimientoGuardado {
   periodos: { actual: Periodo; anterior: Periodo }
   actual: FilaDiaria[]
   anterior: FilaDiaria[]
+  /** El día más antiguo guardado (se conservan 90): hasta ahí se puede elegir un periodo a mano */
+  primerDia: string | null
 }
 
 /** Las filas guardadas del periodo pedido y del anterior (PostgREST devuelve como mucho 1.000 por consulta: se pagina) */
-export async function leerGuardado(perfilId: string, dias: number): Promise<RendimientoGuardado> {
-  const p = periodosDe(hoyUTC(), dias)
+export async function leerGuardado(perfilId: string, dias: number, rango?: Periodo | null): Promise<RendimientoGuardado> {
+  const p = rango ? periodosDelRango(rango) : periodosDe(hoyUTC(), dias)
   const service = createServiceClient()
-  const estado = await leerEstado(perfilId)
+  const [estado, primero] = await Promise.all([
+    leerEstado(perfilId),
+    service.from('ads_rendimiento_diario').select('fecha').eq('perfil_id', perfilId).order('fecha', { ascending: true }).limit(1).maybeSingle(),
+  ])
 
   const filas: FilaDiaria[] = []
   for (let desde = 0; desde < 20_000; desde += 1000) {
@@ -346,6 +351,7 @@ export async function leerGuardado(perfilId: string, dias: number): Promise<Rend
     periodos: p,
     actual: filas.filter((f) => f.fecha >= p.actual.desde),
     anterior: filas.filter((f) => f.fecha <= p.anterior.hasta),
+    primerDia: (primero.data as { fecha?: string } | null)?.fecha ?? null,
   }
 }
 

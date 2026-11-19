@@ -69,7 +69,7 @@ export function PestanaResumen({ perfilId, moneda, irA }: { perfilId: string; mo
     <div className="flex min-w-0 flex-col gap-4 pb-8">
       <AvisosDeCuenta perfilId={perfilId} verCampana={() => irA('campanas')} />
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={cargando || Boolean(datos?.sincronizando)} />
+        <SelectorDePeriodo dias={dias} cambiar={(p) => typeof p === 'number' && setDias(p)} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={cargando || Boolean(datos?.sincronizando)} />
         {datos && (
           <span className={`${TIPO.xs} ${TEXTO.t4}`}>
             {diaCorto(datos.periodos.actual.desde)} – {diaCorto(datos.periodos.actual.hasta)} frente a {diaCorto(datos.periodos.anterior.desde)} – {diaCorto(datos.periodos.anterior.hasta)}

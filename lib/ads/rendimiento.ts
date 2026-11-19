@@ -32,6 +32,23 @@ function desplazar(dia: string, dias: number): string {
 /**
  * Los dos periodos de `dias` días que acaban AYER (hoy está a medias y Amazon aún no lo consolida): el actual y el inmediatamente anterior. `hoy` es 'YYYY-MM-DD' (se pasa para poder probarlo).
  */
+/** Un periodo elegido a mano (?desde=&hasta=): fechas válidas, en orden, que acaban como tarde AYER y de 1 a 366 días. null = no vale */
+export function rangoValido(desde: unknown, hasta: unknown, hoy: string): Periodo | null {
+  const fecha = (x: unknown): x is string => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && !Number.isNaN(Date.parse(`${x}T00:00:00Z`))
+  if (!fecha(desde) || !fecha(hasta) || desde > hasta) return null
+  const ayer = desplazar(hoy, -1)
+  const h = hasta > ayer ? ayer : hasta
+  if (desde > h) return null
+  const dias = Math.round((Date.parse(`${h}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000) + 1
+  return dias >= 1 && dias <= 366 ? { desde, hasta: h } : null
+}
+
+/** El periodo elegido a mano y el anterior de la misma duración */
+export function periodosDelRango(r: Periodo): { actual: Periodo; anterior: Periodo } {
+  const dias = Math.round((Date.parse(`${r.hasta}T00:00:00Z`) - Date.parse(`${r.desde}T00:00:00Z`)) / 86_400_000) + 1
+  return { actual: r, anterior: { desde: desplazar(r.desde, -dias), hasta: desplazar(r.desde, -1) } }
+}
+
 export function periodosDe(hoy: string, dias: number): { actual: Periodo; anterior: Periodo } {
   const hasta = desplazar(hoy, -1)
   const desde = desplazar(hasta, -(dias - 1))

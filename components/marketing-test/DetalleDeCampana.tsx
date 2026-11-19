@@ -1,5 +1,6 @@
 'use client'
 
+import { consultaDePeriodo, type Periodo } from './piezas'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { ArrowDown, ArrowUp, Check, Loader2, Minus, Plus, RefreshCw, X } from 'lucide-react'
@@ -30,7 +31,7 @@ const TIPO_ES: Record<Segmentacion['tipo'], string> = { keyword: 'Keyword', prod
  * UNA CAMPAÑA ABIERTA: su presupuesto, sus grupos de anuncios y, en cada uno, las segmentaciones por las que se puja —keywords, productos o las cláusulas de la automática— con todas sus métricas del
  * periodo. La puja se sube o se baja aquí mismo (y el presupuesto de la campaña, y pausar o activar): cada cambio se escribe en Amazon al momento y queda en el log de cambios.
  */
-export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupuesto, dias, moneda, acosObjetivo, alCambiarPresupuesto }: { perfilId: string; campaignId: string; nombreCampana: string; presupuesto: number | null; dias: number; moneda: string | null; acosObjetivo: number | null; alCambiarPresupuesto?: (n: number) => void }) {
+export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupuesto, dias, moneda, acosObjetivo, alCambiarPresupuesto }: { perfilId: string; campaignId: string; nombreCampana: string; presupuesto: number | null; dias: Periodo; moneda: string | null; acosObjetivo: number | null; alCambiarPresupuesto?: (n: number) => void }) {
   const [detalle, setDetalle] = useState<Detalle | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(false)
@@ -44,14 +45,14 @@ export function DetalleDeCampana({ perfilId, campaignId, nombreCampana, presupue
   const cargar = useCallback(async () => {
     setCargando(true)
     try {
-      setDetalle(await llamar<Detalle>(`/api/ads/cuenta/segmentaciones?perfilId=${perfilId}&campaignId=${campaignId}&dias=${dias}`))
+      setDetalle(await llamar<Detalle>(`/api/ads/cuenta/segmentaciones?perfilId=${perfilId}&campaignId=${campaignId}&${consultaDePeriodo(dias)}`))
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se han podido leer las segmentaciones.')
     } finally {
       setCargando(false)
     }
-  }, [perfilId, campaignId, dias])
+  }, [perfilId, campaignId, consultaDePeriodo(dias)]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     void cargar()
   }, [cargar])

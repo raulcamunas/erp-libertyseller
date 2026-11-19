@@ -6,7 +6,7 @@ import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO } from '@/lib/est
 import { diasDelRango, porCampana, tipoDeCampana, totalesDe, type CampanaConCifras } from '@/lib/ads/rendimiento-calculo'
 import { agruparPorProducto } from '@/lib/ads/productos-agrupar'
 import { SIN_VENDEDOR } from '@/lib/ads/tacos'
-import { COLOR_DE_TIPO, EtiquetaDeTipo, PuntoDeEstado, Segmentado, SelectorDePeriodo, textoDeEstado, TiraDeCifras, type Dias } from './piezas'
+import { COLOR_DE_TIPO, EtiquetaDeTipo, InterruptorDeCampana, PuntoDeEstado, Segmentado, SelectorDePeriodo, textoDeEstado, TiraDeCifras, type Periodo } from './piezas'
 import { useProductosConocidos } from './useProductosConocidos'
 import { TarjetaDeProducto, type FilaDeCampana } from './TarjetaDeProducto'
 import { dinero, decimal, entero, porcentaje } from './formato'
@@ -39,7 +39,7 @@ const valorDe = (f: Fila, o: Orden): number | string => (o === 'nombre' ? f.nomb
  * en el periodo sale con ceros; una con gasto que ya no está en la lista (archivada y fuera de las primeras páginas) sale igualmente, sin estado.
  */
 export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; moneda: string | null; irA: (pestana: string) => void }) {
-  const [dias, setDias] = useState<Dias>(14)
+  const [dias, setDias] = useState<Periodo>(14)
   const [filtro, setFiltro] = useState<Filtro>('ENABLED')
   const [busqueda, setBusqueda] = useState('')
   const [orden, setOrden] = useState<{ por: Orden; desc: boolean }>({ por: 'gasto', desc: true })
@@ -48,7 +48,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
   const [campanaAbierta, setCampanaAbierta] = useState<string | null>(null)
   // En el móvil, de 40 en 40 (una cuenta grande tiene cientos de campañas)
   const [cuantasMovil, setCuantasMovil] = useState(40)
-  const { campanas, informe, actualizar } = useRendimiento(perfilId, dias)
+  const { campanas, informe, actualizar, cambiarEstado } = useRendimiento(perfilId, dias)
   const conocidos = useProductosConocidos(perfilId)
   // En «Lista» se monta solo la versión que se ve: con las dos, la campaña abierta montaba DOS veces su detalle (dos lecturas a Amazon y el doble de nodos) en el móvil
   const escritorio = useEsEscritorio()
@@ -121,7 +121,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
       <tr className={`${TABLA.fila} cursor-pointer`} onClick={() => setCampanaAbierta(abierta ? null : f.campaignId)} title={abierta ? 'Cerrar' : 'Ver sus segmentaciones y cambiar pujas'}>
         <td className={`${TABLA.celda} h-[38px]`} style={sangria ? { paddingLeft: 30 } : undefined}>
           <div className="flex items-center gap-2">
-            <PuntoDeEstado estado={f.estado} />
+            <InterruptorDeCampana perfilId={perfilId} campaignId={f.campaignId} nombre={f.nombre} estado={f.estado} alCambiar={(e) => cambiarEstado(f.campaignId, e)} />
             <div className="min-w-0">
               <div className={`${TEXTO.t1} ${TABLA.corta} max-w-[420px]`} title={`${f.nombre} · ${textoDeEstado(f.estado)}`}>{f.nombre}</div>
               <div className="mt-[1px] flex items-center gap-[5px]">
@@ -172,7 +172,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
       <AvisosDeCuenta perfilId={perfilId} verCampana={(id) => { setVista('lista'); setFiltro('TODAS'); setCampanaAbierta(id) }} />
       {/* ---- fila 1: el periodo (izquierda) y la búsqueda (derecha) ---- */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <SelectorDePeriodo dias={dias} cambiar={setDias} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando' || (informe.fase === 'listo' && informe.datos.sincronizando)} />
+        <SelectorDePeriodo dias={dias} cambiar={setDias} conRango primerDia={informe.fase === 'listo' ? informe.datos.primerDia : null} en={informe.fase === 'listo' ? informe.en : undefined} actualizar={actualizar} cargando={informe.fase === 'cargando' || campanas.fase === 'cargando' || (informe.fase === 'listo' && informe.datos.sincronizando)} />
         <label className="relative w-full sm:w-auto">
           <span className="sr-only">Buscar una campaña</span>
           <Search className="pointer-events-none absolute left-[10px] top-[9px] h-[13px] w-[13px] text-[var(--ls-t4)]" />
@@ -256,6 +256,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
               irAProductos={() => irA('productos')}
               perfilId={perfilId}
               diasDelPeriodo={dias}
+              alCambiarEstado={cambiarEstado}
               ventaTotal={g.asin && informe.fase === 'listo' ? (informe.datos.ventasTotales.porAsin[g.asin] ?? null) : null}
               sinTacos={g.asin && informe.fase === 'listo' && informe.datos.ventasTotales.error === SIN_VENDEDOR ? SIN_VENDEDOR : null}
             />

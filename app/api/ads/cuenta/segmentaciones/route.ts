@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { abrirCuenta, errorDeRuta } from '@/lib/ads/ruta'
-import { cambiarEstado, cambiarPresupuesto, cambiarPuja, detalleDeCampana, type TipoDeObjetivo } from '@/lib/ads/segmentaciones'
+import { cambiarEstado, cambiarEstadoDeCampana, cambiarPresupuesto, cambiarPuja, detalleDeCampana, type TipoDeObjetivo } from '@/lib/ads/segmentaciones'
+import { rangoValido } from '@/lib/ads/rendimiento'
 
 /**
  * LAS SEGMENTACIONES DE UNA CAMPAÑA (Marketing Test, al abrir una campaña). Solo administradores.
  *
- *   GET  ?perfilId=&campaignId=&dias=7|14|30   → grupos de anuncios, keywords y segmentaciones en vivo, con sus métricas del periodo
- *   POST { perfilId, campaignId, nombreCampana, accion: 'puja' | 'estado' | 'presupuesto', … }   → ESCRIBE en la cuenta del cliente y lo apunta en el log
+ *   GET  ?perfilId=&campaignId=&dias=7|14|30 (o &desde=&hasta=)   → grupos de anuncios, keywords y segmentaciones en vivo, con sus métricas del periodo
+ *   POST { perfilId, campaignId, nombreCampana, accion: 'puja' | 'estado' | 'presupuesto' | 'estado_campana', … }   → ESCRIBE en la cuenta del cliente y lo apunta en el log
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -23,7 +24,8 @@ export async function GET(request: NextRequest) {
     const campaignId = q.get('campaignId') ?? ''
     if (!ID.test(campaignId)) return fail(400, 'Falta la campaña.')
     const dias = [7, 14, 30].includes(Number(q.get('dias'))) ? Number(q.get('dias')) : 14
-    return NextResponse.json(await detalleDeCampana(a.cuenta, campaignId, dias))
+    const rango = q.has('desde') ? rangoValido(q.get('desde'), q.get('hasta'), new Date().toISOString().slice(0, 10)) : null
+    return NextResponse.json(await detalleDeCampana(a.cuenta, campaignId, dias, rango))
   } catch (error) {
     return errorDeRuta(error, 'Ads: leer las segmentaciones de una campaña')
   }
@@ -50,6 +52,10 @@ export async function POST(request: NextRequest) {
       if (!ID.test(id) || !['keyword', 'producto', 'auto'].includes(tipo)) return fail(400, 'Segmentación no válida.')
       await cambiarEstado(ctx, { tipo: tipo as TipoDeObjetivo, id, texto, activar: b.activar === true })
       return NextResponse.json({ ok: true })
+    }
+    if (b.accion === 'estado_campana') {
+      const estado = await cambiarEstadoDeCampana(ctx, { activar: b.activar === true })
+      return NextResponse.json({ ok: true, estado })
     }
     if (b.accion === 'presupuesto') {
       const presupuesto = await cambiarPresupuesto(ctx, { anterior: typeof b.anterior === 'number' ? b.anterior : null, nuevo: b.presupuesto })

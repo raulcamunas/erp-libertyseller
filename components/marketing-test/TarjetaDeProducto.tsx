@@ -6,7 +6,7 @@ import { DetalleDeCampana } from './DetalleDeCampana'
 import { COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { GrupoDeProducto } from '@/lib/ads/productos-agrupar'
 import { serieDiaria, tipoDeCampana, type FilaDiaria, type Totales } from '@/lib/ads/rendimiento-calculo'
-import { COLOR_DE_TIPO, PuntoDeEstado, textoDeEstado } from './piezas'
+import { COLOR_DE_TIPO, InterruptorDeCampana, textoDeEstado, type Periodo } from './piezas'
 import { decimal, dinero, entero, porcentaje } from './formato'
 import type { CampanaViva } from './useRendimiento'
 
@@ -74,14 +74,17 @@ export function TarjetaDeProducto({
   diasDelPeriodo,
   ventaTotal = null,
   sinTacos = null,
+  alCambiarEstado,
 }: {
+  /** Una campaña pausada o activada desde su fila */
+  alCambiarEstado: (campaignId: string, estado: 'ENABLED' | 'PAUSED') => void
   /** Por qué no hay TACoS en esta cuenta (p. ej. falta la cuenta de vendedor), para decirlo en vez de esconder la cifra */
   sinTacos?: string | null
   /** Las ventas TOTALES del ASIN en el periodo (orgánicas + publicidad), para el TACoS. null = aún no leídas */
   ventaTotal?: { ventas: number; unidades: number; sesiones: number } | null
   /** La cuenta de anunciante y el periodo (7, 14, 30): para abrir una campaña y ver sus segmentaciones */
   perfilId: string
-  diasDelPeriodo: number
+  diasDelPeriodo: Periodo
   grupo: GrupoDeProducto<FilaDeCampana>
   moneda: string | null
   equilibrio: number | null
@@ -251,7 +254,7 @@ export function TarjetaDeProducto({
                     <td className="relative border-t border-[var(--ls-linea)] py-[9px] pl-4 pr-3 md:pl-[60px]">
                       <ChevronRight className={`absolute left-[38px] hidden md:block top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--ls-t4)] transition-transform ${abierta ? 'rotate-90' : ''}`} />
                       <div className="flex items-center gap-2">
-                        <PuntoDeEstado estado={f.estado} />
+                        <InterruptorDeCampana perfilId={perfilId} campaignId={f.campaignId} nombre={f.nombre} estado={f.estado} alCambiar={(e) => alCambiarEstado(f.campaignId, e)} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-[6px]">
                             <span className="h-[8px] w-[3px] rounded-full" style={{ background: COLOR_DE_TIPO[tipoDeCampana(f.nombre)] ?? COLOR_ESTADO.gris }} />
