@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { esGrabacionDeZadarma, urlDeGrabacionZadarma } from '@/lib/zadarma/servidor'
 import { UUID, fail, requireAppAccess } from '@/lib/amazon/api'
 import { ErrorRinkel, MENSAJE_DE_ERROR, pedirUrlDeGrabacion } from '@/lib/rendimiento/rinkel'
 import { esFaltaDeMigracion, FALTA_MIGRACION_RENDIMIENTO, leerClaveDe } from '@/lib/rendimiento/servidor'
@@ -44,6 +45,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   if (!llamada.grabacion_id) return fail(404, 'Esta llamada no tiene grabación')
   if (llamada.grabacion_hasta && Date.parse(llamada.grabacion_hasta) < Date.now()) {
     return fail(410, 'La grabación ya ha caducado: Rinkel las guarda 90 días.')
+  }
+
+  // Las de Zadarma (llamadas a México, migración 326): el enlace lo da Zadarma, no hace falta la clave de Rinkel de nadie
+  if (esGrabacionDeZadarma(llamada.grabacion_id)) {
+    try {
+      const url = await urlDeGrabacionZadarma(llamada.grabacion_id)
+      if (request.nextUrl.searchParams.get('formato') === 'json') return NextResponse.json({ url }, { headers: SIN_CACHE })
+      return NextResponse.redirect(url, { status: 302, headers: SIN_CACHE })
+    } catch (e) {
+      console.error('Rendimiento · grabación de Zadarma: fallo', { mensaje: e instanceof Error ? e.message : 'sin mensaje' })
+      return fail(502, 'Zadarma no ha dado la grabación. Vuelve a intentarlo en un momento.')
+    }
   }
 
   try {

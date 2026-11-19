@@ -5752,3 +5752,6 @@ html.light {
   }
   .mh-hoy-anillo { animation: mh-latido 2.6s ease-in-out 3; }
 }
+
+/* El teléfono de Zadarma (components/zadarma/TelefonoZadarma.tsx): se esconde, sin desmontarse, cuando la comercial cambia de su lista de México */
+html.zadarma-oculto [id^="zdrm"], html.zadarma-oculto [class^="zdrm"], html.zadarma-oculto [class*=" zdrm"] { display: none !important; }

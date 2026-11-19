@@ -339,19 +339,25 @@ async function procesarUna(almacen: Almacen, deps: DepsDelMotor, claves: Map<str
         costeUsd: fila.coste_voz_usd ?? 0,
       }
     } else {
-      let ya = claves.get(c.user_id)
-      if (!ya) {
-        ya = deps.claveDeRinkel(c.user_id)
-        claves.set(c.user_id, ya)
-      }
-      const clave = await ya
-      if (!('clave' in clave)) {
-        return await fallar({ terminal: false, motivo: 'sinClave' in clave ? 'La cuenta de Rinkel de esta persona ya no está vinculada.' : 'No se ha podido leer la clave de Rinkel guardada.' })
+      // Las de Zadarma (llamadas a México) no necesitan la clave de Rinkel: el enlace lo da Zadarma con la clave de la API
+      const deZadarma = c.grabacion_id.startsWith('zadarma:')
+      let claveRinkel = ''
+      if (!deZadarma) {
+        let ya = claves.get(c.user_id)
+        if (!ya) {
+          ya = deps.claveDeRinkel(c.user_id)
+          claves.set(c.user_id, ya)
+        }
+        const clave = await ya
+        if (!('clave' in clave)) {
+          return await fallar({ terminal: false, motivo: 'sinClave' in clave ? 'La cuenta de Rinkel de esta persona ya no está vinculada.' : 'No se ha podido leer la clave de Rinkel guardada.' })
+        }
+        claveRinkel = clave.clave
       }
 
       let url: string
       try {
-        url = await deps.urlDeGrabacion(clave.clave, c.grabacion_id)
+        url = await deps.urlDeGrabacion(claveRinkel, c.grabacion_id)
       } catch (e) {
         // Recién colgada, «no encontrada» (o una respuesta sin dirección) es que Rinkel aún no la tiene; pasados unos minutos vuelve a ser «ya no la tiene»
         if (reciente && e instanceof ErrorRinkel && (e.codigo === 'no_encontrada' || e.codigo === 'respuesta')) return await fallar(todaviaNo('La grabación aún no está lista en Rinkel.'))

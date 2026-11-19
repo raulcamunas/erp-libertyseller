@@ -132,7 +132,8 @@ export async function descargarAudio(url: string, opciones: OpcionesDeAudio = {}
   } catch {
     throw new ErrorDeAudio('host', MENSAJE_DE_AUDIO.host)
   }
-  if (destino.protocol !== 'https:' || destino.hostname !== 'api.rinkel.com') throw new ErrorDeAudio('host', MENSAJE_DE_AUDIO.host)
+  // Rinkel, o Zadarma (las llamadas a México, migración 326)
+  if (destino.protocol !== 'https:' || (destino.hostname !== 'api.rinkel.com' && destino.hostname !== 'api.zadarma.com')) throw new ErrorDeAudio('host', MENSAJE_DE_AUDIO.host)
 
   let respuesta: Response
   try {

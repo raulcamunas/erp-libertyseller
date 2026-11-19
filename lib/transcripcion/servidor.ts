@@ -1,4 +1,5 @@
 import type { createServiceClient } from '@/lib/supabase/service'
+import { esGrabacionDeZadarma, urlDeGrabacionZadarma } from '@/lib/zadarma/servidor'
 import { pedirUrlDeGrabacion } from '@/lib/rendimiento/rinkel'
 import { leerClaveDe } from '@/lib/rendimiento/servidor'
 import { almacenDeSupabase } from './almacen'
@@ -32,7 +33,7 @@ export function depsDeVerdad(service: Servicio): DepsDelMotor {
     ahora: () => Date.now(),
     modeloDeVoz: modelo,
     claveDeRinkel: (userId) => leerClaveDe(service, userId),
-    urlDeGrabacion: (clave, grabacionId) => pedirUrlDeGrabacion(clave, grabacionId),
+    urlDeGrabacion: (clave, grabacionId) => (esGrabacionDeZadarma(grabacionId) ? urlDeGrabacionZadarma(grabacionId) : pedirUrlDeGrabacion(clave, grabacionId)),
     bajarAudio: (url) => descargarAudio(url),
     transcribir: (audio, pistas) => transcribirAudio({ audio, modelo, clave: claveOpenAi, pistas }),
     resumir: (encargo) => resumirLlamada(encargo),

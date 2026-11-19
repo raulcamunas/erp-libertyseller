@@ -25,6 +25,7 @@ import {
   type ColdLeadStatus,
   type ColdNoteKind,
   type ColdVendeAmazon,
+  esDeAmazonMexico,
 } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { AvisoDeFestivoDeLaFicha } from './Festivos'
@@ -34,6 +35,7 @@ import { ESTADO_VISUAL, GlifoDeEstado, InsigniaDeLista, InsigniaDeNivel, Insigni
 import { AnadirContacto } from './AnadirContacto'
 import { BotonDeWhatsapp } from './BotonDeWhatsapp'
 import { useEscribirAlLead } from './useEscribirAlLead'
+import { llamarConZadarma, useTelefonoZadarma } from '@/lib/zadarma/cliente'
 
 /**
  * LA FICHA DE UN LEAD.
@@ -228,6 +230,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
 
   // Todos los teléfonos y correos de la ficha: los principales y los extra, sin repetidos. La cajita «+» añade más
   const telefonos = useMemo(() => telefonosDelLead(lead), [lead.phone, lead.telefonos_extra]) // eslint-disable-line react-hooks/exhaustive-deps
+  const telefonoZadarma = useTelefonoZadarma()
   const correos = useMemo(() => emailsDelLead(lead), [lead.email, lead.emails_extra]) // eslint-disable-line react-hooks/exhaustive-deps
   /** Un teléfono escrito que no da ninguna clave no recibirá nunca una llamada de Rinkel, y no da ningún error */
   const telefonoSinReconocer = telefonos.length > 0 && clavesDelLead(lead).length === 0 && /\d/.test(lead.phone ?? '')
@@ -327,8 +330,23 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
                 </button>
               )
             }
+            // Un vendedor de México con el teléfono de Zadarma encendido (su lista «Vendedores México» abierta): se llama desde el propio ERP, con el número de México
+            const porZadarma = esDeAmazonMexico(lead) && telefonoZadarma.fase === 'listo'
             return (
               <span key={t} className="group inline-flex h-8 items-stretch overflow-hidden rounded-[8px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] transition-colors hover:border-[var(--ls-acc-graf)]">
+                {porZadarma ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!llamarConZadarma(marcable)) toast.error('El teléfono de Zadarma no está listo. Espera un momento o recarga la página.')
+                    }}
+                    title={`Llamar desde el ERP con tu número de México${telefonoZadarma.numero ? ` (${telefonoZadarma.numero})` : ''}`}
+                    className="inline-flex items-center gap-2 px-2.5 text-[13.5px] font-semibold tabular-nums text-[var(--ls-t1)] transition-colors hover:bg-[var(--ls-sup3)]"
+                  >
+                    <Phone className="h-3.5 w-3.5 text-[var(--ls-e-verde)]" aria-hidden />
+                    {t}
+                  </button>
+                ) : (
                 <a
                   href={`tel:${marcable}`}
                   title="Llamar (con la extensión de Rinkel)"
@@ -337,6 +355,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
                   <Phone className="h-3.5 w-3.5 text-[var(--ls-t3)] transition-colors group-hover:text-[var(--ls-e-verde)]" aria-hidden />
                   {t}
                 </a>
+                )}
                 <button
                   type="button"
                   onClick={() => copiar(t, 'telefono')}
