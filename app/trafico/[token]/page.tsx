@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function PaginaDeTrafico({ params }: { params: { token: string } }) {
   const e = await enlaceDelToken(params.token).catch(() => null)
-  if (!e) {
+  if (!e || e.tipo === 'stock') {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#F7F5F2] px-6 text-center">
         <Link2Off className="h-8 w-8 text-[#F26212]" />

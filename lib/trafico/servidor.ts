@@ -27,6 +27,8 @@ export interface Enlace {
   ultimo_acceso: string | null
   fallos: number
   bloqueado_hasta: string | null
+  /** 'trafico' = tráfico y conversión · 'stock' = auditor de stock (migración 323; sin ella, todos son 'trafico') */
+  tipo?: 'trafico' | 'stock'
 }
 
 const COLUMNAS = 'id, token, clave_hash, client_id, marketplace_id, titulo, desde, activo, creado_en, accesos, ultimo_acceso, fallos, bloqueado_hasta'
@@ -83,13 +85,13 @@ const TOKEN = /^[A-Za-z0-9_-]{20,80}$/
 
 export async function enlaceDelToken(token: string): Promise<Enlace | null> {
   if (!TOKEN.test(token)) return null
-  const { data, error } = await createServiceClient().from('trafico_enlaces').select(COLUMNAS).eq('token', token).maybeSingle()
+  const { data, error } = await createServiceClient().from('trafico_enlaces').select('*').eq('token', token).maybeSingle()
   if (error) {
     if (isMissingSchema(error)) return null
     throw error
   }
   const e = data as Enlace | null
-  return e && e.activo ? e : null
+  return e && e.activo ? { ...e, tipo: e.tipo ?? 'trafico' } : null
 }
 
 /** Probar una clave: devuelve si vale, o por qué no */
@@ -237,13 +239,14 @@ export interface EnlaceParaAdmin {
   creado_en: string
   accesos: number
   ultimo_acceso: string | null
+  tipo: 'trafico' | 'stock'
   lectura: { hechos: number; pedidos: number; errores: number; faltan: number; ultimoError: string | null; ultimoDia: string | null }
   juegos: number
 }
 
 export async function listarEnlaces(): Promise<EnlaceParaAdmin[]> {
   const service = createServiceClient()
-  const { data, error } = await service.from('trafico_enlaces').select(`${COLUMNAS}, amazon_clients(name)`).order('creado_en', { ascending: false })
+  const { data, error } = await service.from('trafico_enlaces').select('*, amazon_clients(name)').order('creado_en', { ascending: false })
   if (error) throw error
   const ayer = sumarDias(hoyEnEspana(), -1)
   const salida: EnlaceParaAdmin[] = []
@@ -260,6 +263,7 @@ export async function listarEnlaces(): Promise<EnlaceParaAdmin[]> {
     salida.push({
       id: e.id,
       token: e.token,
+      tipo: e.tipo ?? 'trafico',
       titulo: e.titulo,
       client_id: e.client_id,
       cliente: cli?.name ?? '—',
@@ -276,7 +280,8 @@ export async function listarEnlaces(): Promise<EnlaceParaAdmin[]> {
   return salida
 }
 
-export async function crearEnlace(o: { clientId: unknown; marketplaceId: unknown; titulo: unknown; desde: unknown; userId: string }): Promise<{ id: string; token: string; clave: string }> {
+export async function crearEnlace(o: { clientId: unknown; marketplaceId: unknown; titulo: unknown; desde: unknown; userId: string; tipo?: unknown }): Promise<{ id: string; token: string; clave: string }> {
+  const tipo = o.tipo === 'stock' ? 'stock' : 'trafico'
   const UUID = /^[0-9a-f-]{36}$/i
   if (typeof o.clientId !== 'string' || !UUID.test(o.clientId)) throw new Error('Falta el cliente.')
   if (typeof o.marketplaceId !== 'string' || !/^[A-Z0-9]{8,20}$/.test(o.marketplaceId)) throw new Error('Falta el país.')
@@ -284,7 +289,7 @@ export async function crearEnlace(o: { clientId: unknown; marketplaceId: unknown
   const desde = esDia(o.desde) ? o.desde : '2025-08-01'
   const clave = claveNueva()
   const token = randomBytes(24).toString('base64url')
-  const { data, error } = await createServiceClient().from('trafico_enlaces').insert({ token, clave_hash: hashDeClave(clave), client_id: o.clientId, marketplace_id: o.marketplaceId, titulo, desde, creado_por: o.userId }).select('id').single()
+  const { data, error } = await createServiceClient().from('trafico_enlaces').insert({ token, clave_hash: hashDeClave(clave), client_id: o.clientId, marketplace_id: o.marketplaceId, titulo, desde, creado_por: o.userId, ...(tipo === 'stock' ? { tipo } : {}) }).select('id').single()
   if (error) throw error
   return { id: (data as { id: string }).id, token, clave }
 }

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail, requireAmazonAdmin } from '@/lib/amazon/api'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
+import { cuentaAuditada, MERCADO_AUDITADO } from '@/lib/auditor-stock/auditar'
 import { activarEnlace, cambiarClave, crearEnlace, guardarJuegos, juegosParaEditar, listarEnlaces } from '@/lib/trafico/servidor'
 
 /**
@@ -49,7 +50,15 @@ export async function POST(request: NextRequest) {
   const b = (await request.json().catch(() => ({}))) as Record<string, unknown>
   const id = typeof b.id === 'string' ? b.id : ''
   try {
-    if (b.accion === 'crear') return NextResponse.json(await crearEnlace({ clientId: b.clientId, marketplaceId: b.marketplaceId, titulo: b.titulo, desde: b.desde, userId: s.userId }))
+    if (b.accion === 'crear') {
+      // El auditor de stock es de UNA cuenta (ShoesF): el cliente y el país salen de ahí, no del formulario
+      if (b.tipo === 'stock') {
+        const cuenta = await cuentaAuditada()
+        if ('error' in cuenta) return fail(404, cuenta.error)
+        return NextResponse.json(await crearEnlace({ clientId: cuenta.clientId, marketplaceId: MERCADO_AUDITADO, titulo: b.titulo || `${cuenta.nombre} · stock Amazon y tienda`, desde: null, userId: s.userId, tipo: 'stock' }))
+      }
+      return NextResponse.json(await crearEnlace({ clientId: b.clientId, marketplaceId: b.marketplaceId, titulo: b.titulo, desde: b.desde, userId: s.userId }))
+    }
     if (!/^[0-9a-f-]{36}$/i.test(id)) return fail(400, 'Falta el enlace.')
     if (b.accion === 'clave') return NextResponse.json({ clave: await cambiarClave(id) })
     if (b.accion === 'activar') {

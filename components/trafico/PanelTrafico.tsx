@@ -84,7 +84,7 @@ const empiezaPorMenos = (t: string | null | undefined) => Boolean(t && (t.starts
 /* La entrada con clave                                                */
 /* ------------------------------------------------------------------ */
 
-export function EntrarConClave({ token, titulo, alEntrar }: { token: string; titulo: string; alEntrar: () => void }) {
+export function EntrarConClave({ token, titulo, alEntrar, etiqueta = 'Tráfico y conversión' }: { token: string; titulo: string; alEntrar: () => void; etiqueta?: string }) {
   const [clave, setClave] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
@@ -106,7 +106,7 @@ export function EntrarConClave({ token, titulo, alEntrar }: { token: string; tit
   }
   return (
     <div className="flex min-h-screen flex-col bg-[#F7F5F2]">
-      <Cabecera titulo={titulo} />
+      <Cabecera titulo={titulo} etiqueta={etiqueta} />
       <main className="mx-auto w-full max-w-[420px] flex-1 px-5 py-12">
         <form onSubmit={enviar} className="rounded-2xl border border-[#E5E1DB] bg-[#FFFFFF] p-6">
           <h2 className="text-[18px] font-semibold text-[#141414]" style={{ fontFamily: 'var(--font-sora), system-ui' }}>Introduce la clave</h2>
@@ -122,7 +122,7 @@ export function EntrarConClave({ token, titulo, alEntrar }: { token: string; tit
   )
 }
 
-function Cabecera({ titulo, subtitulo, derecha }: { titulo: string; subtitulo?: string; derecha?: React.ReactNode }) {
+export function Cabecera({ titulo, subtitulo, derecha, etiqueta = 'Tráfico y conversión' }: { titulo: string; subtitulo?: string; derecha?: React.ReactNode; etiqueta?: string }) {
   return (
     <header className="bg-[#0E0E0E]">
       <div className="h-[5px] bg-[#F26212]" />
@@ -131,7 +131,7 @@ function Cabecera({ titulo, subtitulo, derecha }: { titulo: string; subtitulo?: 
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logos/logo.png" alt="Liberty Seller" className="h-[26px] w-auto" />
           <div className="flex items-center gap-3">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-[#F26212]">Tráfico y conversión</span>
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.2em] text-[#F26212]">{etiqueta}</span>
             {derecha}
           </div>
         </div>

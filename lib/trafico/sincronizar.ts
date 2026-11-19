@@ -44,13 +44,14 @@ const hoyEnEspana = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/M
 
 /** Cada cliente y país con algún enlace activo, con el día más antiguo que piden sus enlaces */
 export async function fuentesActivas(): Promise<Fuente[]> {
-  const { data, error } = await createServiceClient().from('trafico_enlaces').select('client_id, marketplace_id, desde').eq('activo', true)
+  // `*` y no las columnas: así vale con y sin la migración 323 (los enlaces del auditor de stock no se leen aquí)
+  const { data, error } = await createServiceClient().from('trafico_enlaces').select('*').eq('activo', true)
   if (error) {
     if (isMissingSchema(error)) return []
     throw error
   }
   const por = new Map<string, Fuente>()
-  for (const f of (data ?? []) as Fuente[]) {
+  for (const f of ((data ?? []) as Array<Fuente & { tipo?: string }>).filter((x) => (x.tipo ?? 'trafico') === 'trafico')) {
     const k = `${f.client_id}|${f.marketplace_id}`
     const ya = por.get(k)
     if (!ya || f.desde < ya.desde) por.set(k, f)

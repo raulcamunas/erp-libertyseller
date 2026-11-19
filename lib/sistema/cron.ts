@@ -94,7 +94,7 @@ export const TAREAS_CRON = [
     id: 'auditor-stock',
     nombre: 'Auditor de stock',
     ruta: '/api/auditor-stock/cron',
-    cadaMinutos: 15,
+    cadaMinutos: 20,
     que:
       'Lee en directo el stock de todos los listings de ShoesF y guarda cuántos tienen y cuántos ' +
       'no, con el SKU, el ASIN y la cantidad de los que sí. No escribe nada en Amazon.',

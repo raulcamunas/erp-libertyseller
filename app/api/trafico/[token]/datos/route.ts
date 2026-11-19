@@ -11,7 +11,7 @@ export const runtime = 'nodejs'
 export async function GET(request: NextRequest, { params }: { params: { token: string } }) {
   try {
     const e = await enlaceDelToken(params.token)
-    if (!e) return NextResponse.json({ error: 'Este enlace no existe o ya no está activo.' }, { status: 404 })
+    if (!e || e.tipo === 'stock') return NextResponse.json({ error: 'Este enlace no existe o ya no está activo.' }, { status: 404 })
     if (!sesionValida(e, request.cookies.get(nombreDeCookie(e.id))?.value)) return NextResponse.json({ error: 'Hace falta la clave.' }, { status: 401 })
     const q = request.nextUrl.searchParams
     const datos = await datosDelPanel(e, { desde: q.get('desde'), hasta: q.get('hasta'), compDesde: q.get('compDesde'), compHasta: q.get('compHasta') })

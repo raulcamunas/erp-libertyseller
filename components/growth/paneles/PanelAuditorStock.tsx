@@ -16,7 +16,7 @@ import { TableroAuditorStock } from '@/components/growth/auditor/TableroAuditorS
 /**
  * SUBMÓDULO «AUDITOR DE STOCK» — SOLO PARA SHOESF.
  *
- * Cada 15 minutos lee el stock de toda la cuenta y apunta cuántos listings tienen
+ * Cada 20 minutos lee el stock de toda la cuenta y apunta cuántos listings tienen
  * y cuántos no, con el SKU, el ASIN y la cantidad de los que sí.
  *
  *
@@ -35,7 +35,7 @@ export async function PanelAuditorStock({ cliente }: { cliente: ClienteGrowth })
   if (cliente.slug !== SLUG_AUDITADO) {
     return (
       <Vacio icono={<Activity />} titulo="Este auditor es solo de ShoesF">
-        Lee el stock de toda la cuenta cada 15 minutos, y eso son unas 700 llamadas a Amazon cada
+        Lee el stock de toda la cuenta cada 20 minutos, y eso son unas 700 llamadas a Amazon cada
         vez: solo se justifica donde hay un error concreto que perseguir. Para mirar el stock de{' '}
         <strong>{cliente.nombre}</strong> usa el resto de submódulos.
       </Vacio>
@@ -68,7 +68,7 @@ export function InfoAuditorStock() {
     <>
       <SeccionInfo titulo="Qué hace">
         <p>
-          Cada <strong>15 minutos</strong> pregunta a Amazon, en directo, cuánto stock tiene cada
+          Cada <strong>20 minutos</strong> pregunta a Amazon, en directo, cuánto stock tiene cada
           listing de ShoesF, y apunta cuántos tienen y cuántos no. Se puede bajar a 10 desde{' '}
           <strong>Sistema</strong>, sin tocar nada más.
         </p>

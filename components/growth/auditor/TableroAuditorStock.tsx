@@ -125,10 +125,14 @@ function haceCuanto(iso: string, ahora: number): string {
 export function TableroAuditorStock({
   inicial,
   enCursoInicial,
+  publico,
 }: {
   inicial: ListaAuditorias
   enCursoInicial: boolean
+  /** La página del CLIENTE (enlace con clave): lee de su ruta, sin «Auditar ahora» ni la conexión con la tienda. `alPerderSesion` = la clave ya no vale */
+  publico?: { base: string; alPerderSesion: () => void }
 }) {
+  const api = publico?.base ?? '/api/auditor-stock'
   const [lista, setLista] = useState<ListaAuditorias>(inicial)
   const [enCurso, setEnCurso] = useState(enCursoInicial)
   const [iniciando, setIniciando] = useState(false)
@@ -164,11 +168,12 @@ export function TableroAuditorStock({
   /* ---------------- Refresco ---------------- */
   const refrescar = useCallback(async () => {
     try {
-      const res = await fetch('/api/auditor-stock', {
+      const res = await fetch(api, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion: 'lista' }),
       })
+      if (res.status === 401) return publico?.alPerderSesion()
       if (!res.ok) return
       const json = (await res.json()) as { enCurso: boolean; lista: ListaAuditorias }
       setLista(json.lista)
@@ -178,7 +183,7 @@ export function TableroAuditorStock({
       // Un fallo de red al refrescar no tiene que tirar la pantalla: se ve lo
       // último que había y se vuelve a intentar al rato.
     }
-  }, [])
+  }, [api, publico])
 
   useEffect(() => {
     const cada = enCurso || iniciando ? 4_000 : 60_000
@@ -220,7 +225,7 @@ export function TableroAuditorStock({
     setErrorDetalle(null)
     ;(async () => {
       try {
-        const res = await fetch('/api/auditor-stock', {
+        const res = await fetch(api, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ accion: 'detalle', id: idActivo }),
@@ -238,7 +243,7 @@ export function TableroAuditorStock({
     return () => {
       vigente = false
     }
-  }, [idActivo])
+  }, [idActivo, api])
 
   /* ---------------- Lo que se enseña a la derecha ---------------- */
   const asinPorSku = useMemo(
@@ -273,6 +278,16 @@ export function TableroAuditorStock({
       return f.sku.toLowerCase().includes(t) || (f.asin ?? '').toLowerCase().includes(t)
     })
   }, [detalle, vista, busca, canal, asinPorSku])
+
+  // El desglose por canal de lo que tiene stock en Amazon: cuántos SKU y cuántas unidades en FBM y en FBA
+  const porCanal = useMemo(() => {
+    const d = { M: { skus: 0, unidades: 0 }, A: { skus: 0, unidades: 0 } }
+    for (const f of detalle?.detalle ?? []) {
+      d[f[3]].skus += 1
+      d[f[3]].unidades += f[2]
+    }
+    return d
+  }, [detalle])
 
   /* ---------------- Pintar ---------------- */
   if (!lista.ok && lista.faltaMigracion) {
@@ -376,12 +391,12 @@ export function TableroAuditorStock({
           </div>
         ) : (
           <div className={`${TIPO.s} ${TEXTO.t3} flex-1`}>
-            Todavía no hay ninguna auditoría completa. La primera sale en cuanto toque —cada 15
+            Todavía no hay ninguna auditoría completa. La primera sale en cuanto toque —cada 20
             minutos— o pulsando «Auditar ahora».
           </div>
         )}
 
-        <button
+        {!publico && <button
           type="button"
           className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
           onClick={() => setVerTienda(true)}
@@ -389,7 +404,7 @@ export function TableroAuditorStock({
         >
           <Store className="h-3 w-3" />
           Tienda PrestaShop
-        </button>
+        </button>}
 
         <div className="flex items-center gap-[4px]">
           <select
@@ -405,7 +420,7 @@ export function TableroAuditorStock({
             ))}
           </select>
           <a
-            href={`/api/auditor-stock/exportar?horas=${horasExport}`}
+            href={`${api}/exportar?horas=${horasExport}`}
             className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
             title="CSV con una fila por SKU y una columna por auditoría (cada 10 min): el stock que tenía Amazon en cada momento"
           >
@@ -413,7 +428,7 @@ export function TableroAuditorStock({
           </a>
           {lista.ok && lista.conPrecios && (
             <a
-              href={`/api/auditor-stock/exportar?tipo=precios&horas=${horasExport}`}
+              href={`${api}/exportar?tipo=precios&horas=${horasExport}`}
               className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`}
               title="CSV con todos los cambios de precio del periodo: hora, SKU, precio antes y precio ahora"
             >
@@ -422,7 +437,7 @@ export function TableroAuditorStock({
           )}
         </div>
 
-        <button
+        {!publico && <button
           type="button"
           className={`${BOTON.base} ${BOTON.alto} ${BOTON.primario}`}
           disabled={ocupado}
@@ -431,7 +446,7 @@ export function TableroAuditorStock({
         >
           {ocupado ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
           {ocupado ? 'Auditando…' : 'Auditar ahora'}
-        </button>
+        </button>}
       </div>
 
       {errorAccion && (
@@ -685,6 +700,7 @@ export function TableroAuditorStock({
                 title={c === 'A' ? 'FBA: la cantidad es la del último inventario de Amazon, que se lee una vez al día' : undefined}
               >
                 {c === 'todos' ? 'Todos' : c === 'M' ? 'FBM' : 'FBA'}
+                {c !== 'todos' && detalle && <span className="ml-1 tabular-nums opacity-70">{n(porCanal[c].skus)} · {n(porCanal[c].unidades)} u.</span>}
               </button>
             ))}
 
