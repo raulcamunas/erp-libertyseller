@@ -64,6 +64,12 @@ interface Motor {
   finishCall: () => void
   micSwitch: (s: 'on' | 'off') => void
   sendDTMF: (d: number) => void
+  /** La llamada de JsSIP en curso (RTCSession) */
+  webCallSession?: {
+    mute?: (o: { audio: boolean }) => void
+    unmute?: (o: { audio: boolean }) => void
+    connection?: RTCPeerConnection
+  } | null
 }
 declare global {
   interface Window {
@@ -228,11 +234,27 @@ export function contestar() {
   } catch {}
 }
 
+/**
+ * Silenciar el micrófono. El `micSwitch` de Zadarma NO funciona (llama a `connection.mute`, que una RTCPeerConnection no tiene): se hace aquí con la sesión de
+ * JsSIP (`mute`/`unmute`) y, además, apagando la pista de audio que sale, que es lo que de verdad deja de mandar sonido.
+ */
 export function silenciar(si: boolean) {
+  const sesion = window.zdrmWebPhone?.webCallSession
+  let hecho = false
   try {
-    window.zdrmWebPhone?.micSwitch(si ? 'on' : 'off')
-    ponerLlamada({ silenciado: si })
+    if (si) sesion?.mute?.({ audio: true })
+    else sesion?.unmute?.({ audio: true })
+    hecho = Boolean(sesion?.mute)
   } catch {}
+  try {
+    for (const emisor of sesion?.connection?.getSenders() ?? []) {
+      if (emisor.track && emisor.track.kind === 'audio') {
+        emisor.track.enabled = !si
+        hecho = true
+      }
+    }
+  } catch {}
+  if (hecho) ponerLlamada({ silenciado: si })
 }
 
 export function tecla(d: number) {
