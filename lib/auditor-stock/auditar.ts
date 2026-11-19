@@ -16,7 +16,7 @@ import { leerTramos } from './paralelo'
 import { hayColumnasPrecio, hayColumnasTienda } from './esquema'
 import { aCentimos, diferenciasPrecio, type ResultadoPrecios } from './precios'
 import { leerTienda, type LecturaTienda } from './tienda'
-import { compactar, resumirContraste, type ResumenContraste } from '@/lib/prestashop/informe'
+import { compactar, fotoDelCruce, resumirContraste, type ResumenContraste, type TuplaCruce } from '@/lib/prestashop/informe'
 import type { FilaAmazon } from '@/lib/prestashop/cruce'
 
 /**
@@ -420,6 +420,7 @@ async function ejecutar(
   // no se cruce, para no dejar una lectura suelta en segundo plano.
   const lecturaTienda = tienda ? await tienda : null
   let resumenTienda: ResumenContraste | null = null
+  let foto: TuplaCruce[] | null = null
   if (estado === 'completa' && lecturaTienda?.estado === 'ok') {
     try {
       const amazon: FilaAmazon[] = []
@@ -430,6 +431,7 @@ async function ejecutar(
         amazon.push({ sku: f.sku, asin: v.asin ?? f.asin, ean: eans.get(f.sku) ?? null, cantidad: v.quantity ?? 0 })
       }
       resumenTienda = resumirContraste(amazon, lecturaTienda.tallas, 300)
+      foto = fotoDelCruce(amazon, lecturaTienda.tallas)
     } catch (e) {
       console.warn('[auditor-stock] no se ha podido cruzar con la tienda:', e instanceof Error ? e.message : e)
     }
@@ -512,6 +514,15 @@ async function ejecutar(
       .select('id')
       .single()
     if (errInsert) throw errInsert
+
+    // La foto completa del cruce (Stock Amazon y Stock PrestaShop de cada SKU) para la página del cliente: UNA fila por cuenta que se sustituye en cada pasada,
+    // para no multiplicar el espacio por las ~1.500 auditorías que se conservan. Sin la migración 324, simplemente no se guarda.
+    if (foto) {
+      const { error: eFoto } = await service
+        .from('stock_cruce_actual')
+        .upsert({ connection_id: cuenta.connectionId, marketplace_id: marketplaceId, auditoria_id: (data as { id: string }).id, creada_at: new Date().toISOString(), filas: foto }, { onConflict: 'connection_id,marketplace_id' })
+      if (eFoto && !isMissingSchema(eFoto)) console.warn('[auditor-stock] no se ha podido guardar la foto del cruce:', eFoto.message)
+    }
 
     // El «último precio visto» se apunta DESPUÉS de guardar la auditoría: si el
     // guardado falla, la pasada siguiente vuelve a ver los mismos cambios en vez

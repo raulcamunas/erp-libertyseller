@@ -130,3 +130,34 @@ export function compactar(r: ResumenContraste): ContrasteGuardado {
     sinParejaConStock: r.listas.sinParejaConStock.map((f) => [f.sku, f.ean, f.cantidad]),
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* La foto completa del cruce (para la página del cliente)             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cómo está cada SKU: c = cuadra · v = venta perdida (tienda sí, Amazon no) · s = sobreventa (Amazon sí, tienda no) · d = distinta cantidad ·
+ * n = la tienda no tiene dato · p = sin pareja en la tienda (no se puede comparar)
+ */
+export type EstadoCruce = 'c' | 'v' | 's' | 'd' | 'n' | 'p'
+/** [sku, asin, stock en Amazon, stock en la tienda (null = sin dato o sin pareja), estado] */
+export type TuplaCruce = [string, string | null, number, number | null, EstadoCruce]
+
+/**
+ * Todos los SKU FBM que tienen stock en ALGUNO de los dos lados, con lo que hay en cada uno. Es lo que enseña la página del cliente: una fila por producto con
+ * «Stock Amazon» y «Stock PrestaShop». Los que no tienen stock en ninguno de los dos no salen (son miles y no dicen nada). Los ambiguos tampoco: no se sabe con qué
+ * talla de la tienda van.
+ */
+export function fotoDelCruce(amazon: FilaAmazon[], tallas: FilaPS[]): TuplaCruce[] {
+  const { cruzados, sinCruce } = cruzar(amazon, tallas)
+  const salida: TuplaCruce[] = []
+  for (const c of cruzados) {
+    if (c.ambiguo) continue
+    const t = c.tienda === null ? null : Math.max(0, c.tienda)
+    if (c.amazon <= 0 && !(t && t > 0)) continue
+    const estado: EstadoCruce = t === null ? 'n' : c.amazon > 0 && t === 0 ? 's' : c.amazon === 0 && t > 0 ? 'v' : c.amazon !== t ? 'd' : 'c'
+    salida.push([c.sku, c.asin, c.amazon, t, estado])
+  }
+  for (const a of sinCruce) if (a.cantidad > 0) salida.push([a.sku, a.asin, a.cantidad, null, 'p'])
+  return salida.sort((a, b) => a[0].localeCompare(b[0]))
+}

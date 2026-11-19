@@ -2,11 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { cuentaAuditada, hayAuditoriaEnCurso, MERCADO_AUDITADO } from '@/lib/auditor-stock/auditar'
 import { detalleDe, listarAuditorias } from '@/lib/auditor-stock/consulta'
 import { enlaceConSesion } from '@/lib/trafico/acceso'
+import { createServiceClient } from '@/lib/supabase/service'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
 
 /**
  * EL AUDITOR DE STOCK PARA EL CLIENTE (enlace con clave, migración 323). Lo mismo que lee la pantalla del ERP —la lista de auditorías y el detalle de una—, SOLO LEER:
  * desde aquí no se lanza ninguna auditoría ni se toca la tienda. El cliente y el país no llegan de fuera: el auditor es de una sola cuenta.
- *   POST { accion: 'lista' } · { accion: 'detalle', id }
+ *   POST { accion: 'lista' } · { accion: 'detalle', id } · { accion: 'cruce' }
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,6 +30,12 @@ export async function POST(request: NextRequest, { params }: { params: { token: 
       const d = await detalleDe(cuenta.connectionId, id)
       if (!d) return NextResponse.json({ error: 'No existe esa auditoría.' }, { status: 404 })
       return NextResponse.json({ ok: true, ...d }, { headers: { 'Cache-Control': 'no-store' } })
+    }
+    if (body.accion === 'cruce') {
+      // La foto completa del cruce (migración 324): Stock Amazon y Stock PrestaShop de cada SKU con stock en algún lado. null si aún no hay
+      const { data, error } = await createServiceClient().from('stock_cruce_actual').select('creada_at, auditoria_id, filas').eq('connection_id', cuenta.connectionId).eq('marketplace_id', MERCADO_AUDITADO).maybeSingle()
+      if (error && !isMissingSchema(error)) throw error
+      return NextResponse.json({ ok: true, cruce: error ? null : (data ?? null) }, { headers: { 'Cache-Control': 'no-store' } })
     }
     return NextResponse.json({ error: 'Acción desconocida.' }, { status: 400 })
   } catch (err) {
