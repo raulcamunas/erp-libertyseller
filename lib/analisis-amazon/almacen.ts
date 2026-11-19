@@ -35,7 +35,8 @@ export interface EventoDeBitacora {
 export const TOPE_DE_BITACORA = 10_000
 
 export async function leerJson<T>(s: SupabaseClient, nombre: string, siNoHay: T): Promise<T> {
-  const { data, error } = await s.storage.from(BUCKET).download(nombre)
+  // Con «?t=» para saltarse la caché de Storage: sin él, tras escribir un fichero se leía la versión anterior durante un buen rato (foco.json, 19 nov 2026)
+  const { data, error } = await s.storage.from(BUCKET).download(`${nombre}?t=${Date.now()}`)
   if (error || !data) return siNoHay
   return JSON.parse(await data.text()) as T
 }
