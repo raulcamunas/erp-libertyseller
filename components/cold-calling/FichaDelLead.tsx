@@ -278,7 +278,7 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
               {esSocio ? [lead.company || 'Sin razón social', lead.category, lead.ciudad].filter(Boolean).join(' · ') : lead.company || 'Sin empresa'}
               {/* La cifra de ventas estimadas NO sube a la cabecera. Es una estimación de tráfico en dólares y aquí se leería como
                   facturación; vive en su bloque, con la advertencia al lado. Un partner no tiene ninguna de las dos */}
-              {!esTienda && !esSocio && lead.revenue_monthly != null ? ` · ${formatRevenue(lead.revenue_monthly)}/mes` : ''}
+              {!esTienda && !esSocio && lead.revenue_monthly != null ? ` · ${formatRevenue(lead.revenue_monthly, lead)}/mes` : ''}
               {intentos > 0 ? ` · ${intentos} ${intentos === 1 ? 'intento' : 'intentos'}` : ' · sin llamadas todavía'}
               {lead.last_contacted_at ? ` · último contacto ${haceCuanto(lead.last_contacted_at)}` : ''}
               {intentos > 0 && intentos < 3 ? <span className="text-[var(--ls-t4)]"> · las citas suelen caer a partir del tercero</span> : null}

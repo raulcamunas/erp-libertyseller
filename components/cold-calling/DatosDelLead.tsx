@@ -288,7 +288,7 @@ export function DatosDelLead({ lead, conContacto = false, esAutonomo = false }: 
             <Casilla etiqueta="Facturación">
               {lead.revenue_monthly != null ? (
                 <span className="font-semibold tabular-nums">
-                  {formatRevenue(lead.revenue_monthly)} <span className="font-normal text-[var(--ls-t3)]">/ mes</span>
+                  {formatRevenue(lead.revenue_monthly, lead)} <span className="font-normal text-[var(--ls-t3)]">/ mes</span>
                 </span>
               ) : (
                 <Vacio />

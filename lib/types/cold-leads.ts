@@ -267,10 +267,13 @@ export function colorForList(name: string | null): string {
   return LIST_PALETTE[Math.abs(hash) % LIST_PALETTE.length]
 }
 
-export function formatRevenue(n: number | null): string {
+export function formatRevenue(n: number | null, lead?: { seller_url?: string | null } | null): string {
   if (n == null) return '—'
-  return `${Math.round(n).toLocaleString('es-ES')} €`
+  return esDeAmazonMexico(lead) ? `${Math.round(n).toLocaleString('es-ES')} $` : `${Math.round(n).toLocaleString('es-ES')} €`
 }
+
+/** Un vendedor de Amazon México (lista «Vendedores México», 19 nov 2026): su facturación viene en DÓLARES y se llama con el número virtual de México */
+export const esDeAmazonMexico = (lead?: { seller_url?: string | null } | null): boolean => /amazon\.com\.mx/i.test(lead?.seller_url ?? '')
 
 /* ==========================================================================
  * LA LISTA NUEVA: TIENDAS QUE TODAVÍA NO VENDEN EN AMAZON (migración 204)

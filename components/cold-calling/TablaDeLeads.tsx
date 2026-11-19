@@ -10,7 +10,7 @@ import { diaConSemana, vencimientoDe } from '@/lib/cold-calling/fechas'
 import { CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
-import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, esPartner, esTiendaOnline, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, esPartner, esTiendaOnline, formatRevenue, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { MarcaDeFestivo } from './Festivos'
@@ -230,7 +230,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                         '—'
                       )
                     ) : l.revenue_monthly != null ? (
-                      `${Math.round(Number(l.revenue_monthly)).toLocaleString('es-ES')} €`
+                      formatRevenue(Number(l.revenue_monthly), l)
                     ) : (
                       '—'
                     )}
