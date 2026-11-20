@@ -15,14 +15,14 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { deshacerPropuesta, guardarDecisionesIa, insertarPropuestasDelAgente, modosConMotor } from '../motor'
 import { cuentasASincronizar, type CuentaParaSincronizar } from '../sincronizar'
-import { anotarCampanaActivaHoy, anotarPresupuestoDeHoy, aplicarComoAgente, permitidoParaReactivarCampana, permitidoParaVolverPresupuesto } from './aplicar-servidor'
+import { anotarCampanaActivaHoy, anotarPresupuestoDeHoy, aplicarComoAgente, leerGuardaDeEscritura, permitidoParaReactivarCampana, permitidoParaVolverPresupuesto } from './aplicar-servidor'
 import { avisoDeNoReactivar, avisoDeRecortarPorStock, idDeAvisoDePausaPorStock, textoDeAgotada, textoDeEnsayoFin, textoDeIa, textoDeStock, textoDeStockFallo, textoDeTechoAuto } from './avisos-calculo'
 import { calibrarCuenta } from './calibrar-servidor'
 import { pensarCuenta } from './cerebro-ia'
 import { configDeFila, filasDeUso, leerContextoDelAgente, nombreDeCuenta } from './contexto-servidor'
 import { medirEfectos, veredictosRecientes } from './efectos-servidor'
 import { actualizarAgente, frenarAgente, leerConfigDelAgente, paradaGeneral, pasarAActivo, reservarPaso, soltarCuenta, tomarCuenta } from './estado-servidor'
-import { anotarEvento, avisar } from './eventos-servidor'
+import { anotarEvento, anotarGuardaUnaVez, avisar } from './eventos-servidor'
 import { claseDeCambio, FRENOS_AUTOMATICOS, sinSubidasDePresupuesto } from './guardarrailes-calculo'
 import { recalcularObjetivos } from './objetivos-servidor'
 import { diaDeRampa, ensayoTerminado, horaEnMadrid, lunesLocal, motorFueraDeModoAgente, pasoCabe, siguientePaso } from './pasos-calculo'
@@ -30,7 +30,7 @@ import { prepararResumen } from './resumen-servidor'
 import { enVedaDeActivacion } from './temporada-calculo'
 import { guardarTerminosDeLaSemana } from './terminos-semana-servidor'
 import { AGENTE, ERROR_INTERRUPTOR_GENERAL, FALTA_MIGRACION_315, RAMPA, type ClaseDeCambio, type ConfigDelAgente, type PasoDelAgente, type TipoDeEvento } from './tipos'
-import { horaLocal, zonaDePais } from './uso-calculo'
+import { horaLocal, inicioDelDiaLocal, leerUsoError, zonaDePais } from './uso-calculo'
 import { subidasDelAgenteRecientes, vigilarCuenta, type ResultadoDeVigilar } from './vigilar-servidor'
 
 const HORA_MS = 3_600_000
@@ -74,13 +74,22 @@ export function cambiosDistintosDelEnsayo(
   return r
 }
 
+/** Tras un vigilar fallido, a los cuántos minutos se reintenta (según los fallos seguidos, incluido este): 5, 10, 20 y luego cada 30 (lo normal) */
+const ESPERA_TRAS_VIGILAR_FALLIDO_MIN = [5, 10, 20, 30] as const
+
 /**
  * PURO. Lo que se guarda tras un vigilar que ha lanzado: se suma el fallo y se ANULA el sello del último vigilar bueno. Si el vigilar lanzó tras ver un freno
  * (antes de guardarlo), un `vigilar_ok_at` de hasta 45 min dejaría a aplicar escribir en una cuenta que debía quedar frenada: sin sello, aplicar no escribe
- * hasta que un vigilar termine bien.
+ * hasta que un vigilar termine bien. Y se ADELANTA el sello `vigilar_at` para reintentar a los 5, 10, 20 y 30 min (no a los 30 de siempre): un fallo pasajero
+ * dejaba la cuenta media hora sin aplicar nada. `ahora` sin dar: solo el contador (no se toca el sello).
  */
-export function camposDeVigilarFallido(fallosAntes: number): { vigilar_fallos: number; vigilar_ok_at: null } {
-  return { vigilar_fallos: Math.max(0, Math.floor(fallosAntes) || 0) + 1, vigilar_ok_at: null }
+export function camposDeVigilarFallido(fallosAntes: number, ahora?: number): { vigilar_fallos: number; vigilar_ok_at: null; vigilar_at?: string } {
+  const fallos = Math.max(0, Math.floor(fallosAntes) || 0) + 1
+  if (ahora === undefined || !Number.isFinite(ahora)) return { vigilar_fallos: fallos, vigilar_ok_at: null }
+  const espera = ESPERA_TRAS_VIGILAR_FALLIDO_MIN[Math.min(fallos, ESPERA_TRAS_VIGILAR_FALLIDO_MIN.length) - 1]
+  // reservarPaso deja pasar el vigilar cuando vigilar_at < ahora − MIN_ENTRE_VIGILAR: con este sello, eso ocurre a los `espera` minutos
+  const sello = ahora - Math.max(0, AGENTE.MIN_ENTRE_VIGILAR - espera) * 60_000
+  return { vigilar_fallos: fallos, vigilar_ok_at: null, vigilar_at: new Date(sello).toISOString() }
 }
 
 /** PURO. ¿Se siguen dando pasos en esta cuenta tras un paso que ha lanzado? Tras un vigilar fallido, no (en esta pasada no se aplica nada) */
@@ -500,7 +509,7 @@ async function pasoVigilar(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
   if (r.usoErrorNuevo && r.usoError) {
     await avisar(perfilId, 'uso-error', madrid, {
       titulo: `No puedo leer el gasto de hoy · ${d.nombre}`.slice(0, 80),
-      cuerpo: `⚠️ **No puedo leer el uso de presupuesto de hoy** · ${d.nombre}\nAmazon contesta: «${r.usoError.slice(0, 300)}». Reintento cada ${AGENTE.USO_REINTENTO_HORAS} h. Mientras no sepa cuánto se gasta hoy no subo pujas ni presupuestos (las bajadas y negativas siguen); si sigue ${AGENTE.USO_ERROR_SIN_REGLAS_HORAS} h, dejo también las reglas de presupuesto (R1–R4), pero no freno el agente.`,
+      cuerpo: `⚠️ **No puedo leer el uso de presupuesto de hoy** · ${d.nombre}\nAmazon contesta: «${(leerUsoError(r.usoError, null)?.mensaje ?? r.usoError).slice(0, 300)}». Pruebo un lote en cada vigilar y lo leo todo como mucho cada ${AGENTE.USO_REINTENTO_HORAS} h. Mientras no sepa cuánto se gasta hoy no subo pujas ni presupuestos (las bajadas y negativas siguen); si sigue ${AGENTE.USO_ERROR_SIN_REGLAS_HORAS} h, dejo también las reglas de presupuesto (R1–R4), pero no freno el agente.`,
     })
   }
 
@@ -597,6 +606,15 @@ async function pasoEfectos(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
   const ahora = Date.now()
   const perfilId = cuenta.id
   const hoy = horaLocal(ahora, d.zona).fecha
+  // Guardas técnicas (las de aplicar): con datos viejos se mediría y desharía con métricas de hace días; sin autorización, deshacer fallaría. Se deja para mañana
+  // (las mediciones no se pierden: se hacen cuando toca y hay datos) y se anota una vez al día
+  if (config.estado === 'activo') {
+    const g = await leerGuardaDeEscritura(cuenta, ahora)
+    if ('no' in g) {
+      await anotarGuardaUnaVez(perfilId, g.no, inicioDelDiaLocal(hoy, d.zona), g.no === 'datos_viejos' ? 'Datos viejos: no mido ni deshago cambios' : 'Sin autorización en Amazon: no deshago cambios', g.motivo)
+      return { hizoAlgo: false }
+    }
+  }
   const r = await medirEfectos(cuenta, ahora, {
     deshacer: (propuestaId, motivo, valorMaximo) => deshacerComoAgente(cuenta, d.zona, propuestaId, motivo, valorMaximo),
     // Lo que permite hoy el guardarraíl al DESHACER una subida de presupuesto: nunca por encima del presupuesto de hoy
@@ -679,15 +697,24 @@ async function darPaso(paso: PasoDelAgente, cuenta: CuentaParaSincronizar, confi
 
 /**
  * Un vigilar que ha lanzado: el freno no se ha evaluado (o se vio y no se pudo guardar). Se cuenta (`vigilar_fallos`), se anula `vigilar_ok_at` (aplicar no escribe hasta
- * el próximo vigilar bueno) y, a los `AGENTE.VIGILAR_FALLOS_FRENO` seguidos, se frena con «datos_viejos». Nunca lanza.
+ * el próximo vigilar bueno), se adelanta el reintento (camposDeVigilarFallido) y, a los `AGENTE.VIGILAR_FALLOS_FRENO` seguidos, se anota «vigilar_falla» una vez al día
+ * (no se frena: frenarAgente ya no frena por esto, y antes se quedaba en un console.warn que nadie veía). Nunca lanza.
  */
-async function vigilarFallido(perfilId: string, config: ConfigDelAgente, nombre: string, error: string): Promise<void> {
+async function vigilarFallido(perfilId: string, config: ConfigDelAgente, nombre: string, error: string, zona: string): Promise<void> {
   try {
-    const campos = camposDeVigilarFallido(config.vigilarFallos)
+    const ahora = Date.now()
+    const campos = camposDeVigilarFallido(config.vigilarFallos, ahora)
     const fallos = campos.vigilar_fallos
     await actualizarAgente(perfilId, campos)
     if (fallos >= AGENTE.VIGILAR_FALLOS_FRENO && (config.estado === 'ensayo' || config.estado === 'activo')) {
-      await frenarAgente(perfilId, 'datos_viejos', `No puedo vigilar la cuenta: ${fallos} intentos seguidos han fallado (último: «${error}»). Sin vigilar no sé cuánto se gasta hoy ni evalúo el freno.`, nombre, 0)
+      await anotarGuardaUnaVez(
+        perfilId,
+        'vigilar_falla',
+        inicioDelDiaLocal(horaLocal(ahora, zona).fecha, zona),
+        `No puedo vigilar «${nombre}»: ${fallos} intentos seguidos han fallado`,
+        `Último error: «${error}». Sin vigilar no sé cuánto se gasta hoy: no aplico nada hasta que vuelva a ir bien (lo reintento cada pocos minutos).`,
+        { fallos },
+      )
     }
   } catch (e) {
     console.error(`[agente] no se ha podido apuntar el vigilar fallido de ${perfilId}:`, e instanceof Error ? e.message : e)
@@ -751,7 +778,7 @@ export async function correrAgente(cuentas: ReadonlyArray<{ cuenta: CuentaParaSi
           salida.errores.push(`${datos.nombre}: ${paso}: ${textoDe(e, 140)}`)
           salida.hizoAlgo = true
           console.error(`[agente] ${paso} de ${cuenta.id}:`, e)
-          if (paso === 'vigilar') await vigilarFallido(cuenta.id, config, datos.nombre, textoDe(e, 300))
+          if (paso === 'vigilar') await vigilarFallido(cuenta.id, config, datos.nombre, textoDe(e, 300), datos.zona)
           // Tras un vigilar fallido no se da ningún paso más en esta cuenta en esta pasada (ni aplicar con un sello anterior)
           if (!seguirTrasPasoFallido(paso)) break
         }

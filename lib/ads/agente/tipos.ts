@@ -29,6 +29,8 @@ export type TipoDeEvento =
   | 'encendido' | 'apagado' | 'ensayo_saltado' | 'ensayo_fin' | 'veda' | 'rampa' | 'freno' | 'reanudado' | 'reanudar_rechazado' | 'deshacer_freno'
   | 'postura' | 'objetivo_auto' | 'objetivo_revisado' | 'techo_auto' | 'ritmo' | 'agotada_top' | 'mover_presupuesto' | 'deshacer_auto' | 'deshacer_fallo'
   | 'calibracion' | 'ia_fallo' | 'ia_tope' | 'stock' | 'stock_vuelve' | 'stock_fallo' | 'uso_error' | 'primera_escritura' | 'parada_general' | 'topes' | 'producto' | 'temporada'
+  // Guardas técnicas (migración 330): no frenan la cuenta, solo dejan de escribir mientras dura el fallo
+  | 'datos_viejos' | 'vigilar_falla' | 'sin_autorizacion'
 
 export const ORDEN_DE_POSTURA: Record<Postura, number> = { recortar: 0, mantener: 1, crecer: 2 }
 
@@ -477,7 +479,8 @@ export interface PropuestaDeRitmo {
   presupuestoActual: number
   presupuestoNuevo: number
   motivo: string
-  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number }
+  /** `financia`/`r4Propio`: solo en los donantes (las R1 que financian y si además son una R4 por sí mismos) */
+  metricas: { clics: number; gasto: number; pedidos: number; ventas: number; acosPct: number | null; usoPct?: number; financia?: string[]; r4Propio?: boolean }
 }
 
 export interface ResultadoDeRitmo {

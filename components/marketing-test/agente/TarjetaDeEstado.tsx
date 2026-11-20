@@ -210,6 +210,16 @@ export function TarjetaDeEstado({ panel, accion, irA }: { panel: PanelDelAgente;
           </Aviso>
         )}
 
+        {/* ---- vigilar falla seguido: aplicar no escribe hasta que vuelva a ir bien (no frena; antes solo quedaba en el log del servidor) ---- */}
+        {c && (estado === 'ensayo' || estado === 'activo') && c.vigilarFallos >= AGENTE.VIGILAR_FALLOS_FRENO && (
+          <Aviso tono="ambar" icono={ShieldAlert} titulo={`No puedo vigilar la cuenta: ${c.vigilarFallos} intentos seguidos han fallado`}>
+            <p>
+              Sin vigilar no sé cuánto se gasta hoy, así que no aplico nada hasta que vuelva a ir bien (lo reintento cada pocos minutos).
+              {c.vigilarOkAt ? ` Último vigilar bueno: ${diaYMes(c.vigilarOkAt)}.` : ''} El motivo está en la línea de tiempo.
+            </p>
+          </Aviso>
+        )}
+
         {/* ---- en marcha en la base, pero el motor no está en «agente»: el bucle no la recorre (ni vigila, ni frena, ni avisa) ---- */}
         {motorFueraDeModoAgente(estado, panel.modoDelMotor) && (
           <Aviso tono="rojo" icono={AlertOctagon} titulo="El motor no está en modo agente: el agente no está corriendo">

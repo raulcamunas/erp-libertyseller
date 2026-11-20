@@ -74,3 +74,38 @@ export async function anotarEvento(
     console.error(`Agente PPC: no se ha podido apuntar el evento «${tipo}» de la cuenta ${perfilId}:`, e instanceof Error ? e.message : e)
   }
 }
+
+/** Los tipos de las guardas técnicas que añade la migración 330 al CHECK de `ads_agente_eventos` */
+const TIPOS_DE_LA_330: ReadonlySet<TipoDeEvento> = new Set<TipoDeEvento>(['datos_viejos', 'vigilar_falla', 'sin_autorizacion'])
+
+/**
+ * Apunta un evento de una guarda técnica (datos viejos, vigilar que falla, sin autorización) UNA vez desde `desdeIso` (el inicio del día): la guarda se
+ * mira en cada pasada y sin esto llenaría la línea de tiempo. Sin la migración 330 el CHECK no admite el tipo: se apunta como «uso_error» con el tipo
+ * real en `datos.guarda` (mismo tono ámbar de «no puedo leer algo»), para que se vea igual. Nunca lanza.
+ */
+export async function anotarGuardaUnaVez(perfilId: string, tipo: TipoDeEvento, desdeIso: string, titulo: string, detalle?: string | null, datos?: Record<string, unknown>): Promise<void> {
+  try {
+    const service = createServiceClient()
+    const contar = async (t: TipoDeEvento, conGuarda: boolean) => {
+      let q = service.from('ads_agente_eventos').select('id', { count: 'exact', head: true }).eq('perfil_id', perfilId).eq('tipo', t).gte('creado_at', desdeIso)
+      if (conGuarda) q = q.eq('datos->>guarda', tipo)
+      const { count, error } = await q
+      return error ? 0 : (count ?? 0)
+    }
+    if ((await contar(tipo, false)) > 0) return
+    if (TIPOS_DE_LA_330.has(tipo) && (await contar('uso_error', true)) > 0) return
+    const fila = { perfil_id: perfilId, tipo, titulo: recortar(titulo || tipo, TITULO_MAX), detalle: detalle ? recortar(detalle, DETALLE_MAX) : null, datos: { ...(datos ?? {}), guarda: tipo } }
+    const { error } = await service.from('ads_agente_eventos').insert(fila)
+    if (!error || isMissingSchema(error)) return
+    // 23514 = el CHECK aún no tiene el tipo (falta la 330)
+    if (error.code === '23514' && TIPOS_DE_LA_330.has(tipo)) {
+      const { error: e2 } = await service.from('ads_agente_eventos').insert({ ...fila, tipo: 'uso_error' })
+      if (!e2 || isMissingSchema(e2)) return
+      console.error(`Agente PPC: no se ha podido apuntar la guarda «${tipo}» de la cuenta ${perfilId}:`, e2.message)
+      return
+    }
+    console.error(`Agente PPC: no se ha podido apuntar la guarda «${tipo}» de la cuenta ${perfilId}:`, error.message)
+  } catch (e) {
+    console.error(`Agente PPC: no se ha podido apuntar la guarda «${tipo}» de la cuenta ${perfilId}:`, e instanceof Error ? e.message : e)
+  }
+}

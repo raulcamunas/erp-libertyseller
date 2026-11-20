@@ -47,10 +47,11 @@ import { esRevisar, etiquetaVigente, queDePropuesta, validacionDeLaIa } from './
 import { desplazar, filasDeUso, leerCuenta, nombreDeCuenta, stockPorAsin, sumarDias } from './contexto-servidor'
 import { abrirEfecto, cvrDeMetricas } from './efectos-servidor'
 import { actualizarAgente, hechosDeHoy, leerConfigDelAgente, paradaGeneral } from './estado-servidor'
-import { anotarEvento, avisar } from './eventos-servidor'
+import { anotarEvento, anotarGuardaUnaVez, avisar } from './eventos-servidor'
 import {
   claseDeCambio,
   clasificarErrorDeAmazon,
+  datosViejos,
   decisionDeTermino,
   esRara,
   formaReducida,
@@ -78,7 +79,7 @@ import {
   type TipoDeErrorDeAmazon,
 } from './tipos'
 import { horaLocal, inicioDelDiaLocal } from './uso-calculo'
-import { sumaDePresupuestos } from './vigilar-servidor'
+import { frescura, sumaDePresupuestos, usoErrorBloquea } from './vigilar-servidor'
 
 const HORA_MS = 3_600_000
 const DIA_MS = 86_400_000
@@ -152,7 +153,7 @@ export interface CuentaParaDecidir {
   eventoPosterior: string | null
   /** Puja máxima fija (ads_agente.puja_max o la de serie) */
   topePuja: number
-  /** La API de uso de presupuesto falla: no se sabe cuánto se gasta hoy, así que nada SUBE (espera a que vuelva) */
+  /** La API de uso de presupuesto falla: no se sabe cuánto se gasta hoy, así que nada SUBE (se caduca: vigilar o el motor la vuelven a proponer con datos frescos) */
   gastoDesconocido?: boolean
   /** Inicio del día LOCAL de la cuenta (ms): una subida R1 («se agota HOY») creada antes es de otro día y se caduca. Sin el dato, no se mira */
   inicioDelDiaLocal?: number
@@ -346,9 +347,11 @@ export function decidirPropuesta(
     if (c.techoNulo) pasajeras.push('no hay techo de gasto del mes')
     if (c.eventoPosterior) pasajeras.push(`los datos tocan ${c.eventoPosterior}`)
     if (clase === 'presupuesto_subir' && c.cuentaPequena) pasajeras.push(`la cuenta es pequeña (menos de ${AGENTE.CUENTA_PEQUENA_GASTO30} de gasto en 30 días)`)
+    // Sin el gasto de hoy no sube (decisión del dueño), pero tampoco ESPERA: pendiente bloquearía la segmentación o la campaña y envejecería; caducada, se vuelve a
+    // proponer con datos frescos cuando la API de uso vuelva
+    if (c.gastoDesconocido) pasajeras.push('no sé cuánto se gasta hoy (falla la lectura del uso de presupuesto)')
     if (dePersona.length > 0) return { accion: 'descartar', motivo: `No subo: ${[...dePersona, ...pasajeras].join('; ')}.` }
     if (pasajeras.length > 0) return { accion: 'caducar', motivo: `No subo: ${pasajeras.join('; ')}. Si deja de pasar, se volverá a proponer con los datos de ese momento.` }
-    if (c.gastoDesconocido) return { accion: 'esperar', motivo: 'No sé cuánto se gasta hoy (falla la lectura del uso de presupuesto): no subo hasta que vuelva' }
     if (c.rampa.soloBajadas) return { accion: 'esperar', motivo: 'Rampa: hoy solo negativas y bajadas' }
     if (clase === 'presupuesto_subir' && c.rampa.sinPresupuestoSubir) return { accion: 'esperar', motivo: 'Rampa: todavía no se suben presupuestos' }
   }
@@ -433,8 +436,10 @@ export function limitarPresupuestoAhora(actual: number, nuevo: number, s: SumasD
 }
 
 /**
- * PURO. ¿Está ya la lectura de presupuestos de HOY entera? Hay filas de hoy y de al menos tantas campañas (en cualquier estado) como ayer. Si no (justo tras la
- * medianoche local, vigilar sin poder leer las campañas, una lectura a medias), las sumas saldrían bajas y el techo parecería libre: las subidas esperan.
+ * PURO. ¿Está ya la lectura de presupuestos de HOY entera? Hay filas de hoy (en cualquier estado) y de al menos tantas campañas como ayer ACABARON ACTIVAS. Si no
+ * (justo tras la medianoche local, vigilar sin poder leer las campañas, una lectura a medias), las sumas saldrían bajas y el techo parecería libre: las subidas
+ * esperan. Las de ayer pausadas no cuentan: una campaña pausada no escribe fila hoy y, contándolas, el día después de una pausa la lectura salía «a medias» todo el
+ * día (ninguna R1). Si se pausa entre la última lectura de ayer y la medianoche, leerUsoDePresupuesto le escribe igualmente la fila de hoy (con su estado).
  */
 export function lecturaDeHoyCompleta(dias: readonly DiaDeUso[], fecha: string): boolean {
   const ayer = desplazar(fecha, -1)
@@ -442,7 +447,7 @@ export function lecturaDeHoyCompleta(dias: readonly DiaDeUso[], fecha: string): 
   const deAyer = new Set<string>()
   for (const d of dias) {
     if (d.fechaLocal === fecha) hoy.add(d.campaignId)
-    else if (d.fechaLocal === ayer) deAyer.add(d.campaignId)
+    else if (d.fechaLocal === ayer && (d.estadoCampana ?? 'ENABLED').toUpperCase() === 'ENABLED') deAyer.add(d.campaignId)
   }
   return hoy.size > 0 && hoy.size >= deAyer.size
 }
@@ -468,6 +473,67 @@ export function decisionDeReintento(error: string | null, d: DecisionDelAgente):
   if (!esReintentoDeTransporte(error)) return d
   if (d.accion !== 'descartar' && d.accion !== 'caducar') return d
   return { accion: 'retener', motivo: `Falló por la red al aplicarla y puede que el cambio esté en Amazon; ahora el agente la ${d.accion === 'descartar' ? 'descartaría' : 'caducaría'} (${d.motivo}). Revísala.` }
+}
+
+/**
+ * PURO. Una SUBIDA de presupuesto que el guardarraíl de la suma no deja caber (limitarPresupuestoAhora → retener): se CADUCA. Retenida se quedaba pendiente
+ * para siempre (fuera de pendientesLibres no caducaba como «R1 de otro día») y bloqueaba la campaña. Si viene de un reintento por transporte (su cambio puede
+ * estar ya en Amazon), se retiene para una persona, como en decisionDeReintento
+ */
+export function destinoDeSubidaQueNoCabe(error: string | null): 'caducar' | 'retener' {
+  return esReintentoDeTransporte(error) ? 'retener' : 'caducar'
+}
+
+/**
+ * PURO. Las R1 que financia un DONANTE sin R4 propia (`metricas.financia`, de reglasDePresupuesto). null si no es uno de esos (una R4, el recorte, un donante
+ * creado antes del vínculo): esos se bajan como siempre.
+ */
+export function r1QueFinancia(metricas: Record<string, unknown> | null | undefined): string[] | null {
+  if (!metricas || metricas.regla !== 'donante' || metricas.r4Propio === true) return null
+  const f = metricas.financia
+  if (!Array.isArray(f) || f.length === 0) return null
+  return f.map((x) => String(x))
+}
+
+/**
+ * PURO. ¿Se baja AHORA un donante sin R4 propia? Solo si la subida que financia va a llegar en esta pasada: su R1 está entre lo que se aplica, queda tope de
+ * subidas de presupuesto hoy, hay sumas de hoy y quedan al menos 2 intentos (el donante y la R1). Si no, se salta SIN gastar intento: bajarlo sin su R1 dejaba la
+ * campaña recortada 72 h (cuarentena) sin que la rentable recibiera nada.
+ */
+export function donantePuedeBajar(
+  financia: readonly string[],
+  c: { r1EnPlanes: ReadonlySet<string>; quedaTopeSubir: boolean; haySumas: boolean; intentosQuedan: number },
+): { ok: true } | { no: string } {
+  if (!financia.some((id) => c.r1EnPlanes.has(id))) return { no: 'la subida que financia no se aplica en esta pasada' }
+  if (!c.quedaTopeSubir) return { no: 'no queda tope de subidas de presupuesto hoy' }
+  if (!c.haySumas) return { no: 'sin la lectura de presupuestos de hoy' }
+  if (c.intentosQuedan < 2) return { no: 'no quedan intentos para el donante y su subida en esta pasada' }
+  return { ok: true }
+}
+
+/**
+ * PURO. ¿Puede escribir aplicar en Amazon ahora? Guardas TÉCNICAS (no frenos de negocio: no cambian el estado ni frenan la cuenta; en cuanto el fallo pasa, sigue):
+ *   · la conexión con Amazon está en error o revocada (un 401/403: llamarAds la marca; la siguiente lectura buena de vigilar la vuelve a «activa»): repetir
+ *     escrituras que fallan cada 10 min no sirve de nada;
+ *   · el rendimiento o los términos llevan > 36 h sin sincronizar (datosViejos): se decidiría con métricas de hace días.
+ */
+export function guardaDeEscritura(e: { conexion: string | null; datosViejos: { viejos: string[]; rendimientoOTerminos: boolean } | null }):
+  | { ok: true }
+  | { no: 'sin_autorizacion' | 'datos_viejos'; motivo: string } {
+  if (e.conexion === 'error' || e.conexion === 'revocada') return { no: 'sin_autorizacion', motivo: `la conexión con Amazon Ads está «${e.conexion}» (Amazon ha contestado 401/403): no escribo hasta que una lectura vaya bien` }
+  if (e.datosViejos?.rendimientoOTerminos) return { no: 'datos_viejos', motivo: `datos viejos (${e.datosViejos.viejos.join(' · ')}): no escribo hasta que se vuelvan a sincronizar` }
+  return { ok: true }
+}
+
+/** Lo que hace falta para `guardaDeEscritura` (solo base de datos). Si una lectura falla, no se sabe: no para (la guarda es para fallos que SÍ se ven) */
+export async function leerGuardaDeEscritura(cuenta: CuentaParaSincronizar, ahora: number): Promise<ReturnType<typeof guardaDeEscritura>> {
+  const [conexion, fresca] = await Promise.all([
+    Promise.resolve(createServiceClient().from('ads_connections').select('estado').eq('id', cuenta.conexionId).maybeSingle())
+      .then((r) => (r.error ? null : ((r.data as { estado?: string } | null)?.estado ?? null)))
+      .catch(() => null),
+    frescura(cuenta.id, ahora).catch(() => null),
+  ])
+  return guardaDeEscritura({ conexion, datosViejos: fresca ? datosViejos({ ...fresca, horasDesdeStock: null }) : null })
 }
 
 /** PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …») */
@@ -750,6 +816,17 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   const l = await leerCuenta(perfilId, config, ahora, 35)
   const zona = l.perfil.zona
   const local = horaLocal(ahora, zona)
+
+  // Guardas técnicas (no frenos): con la conexión en error/revocada o con datos viejos, esta pasada no escribe nada en Amazon; se anota una vez al día y sigue
+  // en cuanto el fallo pasa. En ensayo no se escribe de todos modos
+  if (!enEnsayo) {
+    const g = await leerGuardaDeEscritura(cuenta, ahora)
+    if ('no' in g) {
+      console.warn(`[agente] ${perfilId}: no aplico (${g.no}): ${g.motivo}`)
+      await anotarGuardaUnaVez(perfilId, g.no, inicioDelDiaLocal(local.fecha, zona), g.no === 'datos_viejos' ? 'Datos viejos: no escribo en Amazon' : 'Sin autorización en Amazon: no escribo', g.motivo)
+      return r
+    }
+  }
   const [stock, errores7] = await Promise.all([stockPorAsin(perfilId).catch(() => new Map<string, { stock: number | null; actualizadoAt: string | null; fuente: string }>()), erroresRecientes(perfilId, ahora)])
 
   // ---- 3. topes de hoy con la rampa ----
@@ -766,7 +843,8 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     techoNulo: l.techoMes == null,
     eventoPosterior: l.evento?.fase === 'posterior' ? l.evento.nombre : null,
     topePuja: config.pujaMax ?? AGENTE.PUJA_MAX_ABSOLUTA,
-    gastoDesconocido: Boolean(config.usoError),
+    // Un error pasajero de la API de uso (429, 5xx) solo cuenta tras varios seguidos (usoErrorBloquea): uno suelto no para las subidas
+    gastoDesconocido: usoErrorBloquea(config.usoError),
     inicioDelDiaLocal: Date.parse(inicioDelDiaLocal(local.fecha, zona)),
   }
 
@@ -799,8 +877,10 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
 
   // ---- 4–7. decidir cada pendiente ----
   let validacion: { ok: boolean } | null = null
-  const planes: Array<{ p: Propuesta; d: Extract<DecisionDelAgente, { accion: 'aplicar' }> }> = []
+  let planes: Array<{ p: Propuesta; d: Extract<DecisionDelAgente, { accion: 'aplicar' }> }> = []
   let rarasEsperando = 0
+  // Subidas de presupuesto que siguen vivas aunque no se apliquen en esta pasada (esperan): sus donantes no se caducan
+  const r1Esperando = new Set<string>()
   for (const p of pendientes) {
     if (sinTiempo()) break
     const prod = productoDeP(p)
@@ -839,7 +919,10 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
       } else if (d.accion === 'caducar') {
         await caducarComoAgente(perfilId, p.id, d.motivo)
         r.caducadas += 1
-      } else if (/^Rara/.test(d.motivo)) rarasEsperando += 1
+      } else {
+        if (/^Rara/.test(d.motivo)) rarasEsperando += 1
+        if (p.tipo === 'presupuesto' && finito(p.valorActual) && finito(p.valorNuevo) && p.valorNuevo > p.valorActual) r1Esperando.add(p.campaignId)
+      }
     } catch (e) {
       r.fallidas += 1
       console.error(`[agente] decidir la propuesta ${p.id} de ${perfilId}:`, e instanceof Error ? e.message : e)
@@ -847,6 +930,22 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   }
   // El contador de raras que esperan a la IA (el cerebro de la tarde lo mira)
   if (rarasEsperando !== config.rarasSinIa) await actualizarAgente(perfilId, { raras_sin_ia: rarasEsperando }).catch(() => undefined)
+
+  // Donantes cuya subida ya no va a llegar (la R1 se ha caducado, descartado, retenido u obsoleto): se caducan, no se bajan para nada. Los ya aplicados no se tocan
+  const r1EnPlanes = new Set(planes.filter((x) => x.d.clase === 'presupuesto_subir').map((x) => x.p.campaignId))
+  const huerfanos = planes.filter((x) => {
+    const financia = x.d.clase === 'presupuesto_bajar' ? r1QueFinancia(x.p.metricas as unknown as Record<string, unknown>) : null
+    return financia != null && !financia.some((id) => r1EnPlanes.has(id) || r1Esperando.has(id)) && !esReintentoDeTransporte(x.p.error)
+  })
+  for (const x of huerfanos) {
+    try {
+      await caducarComoAgente(perfilId, x.p.id, 'la subida de presupuesto que financiaba este donante ya no se va a aplicar')
+      r.caducadas += 1
+    } catch (e) {
+      console.error(`[agente] caducar el donante ${x.p.id}:`, e instanceof Error ? e.message : e)
+    }
+  }
+  if (huerfanos.length > 0) planes = planes.filter((x) => !huerfanos.includes(x))
 
   if (planes.length === 0) return r
 
@@ -866,6 +965,13 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     if (paradaAhora.parado || !configAhora || configAhora.estado !== config.estado) break
     if (!quedaTope(d.clase, hechos, hoyTopes.topes)) continue
 
+    // Un donante sin R4 propia solo baja si su subida va a llegar en esta pasada (si no, se salta sin gastar intento)
+    const financia = d.clase === 'presupuesto_bajar' ? r1QueFinancia(p.metricas as unknown as Record<string, unknown>) : null
+    if (financia) {
+      const puede = donantePuedeBajar(financia, { r1EnPlanes, quedaTopeSubir: quedaTope('presupuesto_subir', hechos, hoyTopes.topes), haySumas: sumas != null, intentosQuedan: AGENTE.MAX_APLICAR_POR_PASADA - intentos })
+      if ('no' in puede) continue
+    }
+
     // Guardarraíl del presupuesto con la suma de AHORA. Falla cerrado: sin sumas o sin valores, la subida no se aplica
     let valorNuevo = d.valorNuevo
     let nota = d.nota
@@ -874,11 +980,17 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
       const g = limitarPresupuestoAhora(p.valorActual, valorNuevo ?? p.valorNuevo, sumas, p.campaignId)
       if ('esperar' in g) continue
       if ('retener' in g) {
+        // No cabe: se caduca (retenida quedaba pendiente para siempre y bloqueaba la campaña); vigilar la vuelve a proponer si sigue haciendo falta y cabe
         try {
-          await marcarRetenida(perfilId, p.id, g.retener)
-          r.retenidas += 1
+          if (destinoDeSubidaQueNoCabe(p.error) === 'retener') {
+            await marcarRetenida(perfilId, p.id, g.retener)
+            r.retenidas += 1
+          } else {
+            await caducarComoAgente(perfilId, p.id, g.retener)
+            r.caducadas += 1
+          }
         } catch (e) {
-          console.error(`[agente] retener ${p.id}:`, e instanceof Error ? e.message : e)
+          console.error(`[agente] subida de presupuesto que no cabe ${p.id}:`, e instanceof Error ? e.message : e)
         }
         continue
       }

@@ -2,7 +2,10 @@
  * AMAZON ADS · EL AGENTE PPC: VIGILAR UNA CUENTA (SOLO SERVIDOR; LEE de Amazon: campañas, uso del presupuesto, portfolios y, si hay stock 0, sus anuncios).
  *
  * Cada 30 minutos (paso «vigilar»):
- *   (b) campañas + uso de presupuesto de hoy → `ads_presupuesto_dia` y `ads_gasto_hora` (uso-servidor). Si la API de uso falla, se reintenta cada 6 h y mientras «agotada» sale del estado.
+ *   (b) campañas + uso de presupuesto de hoy → `ads_presupuesto_dia` y `ads_gasto_hora` (uso-servidor). Si no se pueden leer las campañas, el vigilar FALLA (no se apunta
+ *       como error de uso). Un fallo PASAJERO de la API de uso (429, 5xx, red) solo cuenta como error tras USO_FALLOS_PASAJEROS seguidos, con reintentos a los 30 min,
+ *       1 h, 2 h… (como mucho 6 h) desde el ÚLTIMO intento; uno persistente (401/403, 4xx, 207 sin aciertos), cada 6 h. Tras un error, cada vigilar prueba un lote.
+ *       Mientras, «agotada» sale del estado.
  *   (c) Una vez al día, en el primer vigilar tras las 03:00 locales: presión del día (R2/R3) y ritmo del mes (con recorte), con días CERRADOS; se guardan en `ads_agente`.
  *   (d) Reglas de presupuesto R1 (con financiación) y R4 → propuestas DEVUELTAS (no se insertan aquí).
  *   (e) Stock por ASIN: dos lecturas a 0 separadas ≥ 6 h (`ads_agente_stock_cero`), listing fresco y la campaña gastando → pausa (campaña o anuncio); si no, solo «recortar» y aviso. Reactivación.
@@ -48,7 +51,8 @@ import {
   type ProductoDelAgente,
 } from './contexto-servidor'
 import { subidasVetadasDeCuenta } from './ajustes-servidor'
-import { clasificarErrorDeAmazon, esRara, evaluarFrenos, faltaEnSumas, FRENOS_AUTOMATICOS, ventasParaFreno, presupuestoUtil, sinSubidasDePresupuesto, topesDelDia } from './guardarrailes-calculo'
+import { hechosDeHoy } from './estado-servidor'
+import { clasificarErrorDeAmazon, datosViejos, esRara, evaluarFrenos, faltaEnSumas, FRENOS_AUTOMATICOS, quedaTope, ventasParaFreno, presupuestoUtil, sinSubidasDePresupuesto, topesDelDia } from './guardarrailes-calculo'
 import { combinarAjustes } from './objetivos-calculo'
 import { diaDeRampa } from './pasos-calculo'
 import { presionDelDia, recortePorRitmo, reglasDePresupuesto, ritmoDelMes } from './ritmo-calculo'
@@ -69,8 +73,11 @@ import {
   type PropuestaDeRitmo,
   type TipoDeEvento,
 } from './tipos'
-import { curvaHoraria, gastoDeHoy, gastoMaximoPosible, horaLocal, proyectarHoy } from './uso-calculo'
+import { curvaHoraria, gastoDeHoy, gastoMaximoPosible, horaLocal, inicioDelDiaLocal, leerUsoError, proyectarHoy, textoDeUsoPasajero, usoErrorBloquea } from './uso-calculo'
 import { horasDeCuenta, leerPortfolios, leerUsoDePresupuesto } from './uso-servidor'
+
+// Los auxiliares del texto de `uso_error` viven en uso-calculo (puro: también los usa el panel); se reexportan para quien ya los toma de aquí
+export { leerUsoError, textoDeUsoPasajero, usoErrorBloquea, USO_FALLOS_PASAJEROS } from './uso-calculo'
 
 const HORA_MS = 3_600_000
 const TIPO_ANUNCIO = 'application/vnd.spProductAd.v3+json'
@@ -104,19 +111,54 @@ export interface ResultadoDeVigilar {
  * Auxiliares PUROS (probados en la prueba del paquete)
  * ============================================================================================================================================================= */
 
-/** PURO. ¿Toca saltarse la API de uso? Tras un error, solo se reintenta una vez cada 6 h (en la primera ¾ h de cada bloque de 6 h) */
+/** Margen al medir el retroceso: vigilar corre cada 30 min y el último intento se apunta un poco después de su sello */
+const MARGEN_RETROCESO_MIN = 5
+
+/**
+ * PURO. ¿Toca leer solo un lote de prueba de la API de uso (en vez de todos)? Tras un error PERSISTENTE, cada 6 h (en la primera ¾ h de cada bloque de 6 h desde
+ * el primer fallo); tras uno PASAJERO, el retroceso crece con los fallos seguidos (el vigilar siguiente, 1 h, 2 h, 4 h y como mucho 6 h) y se mide desde el ÚLTIMO intento.
+ * Mientras, cada vigilar prueba un lote: si va bien, el error se borra.
+ */
 export function saltarApiDeUso(usoError: string | null, usoErrorAt: string | null, ahora: number): boolean {
-  if (!usoError || !usoErrorAt) return false
-  const t = Date.parse(usoErrorAt)
+  const e = leerUsoError(usoError, usoErrorAt)
+  if (!e) return false
+  if (e.pasajero) {
+    // El 1.er fallo no espera nada más que el vigilar siguiente (30 min); luego 1 h, 2 h, 4 h y como mucho 6 h
+    if (e.fallos <= 1) return false
+    const t = e.ultimoIntento ? Date.parse(e.ultimoIntento) : NaN
+    if (!Number.isFinite(t)) return false
+    const esperaMin = Math.min(AGENTE.USO_REINTENTO_HORAS * 60, 30 * 2 ** (e.fallos - 1))
+    return ahora - t < (esperaMin - MARGEN_RETROCESO_MIN) * 60_000
+  }
+  const t = usoErrorAt ? Date.parse(usoErrorAt) : NaN
   if (!Number.isFinite(t)) return false
   const h = (ahora - t) / HORA_MS
   if (h < AGENTE.USO_REINTENTO_HORAS) return true
   return h % AGENTE.USO_REINTENTO_HORAS >= VENTANA_REINTENTO_USO_H
 }
 
-/** PURO. ¿Se pueden usar las reglas de presupuesto (R1–R4)? Sí sin error de uso, o con un error de menos de 12 h (mientras, «agotada» sale del estado) */
+/**
+ * PURO. Lo que queda en `uso_error` tras una lectura de uso. `error` null y se ha llamado → se borra. Uno PASAJERO suma un fallo (con la hora de este intento);
+ * uno persistente se guarda tal cual. `usoErrorAt` es siempre la hora del PRIMER fallo (el «> 12 h sin reglas»). `nuevo`: pasa ahora a contar como error (aviso, una vez).
+ */
+export function siguienteUsoError(
+  antes: { usoError: string | null; usoErrorAt: string | null },
+  lectura: { error: string | null; transitorio: boolean; seLlamo: boolean },
+  ahoraIso: string,
+): { usoError: string | null; usoErrorAt: string | null; nuevo: boolean; cambia: boolean } {
+  if (!lectura.error) {
+    if (lectura.seLlamo && antes.usoError) return { usoError: null, usoErrorAt: null, nuevo: false, cambia: true }
+    return { usoError: antes.usoError, usoErrorAt: antes.usoErrorAt, nuevo: false, cambia: false }
+  }
+  const previo = leerUsoError(antes.usoError, antes.usoErrorAt)
+  const usoError = lectura.transitorio ? textoDeUsoPasajero(previo?.pasajero ? previo.fallos + 1 : 1, ahoraIso, lectura.error) : lectura.error.slice(0, 500)
+  const usoErrorAt = antes.usoError && antes.usoErrorAt ? antes.usoErrorAt : ahoraIso
+  return { usoError, usoErrorAt, nuevo: !usoErrorBloquea(antes.usoError) && usoErrorBloquea(usoError), cambia: true }
+}
+
+/** PURO. ¿Se pueden usar las reglas de presupuesto (R1–R4)? Sí sin error de uso (o con uno pasajero que aún no cuenta), o con un error de menos de 12 h (mientras, «agotada» sale del estado) */
 export function usoDisponible(usoError: string | null, usoErrorAt: string | null, ahora: number): boolean {
-  if (!usoError) return true
+  if (!usoErrorBloquea(usoError)) return true
   const t = usoErrorAt ? Date.parse(usoErrorAt) : NaN
   if (!Number.isFinite(t)) return false
   return ahora - t < AGENTE.USO_ERROR_SIN_REGLAS_HORAS * HORA_MS
@@ -238,7 +280,7 @@ async function erroresDelAgente(perfilId: string, ahora: number): Promise<Array<
 }
 
 /** Frescura de los datos: horas desde el último rendimiento y los últimos términos, y retraso de `ads_objetivos_diario` sobre el día cerrado esperado (ayer UTC) */
-async function frescura(perfilId: string, ahora: number): Promise<{ horasDesdeRendimiento: number | null; horasDesdeTerminos: number | null; horasRetrasoObjetivosDiario: number | null }> {
+export async function frescura(perfilId: string, ahora: number): Promise<{ horasDesdeRendimiento: number | null; horasDesdeTerminos: number | null; horasRetrasoObjetivosDiario: number | null }> {
   const service = createServiceClient()
   const [s, t, o] = await Promise.all([
     service.from('ads_sincronizacion').select('ultimo_ok_at').eq('perfil_id', perfilId).maybeSingle(),
@@ -341,20 +383,46 @@ async function evaluarFrenoDeCuenta(
 }
 
 /**
+ * PURO. ¿Bloquea esta propuesta de presupuesto la campaña (cuarentena de presupuestos)? No: las caducadas; las OBSOLETAS del agente (no se escribió nada en
+ * Amazon: el valor ya no era el esperado, y bloquearla 72 h dejaba sin subida a la campaña que más vende); y una SUBIDA pendiente creada antes del inicio del día
+ * local (una R1 «se agota hoy» de otro día: aplicar la caduca, y sin esto una retenida la bloqueaba para siempre).
+ */
+export function propuestaBloqueaPresupuesto(
+  f: { estado: string; origen?: string | null; creadaAt?: string | null; valorActual: number | null; valorNuevo: number | null },
+  inicioDelDiaMs: number | null,
+): boolean {
+  if (f.estado === 'caducada') return false
+  if (f.estado === 'obsoleta' && f.origen === 'agente') return false
+  const sube = f.valorActual != null && f.valorNuevo != null && Number.isFinite(f.valorActual) && Number.isFinite(f.valorNuevo) && f.valorNuevo > f.valorActual
+  if (f.estado === 'pendiente' && sube && inicioDelDiaMs != null) {
+    const t = f.creadaAt ? Date.parse(f.creadaAt) : NaN
+    if (Number.isFinite(t) && t < inicioDelDiaMs) return false
+  }
+  return true
+}
+
+/**
  * Las campañas con una propuesta de presupuesto pendiente o resuelta/ENSAYADA en la cuarentena, o con un cambio de presupuesto A MANO en el log, o con un efecto abierto de presupuesto.
  * `soloSubidaPendiente`: las bloqueadas ÚNICAMENTE por una subida pendiente (retenida o esperando): no frenan una bajada (recorte, R4, donante).
+ * `comprometido`: lo que suben las subidas de presupuesto PENDIENTES de hoy (aún no están en la suma de hoy): las R1 nuevas de esta pasada no pueden usar ese hueco.
  */
-async function campanasConPresupuestoBloqueado(perfilId: string, horasEntreSubidas: number, ahora: number): Promise<{ bloqueadas: Set<string>; soloSubidaPendiente: Set<string> }> {
+async function campanasConPresupuestoBloqueado(
+  perfilId: string,
+  horasEntreSubidas: number,
+  ahora: number,
+  inicioDelDiaMs: number | null,
+): Promise<{ bloqueadas: Set<string>; soloSubidaPendiente: Set<string>; comprometido: number }> {
   const service = createServiceClient()
   const desde = new Date(ahora - Math.max(1, horasEntreSubidas) * HORA_MS).toISOString()
   const bloqueadas = new Set<string>()
   const subidasPendientes = new Set<string>()
   const porOtraCosa = new Set<string>()
-  type Fila = { campaign_id: string; estado: string; valor_actual: unknown; valor_nuevo: unknown }
+  let comprometido = 0
+  type Fila = { campaign_id: string; estado: string; valor_actual: unknown; valor_nuevo: unknown; creada_at?: string | null; origen?: string | null }
   const r = await todasLasFilas<Fila>((a, b) =>
     service
       .from('ads_propuestas')
-      .select('campaign_id, estado, valor_actual, valor_nuevo')
+      .select('campaign_id, estado, valor_actual, valor_nuevo, creada_at, origen')
       .eq('perfil_id', perfilId)
       .eq('tipo', 'presupuesto')
       .or(`estado.eq.pendiente,resuelta_at.gte.${desde}`)
@@ -363,13 +431,15 @@ async function campanasConPresupuestoBloqueado(perfilId: string, horasEntreSubid
   10_000)
   if (r.error) lanzar(r.error)
   for (const f of r.data) {
-    if (f.estado === 'caducada') continue
+    const antes = numero(f.valor_actual)
+    const despues = numero(f.valor_nuevo)
+    if (!propuestaBloqueaPresupuesto({ estado: f.estado, origen: f.origen ?? null, creadaAt: f.creada_at ?? null, valorActual: antes, valorNuevo: despues }, inicioDelDiaMs)) continue
     const id = String(f.campaign_id)
     bloqueadas.add(id)
-    const antes = Number(f.valor_actual)
-    const despues = Number(f.valor_nuevo)
-    if (f.estado === 'pendiente' && Number.isFinite(antes) && Number.isFinite(despues) && despues > antes) subidasPendientes.add(id)
-    else porOtraCosa.add(id)
+    if (f.estado === 'pendiente' && antes != null && despues != null && despues > antes) {
+      subidasPendientes.add(id)
+      comprometido += despues - antes
+    } else porOtraCosa.add(id)
   }
 
   const { data: log } = await service
@@ -396,7 +466,7 @@ async function campanasConPresupuestoBloqueado(perfilId: string, horasEntreSubid
       porOtraCosa.add(f.campaign_id)
     }
   }
-  return { bloqueadas, soloSubidaPendiente: new Set([...subidasPendientes].filter((id) => !porOtraCosa.has(id))) }
+  return { bloqueadas, soloSubidaPendiente: new Set([...subidasPendientes].filter((id) => !porOtraCosa.has(id))), comprometido: redondear2(comprometido) }
 }
 
 /** Los anuncios ACTIVOS de unas campañas (POST /sp/productAds/list): campaignId → [{adId, asin}]. Lectura */
@@ -459,49 +529,47 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
 
   // ---------- (b) campañas y uso de presupuesto ----------
   let campanas: Campana[] = []
-  let errorCampanas: string | null = null
   try {
     campanas = (await campanasDe(cuenta.conexionId, cuenta.profileId)).campanas
   } catch (err) {
-    errorCampanas = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300)
+    // No es un fallo de la API de USO (antes se apuntaba como uso_error y bloqueaba las subidas 6 h por un 429 al listar): el vigilar falla, aplicar no escribe
+    // hasta el siguiente vigilar bueno y el reintento llega en minutos (camposDeVigilarFallido)
+    throw new Error(`No he podido leer las campañas en Amazon: ${err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300)}`)
   }
   const previasHoy = await filasDeUso(cuenta.id, fecha, fecha)
   const saltar = saltarApiDeUso(config.usoError, config.usoErrorAt, ahora)
   let diasHoy: DiaDeUso[] = previasHoy
   let errorDeUso: string | null = null
+  let errorPasajero = false
+  // Campañas con una regla de presupuesto de Amazon activa hoy: id → presupuesto efectivo (se apunta en las métricas de sus propuestas de presupuesto)
+  let conRegla = new Map<string, number>()
   if (campanas.length > 0) {
     const r = await leerUsoDePresupuesto(
       cuenta,
       campanas.map((c) => ({ campaignId: c.campaignId, presupuesto: c.presupuesto, servicio: c.servicio, estado: c.estado })),
       perfil.zona,
       ahora,
-      { saltarApi: saltar },
+      // Tras un error, mientras dura el retroceso, solo un lote de prueba: si va bien, el error se borra ya
+      { soloPrueba: saltar },
     )
     diasHoy = r.dias
     errorDeUso = r.error
-  } else if (errorCampanas) {
-    errorDeUso = `No he podido leer las campañas en Amazon: ${errorCampanas}`
+    errorPasajero = r.transitorio
+    conRegla = r.conRegla
   }
 
-  // Estado del error de uso: si se ha llamado y ha ido bien, se borra; si ha fallado, se apunta (la hora del primer fallo se conserva para el «> 12 h»)
-  let usoError: string | null = config.usoError
-  let usoErrorAt: string | null = config.usoErrorAt
-  let usoErrorNuevo = false
-  const seLlamo = campanas.length > 0 && !saltar
-  if (errorDeUso) {
-    usoErrorNuevo = !config.usoError
-    usoError = errorDeUso
-    // Se conserva la hora del PRIMER fallo: de ella salen los reintentos (uno por bloque de 6 h, saltarApiDeUso) y el «> 12 h sin reglas»
-    usoErrorAt = config.usoError && config.usoErrorAt ? config.usoErrorAt : ahoraIso
-    cambiosEnFila.uso_error = usoError.slice(0, 500)
+  // Estado del error de uso (siguienteUsoError): si se ha llamado y ha ido bien, se borra; si ha fallado, se apunta. Uno pasajero solo cuenta tras varios seguidos
+  const sig = siguienteUsoError({ usoError: config.usoError, usoErrorAt: config.usoErrorAt }, { error: errorDeUso, transitorio: errorPasajero, seLlamo: campanas.length > 0 }, ahoraIso)
+  const usoError: string | null = sig.usoError
+  const usoErrorAt: string | null = sig.usoErrorAt
+  const usoErrorNuevo = sig.nuevo
+  if (sig.cambia) {
+    cambiosEnFila.uso_error = usoError
     cambiosEnFila.uso_error_at = usoErrorAt
-    if (usoErrorNuevo) eventos.push({ tipo: 'uso_error', titulo: 'No puedo leer el uso de presupuesto de hoy', detalle: errorDeUso.slice(0, 500) })
-  } else if (seLlamo && config.usoError) {
-    usoError = null
-    usoErrorAt = null
-    cambiosEnFila.uso_error = null
-    cambiosEnFila.uso_error_at = null
   }
+  if (usoErrorNuevo && errorDeUso) eventos.push({ tipo: 'uso_error', titulo: 'No puedo leer el uso de presupuesto de hoy', detalle: errorDeUso.slice(0, 500) })
+  // «No sé cuánto se gasta hoy»: un error persistente, o uno pasajero repetido
+  const gastoDesconocido = usoErrorBloquea(usoError)
   const reglasConUso = usoDisponible(usoError, usoErrorAt, ahora)
 
   // ---------- lecturas comunes ----------
@@ -540,7 +608,10 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       console.error(`[agente] portfolios de ${cuenta.id}:`, err)
     }
   }
-  const { bloqueadas, soloSubidaPendiente } = frenado ? { bloqueadas: new Set<string>(), soloSubidaPendiente: new Set<string>() } : await campanasConPresupuestoBloqueado(cuenta.id, ficha.horasEntreSubidas, ahora)
+  const inicioDelDiaMs = Date.parse(inicioDelDiaLocal(fecha, perfil.zona))
+  const { bloqueadas, soloSubidaPendiente, comprometido: subidasPendientesHoy } = frenado
+    ? { bloqueadas: new Set<string>(), soloSubidaPendiente: new Set<string>(), comprometido: 0 }
+    : await campanasConPresupuestoBloqueado(cuenta.id, ficha.horasEntreSubidas, ahora, Number.isFinite(inicioDelDiaMs) ? inicioDelDiaMs : null)
   // Campañas cuya subida de presupuesto empeoró o se deshizo sola hace poco: R1 no la repite (sin esto, subir → deshacer → subir)
   const subidaVetada = frenado ? new Set<string>() : (await subidasVetadasDeCuenta(cuenta.id, fecha)).campanas
   const ritmoEsDeEsteMes = Boolean(config.ritmoFecha && config.ritmoFecha.slice(0, 7) === local.mes)
@@ -550,7 +621,8 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
   const inicioDelRecorte = fechaLocalDe(config.ritmoCambiadoAt, perfil.zona)
   // El día en que ENTRÓ en recorte, guardado aparte (`recorte_desde`): no se pisa al salir. Sin él (filas de antes), el último cambio de ritmo si sigue en recorte
   const recorteDesde = config.recorteDesde ?? (config.ritmo === 'recorte' ? inicioDelRecorte : null)
-  const sinSubidasCuenta = ritmoDeEsteMes === 'recorte' || hoyTopes.soloBajadas || l.techoMes == null || l.evento?.fase === 'posterior'
+  // Sin saber el gasto de hoy no se generan subidas que aplicar caducaría (A2)
+  const sinSubidasCuenta = ritmoDeEsteMes === 'recorte' || hoyTopes.soloBajadas || l.techoMes == null || l.evento?.fase === 'posterior' || gastoDesconocido
 
   const desde7 = desplazar(hasta, -6)
   const desde14 = desplazar(hasta, -13)
@@ -566,7 +638,9 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
     const p = productoDe.get(asin)
     if (!p || !p.activo || p.acosObjetivoPct == null) continue
     const hoy = diaHoyDe.get(c.campaignId)
-    const presupuesto = hoy?.presupuesto ?? c.presupuesto ?? 0
+    // El presupuesto BASE recién leído de /sp/campaigns/list (el que el motor relee al aplicar); la fila de hoy, solo si falta. Con el de la API de uso (con las
+    // reglas de presupuesto de Amazon aplicadas) R1 calcularía sobre otro valor y el motor marcaría la subida obsoleta
+    const presupuesto = c.presupuesto ?? hoy?.presupuesto ?? 0
     if (!(presupuesto > 0)) continue
     const w14 = sumarDias(rendimiento, desde14, hasta, deEsta)
     // La media de 14 días sin los días de un evento (si ya no estamos en él)
@@ -675,7 +749,7 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       const congelados: Record<string, number> = {}
       for (const c of activas) {
         const h = diaHoyDe.get(c.campaignId)
-        const pres = h?.presupuestoPrimera ?? h?.presupuesto ?? c.presupuesto ?? 0
+        const pres = c.presupuesto ?? h?.presupuestoPrimera ?? h?.presupuesto ?? 0
         if (pres > 0) congelados[c.campaignId] = redondear2(pres)
       }
       Object.assign(cambiosEnFila, { recorte_desde: fecha, recorte_presupuestos: congelados })
@@ -697,11 +771,25 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
   const propuestas: FilaDePropuestaDelAgente[] = []
   let avisos: ResultadoDeVigilar['avisos'] = []
   const r1De = new Map<string, PropuestaDeRitmo>()
+  // Guarda técnica (no un freno): con el rendimiento o los términos sin sincronizar > 36 h, R1–R4 se decidirían con métricas viejas. No se proponen (el recorte del
+  // mes sí: es una bajada por el gasto del mes). Lo anota aplicar, que tampoco escribe mientras dure
+  const viejos = frenado || campanasRitmo.length === 0 ? null : datosViejos({ ...(await frescura(config.perfilId, ahora)), horasDesdeStock: null })
+  // Sin hueco en el tope de subidas de presupuesto de HOY, una R1 no llegaría y sus donantes bajarían para nada: no se proponen (solo R1; R4 sigue)
+  let sinTopeDeSubirHoy = false
   if (!frenado && campanasRitmo.length > 0) {
+    try {
+      sinTopeDeSubirHoy = !quedaTope('presupuesto_subir', await hechosDeHoy(cuenta.id, inicioDelDiaLocal(fecha, perfil.zona)), hoyTopes.topes)
+    } catch (err) {
+      // Falla cerrado: sin saber lo hecho hoy, esta pasada no propone R1
+      sinTopeDeSubirHoy = true
+      console.error(`[agente] lo hecho hoy de ${cuenta.id}:`, err instanceof Error ? err.message : err)
+    }
+  }
+  if (!frenado && campanasRitmo.length > 0 && !viejos?.rendimientoOTerminos) {
     // Topes de la suma de presupuestos (topesDeSuma): útil (presupuesto o 1,3 × el máximo de 14 días) contra el techo; la real de hoy contra el techo (o la suma al encender) y contra la de hace 7 días
     let sumaUtil = 0
     for (const c of activas) {
-      const pres = diaHoyDe.get(c.campaignId)?.presupuesto ?? c.presupuesto ?? 0
+      const pres = c.presupuesto ?? diaHoyDe.get(c.campaignId)?.presupuesto ?? 0
       if (!(pres > 0)) continue
       const w14 = sumarDias(rendimiento, desde14, hasta, (f) => f.campaignId === c.campaignId)
       sumaUtil += presupuestoUtil(pres, w14.dias >= 14 ? w14.maxGastoDia : null)
@@ -710,14 +798,23 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
     const suma7 = sumaDePresupuestos(todosLosDias, desplazar(fecha, -7), true) ?? config.sumaPresupuestosInicio
     const actualDe = new Map(campanasRitmo.map((c) => [c.campaignId, c.presupuesto]))
     // Lo que falta en cada suma (útil frente al techo; la real de hoy frente al techo o la suma al encender y a la de hace 7 días), con lo ya comprometido en esta pasada: los donantes liberan distinto en cada una
+    // Lo que suben las R1 de hoy aún PENDIENTES (no están en la suma de hoy) se da por comprometido desde el principio: una R1 nueva no usa su hueco
     const huecoDeSuma = (campaignId: string, nuevo: number, comprometido: { suma: number; semana: number }) =>
-      faltaEnSumas({ actual: actualDe.get(campaignId) ?? 0, nuevo, sumaUtil: redondear2(sumaUtil + comprometido.suma), sumaActual: redondear2(sumaActual + comprometido.semana), techoMes: l.techoMes, suma7, sumaInicio: config.sumaPresupuestosInicio })
+      faltaEnSumas({
+        actual: actualDe.get(campaignId) ?? 0,
+        nuevo,
+        sumaUtil: redondear2(sumaUtil + subidasPendientesHoy + comprometido.suma),
+        sumaActual: redondear2(sumaActual + subidasPendientesHoy + comprometido.semana),
+        techoMes: l.techoMes,
+        suma7,
+        sumaInicio: config.sumaPresupuestosInicio,
+      })
     const res = reglasDePresupuesto(campanasRitmo, {
       ritmo: mes.ritmo,
       evento: l.evento?.fase ?? null,
       // Sin la API de uso no se sabe cuánto se gasta hoy: «agotada» solo sale del estado y no basta para subir (R4 sigue, las 12 h de usoDisponible)
-      sinSubidas: hoyTopes.soloBajadas || Boolean(usoError),
-      sinPresupuestoSubir: hoyTopes.sinPresupuestoSubir,
+      sinSubidas: hoyTopes.soloBajadas || gastoDesconocido,
+      sinPresupuestoSubir: hoyTopes.sinPresupuestoSubir || sinTopeDeSubirHoy,
       techoNulo: l.techoMes == null,
       // La «cuenta pequeña» es un freno de negocio: con los frenos automáticos apagados no impide subir presupuestos (topesDelDia ya la ignora igual)
       cuentaPequena: FRENOS_AUTOMATICOS && l.cuentaPequena,
@@ -727,7 +824,11 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
     avisos = res.avisos
     const conPropuesta = new Set<string>()
     for (const p of res.propuestas) {
-      propuestas.push(filaDeRitmo(p))
+      const fila = filaDeRitmo(p)
+      // Regla de presupuesto de Amazon activa hoy: la propuesta va sobre el presupuesto BASE; el efectivo queda a la vista
+      const efectivo = conRegla.get(p.campaignId)
+      if (efectivo != null) fila.metricas = { ...fila.metricas, reglaDePresupuesto: true, presupuestoEfectivo: efectivo }
+      propuestas.push(fila)
       conPropuesta.add(p.campaignId)
       if (p.clase === 'presupuesto_subir') r1De.set(p.campaignId, p)
       if (p.regla === 'R1_financiada') eventos.push({ tipo: 'mover_presupuesto', titulo: `Muevo presupuesto a «${p.nombre}»`, detalle: p.motivo, datos: { campaignId: p.campaignId, de: p.presupuestoActual, a: p.presupuestoNuevo } })

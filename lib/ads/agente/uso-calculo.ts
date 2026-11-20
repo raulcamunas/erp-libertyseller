@@ -2,7 +2,8 @@
  * AMAZON ADS · EL AGENTE PPC: USO DE PRESUPUESTO, HORA LOCAL Y CURVA DEL DÍA. PURO (nada de servidor).
  *
  * - La API de uso (`POST /sp/campaigns/budget/usage`) dice, por campaña, qué % del presupuesto de HOY lleva gastado. Se pide en lotes de 100 (secuenciales,
- *   lo hace el servidor) y aquí se interpreta la respuesta: el presupuesto es el `budget` de la RESPUESTA (ya con las reglas de presupuesto aplicadas), el minuto
+ *   lo hace el servidor) y aquí se interpreta la respuesta: el `budget` de la RESPUESTA lleva ya las reglas de presupuesto aplicadas (el EFECTIVO de hoy: con él
+ *   sale el gasto estimado; la fila guarda el BASE de la campaña, el que lee y escribe el motor), el minuto
  *   es el de `usageUpdatedTimestamp`, el uso se acota a [0, 200] (Amazon deja gastar hasta un 25 % más en un día) y un 207 sin ningún acierto es un ERROR.
  * - Un «día» es el día del marketplace: `horaLocal(ahora, zona)` con Intl (sin librerías), que respeta el cambio de horario.
  * - Una fila por campaña y día (`fusionarDiaDeUso`): uso último y máximo, gasto estimado, primer minuto en que se agotó (≥ 95 %) y si se agotó solo «por estado».
@@ -249,7 +250,8 @@ export function minutoLocalDe(iso: string | null, zona: string, fecha: string): 
 
 /**
  * Une una lectura de uso con la fila del día de esa campaña (una fila por campaña y día local).
- * - `presupuesto` y `usoPct` el último; `presupuestoPrimera` el de la primera lectura del día; `usoMaxPct` el máximo; `gastoEstimado` = presupuesto × uso / 100.
+ * - `presupuesto` y `usoPct` el último; `presupuestoPrimera` el de la primera lectura del día; `usoMaxPct` el máximo; `gastoEstimado` = presupuesto EFECTIVO × uso / 100
+ *   (`lectura.presupuestoEfectivo`, el de la API de uso con las reglas aplicadas; sin él, el base).
  * - `agotadaMin`: el primer minuto local (por `actualizadoAt`) con uso ≥ 95; una vez puesto no se borra en el día.
  * - `porEstado` (servingStatus = CAMPAIGN_OUT_OF_BUDGET, sin API): `agotadaPorEstado = true` y el minuto no se toca.
  * - Una lectura cuyo `actualizadoAt` es de OTRO día local (uso de ayer) no cuenta para hoy: solo se apunta que se leyó.
@@ -257,7 +259,7 @@ export function minutoLocalDe(iso: string | null, zona: string, fecha: string): 
  */
 export function fusionarDiaDeUso(
   previo: DiaDeUso | null,
-  lectura: { campaignId: string; usoPct: number | null; presupuesto: number | null; actualizadoAt: string | null; porEstado: boolean; estadoCampana: string | null },
+  lectura: { campaignId: string; usoPct: number | null; presupuesto: number | null; actualizadoAt: string | null; porEstado: boolean; estadoCampana: string | null; presupuestoEfectivo?: number | null },
   ahora: number,
   zona: string,
 ): DiaDeUso {
@@ -278,7 +280,9 @@ export function fusionarDiaDeUso(
   const maximos = [antes?.usoMaxPct, usoLeido].filter((x): x is number => x != null)
   const usoMaxPct = maximos.length ? Math.max(...maximos) : null
 
-  const gastoEstimado = usoLeido != null && presupuesto != null ? redondear2((presupuesto * usoLeido) / 100) : (antes?.gastoEstimado ?? null)
+  // El % de uso es sobre el presupuesto EFECTIVO de hoy (con las reglas de presupuesto de Amazon aplicadas), no sobre el base que guarda la fila
+  const efectivo = lectura.presupuestoEfectivo != null && Number.isFinite(lectura.presupuestoEfectivo) && lectura.presupuestoEfectivo > 0 ? lectura.presupuestoEfectivo : presupuesto
+  const gastoEstimado = usoLeido != null && efectivo != null ? redondear2((efectivo * usoLeido) / 100) : (antes?.gastoEstimado ?? null)
 
   let agotadaMin = antes?.agotadaMin ?? null
   if (agotadaMin == null && usoLeido != null && usoLeido >= AGENTE.USO_AGOTADO_PCT) {
@@ -384,4 +388,34 @@ export function proyectarHoy(gastoHoy: number, hora: number, minutos: number, cu
   const antes = h > 0 ? c[h - 1] : 0
   const fraccion = antes + (c[h] - antes) * (m / 60)
   return redondear2(Math.max(0, gastoHoy) / Math.max(AGENTE.CURVA_FRACCION_MIN, fraccion))
+}
+
+// ───────────────────────────── el texto de `uso_error` ─────────────────────────────
+
+/** Fallos PASAJEROS seguidos de la API de uso (429, 5xx, red) que hacen falta para darla por caída. Antes las subidas siguen: un fallo técnico de un segundo no deja la cuenta medio día sin crecer */
+export const USO_FALLOS_PASAJEROS = 3
+/** La marca de un error PASAJERO en `uso_error` (sin columna nueva): «[pasajero 2 · 2026-11-20T10:00:00.000Z] Uso de presupuesto: …» = 2 fallos seguidos, el último a esa hora */
+const RE_USO_PASAJERO = /^\[pasajero (\d+) · ([^\]\s]+)\] /
+/** Un texto de `uso_error` de ANTES de la marca que es de red o de un 429/5xx */
+const RE_USO_PASAJERO_ANTIGUO = /\(429\)|contestado 5\d\d|tiempo|timeout|timed out|fetch failed|ECONN|abort/i
+
+/** PURO. Lo guardado en `uso_error`: si es pasajero, cuántos fallos seguidos lleva y cuándo fue el último intento. null = sin error */
+export function leerUsoError(texto: string | null, usoErrorAt: string | null): { pasajero: boolean; fallos: number; ultimoIntento: string | null; mensaje: string } | null {
+  if (!texto) return null
+  const m = RE_USO_PASAJERO.exec(texto)
+  if (m) return { pasajero: true, fallos: Math.max(1, Math.floor(Number(m[1])) || 1), ultimoIntento: m[2], mensaje: texto.slice(m[0].length) }
+  // Un error de antes de la marca que es de red o un 429/5xx: pasajero, ya dado por caído (los fallos que hacen falta), con el último intento en la hora del primero
+  if (RE_USO_PASAJERO_ANTIGUO.test(texto)) return { pasajero: true, fallos: USO_FALLOS_PASAJEROS, ultimoIntento: usoErrorAt, mensaje: texto }
+  return { pasajero: false, fallos: 1, ultimoIntento: usoErrorAt, mensaje: texto }
+}
+
+/** PURO. El texto que se guarda en `uso_error` para un error pasajero */
+export function textoDeUsoPasajero(fallos: number, ultimoIntentoIso: string, mensaje: string): string {
+  return `[pasajero ${Math.max(1, Math.floor(fallos) || 1)} · ${ultimoIntentoIso}] ${mensaje}`.slice(0, 500)
+}
+
+/** PURO. ¿Cuenta el error de uso guardado como «no sé cuánto se gasta hoy»? Uno persistente, sí; uno pasajero, solo con USO_FALLOS_PASAJEROS seguidos */
+export function usoErrorBloquea(texto: string | null): boolean {
+  const e = leerUsoError(texto, null)
+  return e != null && (!e.pasajero || e.fallos >= USO_FALLOS_PASAJEROS)
 }
