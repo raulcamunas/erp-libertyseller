@@ -290,7 +290,8 @@ async function evaluarFrenoDeCuenta(
   const hoyEnEvento = l.evento?.fase === 'durante' || l.evento?.fase === 'previo'
   const { media7 } = gastoDelMes(rendimiento, todos, fecha, (d) => eventoEn(d, perfil.pais, manuales)?.fase === 'durante', hoyEnEvento)
 
-  const c7 = sumarDias(rendimiento, desplazar(hasta, -6), hasta)
+  // El ACoS de 7 días con las ventas ya atribuidas (la misma ventana que el acos7 de al encender, con el que se compara)
+  const c7 = sumarDias(rendimiento, desplazar(l.hastaVentas, -6), l.hastaVentas)
   const sumaHoy = sumaDePresupuestos(diasHoy, fecha) ?? 0
   const suma7 = sumaDePresupuestos(todos, desplazar(fecha, -7), true) ?? config.sumaPresupuestosInicio
 
@@ -552,16 +553,19 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
   const recorteDesde = config.recorteDesde ?? (config.ritmo === 'recorte' ? inicioDelRecorte : null)
   const sinSubidasCuenta = ritmoDeEsteMes === 'recorte' || hoyTopes.soloBajadas || l.techoMes == null || l.evento?.fase === 'posterior'
 
-  const desde7 = desplazar(hasta, -6)
   const desde14 = desplazar(hasta, -13)
+  // Las ventanas de los cocientes (ACoS, CVR, pedidos) acaban en «hastaVentas»: con los últimos días aún sin atribuir, el ACoS salía inflado (R2 marcaba «bajar», el recorte elegía como
+  // «mala» la campaña que vende y R1 dejaba de subirla). Gasto y ventas de un mismo cociente, siempre de la MISMA ventana; lo que es solo gasto sigue con «hasta»
+  const desde7v = desplazar(l.hastaVentas, -6)
+  const desde14v = desplazar(l.hastaVentas, -13)
   const fueraDeEvento = !(l.evento?.fase === 'durante')
   const campanasRitmo: CampanaParaRitmo[] = []
   const metricasDe = new Map<string, { ventas7: number; gasto7: number }>()
   for (const c of activas) {
     const asin = asinDeCampana(c.nombre)
     const deEsta = (f: DiaDeCampana) => f.campaignId === c.campaignId
-    const w7 = sumarDias(rendimiento, desde7, hasta, deEsta)
-    metricasDe.set(c.campaignId, { ventas7: w7.ventas, gasto7: w7.gasto })
+    const w7v = sumarDias(rendimiento, desde7v, l.hastaVentas, deEsta)
+    metricasDe.set(c.campaignId, { ventas7: w7v.ventas, gasto7: w7v.gasto })
     if (!partesDeNombre(c.nombre) || !asin) continue
     const p = productoDe.get(asin)
     if (!p || !p.activo || p.acosObjetivoPct == null) continue
@@ -569,6 +573,7 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
     const presupuesto = hoy?.presupuesto ?? c.presupuesto ?? 0
     if (!(presupuesto > 0)) continue
     const w14 = sumarDias(rendimiento, desde14, hasta, deEsta)
+    const w14v = sumarDias(rendimiento, desde14v, l.hastaVentas, deEsta)
     // La media de 14 días sin los días de un evento (si ya no estamos en él)
     const w14Media = fueraDeEvento ? sumarDias(rendimiento, desde14, hasta, (f) => deEsta(f) && !esDiaDeEvento(f.fecha)) : w14
     const esMarca = campanaEsDeMarca(c.nombre, p.marca)
@@ -602,15 +607,16 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       agotadaHoyMin: hoy?.agotadaMin ?? null,
       agotadaHoyPorEstado: hoy?.agotadaPorEstado ?? false,
       ...agotadaEnDias3(usoAnterior, c.campaignId, fecha),
-      gasto7: w7.gasto,
-      ventas7: w7.ventas,
-      pedidos7: w7.pedidos,
-      clics7: w7.clics,
-      diasConDatos7: w7.dias,
-      gasto14: w14.gasto,
-      ventas14: w14.ventas,
-      pedidos14: w14.pedidos,
-      clics14: w14.clics,
+      gasto7: w7v.gasto,
+      ventas7: w7v.ventas,
+      pedidos7: w7v.pedidos,
+      clics7: w7v.clics,
+      // Con la misma ventana que gasto7: en ritmo-calculo solo divide a gasto7 (gasto diario de R3 y del recorte)
+      diasConDatos7: w7v.dias,
+      gasto14: w14v.gasto,
+      ventas14: w14v.ventas,
+      pedidos14: w14v.pedidos,
+      clics14: w14v.clics,
       mediaGasto14: w14Media.dias > 0 ? redondear2(w14Media.gasto / w14Media.dias) : 0,
       maxGasto14: w14Media.maxGastoDia,
       diasConDatos14: w14Media.dias,
@@ -651,7 +657,7 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       ritmoAnterior: config.ritmo,
       ritmoAnteriorEsDeEsteMes: ritmoEsDeEsteMes,
       diasDesdeCambio: inicioDelRecorte ? diasEntre(inicioDelRecorte, fecha) : null,
-      acos30Cuenta: acosDe(l.cuenta30.gasto, l.cuenta30.ventas),
+      acos30Cuenta: acosDe(l.cuentaVentas30.gasto, l.cuentaVentas30.ventas),
       acosObjetivoMedio: l.acosObjetivoMedio,
       tacos30: ventasTotales30 != null && ventasTotales30 > 0 ? redondear2((l.cuenta30.gasto / ventasTotales30) * 100) : null,
       tacosObjetivoPct: ficha.tacosObjetivoPct,

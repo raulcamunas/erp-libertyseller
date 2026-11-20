@@ -25,6 +25,8 @@ import { asinDeCampana } from '../productos-agrupar'
 import { partesDeNombre } from '../reglas'
 import type { CuentaParaSincronizar } from '../sincronizar'
 import { ventasTotales, type VentaDeAsin } from '../ventas-totales'
+import { leerUmbrales } from '../umbrales-cuenta'
+import { UMBRALES_DE_PARTIDA } from '../umbrales'
 import { topesValidos } from './guardarrailes-calculo'
 import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, objetivoBase, techoAutomatico, techoDelMes } from './objetivos-calculo'
 import { coberturaDias, stockDeAsin, stockEfectivo } from './stock-calculo'
@@ -303,6 +305,16 @@ export function ultimoDiaCerrado(filas: readonly DiaDeCampana[], fechaLocal: str
   let max = ''
   for (const f of filas) if (f.fecha > max && f.fecha <= ayer) max = f.fecha
   return max || ayer
+}
+
+/**
+ * PURO. El último día con las VENTAS ya atribuidas: `hasta` (último día cerrado) menos los «días sin cerrar» de los umbrales (como mínimo, ayer), igual que motor-pujas y términos. Amazon sigue
+ * atribuyendo conversiones unos días: con «hasta» = ayer, las ventas recortadas de los últimos días inflaban el ACoS de 7 días y se recortaba lo que vendía. Toda ventana de un COCIENTE
+ * (ACoS, CVR, pedidos, tickets) acaba aquí, con el gasto y las ventas de la MISMA ventana; lo que es solo gasto (techo, gasto del mes, medias de gasto) sigue con «hasta».
+ */
+export function ultimoDiaConVentasCerradas(hasta: string, fechaLocal: string, diasSinCerrar: number): string {
+  const limite = desplazar(fechaLocal, -Math.max(1, Math.round(Number.isFinite(diasSinCerrar) ? diasSinCerrar : UMBRALES_DE_PARTIDA.diasSinCerrar)))
+  return limite < hasta ? limite : hasta
 }
 
 /**
@@ -604,12 +616,16 @@ export interface LecturaDeCuenta {
   ficha: FichaDeCuenta
   local: ReturnType<typeof horaLocal>
   rendimiento: DiaDeCampana[]
-  /** Último día cerrado con datos (≤ ayer local) */
+  /** Último día cerrado con datos (≤ ayer local): para lo que es solo GASTO */
   hasta: string
+  /** Último día con las ventas ya atribuidas (ultimoDiaConVentasCerradas): para todo cociente con ventas (ACoS, CVR, pedidos, tickets) */
+  hastaVentas: string
   productos: ProductoDelAgente[]
   ventas: VentasTotalesDeCuenta
-  /** Gasto, ventas… de la cuenta en 30 días cerrados */
+  /** Gasto, ventas… de la cuenta en 30 días cerrados (hasta «hasta»): para el GASTO (techo, cuenta pequeña, TACoS) */
   cuenta30: SumaDeVentana
+  /** Lo mismo con la ventana que acaba en «hastaVentas»: para el ACoS de 30 días de la cuenta */
+  cuentaVentas30: SumaDeVentana
   techo: { techo: number | null; automatico: boolean; congelar: boolean; cambia: boolean; detalle: string }
   techoMes: number | null
   evento: { nombre: string; fase: FaseDeEvento } | null
@@ -624,11 +640,21 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
   const [perfil, ficha] = await Promise.all([nombreDeCuenta(perfilId), leerFicha(perfilId)])
   const local = horaLocal(ahora, perfil.zona)
   const ayer = desplazar(local.fecha, -1)
-  const [rendimiento, ventas] = await Promise.all([rendimientoDiario(perfilId, desplazar(local.fecha, -dias), ayer), ventasTotalesDeCuenta(perfilId)])
+  const [rendimiento, ventas, diasSinCerrar] = await Promise.all([
+    rendimientoDiario(perfilId, desplazar(local.fecha, -dias), ayer),
+    ventasTotalesDeCuenta(perfilId),
+    // Los mismos «días sin cerrar» que motor-pujas; si no se pueden leer, los de partida
+    leerUmbrales(perfilId).then(
+      (u) => u.umbrales.diasSinCerrar,
+      () => UMBRALES_DE_PARTIDA.diasSinCerrar,
+    ),
+  ])
   const hasta = ultimoDiaCerrado(rendimiento, local.fecha)
-  const tickets = ticketsMedios(rendimiento, desplazar(hasta, -29), hasta)
+  const hastaVentas = ultimoDiaConVentasCerradas(hasta, local.fecha, diasSinCerrar)
+  const tickets = ticketsMedios(rendimiento, desplazar(hastaVentas, -29), hastaVentas)
   const productos = await productosDelAgente(perfilId, ficha, ahora, tickets)
   const cuenta30 = sumarDias(rendimiento, desplazar(hasta, -29), hasta)
+  const cuentaVentas30 = sumarDias(rendimiento, desplazar(hastaVentas, -29), hastaVentas)
 
   const ventasTotales30 = sumaDeVentas(ventas.v30)
   const manuales = config?.eventosManuales ?? []
@@ -669,9 +695,11 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
     local,
     rendimiento,
     hasta,
+    hastaVentas,
     productos,
     ventas,
     cuenta30,
+    cuentaVentas30,
     techo,
     techoMes,
     evento,
@@ -723,13 +751,15 @@ export function diaDeFila(x: Record<string, unknown>): DiaDeUso {
 /** El contexto de la cuenta para el cerebro, el resumen y el panel. Solo base de datos */
 export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, config: ConfigDelAgente | null, ahora: number): Promise<ContextoDelAgente> {
   const l = await leerCuenta(cuenta.id, config, ahora, 90)
-  const { perfil, local, rendimiento, hasta, productos, ventas, ficha } = l
+  const { perfil, local, rendimiento, hasta, hastaVentas, productos, ventas, ficha } = l
   const manuales = config?.eventosManuales ?? []
   const [uso, stock] = await Promise.all([filasDeUso(cuenta.id, desplazar(local.fecha, -40), local.fecha), stockPorAsin(cuenta.id)])
 
-  const desde7 = desplazar(hasta, -6)
-  const desde14 = desplazar(hasta, -13)
-  const desde30 = desplazar(hasta, -29)
+  // Las ventanas de ACoS acaban en «hastaVentas» (ventas ya atribuidas); las de solo gasto, en «hasta»
+  const desde7 = desplazar(hastaVentas, -6)
+  const desde14 = desplazar(hastaVentas, -13)
+  const desde30 = desplazar(hastaVentas, -29)
+  const desde30Gasto = desplazar(hasta, -29)
   const ayer = desplazar(local.fecha, -1)
 
   // Marca de cada campaña (por su producto)
@@ -739,18 +769,21 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
     return campanaEsDeMarca(f.nombre, a ? (marcaDe.get(a) ?? null) : null)
   }
 
-  const c7 = sumarDias(rendimiento, desde7, hasta)
+  const c7 = sumarDias(rendimiento, desde7, hastaVentas)
   const c30 = l.cuenta30
+  const c30v = l.cuentaVentas30
   const cAyer = sumarDias(rendimiento, ayer, ayer)
-  const m7 = sumarDias(rendimiento, desde7, hasta, esMarca)
+  const m7 = sumarDias(rendimiento, desde7, hastaVentas, esMarca)
   const ventasTotales30 = sumaDeVentas(ventas.v30)
 
   const prods: ProductoDelContexto[] = productos
     .filter((p) => p.activo)
     .map((p) => {
       const deAsin = (f: DiaDeCampana) => asinDeCampana(f.nombre) === p.asin
-      const s14 = sumarDias(rendimiento, desde14, hasta, deAsin)
-      const s30 = sumarDias(rendimiento, desde30, hasta, deAsin)
+      const s14 = sumarDias(rendimiento, desde14, hastaVentas, deAsin)
+      const s30 = sumarDias(rendimiento, desde30, hastaVentas, deAsin)
+      // Solo gasto (gasto de 30 días y TACoS contra las ventas totales, que no dependen de la atribución de Ads)
+      const s30g = sumarDias(rendimiento, desde30Gasto, hasta, deAsin)
       const vt30 = ventas.v30[p.asin]?.ventas ?? null
       const vt7 = ventas.v7[p.asin]?.ventas ?? null
       const vt14 = ventas.v14[p.asin]?.ventas ?? null
@@ -769,9 +802,9 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
         marca: p.marca,
         acos14Pct: acosDe(s14.gasto, s14.ventas),
         acos30Pct: acosDe(s30.gasto, s30.ventas),
-        tacos30Pct: vt30 != null && vt30 > 0 ? redondear2((s30.gasto / vt30) * 100) : null,
+        tacos30Pct: vt30 != null && vt30 > 0 ? redondear2((s30g.gasto / vt30) * 100) : null,
         clics14: s14.clics,
-        gasto30: s30.gasto,
+        gasto30: s30g.gasto,
         ventas30: s30.ventas,
         pedidos30: s30.pedidos,
         ventasTotales30: vt30,
@@ -821,10 +854,10 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
       gasto7: c7.gasto,
       ventas7: c7.ventas,
       acos7Pct: acosDe(c7.gasto, c7.ventas),
-      hasta7: hasta,
-      acos30Pct: acosDe(c30.gasto, c30.ventas),
+      hasta7: hastaVentas,
+      acos30Pct: acosDe(c30v.gasto, c30v.ventas),
       tacos30Pct: ventasTotales30 != null && ventasTotales30 > 0 ? redondear2((c30.gasto / ventasTotales30) * 100) : null,
-      ventasAds30: c30.ventas,
+      ventasAds30: c30v.ventas,
       ventasTotales30,
       ventasTotalesMes: null,
       ventasTotalesMesAnterior: null,
@@ -855,7 +888,8 @@ export async function datosParaEncender(
     if (!(err instanceof Error && err.message === FALTA_MIGRACION_315)) throw err
   }
   const l = await leerCuenta(cuenta.id, config, ahora, 35)
-  const c7 = sumarDias(l.rendimiento, desplazar(l.hasta, -6), l.hasta)
+  // El ACoS de 7 días con las ventas ya atribuidas (el freno «acos_cuenta» lo compara con la misma ventana)
+  const c7 = sumarDias(l.rendimiento, desplazar(l.hastaVentas, -6), l.hastaVentas)
 
   let sumaPresupuestos: number | null = null
   try {

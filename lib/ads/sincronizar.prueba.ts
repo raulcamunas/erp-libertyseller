@@ -1,4 +1,4 @@
-import { debeEmpezar, ESPERA_MAXIMA_MS, INTERVALO_MS, periodosAPedir, REINTENTO_TRAS_ERROR_MS } from './sincronizar'
+import { debeEmpezar, ESPERA_MAXIMA_MS, INTERVALO_MS, motivoDeObjetivosSinLeer, periodosAPedir, REINTENTO_TRAS_ERROR_MS, type InformePedido } from './sincronizar'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -37,6 +37,20 @@ console.log('\n=== constantes ===')
 {
   ok('se espera a Amazon como mucho 25 min', ESPERA_MAXIMA_MS === 25 * 60_000)
   ok('lectura nueva cada 3 horas', INTERVALO_MS === 3 * 3_600_000)
+}
+console.log('\n=== segmentaciones sin leer (A14) ===')
+{
+  const obj: InformePedido = { id: 'o1', desde: '2026-10-28', hasta: '2026-11-10', tipo: 'objetivos' }
+  const camp: InformePedido = { id: 'c1', desde: '2026-10-28', hasta: '2026-11-10' }
+  ok('todo COMPLETED y guardado → bien', motivoDeObjetivosSinLeer([camp, obj], [{ estado: 'COMPLETED', url: 'u' }], null) === null)
+  ok('informe de objetivos FAILED → motivo', /no ha podido generar/.test(motivoDeObjetivosSinLeer([camp, obj], [{ estado: 'FAILED', detalle: 'x' }], null) ?? ''))
+  ok('pendiente al recoger → motivo', /pendiente/.test(motivoDeObjetivosSinLeer([camp, obj], [{ estado: 'PROCESSING' }], null) ?? ''))
+  ok('rechazado al pedirlo → motivo', /no ha aceptado/.test(motivoDeObjetivosSinLeer([camp, { ...obj, id: '', rechazado: '400' }], [], null) ?? ''))
+  ok('fallo al guardar → motivo', /guardar/.test(motivoDeObjetivosSinLeer([camp, obj], [{ estado: 'COMPLETED', url: 'u' }], 'timeout') ?? ''))
+  ok('sin informes de objetivos (tabla sin migrar) → nada que decir', motivoDeObjetivosSinLeer([camp], [], null) === null)
+  const guardadoSinObj = { ...base, ultimoOkAt: AHORA - 40 * 60_000, pedidoAt: AHORA - 40 * 60_000, hayError: true, faltanObjetivos: true }
+  ok('faltaron las segmentaciones hace 40 min → se vuelven a pedir (sin esperar 3 h)', debeEmpezar(guardadoSinObj))
+  ok('… pero no antes del rato de reintento', !debeEmpezar({ ...guardadoSinObj, pedidoAt: AHORA - 10 * 60_000, ultimoOkAt: AHORA - 10 * 60_000 }))
 }
 console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)
 process.exit(fallos === 0 ? 0 : 1)

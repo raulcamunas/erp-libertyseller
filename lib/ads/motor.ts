@@ -51,7 +51,7 @@ import { anotarEnLote } from './log'
 import { conRastro } from './rastro'
 import { todasLasFilas } from './paginar'
 import { objetivosDesdeAcos, precioParaMotor, ticketsMedios } from './margen'
-import { clavesEnCuarentena, confirmaPausaDeReintento, confirmaReintento, decidirEnsayo, esReintentoDeTransporte, decidirSiSePuedeAplicar, hayQueComprobarColumna, inicioDelDiaEnEspana, motivoDeObsoleta, planificarPropuestas, pujaDePromover, resultadoDeComprobarColumna, valorSigueIgual, type CacheDeColumna, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
+import { clavesEnCuarentena, confirmaPausaDeReintento, confirmaReintento, decidirEnsayo, esReintentoDeTransporte, decidirSiSePuedeAplicar, hayQueComprobarColumna, inicioDelDiaEnEspana, motivoDeObsoleta, planificarPropuestas, pujaDePromover, pujasDelMotorACaducar, resultadoDeComprobarColumna, valorSigueIgual, type CacheDeColumna, type DestinoDeCampana, type PropuestaNueva } from './motor-calculo'
 import { asinDeCampana } from './productos-agrupar'
 import { esAsin, normalizarTexto, palabrasDe, partesDeNombre, type ObjetivosParaReglas, type TipoDePropuesta } from './reglas'
 import { cambiarEstado } from './segmentaciones'
@@ -1190,6 +1190,43 @@ export async function caducarSubidasPendientes(perfilId: string, motivo: string)
     const { data: hechas, error: e } = await service
       .from('ads_propuestas')
       .update({ estado: 'caducada', resuelta_at: new Date().toISOString(), error: `Caducada por el agente: ${motivo}`.slice(0, 500) })
+      .eq('perfil_id', perfilId)
+      .eq('estado', 'pendiente')
+      .in('id', ids.slice(i, i + 200))
+      .select('id')
+    if (e) throw errorDelAgente(e)
+    n += hechas?.length ?? 0
+  }
+  return n
+}
+
+/**
+ * Caduca las pujas y pausas PENDIENTES de la generación diaria del motor con más de `horas` (pujasDelMotorACaducar): se llama justo ANTES de generar en modo agente, para que la generación de hoy
+ * las vuelva a calcular con su ventana en vez de aplicarlas días más tarde con métricas viejas. Sin la 315 (sin origen ni retenida_at) no hace nada. Lanza si falla la base.
+ */
+export async function caducarPujasViejasDelMotor(perfilId: string, horas: number): Promise<number> {
+  if (!(await columnasAgente())) return 0
+  const service = createServiceClient()
+  const { data, error } = await todasLasFilas((a, b) =>
+    service
+      .from('ads_propuestas')
+      .select('id, tipo, origen, retenida_at, error, creada_at')
+      .eq('perfil_id', perfilId)
+      .eq('estado', 'pendiente')
+      .in('tipo', ['puja', 'pausar'])
+      .eq('origen', 'motor')
+      .is('retenida_at', null)
+      .lt('creada_at', new Date(Date.now() - horas * 3_600_000).toISOString())
+      .order('id')
+      .range(a, b) as unknown as PromiseLike<{ data: Array<{ id: string; tipo: string; origen: string | null; retenida_at: string | null; error: string | null; creada_at: string }> | null; error: { code?: string; message?: string } | null }>,
+  )
+  if (error) throw errorDelAgente(error)
+  const ids = pujasDelMotorACaducar(data ?? [], Date.now(), horas)
+  let n = 0
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: hechas, error: e } = await service
+      .from('ads_propuestas')
+      .update({ estado: 'caducada', resuelta_at: new Date().toISOString(), error: 'Caducada por el agente: datos de otra generación' })
       .eq('perfil_id', perfilId)
       .eq('estado', 'pendiente')
       .in('id', ids.slice(i, i + 200))

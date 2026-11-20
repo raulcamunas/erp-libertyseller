@@ -21,6 +21,7 @@ import { parametrosDeIa } from '@/lib/ia/modelo'
 import type { CuentaParaSincronizar } from '../sincronizar'
 import { esAsin, normalizarTexto } from '../reglas'
 import { asinDeCampana } from '../productos-agrupar'
+import { todasLasFilas } from '../paginar'
 import {
   AGENTE,
   FALTA_MIGRACION_315,
@@ -460,9 +461,24 @@ export async function pensarCuenta(
 
   // 3) Términos: REVISAR pendientes y los de más gasto sin pedidos, sin etiqueta vigente
   const hashPorAsin = new Map(contexto.productos.map((p) => [p.asin.toUpperCase(), hashDeTitulo(p.nombre)]))
-  const { data: dEtiq } = await db.from('ads_terminos_ia').select('asin, termino, titulo_hash, caduca_at').eq('perfil_id', perfilId).gt('caduca_at', new Date(ahora).toISOString()).limit(5000)
+  // Paginado y con orden total (la clave): con `.limit(5000)` PostgREST cortaba en 1.000 filas en silencio, los términos ya etiquetados se reenviaban a la IA, ocupaban las plazas y los
+  // REVISAR nuevos se quedaban sin etiqueta
+  type FilaEtiqueta = { asin: string; termino: string; titulo_hash: string | null; caduca_at: string | null }
+  const { data: dEtiq, error: eEtiq } = await todasLasFilas<FilaEtiqueta>(
+    (a, b) =>
+      db
+        .from('ads_terminos_ia')
+        .select('asin, termino, titulo_hash, caduca_at')
+        .eq('perfil_id', perfilId)
+        .gt('caduca_at', new Date(ahora).toISOString())
+        .order('asin')
+        .order('termino')
+        .range(a, b) as unknown as PromiseLike<{ data: FilaEtiqueta[] | null; error: { code?: string; message?: string } | null }>,
+    { tope: 200_000, lanzarAlTope: true }
+  )
+  if (eEtiq) console.error(`[agente] etiquetas de términos de ${perfilId}: ${eEtiq.message ?? eEtiq.code}; hoy no se mandan términos a la IA`)
   const vigentes = new Set<string>()
-  for (const f of (dEtiq ?? []) as Array<{ asin: string; termino: string; titulo_hash: string | null; caduca_at: string | null }>) {
+  for (const f of dEtiq) {
     const asin = String(f.asin).toUpperCase()
     if (etiquetaSigueValiendo(f, hashPorAsin.get(asin) ?? null, ahora)) vigentes.add(`${asin}|${f.termino}`)
   }
@@ -474,7 +490,8 @@ export async function pensarCuenta(
   const delInforme = ((dTer ?? []) as Array<Record<string, unknown>>)
     .map((t) => ({ asin: asinDeCampana(String(t.campaign_nombre ?? '')), termino: String(t.termino ?? ''), clics: numero(t.clics), gasto: numero(t.gasto), pedidos: numero(t.pedidos) }))
     .filter((t) => t.asin != null && asinsDeLaCuenta.has(t.asin.toUpperCase()))
-  const terminos = terminosParaLaIa(revisar, delInforme, (asin, clave) => vigentes.has(`${asin}|${clave}`))
+  // Sin saber qué está ya etiquetado no se manda ningún término (se reenviarían los de siempre y se gastaría la IA en ellos); las posturas y las raras siguen
+  const terminos = eEtiq ? [] : terminosParaLaIa(revisar, delInforme, (asin, clave) => vigentes.has(`${asin}|${clave}`))
 
   if (contexto.productos.length === 0 && raras.length === 0 && terminos.length === 0) {
     return { ok: true, motivo: 'Nada que pensar: sin productos, raras ni términos', tope: false, coste: 0, posturas: 0, terminos: 0, decisiones: [] }

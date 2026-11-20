@@ -17,6 +17,7 @@ import { AmazonApiError } from '@/lib/amazon/errors'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
 import { marketplaceDePais } from './cuenta'
 import { SIN_VENDEDOR } from './tacos'
+import { todasLasFilas } from './paginar'
 
 export const PERIODOS_VENTAS = [7, 14, 30] as const
 const CADA_MS = 20 * 3_600_000
@@ -180,11 +181,22 @@ export async function avanzarVentas(perfilId: string): Promise<'nada' | 'pedido'
   }
 }
 
-/** Las ventas totales guardadas de un periodo, por ASIN (vacío si aún no se han leído o falta la migración). Si no hay nada y es porque falta la cuenta de vendedor, lo dice en `error` */
+/**
+ * Las ventas totales guardadas de un periodo, por ASIN (vacío si aún no se han leído o falta la migración). Si no hay nada y es porque falta la cuenta de vendedor, lo dice en `error`.
+ * Paginado con orden por ASIN (la clave): con `.limit(5000)` PostgREST cortaba en 1.000 filas sin avisar y, con muchas variaciones, el total salía corto (TACoS inflado, techo más bajo). Si la
+ * lectura falla, LANZA (nunca una suma parcial): quien llama deja la ventana vacía y el techo, el freno y la tendencia se desactivan.
+ */
 export async function ventasTotales(perfilId: string, dias: number): Promise<{ porAsin: Record<string, VentaDeAsin>; leidoAt: string | null; error: string | null }> {
   const service = createServiceClient()
   const [{ data, error }, { data: sync }] = await Promise.all([
-    service.from('ads_ventas_asin').select('asin, ventas, unidades, pedidos, sesiones, moneda, leido_at').eq('perfil_id', perfilId).eq('dias', dias).limit(5000),
+    todasLasFilas(
+      (a, b) =>
+        service.from('ads_ventas_asin').select('asin, ventas, unidades, pedidos, sesiones, moneda, leido_at').eq('perfil_id', perfilId).eq('dias', dias).order('asin').range(a, b) as unknown as PromiseLike<{
+          data: Array<Record<string, unknown>> | null
+          error: { code?: string; message?: string } | null
+        }>,
+      { tope: 100_000, lanzarAlTope: true }
+    ),
     service.from('ads_ventas_sync').select('error, ultimo_ok_at').eq('perfil_id', perfilId).maybeSingle(),
   ])
   if (error) {

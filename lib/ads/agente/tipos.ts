@@ -222,6 +222,11 @@ export const AGENTE = {
   IA_ETIQUETA_DIAS: 180,
   IA_VALIDACION_MUESTRA: 50,
   IA_VALIDACION_ACUERDO: 0.8,
+  // caducidad de las propuestas diarias del motor
+  /** Una puja o pausa del motor (generación diaria) con más horas que esto ya se decidió con otra ventana de métricas: se caduca y la generación siguiente la recalcula (red de seguridad;
+   *  lo normal es que motor-cron las caduque a las PROPUESTA_PUJA_CADUCA_HORAS, justo antes de generar) */
+  PROPUESTA_PUJA_MAX_HORAS: 36,
+  PROPUESTA_PUJA_CADUCA_HORAS: 20,
   // rareza
   RARA_PAUSA_GASTO_X: 0.1,
   RARA_BAJADA_PEDIDOS: 5,
