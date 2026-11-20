@@ -110,8 +110,19 @@ export function lineasDeFila(f: Pick<FilaFacturacion, 'fee' | 'comision' | 'info
 
 /** «Creative Toys | Packaging | Noviembre 2026»: el subencargo lleva su concepto en el número, para no chocar con la del fee */
 export function numeroDeSubencargo(etiqueta: string, concepto: string, period: string): string {
-  return `${etiqueta.trim()} | ${concepto.trim().replace(/\|/g, '/')} | ${mesDelPeriodo(period)}`
+  const mes = mesDelPeriodo(period)
+  let nombre = etiqueta.trim()
+  let que = concepto.trim().replace(/\|/g, '/')
+  // Zoho no admite números de 50 caracteres o más: se recorta el concepto y, si aún no cabe, el nombre (el mes nunca:
+  // es lo que dice a qué mes es la factura)
+  const sobra = () => `${nombre} | ${que} | ${mes}`.length - LARGO_MAXIMO_NUMERO
+  if (sobra() > 0) que = que.slice(0, Math.max(12, que.length - sobra())).trim()
+  if (sobra() > 0) nombre = nombre.slice(0, Math.max(4, nombre.length - sobra())).trim()
+  return `${nombre} | ${que} | ${mes}`
 }
+
+/** Zoho rechaza el número de factura a partir de 50 caracteres */
+export const LARGO_MAXIMO_NUMERO = 49
 
 export function lineasDelMes(fee: number | null, comision: number | null, informes: InformeDeComision[] = []): LineaFactura[] {
   const lineas: LineaFactura[] = []

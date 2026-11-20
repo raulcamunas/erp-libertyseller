@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { exigirAdmin } from '@/lib/facturacion/acceso'
-import { periodoDeFactura } from '@/lib/facturacion/logica'
+import { LARGO_MAXIMO_NUMERO, periodoDeFactura } from '@/lib/facturacion/logica'
 import { registrar } from '@/lib/facturacion/registro'
 import type { DetalleFactura, LineaFactura } from '@/lib/facturacion/tipos'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -26,7 +26,7 @@ const responderError = (error: unknown) => {
 
 function validar(cuerpo: { numero?: string; fecha?: string; vence?: string; lineas?: LineaFactura[] }): string | null {
   if (!cuerpo.numero?.trim()) return 'Falta el número de factura'
-  if (cuerpo.numero.trim().length > 100) return 'El número de factura es demasiado largo'
+  if (cuerpo.numero.trim().length > LARGO_MAXIMO_NUMERO) return `El número de factura tiene ${cuerpo.numero.trim().length} caracteres y Zoho admite ${LARGO_MAXIMO_NUMERO} como mucho: acórtalo`
   if (!cuerpo.fecha || !FECHA.test(cuerpo.fecha)) return 'Falta la fecha de la factura'
   if (!cuerpo.vence || !FECHA.test(cuerpo.vence)) return 'Falta el vencimiento'
   if (cuerpo.vence < cuerpo.fecha) return 'El vencimiento no puede ser anterior a la fecha de la factura'
