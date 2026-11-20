@@ -21,12 +21,12 @@ const dinero = (n: number | null, moneda: string | null) => (n === null ? '—' 
 const fechaHora = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-ES', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '—')
 const fechaDia = (dia: string | null) => (dia ? new Date(`${dia}T12:00:00Z`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }) : '—')
 
-export function TransporteCliente({ token }: { token: string }) {
+export function TransporteCliente({ token, hojaPreferida = null }: { token: string; hojaPreferida?: string | null }) {
   const [t, setT] = useState<TransporteParaElCliente | null>(null)
   const [nombre, setNombre] = useState('')
   const [aceptando, setAceptando] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [hoja, setHoja] = useState<'a4_2' | 'termica'>('a4_2')
+  const [hoja, setHoja] = useState<'a4_2' | 'termica'>(hojaPreferida === 'termica' ? 'termica' : 'a4_2')
   const [pidiendo, setPidiendo] = useState(false)
   const [enlaces, setEnlaces] = useState<Array<{ confirmacion: string | null; cajas: number; url: string | null; error: string | null }>>([])
 

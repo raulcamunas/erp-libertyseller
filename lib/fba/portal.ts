@@ -1,3 +1,4 @@
+import { preferenciasDe } from './preferencias-etiquetas'
 import { createServiceClient } from '@/lib/supabase/service'
 import { cajasDeRemesa, faltaLaFuncion, type ClienteDeBase } from './cajas'
 import type { ResolucionDeEnlace } from './encaje-enlace'
@@ -75,7 +76,8 @@ export interface DatosDelPortal {
   lineas: LineaDePropuesta[]
   /** ¿Tiene catálogo de Amazon en el que buscar para añadir? */
   conCatalogo: boolean
-  etiquetas: { disponibles: boolean; ultima: { at: string; etiquetas: number } | null }
+  /** `formato` y `hojaCaja`: la hoja fijada para este cliente (migración 327), o null = la de siempre */
+  etiquetas: { disponibles: boolean; ultima: { at: string; etiquetas: number } | null; formato?: string | null; hojaCaja?: string | null }
   cajas: { cajas: number; unidades: number; pesoKg: number } | null
   /** El nº de envío FBA, cuando lo hay. La fase «Envío» lo enseña */
   referenciaEnvio: string | null
@@ -144,6 +146,8 @@ export async function datosDelPortal(r: Comprobado, service: ClienteDeBase = cre
     if (data) ultima = { at: (data as { impreso_at: string }).impreso_at, etiquetas: (data as { etiquetas: number }).etiquetas }
   }
 
+  const preferidas = await preferenciasDe(r.remesa.clienteId, service).catch(() => ({ producto: null, caja: null }))
+
   let cajas: DatosDelPortal['cajas'] = null
   if (estado !== 'borrador' && estado !== 'aprobada') {
     const c = await cajasDeRemesa(r.remesa.id, service)
@@ -165,7 +169,7 @@ export async function datosDelPortal(r: Comprobado, service: ClienteDeBase = cre
     comentarioCliente: fila.cliente_comentario ?? null,
     lineas,
     conCatalogo: Boolean(fila.connection_id),
-    etiquetas: { disponibles: etiquetasDisponibles(estado), ultima },
+    etiquetas: { disponibles: etiquetasDisponibles(estado), ultima, formato: preferidas.producto, hojaCaja: preferidas.caja },
     cajas,
     referenciaEnvio: fila.referencia_envio,
     caducaAt: r.enlace.caducaAt,

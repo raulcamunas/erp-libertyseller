@@ -76,6 +76,23 @@ export const FORMATOS: FormatoHoja[] = [
     hueco: { horizontal: 0, vertical: 0 },
   },
   {
+    /**
+     * LA HOJA DE 40 DE SELLER CENTRAL (4 × 10, 52,5 × 29,7 mm, sin márgenes). La usa ShoesF.
+     *
+     * El comentario de 'a4-30' explica por qué 4 columnas quedan por debajo del módulo de 13,33 mils de la
+     * especificación. Amazon, sin embargo, ofrece esta hoja en Seller Central y sus almacenes la leen: es la que
+     * el cliente ya pega. Aquí el módulo sale a 0,27 mm (10,8 mils) con la zona muda entera, por encima de lo
+     * que la impresora resuelve (MODULO_MINIMO en etiquetas.ts).
+     */
+    id: 'a4-40',
+    nombre: 'A4 · 40 etiquetas (52,5 × 29,7 mm), la de Amazon',
+    pagina: { ancho: 210, alto: 297 },
+    rejilla: { columnas: 4, filas: 10 },
+    etiqueta: { ancho: 52.5, alto: 29.7 },
+    margen: { izquierda: 0, arriba: 0 },
+    hueco: { horizontal: 0, vertical: 0 },
+  },
+  {
     // Impresora térmica de rollo: una etiqueta por página
     id: 'termica-57x32',
     nombre: 'Térmica · rollo 57 × 32 mm',
@@ -86,3 +103,21 @@ export const FORMATOS: FormatoHoja[] = [
     hueco: { horizontal: 0, vertical: 0 },
   },
 ]
+
+/** Las hojas de las etiquetas de CAJA de Amazon (getLabels). La térmica es la de 10 × 15 cm */
+export const HOJAS_CAJA = [
+  { id: 'a4_2', texto: 'A4 · 2 por hoja' },
+  { id: 'a4_4', texto: 'A4 · 4 por hoja' },
+  { id: 'termica', texto: 'Térmica 10 × 15' },
+  { id: 'folio', texto: 'Folio' },
+] as const
+export type HojaCaja = (typeof HOJAS_CAJA)[number]['id']
+
+export const esFormatoProducto = (v: unknown): v is string => typeof v === 'string' && FORMATOS.some((f) => f.id === v)
+export const esHojaCaja = (v: unknown): v is HojaCaja => typeof v === 'string' && HOJAS_CAJA.some((h) => h.id === v)
+
+/** Lo que tiene fijado un cliente. null en cada una = la de siempre */
+export interface PreferenciasEtiquetas {
+  producto: string | null
+  caja: HojaCaja | null
+}

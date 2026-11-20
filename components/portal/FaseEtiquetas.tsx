@@ -16,7 +16,7 @@ import { Aviso, Franja } from './FasePropuesta'
  * con origen 'enlace'. Si alguna referencia no tiene FNSKU todavía, se dice cuál y se avisa a la agencia.
  */
 export function FaseEtiquetas({ token, datos }: { token: string; datos: DatosDelPortal }) {
-  const [formato, setFormato] = useState('a4-21')
+  const [formato, setFormato] = useState(datos.etiquetas.formato ?? 'a4-21')
   const [descargando, setDescargando] = useState(false)
   const [resultado, setResultado] = useState<{ etiquetas: number; paginas: number; descartadas: number; motivos: string[] } | null>(null)
   const [error, setError] = useState<string | null>(null)

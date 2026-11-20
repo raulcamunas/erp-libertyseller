@@ -325,7 +325,7 @@ export function EspacioPropuesta({
                   Aprobada{remesa.aprobadaAt ? ` el ${fecha(remesa.aprobadaAt)}` : ''}. Ahora toca etiquetar la mercancía y, cuando esté, empezar a encajarla.
                 </p>
               </Tarjeta>
-              <ImprimirEtiquetas remesa={remesa} destacado />
+              <ImprimirEtiquetas remesa={remesa} destacado agencia={sesion.esAgencia} />
               {actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="aprobada" />}
               <ResumenLineas remesa={remesa} abierto />
             </>
@@ -351,7 +351,7 @@ export function EspacioPropuesta({
                 puedeEditar={puedeEditar}
                 version={cajas?.version ?? null}
               />
-              {puedeImprimirEtiquetas(remesa.estado) && <ImprimirEtiquetas remesa={remesa} />}
+              {puedeImprimirEtiquetas(remesa.estado) && <ImprimirEtiquetas remesa={remesa} agencia={sesion.esAgencia} />}
               <ResumenLineas remesa={remesa} />
             </>
           )}
@@ -374,7 +374,7 @@ export function EspacioPropuesta({
               )}
               {agenciaEdita && <PlantillasAmazon remesaId={remesa.id} referencias={remesa.lineas.length} unidades={unidades} />}
               {agenciaEdita && <DireccionOrigen clienteId={cliente.id} clienteNombre={cliente.nombre} puedeEditar={puedeEditar} />}
-              <ImprimirEtiquetas remesa={remesa} />
+              <ImprimirEtiquetas remesa={remesa} agencia={sesion.esAgencia} />
               {actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="lista" />}
               <ResumenLineas remesa={remesa} />
             </>

@@ -14,8 +14,8 @@ import { TransporteCliente } from './TransporteCliente'
  * TRANSPORTE (UPS de Amazon) con el botón «Acepto el coste del transporte» y, ya confirmado, las etiquetas de
  * caja para imprimir (components/portal/TransporteCliente.tsx, rutas /api/publico/envio/[token]/transporte).
  */
-export function HuecoCosteTransporte({ token }: { token: string; datos: DatosDelPortal }) {
-  return <TransporteCliente token={token} />
+export function HuecoCosteTransporte({ token, datos }: { token: string; datos: DatosDelPortal }) {
+  return <TransporteCliente token={token} hojaPreferida={datos.etiquetas.hojaCaja ?? null} />
 }
 
 const PASOS = [

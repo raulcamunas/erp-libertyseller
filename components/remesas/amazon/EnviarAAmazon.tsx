@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  Pin,
   AlertTriangle,
   Ban,
   Boxes,
@@ -35,6 +36,7 @@ import { Boton, CifraAnimada, Confirmacion, EsqueletoTarjeta, EstadoVacio, FilaD
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import { FASES_ENVIO, cuantoQueda, faseDelPaso, type FaseEnvio, type Problema } from '@/lib/fba/envio-amazon'
 import type { EstadoDelEnvio } from '@/lib/fba/envio-amazon-motor'
+import { HOJAS_CAJA, type HojaCaja } from '@/lib/fba/formatos-etiqueta'
 import { invalidarRemesas } from '../comun/useAgencia'
 import { useEnvioAmazon } from './useEnvioAmazon'
 import { DireccionOrigen } from '../DireccionOrigen'
@@ -845,15 +847,42 @@ function AnulableHasta({ hasta, ahora }: { hasta: string | null; ahora: Date }) 
 
 /* 5 · Etiquetas ---------------------------------------------------- */
 
-const HOJAS = [
-  { id: 'a4_2', texto: 'A4 · 2 por hoja' },
-  { id: 'a4_4', texto: 'A4 · 4 por hoja' },
-  { id: 'termica', texto: 'Térmica' },
-  { id: 'folio', texto: 'Folio' },
-] as const
+const HOJAS = HOJAS_CAJA
 
 function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId: string; onEnviada: () => void }) {
-  const [hoja, setHoja] = useState<(typeof HOJAS)[number]['id']>('a4_2')
+  const [hoja, setHoja] = useState<HojaCaja>('a4_2')
+  /** La hoja fijada para este cliente (migración 327): Solter, la térmica de 10 × 15 */
+  const [hojaDelCliente, setHojaDelCliente] = useState<HojaCaja | null>(null)
+  const [fijando, setFijando] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    fetch(`/api/fba/remesas/${remesaId}/preferencias-etiquetas`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p: { caja?: HojaCaja | null } | null) => {
+        if (!vivo || !p?.caja) return
+        setHojaDelCliente(p.caja)
+        setHoja(p.caja)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [remesaId])
+  async function fijarHoja() {
+    setFijando(true)
+    try {
+      const res = await fetch(`/api/fba/remesas/${remesaId}/preferencias-etiquetas`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caja: hoja }) })
+      const p = (await res.json().catch(() => null)) as { caja?: HojaCaja | null; error?: string } | null
+      if (!res.ok) {
+        toast.error(p?.error ?? 'No se ha podido guardar')
+        return
+      }
+      setHojaDelCliente(p?.caja ?? hoja)
+      toast.success('Esta hoja de cajas sale ya elegida en todos los envíos de este cliente')
+    } finally {
+      setFijando(false)
+    }
+  }
   const [pidiendo, setPidiendo] = useState(false)
   const [enlaces, setEnlaces] = useState<Array<{ shipmentId: string; confirmacion: string | null; destino: string | null; cajas: number; url: string | null; error: string | null }>>([])
   const [marcando, setMarcando] = useState(false)
@@ -946,7 +975,16 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
     <div className="space-y-3">
       <Tarjeta indice={0} variante="destacada" acento="remesas" icono={Printer} titulo="Etiquetas de caja y de UPS" subtitulo="Una por caja. Los enlaces de Amazon caducan: se piden al pulsar">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Segmentado etiqueta="Formato de hoja" tamano="sm" opciones={HOJAS.map((h) => ({ id: h.id, texto: h.texto }))} valor={hoja} onCambio={setHoja} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmentado etiqueta="Formato de hoja" tamano="sm" opciones={HOJAS.map((h) => ({ id: h.id, texto: h.texto }))} valor={hoja} onCambio={setHoja} />
+            {hoja !== hojaDelCliente ? (
+              <Boton variante="fantasma" tamano="sm" icono={Pin} cargando={fijando} onClick={() => void fijarHoja()} title="Que esta hoja salga elegida siempre en los envíos de este cliente">
+                Fijar para este cliente
+              </Boton>
+            ) : (
+              <span className="text-[11px] text-[var(--ls-t4)]">La hoja de este cliente</span>
+            )}
+          </div>
           <Boton variante="primario" icono={Download} cargando={pidiendo} onClick={() => void pedir()}>
             Descargar etiquetas
           </Boton>

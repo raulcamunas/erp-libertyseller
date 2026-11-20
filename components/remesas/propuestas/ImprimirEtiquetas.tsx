@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { AlertTriangle, Printer, RefreshCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, Pin, Printer, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Boton } from '@/components/ui-ls'
 import { CAMPO, COLOR_ESTADO, TIPO } from '@/lib/estilo/denso'
@@ -25,9 +25,43 @@ import { fecha } from '../formato'
  * la de la propuesta.
  */
 
-export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel; destacado?: boolean }) {
+export function ImprimirEtiquetas({ remesa, destacado, agencia }: { remesa: RemesaDePanel; destacado?: boolean; agencia?: boolean }) {
   const [imprimiendo, setImprimiendo] = useState(false)
   const [formato, setFormato] = useState(FORMATOS[0].id)
+  /** La hoja fijada para este cliente (migración 327). Al abrir, se elige sola */
+  const [delCliente, setDelCliente] = useState<string | null>(null)
+  const [fijando, setFijando] = useState(false)
+
+  useEffect(() => {
+    let vivo = true
+    fetch(`/api/fba/remesas/${remesa.id}/preferencias-etiquetas`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p: { producto?: string | null } | null) => {
+        if (!vivo || !p?.producto) return
+        setDelCliente(p.producto)
+        setFormato(p.producto)
+      })
+      .catch(() => {})
+    return () => {
+      vivo = false
+    }
+  }, [remesa.id])
+
+  async function fijarParaElCliente() {
+    setFijando(true)
+    try {
+      const res = await fetch(`/api/fba/remesas/${remesa.id}/preferencias-etiquetas`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ producto: formato }) })
+      const p = (await res.json().catch(() => null)) as { producto?: string | null; error?: string } | null
+      if (!res.ok) {
+        toast.error(p?.error ?? 'No se ha podido guardar')
+        return
+      }
+      setDelCliente(p?.producto ?? formato)
+      toast.success('Esta hoja sale ya elegida en todos los envíos de este cliente')
+    } finally {
+      setFijando(false)
+    }
+  }
   const [leyendo, setLeyendo] = useState(false)
   const vieja = remesa.ultimaImpresion && remesa.ultimaImpresion.version < remesa.version
 
@@ -147,6 +181,12 @@ export function ImprimirEtiquetas({ remesa, destacado }: { remesa: RemesaDePanel
             ))}
           </select>
         </label>
+        {agencia && formato !== delCliente && (
+          <Boton variante="fantasma" tamano="sm" icono={Pin} cargando={fijando} onClick={() => void fijarParaElCliente()} title="Que esta hoja salga elegida siempre en los envíos de este cliente (y en su enlace)">
+            Fijar para este cliente
+          </Boton>
+        )}
+        {delCliente && formato === delCliente && <span className="text-[11px] text-[var(--ls-t4)]">La hoja de este cliente</span>}
         <p className={cx(TIPO.s, 'basis-full text-[var(--ls-t3)]')}>Se abre en una pestaña nueva para revisarlas antes de mandarlas a la impresora.</p>
       </div>
     </Tarjeta>
