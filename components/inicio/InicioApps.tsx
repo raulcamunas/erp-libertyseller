@@ -3,6 +3,7 @@ import { ArrowUpRight, LayoutGrid, Sparkles } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import type { AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
+import { InicioMovil } from './InicioMovil'
 import { Saludo } from './Saludo'
 import { TarjetaDeApp } from './TarjetaDeApp'
 
@@ -17,7 +18,10 @@ export function InicioApps({ nombre, rol, apps }: { nombre: string; rol: string;
   const enOrbita = apps.slice(0, 5)
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <>
+      {/* En el móvil, una pantalla de iconos (components/inicio/InicioMovil.tsx); desde `lg`, la de siempre sin tocar */}
+      <InicioMovil className="lg:hidden" ids={apps.map((a) => a.id)} nombre={nombre} rol={rol} />
+    <div className="hidden lg:block max-w-7xl mx-auto">
       <section className="inicio-hero inicio-hero-entra">
         <div className="inicio-hero-rejilla" aria-hidden />
         {/* La órbita: hasta cinco de sus aplicaciones dando vueltas muy despacio alrededor del punto naranja. Es adorno (aria-hidden) y se esconde en pantallas estrechas */}
@@ -93,5 +97,6 @@ export function InicioApps({ nombre, rol, apps }: { nombre: string; rol: string;
         </div>
       )}
     </div>
+    </>
   )
 }

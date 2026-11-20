@@ -146,7 +146,7 @@ export function TelefonoZadarma() {
 
   /* ---- encendido, sin llamada ---- */
   return (
-    <div className="fixed bottom-4 left-1/2 z-[85] -translate-x-1/2">
+    <div className="fixed bottom-[calc(var(--barra-hueco,0px)+12px)] left-1/2 z-[85] -translate-x-1/2 lg:bottom-4">
       {marcar && t.fase === 'listo' && (
         <div className="absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2">
           <Teclado

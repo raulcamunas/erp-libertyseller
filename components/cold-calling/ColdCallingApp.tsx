@@ -105,7 +105,7 @@ export function ColdCallingApp({ perfil, activa }: Props) {
   }, [supabase, puedeVerTodos])
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
+    <div className="flex h-[var(--alto-util)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
       <ColdCallingBoard propietarioInicial={propietarioInicial} team={team} currentUser={perfil} puedeVerTodos={puedeVerTodos} puedeGestionarListas={puedeListas} permisoResuelto={permisoResuelto} activa={activa} leadInicial={leadInicial} />
     </div>
   )

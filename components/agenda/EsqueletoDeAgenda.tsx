@@ -10,7 +10,7 @@ import { REJILLA } from '@/lib/agenda/colocar'
 export function EsqueletoDeAgenda() {
   const horas = REJILLA.finDia - REJILLA.inicioDia
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-w-0 flex-col gap-2.5 lg:h-[calc(100vh-4rem)]" aria-busy="true" aria-label="Cargando la agenda">
+    <div className="flex h-[var(--alto-util)] min-w-0 flex-col gap-2.5 lg:h-[calc(100vh-4rem)]" aria-busy="true" aria-label="Cargando la agenda">
       <div className="flex shrink-0 flex-col gap-2">
         <div className="flex items-center gap-2">
           <Esqueleto className="h-5 w-[150px]" />

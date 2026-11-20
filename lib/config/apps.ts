@@ -44,6 +44,8 @@ import type { GrupoParaElMenu } from '@/lib/layout/menu'
 export interface AppConfig {
   id: string
   name: string
+  /** El nombre que cabe debajo de un icono en el móvil (Inicio y barra de abajo). Sin él se usa `name` */
+  nombreCorto?: string
   description: string
   icon: LucideIcon
   route: string
@@ -65,6 +67,7 @@ export const apps: AppConfig[] = [
   {
     id: 'web-leads',
     name: 'CRM Leads Web',
+    nombreCorto: 'Leads web',
     description: 'Leads desde tu sitio web',
     icon: Globe,
     route: '/dashboard/web-leads',
@@ -74,6 +77,7 @@ export const apps: AppConfig[] = [
   {
     id: 'linkedin',
     name: 'LinkedIn Prospección',
+    nombreCorto: 'LinkedIn',
     description: 'Gestión de prospección ABM en LinkedIn',
     icon: Linkedin,
     route: '/dashboard/linkedin',
@@ -83,6 +87,7 @@ export const apps: AppConfig[] = [
   {
     id: 'agenda',
     name: 'Agenda Comercial',
+    nombreCorto: 'Agenda',
     description: 'Calendario de citas del equipo, sincronizado con Google Calendar',
     icon: CalendarDays,
     route: '/dashboard/agenda',
@@ -97,6 +102,7 @@ export const apps: AppConfig[] = [
     // El id va LETRA POR LETRA igual que en APP_CRM, en el filtro del menú (AppSidebar) y en el de la rejilla de Inicio.
     id: 'crm',
     name: 'CRM de clientes',
+    nombreCorto: 'CRM',
     description: 'Cada cliente en un solo sitio: su fase, lo hablado en la reunión, la propuesta y los documentos',
     icon: Handshake,
     route: '/dashboard/crm',
@@ -110,6 +116,7 @@ export const apps: AppConfig[] = [
     // y en lib/usuarios/puestos.ts.
     id: 'tareas-clientes',
     name: 'Tareas de clientes',
+    nombreCorto: 'Tareas',
     description: 'El tablero de tareas de cada cliente, conectado con Notion: arrastrar, comentar y asignar',
     icon: KanbanSquare,
     route: '/dashboard/tareas-clientes',
@@ -122,6 +129,7 @@ export const apps: AppConfig[] = [
     // igual que en la función SQL `puede_ver_chat` y en lib/chat/acceso.ts.
     id: 'chat',
     name: 'Chat',
+    nombreCorto: 'Chat',
     description: 'Canales, chats privados y mensajes directos del equipo, sin salir del ERP',
     icon: MessagesSquare,
     route: '/dashboard/chat',
@@ -131,6 +139,7 @@ export const apps: AppConfig[] = [
   {
     id: 'commissions',
     name: 'Comisiones',
+    nombreCorto: 'Comisiones',
     description: 'Calculadora de comisiones y liquidaciones',
     icon: Calculator,
     route: '/dashboard/commissions',
@@ -140,6 +149,7 @@ export const apps: AppConfig[] = [
   {
     id: 'commissions-shoes-f',
     name: 'Comisiones Shoes F',
+    nombreCorto: 'Shoes F',
     description: 'Comparativa de años + % manual + desglose por país',
     icon: Calculator,
     route: '/dashboard/commissions-shoes-f',
@@ -149,6 +159,7 @@ export const apps: AppConfig[] = [
   {
     id: 'cold-calling',
     name: 'Cold Calling',
+    nombreCorto: 'Cold Calling',
     description: 'Cartera de sellers a prospectar, con estado e historial de llamadas',
     icon: PhoneCall,
     route: '/dashboard/cold-calling',
@@ -158,6 +169,7 @@ export const apps: AppConfig[] = [
   {
     id: 'horas',
     name: 'Mis Horas',
+    nombreCorto: 'Mis Horas',
     description: 'Apunta tus horas y mira en vivo tu salario y comisiones',
     icon: Timer,
     route: '/dashboard/horas',
@@ -171,6 +183,7 @@ export const apps: AppConfig[] = [
     // si baila en uno, la pantalla se abre y la API contesta 403 sin decir por qué.
     id: 'rendimiento',
     name: 'Mi rendimiento',
+    nombreCorto: 'Rendimiento',
     description: 'Tus llamadas, mensajes, correos y citas del día, con las grabaciones de Rinkel',
     icon: Gauge,
     route: '/dashboard/rendimiento',
@@ -184,6 +197,7 @@ export const apps: AppConfig[] = [
     // requireAppAccess('correo') de sus rutas de API y que en el INSERT de la migración 236.
     id: 'correo',
     name: 'Correo',
+    nombreCorto: 'Correo',
     description: 'Tu correo de Hostinger dentro del ERP: lee, contesta y sigue cada conversación',
     icon: Mail,
     route: '/dashboard/correo',
@@ -197,6 +211,7 @@ export const apps: AppConfig[] = [
     // LETRA igual que en middleware.ts y que en el requireAppAccess('actividad') de /api/actividad/equipo y /persona.
     id: 'actividad',
     name: 'Actividad del equipo',
+    nombreCorto: 'Actividad',
     description: 'Cuándo entra cada persona al ERP, qué hace y cuánto rato está activa',
     icon: Eye,
     route: '/dashboard/actividad',
@@ -208,6 +223,7 @@ export const apps: AppConfig[] = [
     // salen de allí y la casilla «Enviado» se marca sola desde aquí.
     id: 'facturacion',
     name: 'Facturación',
+    nombreCorto: 'Facturación',
     description: 'Crea y envía las facturas en Zoho con su plantilla, y registra cobros y gastos',
     icon: Receipt,
     route: '/dashboard/facturacion',
@@ -219,6 +235,7 @@ export const apps: AppConfig[] = [
     // Comisiones y Tax Reports (components/contabilidad/BarraContabilidad.tsx). Solo administradores y socios, como Tesorería.
     id: 'contabilidad',
     name: 'Resumen',
+    nombreCorto: 'Resumen',
     description: 'Contabilidad de un vistazo: bancos, cobros, vencidos y equipo',
     icon: BookOpenText,
     route: '/dashboard/contabilidad',
@@ -228,6 +245,7 @@ export const apps: AppConfig[] = [
   {
     id: 'tesoreria',
     name: 'Tesorería',
+    nombreCorto: 'Tesorería',
     description: 'Ingresos por cliente, gastos y beneficio mes a mes',
     icon: Landmark,
     route: '/dashboard/tesoreria',
@@ -244,6 +262,7 @@ export const apps: AppConfig[] = [
     // dibujo antes que por el texto.
     id: 'empleados',
     name: 'Control empleados',
+    nombreCorto: 'Empleados',
     description: 'Horas contratadas, sueldos y subidas mes a mes',
     icon: HandCoins,
     route: '/dashboard/empleados',
@@ -261,6 +280,7 @@ export const apps: AppConfig[] = [
     // sin dar ningún error.
     id: 'vacaciones',
     name: 'Vacaciones',
+    nombreCorto: 'Vacaciones',
     description: 'Quién está fuera en la empresa, tus días y lo que puedes pedir',
     icon: Palmtree,
     route: '/dashboard/vacaciones',
@@ -273,6 +293,7 @@ export const apps: AppConfig[] = [
     // convertirá en otra cosa con otro nombre.
     id: 'entrais-test',
     name: 'Entrais Amazon',
+    nombreCorto: 'Entrais AMZ',
     description: 'El precio al que publicar cada referencia en Amazon, con el coste del proveedor',
     icon: Tag,
     route: '/dashboard/entrais-test',
@@ -286,6 +307,7 @@ export const apps: AppConfig[] = [
     // El id va letra por letra aquí, en APPS_SOLO_ADMIN y en middleware.ts.
     id: 'entrais-pccomponentes',
     name: 'Entrais PCcomponentes',
+    nombreCorto: 'Entrais PCC',
     description: 'Su tienda en PcComponentes: ofertas, precios y stock, y la subida de productos',
     icon: Store,
     route: '/dashboard/entrais-pccomponentes',
@@ -298,6 +320,7 @@ export const apps: AppConfig[] = [
     // que saber lo que hay al otro lado antes de entrar.
     id: 'limpieza-ofertas',
     name: 'Limpieza de ofertas',
+    nombreCorto: 'Limpieza',
     description: 'Quita precios mínimos, máximos y rebajas de un catálogo entero',
     icon: Eraser,
     route: '/dashboard/limpieza-ofertas',
@@ -314,6 +337,7 @@ export const apps: AppConfig[] = [
     // permiso suelto en user_app_permissions.
     id: 'marketing-ads',
     name: 'Informes Marketing',
+    nombreCorto: 'Informes',
     description: 'Los informes de Amazon Ads de un cliente, en Excel',
     icon: Megaphone,
     route: '/dashboard/marketing-ads',
@@ -325,6 +349,7 @@ export const apps: AppConfig[] = [
     // al día, en vez de pedirnos el Excel. Aquí se crean los enlaces y se agrupan los ASIN en juegos. Solo administradores: da acceso a datos de un cliente a gente de fuera.
     id: 'trafico',
     name: 'Tráfico para clientes',
+    nombreCorto: 'Tráfico',
     description: 'Enlaces con clave para que un cliente vea su tráfico y conversión por juego, al día',
     icon: ChartNoAxesCombined,
     route: '/dashboard/trafico',
@@ -338,6 +363,7 @@ export const apps: AppConfig[] = [
     // nunca (lib/cuentas/acceso.ts). El id va letra por letra igual que en middleware.ts y en APP_CUENTAS.
     id: 'cuentas',
     name: 'Cuentas de clientes',
+    nombreCorto: 'Cuentas',
     description: 'Cada cliente que llevas: qué toca esta semana, sus cifras, sus tareas y sus avisos',
     icon: BriefcaseBusiness,
     route: '/dashboard/cuentas',
@@ -355,6 +381,7 @@ export const apps: AppConfig[] = [
     // partners y clientes en lib/cuentas/acceso.ts, middleware.ts y cada ruta de /api/ads/cuenta.
     id: 'marketing-test',
     name: 'PPC · Amazon Ads',
+    nombreCorto: 'PPC',
     description: 'Propuestas del motor, campañas, ficha de cuenta, productos, crear campañas y log de cambios',
     icon: FlaskConical,
     route: '/dashboard/marketing-test',
@@ -367,6 +394,7 @@ export const apps: AppConfig[] = [
     // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); nunca un partner o un cliente. Fue SOLO ADMIN hasta el 14 nov 2026.
     id: 'seo-test',
     name: 'SEO de fichas',
+    nombreCorto: 'SEO',
     description: 'Búsquedas de Brand Analytics, posicionamiento y keywords que faltan en la ficha de cada producto',
     icon: SearchCheck,
     route: '/dashboard/seo-test',
@@ -379,6 +407,7 @@ export const apps: AppConfig[] = [
     // Administradores y quien lleve cuentas con la casilla (lib/cuentas/acceso.ts); nunca un partner o un cliente. Fue SOLO ADMIN hasta el 14 nov 2026.
     id: 'cumplimiento',
     name: 'Cumplimiento',
+    nombreCorto: 'Cumplimiento',
     description: 'Salud de los listings ante Amazon por cliente y país: errores, ocultos, normativa (GPSR, RAP) y su evolución',
     icon: ClipboardCheck,
     route: '/dashboard/cumplimiento',
@@ -414,6 +443,7 @@ export const apps: AppConfig[] = [
     // baila en uno de los tres, el módulo queda invisible sin dar ningún error.
     id: 'amazon-api',
     name: 'Amazon API',
+    nombreCorto: 'Amazon API',
     description: 'Las tripas: cuentas, catálogo, marcas, costes, BSR y de dónde sale cada dato',
     icon: Plug,
     route: '/dashboard/amazon-api',
@@ -443,6 +473,7 @@ export const apps: AppConfig[] = [
     // módulo queda invisible sin dar ningún error.
     id: 'growth',
     name: 'Growth Partner',
+    nombreCorto: 'Growth',
     description: 'Lo que hacemos crecer en la cuenta de un cliente: stock, Buy Box y FBM→FBA',
     icon: Sprout,
     route: '/dashboard/growth',
@@ -470,6 +501,7 @@ export const apps: AppConfig[] = [
      */
     id: 'remesas',
     name: 'Remesas a FBA',
+    nombreCorto: 'Remesas',
     description: 'Qué mandamos a los almacenes de Amazon y cuánto queda vivo de cada envío',
     icon: Boxes,
     route: '/dashboard/remesas',
@@ -479,6 +511,7 @@ export const apps: AppConfig[] = [
   {
     id: 'telefonos',
     name: 'Teléfonos',
+    nombreCorto: 'Teléfonos',
     description: 'Números que usamos y para qué es cada uno',
     icon: PhoneForwarded,
     route: '/dashboard/telefonos',
@@ -488,6 +521,7 @@ export const apps: AppConfig[] = [
   {
     id: 'users',
     name: 'Gestión de Usuarios',
+    nombreCorto: 'Usuarios',
     description: 'Crea y gestiona usuarios del sistema',
     icon: Users,
     route: '/dashboard/users',
@@ -497,6 +531,7 @@ export const apps: AppConfig[] = [
   {
     id: 'tracker',
     name: 'Employee Tracker',
+    nombreCorto: 'Tracker',
     description: 'Seguimiento de actividad de empleados',
     icon: Activity,
     route: '/dashboard/tracker',
@@ -540,6 +575,7 @@ export const apps: AppConfig[] = [
      */
     id: 'tax-reports',
     name: 'Tax Reports',
+    nombreCorto: 'Tax Reports',
     description: 'El fichero fiscal de cada cliente, mes a mes: qué está puesto y qué falta',
     icon: FileSpreadsheet,
     route: '/dashboard/tax-reports',
@@ -549,6 +585,7 @@ export const apps: AppConfig[] = [
   {
     id: 'usos-horarios',
     name: 'Usos horarios',
+    nombreCorto: 'Husos',
     description: 'México (4 zonas) y España (Madrid)',
     icon: Clock,
     route: '/dashboard/usos-horarios',
@@ -574,6 +611,7 @@ export const apps: AppConfig[] = [
     // user_app_permissions: no se puede conceder a nadie suelto, es admin o nada.
     id: 'disenos',
     name: 'Diseños del ERP',
+    nombreCorto: 'Diseños',
     description: 'Tres propuestas de cambio de imagen sobre las pantallas reales, para elegir una',
     icon: Palette,
     route: '/dashboard/disenos',
@@ -583,6 +621,7 @@ export const apps: AppConfig[] = [
   {
     id: 'contenido',
     name: 'Calendario de contenido',
+    nombreCorto: 'Contenido',
     description: 'Qué publica cada uno y qué día, con el fichero y el texto',
     icon: CalendarRange,
     route: '/dashboard/contenido',
@@ -982,6 +1021,9 @@ export const APPS_EN_EL_PIE: ReadonlySet<string> = new Set(['tareas-clientes', '
 export const getAppById = (id: string): AppConfig | undefined => {
   return apps.find(app => app.id === id)
 }
+
+/** El nombre para debajo de un icono en el móvil: el corto si lo tiene, si no el de siempre */
+export const nombreCortoDe = (app: Pick<AppConfig, 'name' | 'nombreCorto'>): string => app.nombreCorto ?? app.name
 
 export const getAppsByCategory = (category: string): AppConfig[] => {
   return apps.filter(app => app.category === category)

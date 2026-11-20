@@ -34,7 +34,7 @@ import type { UserProfile } from '@/lib/supabase/get-user-profile'
 const ColdCallingApp = dynamic(() => import('@/components/cold-calling/ColdCallingApp').then((m) => m.ColdCallingApp), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
+    <div className="flex h-[var(--alto-util)] min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
       <EsqueletoDeCartera />
     </div>
   ),
@@ -45,7 +45,7 @@ const CorreoApp = dynamic(() => import('@/components/correo/CorreoApp').then((m)
   loading: () => (
     <div className="space-y-3 pb-6" aria-busy="true" aria-label="Cargando el correo">
       <Esqueleto className="h-7 w-40" />
-      <Esqueleto className="h-[calc(100dvh-10.5rem)] min-h-[540px] w-full" />
+      <Esqueleto className="h-[calc(var(--alto-util)-2.5rem)] min-h-[540px] w-full" />
     </div>
   ),
 })
@@ -61,7 +61,7 @@ function Ranura({ activa, children }: { activa: boolean; children: ReactNode }) 
       // Oculta sin `display: none` (ver arriba): sin altura, fuera del flujo, invisible y sin recibir clics ni foco. Conserva su anchura
       // para que, al volver, medir la lista no empiece de cero
       // El relleno de la página va en la que se ve, y el marcador `data-app-persistente` es lo que usa el layout para esconder su recuadro vacío
-      className={activa ? 'rend-fundido p-6 lg:p-8' : 'pointer-events-none invisible absolute left-0 top-0 h-0 w-full overflow-hidden'}
+      className={activa ? 'rend-fundido p-4 sm:p-6 lg:p-8' : 'pointer-events-none invisible absolute left-0 top-0 h-0 w-full overflow-hidden'}
       aria-hidden={activa ? undefined : true}
       data-app-persistente={activa ? '' : undefined}
     >

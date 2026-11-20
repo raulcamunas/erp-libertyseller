@@ -58,8 +58,13 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: 'Liberty Hub', statusBarStyle: 'black-translucent' },
 }
 
-// El color de la barra del sistema (móvil y aplicación instalada) es el del fondo del ERP
+// El color de la barra del sistema (móvil y aplicación instalada) es el del fondo del ERP; con el tema claro lo cambia ThemeToggle.
+// `viewportFit: 'cover'`: con la aplicación instalada en el iPhone la página llega hasta arriba (detrás del reloj y la muesca) y `env(safe-area-inset-*)`
+// dice cuánto hueco dejar; sin él esos valores son 0 y la cabecera quedaba debajo del reloj. Sin `maximumScale`: se puede seguir ampliando con los dedos
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
   themeColor: '#0F1114',
 }
 

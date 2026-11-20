@@ -47,3 +47,24 @@ export function ponerChatSinLeer(mensajes: number, menciones: number): void {
 }
 
 export const leerChatSinLeer = (): ChatSinLeer => chatSinLeer
+
+/* Para el móvil (la cabecera y las celdas del Inicio, que no son la barra lateral): los leads web sin atender (lo cuenta la barra lateral, solo para un
+   administrador) y los avisos de la campana sin leer (los cuenta la campana, que vive en la hoja «Más») */
+let webLeadsSinVer = 0
+let avisosSinLeer = 0
+
+export function ponerWebLeadsSinVer(n: number): void {
+  const nuevo = entero(n)
+  if (nuevo === webLeadsSinVer) return
+  webLeadsSinVer = nuevo
+  for (const oyente of [...oyentes]) oyente()
+}
+export const leerWebLeadsSinVer = (): number => webLeadsSinVer
+
+export function ponerAvisosSinLeer(n: number): void {
+  const nuevo = entero(n)
+  if (nuevo === avisosSinLeer) return
+  avisosSinLeer = nuevo
+  for (const oyente of [...oyentes]) oyente()
+}
+export const leerAvisosSinLeer = (): number => avisosSinLeer

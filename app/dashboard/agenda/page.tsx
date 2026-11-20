@@ -39,7 +39,7 @@ export default async function AgendaPage() {
   if (citas.error) console.error('Error cargando la agenda:', citas.error)
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] flex-col lg:h-[calc(100vh-4rem)]">
+    <div className="flex h-[var(--alto-util)] flex-col lg:h-[calc(100vh-4rem)]">
       <div className="min-h-0 flex-1">
         <AgendaCalendar
           initialAppointments={citas.citas}

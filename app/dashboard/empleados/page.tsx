@@ -147,7 +147,7 @@ export default async function EmployeesPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex flex-col h-[var(--alto-util)] lg:h-[calc(100vh-4rem)] min-w-0">
       <BarraContabilidad rol={profile.role} />
       <div className="mb-3 flex-shrink-0">
         <h1 className="heading-medium text-white mb-1">Pagos a empleados</h1>

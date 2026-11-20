@@ -8,6 +8,12 @@ type Theme = 'dark' | 'light'
 
 const STORAGE_KEY = 'erpTheme'
 
+/** El color de la barra del sistema (Android, la aplicación instalada) sigue al tema: el fondo del ERP en cada uno (--ls-fondo) */
+function pintarBarraDelSistema(tema: Theme) {
+  const color = tema === 'light' ? '#F3F4F6' : '#0F1114'
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color))
+}
+
 /**
  * Interruptor de tema. Pone o quita la clase `light` en el <html>, que es
  * donde viven las variables de color, y lo recuerda entre sesiones.
@@ -27,12 +33,14 @@ export function ThemeToggle({ className }: { className?: string }) {
     const next: Theme = saved === 'light' ? 'light' : 'dark'
     setTheme(next)
     document.documentElement.classList.toggle('light', next === 'light')
+    pintarBarraDelSistema(next)
   }, [])
 
   function toggle() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
     document.documentElement.classList.toggle('light', next === 'light')
+    pintarBarraDelSistema(next)
     window.localStorage.setItem(STORAGE_KEY, next)
   }
 

@@ -162,7 +162,7 @@ export default async function CrmClientsPage({ searchParams }: { searchParams?: 
   const clienteInicial = searchParams?.cliente && UUID.test(searchParams.cliente) ? searchParams.cliente : null
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[var(--alto-util)] lg:h-[calc(100vh-4rem)]">
       <HubCrm
         initialClients={(clients as CrmClientWithDetails[]) || []}
         team={(team as CalendarPerson[]) || []}

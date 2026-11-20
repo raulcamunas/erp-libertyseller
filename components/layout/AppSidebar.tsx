@@ -1,22 +1,29 @@
 'use client'
 
 import { PerfilEnLaBarra } from './PerfilEnLaBarra'
-import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties, type MouseEvent, type TouchEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, KanbanSquare, LogOut, Menu, MessagesSquare, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, KanbanSquare, LogOut, MessagesSquare } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { NotificationsBell } from '@/components/layout/NotificationsBell'
-import { leerChatSinLeer, leerCorreoSinLeer, suscribirContadores } from '@/lib/avisos/contadores'
+import { leerAvisosSinLeer, leerChatSinLeer, leerCorreoSinLeer, ponerWebLeadsSinVer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { esCeo } from '@/lib/usuarios/ceo'
-import { apps, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
+import { apps, getAppById, nombreCortoDe, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { esRutaInmersiva, EVENTO_ABRIR_MENU } from '@/lib/layout/inmersivo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
 import { aplanarMenu, armarMenu, grupoDeLaRuta, rutaParaElMenu } from '@/lib/layout/menu'
 import { createClient } from '@/lib/supabase/client'
 import type { RolUsuario } from '@/lib/types/users'
+import { BarraInferior, type PestanaDeLaBarra } from '@/components/layout/movil/BarraInferior'
+import { CabeceraMovil } from '@/components/layout/movil/CabeceraMovil'
+import { EVENTO_ABRIR_AVISOS, EVENTO_NAVEGANDO } from '@/lib/movil/eventos'
+import { apilarRuta, CLAVE_HISTORIAL, hayAtras } from '@/lib/movil/historial'
+import { elegirPestanas } from '@/lib/movil/pestanas'
+import { EVENTO_USO_CAMBIA, fijadas as leerFijadas, leerIdsDe, leerUso, registrarApertura, type Uso } from '@/lib/movil/uso'
+import { useTeclado } from '@/lib/movil/useTeclado'
 
 /**
  * LA BARRA LATERAL: el menú de aplicaciones, tu cuenta, los avisos y el tema.
@@ -41,6 +48,25 @@ const useEfectoAntesDePintar = typeof window === 'undefined' ? useEffect : useLa
 
 /** Qué desplegables estaban abiertos (los ids de grupo), para que al volver estén como se dejaron */
 const CLAVE_DE_GRUPOS_ABIERTOS = 'erp:menu:grupos-abiertos'
+
+/** Las tres pestañas de la barra de abajo del móvil, congeladas mientras dura la sesión (lib/movil/pestanas.ts) */
+const CLAVE_PESTANAS = 'erp:movil:pestanas'
+
+const leerDeLaSesion = (clave: string): string | null => {
+  try {
+    return window.sessionStorage.getItem(clave)
+  } catch {
+    return null
+  }
+}
+const escribirEnLaSesion = (clave: string, valor: string | null) => {
+  try {
+    if (valor === null) window.sessionStorage.removeItem(clave)
+    else window.sessionStorage.setItem(clave, valor)
+  } catch {
+    /* sin almacenamiento: se recalcula en cada carga */
+  }
+}
 
 const ANCHO_ABIERTA = '16rem'
 const ANCHO_PLEGADA = '4.5rem'
@@ -128,6 +154,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       if (error) throw error
 
       setWebLeadsBadge(count && count > 0 ? count : undefined)
+      // También para las celdas del Inicio en el móvil
+      ponerWebLeadsSinVer(count ?? 0)
     } catch (error) {
       console.error('Error loading web leads count:', error)
     }
@@ -262,6 +290,111 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   // Estando en una pantalla que cuelga de otra (Actividad, desde Mi rendimiento), se enciende la de la que cuelga
   const rutaActiva = rutaActivaDelMenu(rutasDelMenu, rutaParaElMenu(pendiente ?? pathname ?? ''))
   const grupoActivo = grupoDeLaRuta(menu, rutaActiva)
+
+  /* ---------------- EL MÓVIL: cabecera, barra de abajo y hoja «Más» (todo `lg:hidden` o con CSS de pantallas estrechas) ---------------- */
+  useTeclado()
+  // Una celda del Inicio avisa al pulsar: el título y la pestaña cambian ya, sin esperar a la página
+  useEffect(() => {
+    const alNavegar = (e: Event) => {
+      const ruta = (e as CustomEvent<string>).detail
+      if (typeof ruta === 'string' && ruta !== pathname) setPendiente(ruta)
+    }
+    window.addEventListener(EVENTO_NAVEGANDO, alNavegar)
+    return () => window.removeEventListener(EVENTO_NAVEGANDO, alNavegar)
+  }, [pathname])
+
+  // Las aplicaciones que pueden ir en la barra de abajo: las del menú (en su orden) y las del pie (Chat, Tareas), si las ve
+  const appsDelMovil: AppConfig[] = [...aplanarMenu(menu)]
+  for (const [id, puede] of [[APP_CHAT, puedeVerChat], [APP_TAREAS_CLIENTES, puedeVerTareas]] as const) {
+    const app = puede ? getAppById(id) : undefined
+    if (app && !appsDelMovil.some((a) => a.id === id)) appsDelMovil.push(app)
+  }
+  const rutasDelMovil = appsDelMovil.map((a) => a.route)
+  const rutaDelMovil = rutaActivaDelMenu(rutasDelMovil, rutaParaElMenu(pendiente ?? pathname ?? ''))
+  const appActual = rutaDelMovil ? appsDelMovil.find((a) => a.route === rutaDelMovil) : undefined
+  const enInicio = (pendiente ?? pathname ?? '').replace(/\/+$/, '') === '/dashboard'
+
+  // Cada vez que se entra en otra aplicación se apunta (solo en este navegador): de ahí salen «Recientes» y las pestañas
+  const rutaRealDelMovil = rutaActivaDelMenu(rutasDelMovil, rutaParaElMenu(pathname ?? ''))
+  const ultimaApuntada = useRef<string | null>(null)
+  useEffect(() => {
+    const app = rutaRealDelMovil ? appsDelMovil.find((a) => a.route === rutaRealDelMovil) : undefined
+    if (!app || app.id === 'home' || ultimaApuntada.current === app.id) return
+    ultimaApuntada.current = app.id
+    registrarApertura(app.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rutaRealDelMovil])
+
+  // Las tres pestañas del medio. Se leen el uso y las fijadas al montar; la elección se congela en la sesión para que no bailen bajo el dedo
+  const [uso, setUso] = useState<Uso>({})
+  const [fijadasMovil, setFijadasMovil] = useState<string[]>([])
+  const [congeladas, setCongeladas] = useState<string[] | null>(null)
+  const [movilMontado, setMovilMontado] = useState(false)
+  useEffect(() => {
+    setUso(leerUso())
+    setFijadasMovil(leerFijadas())
+    setCongeladas(leerIdsDe(leerDeLaSesion(CLAVE_PESTANAS)))
+    setMovilMontado(true)
+    let antes = JSON.stringify(leerFijadas())
+    const alCambiar = () => {
+      setUso(leerUso())
+      const ahora = leerFijadas()
+      const texto = JSON.stringify(ahora)
+      if (texto === antes) return
+      // Fijar o quitar una a mano sí cambia la barra al momento
+      antes = texto
+      setFijadasMovil(ahora)
+      setCongeladas(null)
+      escribirEnLaSesion(CLAVE_PESTANAS, null)
+    }
+    window.addEventListener(EVENTO_USO_CAMBIA, alCambiar)
+    return () => window.removeEventListener(EVENTO_USO_CAMBIA, alCambiar)
+  }, [])
+  const pestanasListas = userRole !== null && !cargandoPermisos
+  const idsPestanas = elegirPestanas({ visibles: appsDelMovil.map((a) => a.id), uso, fijadas: fijadasMovil, rol: userRole, ahora: Date.now(), congeladas })
+  const clavePestanas = idsPestanas.join('|')
+  useEffect(() => {
+    if (!movilMontado || !pestanasListas) return
+    if ((congeladas ?? []).join('|') === clavePestanas) return
+    const ids = clavePestanas === '' ? [] : clavePestanas.split('|')
+    setCongeladas(ids)
+    escribirEnLaSesion(CLAVE_PESTANAS, JSON.stringify(ids))
+  }, [movilMontado, pestanasListas, clavePestanas, congeladas])
+
+  const avisosSinLeer = useSyncExternalStore(suscribirContadores, leerAvisosSinLeer, () => 0)
+  const insigniaMovil = (id: string): { texto: string | null; urgente?: boolean } => {
+    if (id === 'correo') return { texto: etiquetaDeInsignia(correoSinLeer, false) }
+    if (id === 'chat') return { texto: etiquetaDeInsignia(chatSinLeer.mensajes + chatSinLeer.menciones, false), urgente: chatSinLeer.menciones > 0 }
+    if (id === 'web-leads' && userRole === 'admin') return { texto: etiquetaDeInsignia(webLeadsBadge, false) }
+    return { texto: null }
+  }
+  const pestanasMovil: PestanaDeLaBarra[] = idsPestanas
+    .map((id) => appsDelMovil.find((a) => a.id === id))
+    .filter((a): a is AppConfig => Boolean(a))
+    .map((a) => {
+      const { texto, urgente } = insigniaMovil(a.id)
+      return { id: a.id, nombre: nombreCortoDe(a), ruta: a.route, icono: a.icon, insignia: texto, urgente }
+    })
+
+  // «Atrás»: la pila de rutas de esta pestaña (lib/movil/historial.ts). Con algo debajo es el «atrás» del navegador; si no, al Inicio
+  const [puedeAtras, setPuedeAtras] = useState(false)
+  useEffect(() => {
+    if (!pathname) return
+    let guardada: string[] = []
+    try {
+      const crudo: unknown = JSON.parse(leerDeLaSesion(CLAVE_HISTORIAL) ?? '[]')
+      if (Array.isArray(crudo)) guardada = crudo.filter((x): x is string => typeof x === 'string')
+    } catch {
+      /* una pila rota empieza de cero */
+    }
+    const pila = apilarRuta(guardada, pathname)
+    escribirEnLaSesion(CLAVE_HISTORIAL, JSON.stringify(pila))
+    setPuedeAtras(hayAtras(pila))
+  }, [pathname])
+  const volver = () => {
+    if (puedeAtras) router.back()
+    else router.push('/dashboard')
+  }
 
   // Los desplegables abiertos. Se recuerdan en este navegador; el de la página en la que se está se abre solo al llegar a ella (pero se puede cerrar a mano: no se
   // vuelve a abrir hasta que se cambie de página)
@@ -407,6 +540,36 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     setIsMobileOpen(!isMobileOpen)
   }
 
+  // La hoja «Más» se cierra también arrastrándola hacia abajo desde su asa o su cabecera
+  const asaRef = useRef<HTMLButtonElement>(null)
+  const arrastre = useRef<{ y0: number; dy: number } | null>(null)
+  const asideRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (isMobileOpen && window.matchMedia('(max-width: 1023.98px)').matches) asaRef.current?.focus({ preventScroll: true })
+  }, [isMobileOpen])
+  const alEmpezarArrastre = (e: TouchEvent) => {
+    const t = e.target as HTMLElement
+    if (!isMobileOpen || !t.closest('.lat-asa, .lat-cabecera') || !window.matchMedia('(max-width: 1023.98px)').matches) return
+    arrastre.current = { y0: e.touches[0].clientY, dy: 0 }
+  }
+  const alArrastrar = (e: TouchEvent) => {
+    const a = arrastre.current
+    const el = asideRef.current
+    if (!a || !el) return
+    a.dy = Math.max(0, e.touches[0].clientY - a.y0)
+    el.style.transition = 'none'
+    el.style.translate = `0 ${a.dy}px`
+  }
+  const alSoltarArrastre = () => {
+    const a = arrastre.current
+    const el = asideRef.current
+    arrastre.current = null
+    if (!a || !el) return
+    el.style.transition = ''
+    el.style.translate = ''
+    if (a.dy > 80) setIsMobileOpen(false)
+  }
+
   const cerrarSesion = async () => {
     await supabase.auth.signOut()
     router.push('/auth/login')
@@ -417,26 +580,38 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
 
   return (
     <>
-      {/* Botón del menú, solo en pantallas estrechas (a pantalla completa lo trae la propia página) */}
+      {/* EN EL MÓVIL: la cabecera (atrás, título y campana) en vez del botón flotante del menú; a pantalla completa (Chat, Tareas) no, que traen la suya */}
       {!inmersivo && (
-        <button
-          type="button"
-          onClick={toggleMobile}
-          className="lat-hamburguesa"
-          aria-label={isMobileOpen ? 'Cerrar el menú' : 'Abrir el menú'}
-          aria-expanded={isMobileOpen}
-        >
-          {isMobileOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
-        </button>
+        <CabeceraMovil
+          titulo={appActual?.name ?? 'Liberty Hub'}
+          enInicio={enInicio}
+          avisos={avisosSinLeer}
+          alVolver={volver}
+          alAbrirAvisos={() => {
+            setIsMobileOpen(true)
+            // La campana de verdad vive en la hoja: se abre su panel cuando la hoja ya ha subido
+            window.setTimeout(() => window.dispatchEvent(new Event(EVENTO_ABRIR_AVISOS)), 380)
+          }}
+          alAbrirMenu={userRole === 'cliente' ? toggleMobile : undefined}
+        />
       )}
 
       <aside
+        ref={asideRef}
         className="lat"
         data-plegada={isCollapsed ? 'true' : undefined}
         data-movil={isMobileOpen ? 'abierta' : undefined}
         data-inmersivo={inmersivo ? 'true' : undefined}
         aria-label="Menú principal"
+        onTouchStart={alEmpezarArrastre}
+        onTouchMove={alArrastrar}
+        onTouchEnd={alSoltarArrastre}
+        onTouchCancel={alSoltarArrastre}
       >
+        {/* El asa de la hoja «Más» (solo en el móvil): se toca o se arrastra hacia abajo para cerrarla */}
+        <button ref={asaRef} type="button" className="lat-asa" onClick={() => setIsMobileOpen(false)} aria-label="Cerrar el menú" tabIndex={isMobileOpen ? 0 : -1}>
+          <span aria-hidden />
+        </button>
         {/* El fondo: una luz que se mueve despacio arriba y un hilo de luz que baja por el borde */}
         <div className="lat-decorado" aria-hidden>
           <span className="lat-aurora" />
@@ -636,6 +811,21 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
           {etiqueta?.texto}
         </div>
       </aside>
+
+      {/* La barra de pestañas de abajo (móvil). No para un cliente (solo ve Remesas y no tiene Inicio) ni a pantalla completa */}
+      {!inmersivo && userRole !== 'cliente' && (
+        <BarraInferior
+          pestanas={pestanasMovil}
+          rutaActiva={rutaDelMovil}
+          enInicio={enInicio}
+          masAbierto={isMobileOpen}
+          alPulsar={(ruta) => {
+            setIsMobileOpen(false)
+            setPendiente(ruta)
+          }}
+          alPulsarMas={toggleMobile}
+        />
+      )}
 
       {/* Telón del cajón en pantallas estrechas */}
       {isMobileOpen && <div className="lat-velo" data-inmersivo={inmersivo ? 'true' : undefined} onClick={toggleMobile} aria-hidden />}

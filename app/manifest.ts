@@ -9,9 +9,12 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Liberty Seller Hub',
     short_name: 'Liberty Hub',
     description: 'ERP interno de Liberty Seller',
+    id: '/dashboard',
     start_url: '/dashboard',
     scope: '/',
     display: 'standalone',
+    display_override: ['standalone'],
+    categories: ['business', 'productivity'],
     background_color: '#0F1114',
     theme_color: '#0F1114',
     lang: 'es',
@@ -19,6 +22,13 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: '/pwa/icono-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/pwa/icono-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
       { src: '/pwa/icono-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+    // Manteniendo pulsado el icono de la aplicación instalada (Android y escritorio). Quien no tenga permiso para una, el middleware le lleva al Inicio
+    shortcuts: [
+      { name: 'Cold Calling', short_name: 'Cold Calling', url: '/dashboard/cold-calling', icons: [{ src: '/pwa/icono-192.png', sizes: '192x192', type: 'image/png' }] },
+      { name: 'Correo', short_name: 'Correo', url: '/dashboard/correo', icons: [{ src: '/pwa/icono-192.png', sizes: '192x192', type: 'image/png' }] },
+      { name: 'Agenda', short_name: 'Agenda', url: '/dashboard/agenda', icons: [{ src: '/pwa/icono-192.png', sizes: '192x192', type: 'image/png' }] },
+      { name: 'Chat', short_name: 'Chat', url: '/dashboard/chat', icons: [{ src: '/pwa/icono-192.png', sizes: '192x192', type: 'image/png' }] },
     ],
   }
 }

@@ -180,7 +180,7 @@ export default async function AmazonApiPage({
     // del ERP. El `min-w-0` es el eslabón de esta pantalla en la cadena que
     // mantiene el scroll horizontal DENTRO de la tabla: sin él, siete columnas
     // arrastran la página de lado y se llevan la barra lateral por delante.
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex flex-col h-[var(--alto-util)] lg:h-[calc(100vh-4rem)] min-w-0">
       {/* El <h1> y las pestañas van DENTRO de la carcasa, en la misma fila, y la
           explicación del módulo detrás del botón de información. Aquí ya no hay
           entradilla: el párrafo que vivía encima de los controles es justo lo

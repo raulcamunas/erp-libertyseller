@@ -163,7 +163,7 @@ export default async function GrowthPage({
     // ERP. El `min-w-0` es el eslabón de esta pantalla en la cadena que mantiene
     // el scroll horizontal DENTRO de la tabla: sin él, una tabla ancha arrastra
     // la página de lado y se lleva la barra lateral por delante.
-    <div className="flex flex-col h-[calc(100dvh-8rem)] lg:h-[calc(100vh-4rem)] min-w-0">
+    <div className="flex flex-col h-[var(--alto-util)] lg:h-[calc(100vh-4rem)] min-w-0">
       <Carcasa
         clientes={clientes}
         cliente={cliente}

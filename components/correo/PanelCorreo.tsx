@@ -672,8 +672,8 @@ export function PanelCorreo({ yo, puedeSupervisar, esAdmin, buzonInicial, hiloIn
   /* ---------- Tableta y ordenador: columnas de altura fija ---------- */
   return (
     <MotionConfig reducedMotion="user">
-      {/* md: main pt-16 + Ranura p-6 (arriba y abajo) = 7rem. lg: main sin relleno + Ranura p-8 = 4rem (medido en la vista previa: sin scroll de página) */}
-      <div ref={refCaja} className="flex h-[calc(100dvh-7rem)] min-h-[520px] flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)] lg:h-[calc(100dvh-4rem)]">
+      {/* Móvil: --alto-util (cabecera, barra de abajo y relleno; bloque «MÓVIL · SENSACIÓN DE APP» de globals.css). lg: main sin relleno + Ranura p-8 = 4rem */}
+      <div ref={refCaja} className="flex h-[var(--alto-util)] min-h-[520px] flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-1)] lg:h-[calc(100dvh-4rem)]">
         {/* ---------- Cabecera de 56 px ---------- */}
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--ls-linea)] px-3 lg:gap-3 lg:px-4">
           <div className="flex shrink-0 items-center gap-2">

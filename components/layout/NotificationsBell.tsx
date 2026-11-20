@@ -8,6 +8,8 @@ import { chatALaVista } from '@/lib/chat/dock-estado'
 import { pastillaDelChatVisible, publicarVistaPrevia } from '@/lib/chat/vista-previa'
 import { equipoSilenciado, silenciarEquipo, suscribirPreferenciasDeAvisos } from '@/lib/avisos/preferencias'
 import { publicarAviso } from '@/lib/avisos/pila'
+import { ponerAvisosSinLeer } from '@/lib/avisos/contadores'
+import { EVENTO_ABRIR_AVISOS } from '@/lib/movil/eventos'
 import { abrirDialogoDeSonidos } from '@/lib/sonidos/dialogo'
 import { ponerSonidoDeCorreo, probarSonido, sonarCorreo, sonidoDeCorreoActivo, suscribirSonido } from '@/lib/avisos/sonido'
 import { activarEscritorio, avisarEnEscritorio, desactivarEscritorio, escritorioActivo, escritorioDenegado, escritorioDisponible, ficheroDeSonidoDeTarea, ponerSonidoDeTareas, probarSonidoDeTarea, sonarTarea, sonidoDeTareasActivo, suscribirSonidoDeTareas } from '@/lib/avisos/sonido-tareas'
@@ -361,6 +363,16 @@ export function NotificationsBell({ colapsado = false, conTareas = false }: { co
 
   // La campana suena cuando llega un aviso nuevo (no cuando se lee uno): cada vez que sube la cuenta cambia la clave del icono y el CSS repite el movimiento.
   // Con avisos sin leer ya al cargar suena una vez.
+  // La cabecera del móvil enseña la cuenta y, al pulsar su campana, pide abrir este panel (la campana de verdad vive en la hoja «Más»)
+  useEffect(() => {
+    ponerAvisosSinLeer(unreadCount)
+  }, [unreadCount])
+  useEffect(() => {
+    const abrir = () => setIsOpen(true)
+    window.addEventListener(EVENTO_ABRIR_AVISOS, abrir)
+    return () => window.removeEventListener(EVENTO_ABRIR_AVISOS, abrir)
+  }, [])
+
   const cuentaAntes = useRef(0)
   const [sonidos, setSonidos] = useState(0)
   useEffect(() => {

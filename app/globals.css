@@ -5752,3 +5752,179 @@ html.light {
   }
   .mh-hoy-anillo { animation: mh-latido 2.6s ease-in-out 3; }
 }
+
+/* =====================================================================================================================================================
+   MÓVIL · SENSACIÓN DE APP (rama ui/movil, 21 nov 2026)
+   Cabecera fija con «Atrás» (components/layout/movil/CabeceraMovil.tsx), barra de pestañas abajo (BarraInferior.tsx), la barra lateral convertida en
+   hoja «Más» que sube desde abajo, el Inicio como pantalla de iconos (components/inicio/InicioMovil.tsx) y los ajustes de un teléfono (muesca, zoom al
+   escribir, toques). TODO va por debajo de 1024 px o en pantallas táctiles: desde `lg` nada cambia. Se deshace borrando este bloque.
+   ===================================================================================================================================================== */
+:root {
+  --cab-alto: 52px;
+  --barra-alto: 64px;
+  /* Lo que ocupan de verdad (con el hueco del reloj y de la barra de gestos del iPhone): 0 si no se pintan */
+  --cab-hueco: 0px;
+  --barra-hueco: 0px;
+  --relleno-pagina: 2rem;
+  /* El alto que le queda a una pantalla de «altura fija» (Cold Calling, Correo, Agenda, CRM…) en el móvil; desde `lg` cada una usa su `lg:h-[…]` */
+  --alto-util: calc(100dvh - var(--cab-hueco) - var(--barra-hueco) - var(--relleno-pagina));
+}
+@media (min-width: 640px) { :root { --relleno-pagina: 3rem; } }
+.lat-asa { display: none; }
+
+@media (max-width: 1023.98px) {
+  html:has(.cab-movil) { --cab-hueco: calc(var(--cab-alto) + env(safe-area-inset-top, 0px)); }
+  html:has(.barra-inferior) { --barra-hueco: calc(var(--barra-alto) + env(safe-area-inset-bottom, 0px)); }
+
+  /* ---------- La cabecera ---------- */
+  .cab-movil {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 35;
+    display: flex; align-items: center; gap: 2px;
+    height: calc(var(--cab-alto) + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) max(6px, env(safe-area-inset-right, 0px)) 0 max(6px, env(safe-area-inset-left, 0px));
+    background: color-mix(in srgb, var(--ls-fondo) 84%, transparent);
+    -webkit-backdrop-filter: saturate(1.6) blur(16px); backdrop-filter: saturate(1.6) blur(16px);
+    border-bottom: 1px solid var(--ls-linea);
+  }
+  .cab-movil-boton { position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--ls-t1); transition: background-color .15s ease; }
+  .cab-movil-boton svg { width: 22px; height: 22px; }
+  .cab-movil-boton:active { background: var(--ls-sup3); }
+  .cab-movil-boton:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: -2px; }
+  .cab-movil-logo { flex: none; height: 18px; width: auto; margin-left: 10px; }
+  html.light .cab-movil-logo { filter: invert(1) hue-rotate(180deg) saturate(1.15); }
+  .cab-movil-titulo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--ls-t1); }
+  .cab-movil-hueco { flex: 1 0 0; }
+  .cab-movil-insignia { position: absolute; top: 6px; right: 5px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: var(--ls-e-rojo); color: #fff; font-size: 10px; font-weight: 700; line-height: 17px; text-align: center; box-shadow: 0 0 0 2px var(--ls-fondo); }
+
+  /* ---------- La barra de pestañas ---------- */
+  .barra-inferior {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+    height: calc(var(--barra-alto) + env(safe-area-inset-bottom, 0px));
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    background: color-mix(in srgb, var(--ls-sup) 88%, transparent);
+    -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+    border-top: 1px solid var(--ls-linea);
+  }
+  /* Con el teclado abierto (lib/movil/useTeclado.ts) o con el chat a pantalla completa, fuera: si no, sube con el teclado y tapa lo que se escribe */
+  html[data-escribiendo] .barra-inferior,
+  html.chat-abierto .barra-inferior { display: none; }
+  .bi-pestana { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--ls-t4); font-size: 10.5px; font-weight: 600; text-decoration: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .bi-icono { position: relative; display: grid; place-items: center; width: 56px; height: 30px; border-radius: 999px; transition: background-color .2s ease, color .2s ease; }
+  .bi-icono svg { width: 22px; height: 22px; transition: transform .22s cubic-bezier(.34, 1.56, .64, 1); }
+  .bi-nombre { max-width: 100%; overflow: hidden; padding: 0 2px; text-overflow: ellipsis; white-space: nowrap; }
+  .bi-pestana[data-activa='true'] { color: var(--ls-t1); }
+  .bi-pestana[data-activa='true'] .bi-icono { background: var(--ls-acc-suave); color: var(--ls-acc); }
+  .bi-pestana:active .bi-icono svg { transform: scale(.86); }
+  .bi-pestana:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: -4px; border-radius: 14px; }
+  .bi-insignia { position: absolute; top: -4px; left: calc(50% + 5px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: var(--ls-acc); color: var(--ls-acc-tinta); font-size: 10px; font-weight: 700; line-height: 17px; text-align: center; box-shadow: 0 0 0 2px var(--ls-sup); }
+  .bi-insignia[data-urgente='true'] { background: var(--ls-e-rojo); color: #fff; }
+
+  /* ---------- La barra lateral, ahora hoja «Más» que sube desde abajo (también la que abren Chat y Tareas con su botón) ---------- */
+  .lat,
+  .lat[data-inmersivo='true'] {
+    inset: auto 0 0 0; width: auto; height: auto;
+    max-height: min(88dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 12px));
+    border-right: 0; border-top: 1px solid var(--ls-linea2); border-radius: 20px 20px 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    overflow: hidden; translate: 0 100%; visibility: hidden; box-shadow: none;
+  }
+  .lat[data-movil='abierta'],
+  .lat[data-inmersivo='true'][data-movil='abierta'] { translate: 0 0; visibility: visible; box-shadow: 0 -24px 60px -24px rgba(0, 0, 0, .6); }
+  .lat-velo { z-index: 38; }
+  .lat-asa { position: relative; z-index: 1; display: flex; flex: none; align-items: center; justify-content: center; width: 100%; height: 22px; touch-action: none; }
+  .lat-asa span { width: 40px; height: 5px; border-radius: 999px; background: var(--ls-linea2); }
+  .lat-asa:focus-visible span { background: var(--ls-acc-graf); }
+  .lat-asa:focus-visible { outline: none; }
+  .lat-cabecera { height: 3rem; touch-action: none; }
+  .lat-plegar,
+  .lat-etiqueta { display: none; }
+  .lat-item,
+  .lat-app,
+  .lat-espera { height: 3rem; }
+  .lat-nav { overscroll-behavior: contain; }
+
+  /* ---------- Lo que va fijo abajo sube por encima de la barra ---------- */
+  .pila-de-avisos { --avisos-min: calc(var(--barra-hueco, 0px) + 16px); }
+  html[data-junta-capsula] .pila-de-avisos { --avisos-min: calc(var(--barra-hueco, 0px) + 76px); }
+  html:has(.barra-inferior) .junta-capsula { bottom: calc(var(--barra-hueco) + 10px); }
+  /* Los avisos de arriba (sonner) bajan por debajo de la cabecera */
+  [data-sonner-toaster] { --offset-top: calc(var(--cab-hueco, 0px) + 8px) !important; --mobile-offset-top: calc(var(--cab-hueco, 0px) + 8px) !important; }
+  /* Tareas a pantalla completa, con la aplicación instalada en el iPhone: que no quede debajo del reloj */
+  .tc-inmersivo { padding-top: env(safe-area-inset-top, 0px); }
+
+  /* ---------- Entre pantallas: un fundido corto, sin desenfoque (en el móvil el blur de 10 px de 0,5 s se nota) ---------- */
+  .page-transition { animation: movil-entra .22s ease-out backwards; }
+}
+@keyframes movil-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 1023.98px) and (prefers-reduced-motion: no-preference) {
+  .lat,
+  .lat[data-inmersivo='true'] { transition: translate .38s cubic-bezier(.22, 1, .36, 1), visibility 0s linear .38s; }
+  .lat[data-movil='abierta'],
+  .lat[data-inmersivo='true'][data-movil='abierta'] { transition: translate .38s cubic-bezier(.22, 1, .36, 1), visibility 0s; }
+  .im-rejilla > .im-celda { animation: im-entra .32s cubic-bezier(.2, .8, .3, 1) backwards; animation-delay: calc(var(--i, 0) * 16ms); }
+}
+@media (max-width: 1023.98px) and (prefers-reduced-motion: reduce) {
+  .page-transition { animation: none; }
+}
+@keyframes im-entra { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* Pantallas táctiles: sin zoom al tocar un campo (iOS amplía todo lo que tenga menos de 16 px), sin el recuadro gris al tocar y sin la espera del doble toque */
+@media (max-width: 1023.98px) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='button']):not([type='submit']):not([type='color']):not([type='file']),
+  select,
+  textarea { font-size: max(16px, 1em) !important; }
+  a, button, [role='button'], summary, label { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+}
+/* Instalada como aplicación: la página no rebota ni arrastra el fondo (en Safari se deja, que ahí tirar hacia abajo recarga) */
+@media (max-width: 1023.98px) and (display-mode: standalone) {
+  html, body { overscroll-behavior-y: none; }
+}
+
+/* ---------- El Inicio en el móvil (components/inicio/InicioMovil.tsx) ---------- */
+.inicio-movil { padding-bottom: 8px; }
+.im-cabecera { padding: 2px 2px 14px; }
+.im-saludo { font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: var(--ls-t1); }
+.im-acento { color: var(--ls-acc); }
+.im-meta { margin-top: 4px; font-size: 13px; color: var(--ls-t3); }
+.im-buscador { position: relative; display: flex; height: 44px; align-items: center; margin-bottom: 14px; border: 1px solid var(--ls-linea); border-radius: 12px; background: var(--ls-sup2); transition: border-color .15s ease; }
+.im-buscador:focus-within { border-color: var(--ls-acc-graf); }
+.im-buscador-lupa { position: absolute; left: 12px; width: 18px; height: 18px; color: var(--ls-t4); pointer-events: none; }
+.im-buscador input { height: 100%; min-width: 0; flex: 1; border: 0; background: transparent; padding: 0 40px; font-size: 16px; color: var(--ls-t1); outline: none; -webkit-appearance: none; appearance: none; }
+.im-buscador input::placeholder { color: var(--ls-t4); }
+.im-buscador input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.im-buscador-borrar { position: absolute; right: 4px; display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: var(--ls-t3); }
+.im-buscador-borrar svg { width: 16px; height: 16px; }
+.im-barra-edicion { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.im-edicion-ayuda { flex: 1; font-size: 12.5px; line-height: 1.35; color: var(--ls-t3); }
+.im-editar { flex: none; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ls-acc); }
+.im-editar[data-activo='true'] { background: var(--ls-acc); color: var(--ls-acc-tinta); }
+.im-editar:focus-visible, .im-titulo:focus-visible, .im-buscador-borrar:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 1px; }
+.im-seccion { margin-bottom: 12px; }
+.im-titulo, .im-titulo-fijo { display: flex; width: 100%; height: 36px; align-items: center; gap: 8px; border-radius: 8px; font-size: 13px; font-weight: 700; color: var(--ls-t2); }
+.im-titulo-fijo { height: 32px; }
+.im-cuenta { font-size: 12px; font-weight: 600; color: var(--ls-t4); }
+.im-chevron { width: 18px; height: 18px; margin-left: auto; color: var(--ls-t4); transition: rotate .2s ease; }
+.im-titulo[aria-expanded='false'] .im-chevron { rotate: -90deg; }
+.im-rejilla { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 4px; }
+@media (min-width: 560px) { .im-rejilla { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); } }
+.im-celda { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0 2px; border-radius: 14px; text-decoration: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+.im-celda:focus-visible { outline: 2px solid var(--ls-acc-graf); outline-offset: 2px; }
+.im-icono {
+  position: relative; display: grid; width: 56px; height: 56px; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--ls-acc-graf) 30%, transparent); border-radius: 16px; color: var(--ls-acc);
+  background: linear-gradient(145deg, var(--ls-acc-suave), transparent 140%), var(--ls-sup2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 16px -10px rgba(0, 0, 0, .5);
+  transition: transform .16s ease;
+}
+.im-icono svg { width: 26px; height: 26px; }
+.im-celda:active .im-icono { transform: scale(.92); }
+.im-celda[aria-pressed='true'] .im-icono { border-color: var(--ls-acc-graf); }
+.im-nombre { max-width: 100%; overflow: hidden; padding: 0 2px; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 550; line-height: 1.2; color: var(--ls-t2); }
+.im-insignia { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--ls-acc); color: var(--ls-acc-tinta); font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; box-shadow: 0 0 0 2px var(--ls-fondo); }
+.im-insignia[data-urgente='true'] { background: var(--ls-e-rojo); color: #fff; }
+.im-pin { position: absolute; top: -6px; right: -6px; display: grid; width: 22px; height: 22px; place-items: center; border-radius: 999px; background: var(--ls-sup3); color: var(--ls-t3); box-shadow: 0 0 0 2px var(--ls-fondo); }
+.im-pin svg { width: 12px; height: 12px; }
+.im-pin[data-fijada='true'] { background: var(--ls-acc); color: var(--ls-acc-tinta); }
+.im-sin-resultados { padding: 24px 4px; text-align: center; font-size: 14px; color: var(--ls-t3); }
