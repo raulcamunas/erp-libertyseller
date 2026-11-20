@@ -492,6 +492,10 @@ export const FRENOS_AUTOMATICOS = false
 export function datosViejos(e: Pick<EntradaDeFreno, 'horasDesdeRendimiento' | 'horasDesdeTerminos' | 'horasRetrasoObjetivosDiario' | 'horasDesdeStock'>): {
   viejos: string[]
   rendimientoOTerminos: boolean
+  /** El rendimiento por campaña (pujas, presupuestos, R1–R4, efectos): con él viejo no se escribe nada */
+  rendimiento: boolean
+  /** Solo los términos de búsqueda: invalidan negativas y cosechas, no pujas ni presupuestos (salen del rendimiento y de los objetivos diarios) */
+  terminos: boolean
 } {
   const viejos: string[] = []
   const h = AGENTE.FRENO_DATOS_HORAS
@@ -501,7 +505,7 @@ export function datosViejos(e: Pick<EntradaDeFreno, 'horasDesdeRendimiento' | 'h
   if (terminos) viejos.push(`términos de búsqueda sin sincronizar hace ${num(e.horasDesdeTerminos as number, 0)} h`)
   if (e.horasRetrasoObjetivosDiario !== null && e.horasRetrasoObjetivosDiario > h) viejos.push(`datos por segmentación con ${num(e.horasRetrasoObjetivosDiario, 0)} h de retraso`)
   if (e.horasDesdeStock !== null && e.horasDesdeStock > AGENTE.FRENO_STOCK_HORAS) viejos.push(`stock sin actualizar hace ${num(e.horasDesdeStock, 0)} h`)
-  return { viejos, rendimientoOTerminos: rendimiento || terminos }
+  return { viejos, rendimientoOTerminos: rendimiento || terminos, rendimiento, terminos }
 }
 
 /**

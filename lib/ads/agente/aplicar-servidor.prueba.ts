@@ -25,6 +25,8 @@ import {
   donantePuedeBajar,
   guardaDeEscritura,
   r1QueFinancia,
+  donanteHuerfano,
+  esperaPorTerminosViejos,
 } from './aplicar-servidor'
 import { datosViejos } from './guardarrailes-calculo'
 import { cvrComoFraccion, cvrDeMetricas } from './efectos-servidor'
@@ -435,6 +437,27 @@ console.log('\n=== subida de presupuesto que no cabe, donantes y guardas técnic
   ok('con la conexión en error tampoco', 'no' in guardaDeEscritura({ conexion: 'error', datosViejos: null }))
   ok('conexión activa y datos frescos → escribe', 'ok' in guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos(frescos) }))
   ok('sin poder leer la conexión ni la frescura → no para', 'ok' in guardaDeEscritura({ conexion: null, datosViejos: null }))
+  // Un 403 de una lectura (la API de uso, portfolios) marca la conexión «error» con el token bien: no para la escritura
+  ok('conexión en error por un 403 de la API de uso → escribe', 'ok' in guardaDeEscritura({ conexion: 'error', ultimoError: 'Amazon ha contestado 403 a /sp/campaigns/budget/usage. Puede ser que el cliente haya revocado el acceso.', datosViejos: null }))
+  ok('conexión en error por un 401 → no escribe', 'no' in guardaDeEscritura({ conexion: 'error', ultimoError: 'Amazon ha contestado 401 a /sp/campaigns/list. Puede ser que el cliente haya revocado el acceso.', datosViejos: null }))
+  ok('revocada aunque el texto sea de un 403 → no escribe', 'no' in guardaDeEscritura({ conexion: 'revocada', ultimoError: 'Amazon ha contestado 403 a /x', datosViejos: null }))
+  // Solo los términos viejos: se escribe (pujas, presupuestos, pausas) y esperan negativas y cosechas
+  const soloTerminos = guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos({ ...frescos, horasDesdeTerminos: 40 }) })
+  ok('solo los términos viejos → escribe, con terminosViejos', 'ok' in soloTerminos && soloTerminos.terminosViejos, JSON.stringify(soloTerminos))
+  ok('… y esperan las negativas y las cosechas, no las pujas ni los presupuestos', esperaPorTerminosViejos('negativizar') && esperaPorTerminosViejos('promover') && !esperaPorTerminosViejos('puja') && !esperaPorTerminosViejos('presupuesto') && !esperaPorTerminosViejos('pausar-campana'))
+  const ambos = guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos({ ...frescos, horasDesdeTerminos: 40, horasDesdeRendimiento: 40 }) })
+  ok('rendimiento viejo (con o sin términos) → no escribe', 'no' in ambos && ambos.no === 'datos_viejos')
+  const frescoOk = guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos(frescos) })
+  ok('todo fresco → terminosViejos false', 'ok' in frescoOk && !frescoOk.terminosViejos)
+}
+
+console.log('\n=== donantes huérfanos: solo si se han decidido todas las pendientes ===')
+{
+  const base = { r1EnPlanes: new Set<string>(), r1Esperando: new Set<string>(), decididasTodas: true }
+  ok('su R1 ya no está (caducada, aplicada) y se decidió todo → huérfano', donanteHuerfano(['a'], base))
+  ok('su R1 se aplica en esta pasada → no', !donanteHuerfano(['a'], { ...base, r1EnPlanes: new Set(['a']) }))
+  ok('su R1 espera (o falló al decidirse) → no', !donanteHuerfano(['a'], { ...base, r1Esperando: new Set(['a']) }))
+  ok('el bucle se cortó por tiempo o la lista llegó al tope → no se sabe: no es huérfano', !donanteHuerfano(['a'], { ...base, decididasTodas: false }))
 }
 
 console.log('\n=== A9: el fallo principal manda (lo de « (OJO:» es el borrado de compensación) ===')

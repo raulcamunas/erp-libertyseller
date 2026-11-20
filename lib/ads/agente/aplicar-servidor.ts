@@ -27,7 +27,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { todasLasFilas } from '../paginar'
 import { gruposActivosDe, leerPujaActual } from '../escritura'
-import { esReintentoDeTransporte, pujaDePromover, queHacerTrasFalloDeTransporte, textoDeReintento } from '../motor-calculo'
+import { esReintentoDeTransporte, pujaDePromover, queHacerTrasFalloDeTransporte, siguienteReintento, textoDeReintento } from '../motor-calculo'
 import {
   aplicadasDelAgenteDesde,
   aplicarPropuesta,
@@ -558,6 +558,19 @@ export function r1QueFinancia(metricas: Record<string, unknown> | null | undefin
 }
 
 /**
+ * PURO. ¿Es HUÉRFANO un donante (ninguna de las R1 que financia va a llegar)? Solo se sabe si en esta pasada se han decidido todas las pendientes: con el
+ * bucle cortado por tiempo o la lista en su tope, una R1 sin mirar sigue viva sin estar en ningún conjunto. `r1Esperando` incluye las R1 que esperan y las
+ * que fallaron al decidirse.
+ */
+export function donanteHuerfano(
+  financia: readonly string[],
+  c: { r1EnPlanes: ReadonlySet<string>; r1Esperando: ReadonlySet<string>; decididasTodas: boolean },
+): boolean {
+  if (!c.decididasTodas) return false
+  return !financia.some((id) => c.r1EnPlanes.has(id) || c.r1Esperando.has(id))
+}
+
+/**
  * PURO. ¿Se baja AHORA un donante sin R4 propia? Solo si la subida que financia va a llegar en esta pasada: su R1 está entre lo que se aplica, queda tope de
  * subidas de presupuesto hoy, hay sumas de hoy y quedan al menos 2 intentos (el donante y la R1). Si no, se salta SIN gastar intento: bajarlo sin su R1 dejaba la
  * campaña recortada 72 h (cuarentena) sin que la rentable recibiera nada.
@@ -575,27 +588,45 @@ export function donantePuedeBajar(
 
 /**
  * PURO. ¿Puede escribir aplicar en Amazon ahora? Guardas TÉCNICAS (no frenos de negocio: no cambian el estado ni frenan la cuenta; en cuanto el fallo pasa, sigue):
- *   · la conexión con Amazon está en error o revocada (un 401/403: llamarAds la marca; la siguiente lectura buena de vigilar la vuelve a «activa»): repetir
- *     escrituras que fallan cada 10 min no sirve de nada;
- *   · el rendimiento o los términos llevan > 36 h sin sincronizar (datosViejos): se decidiría con métricas de hace días.
+ *   · la conexión con Amazon está revocada (Login with Amazon ya no da el token) o en error por un 401 (el token no vale en ningún endpoint): repetir escrituras
+ *     que fallan cada 10 min no sirve de nada. Un 403 NO para: llamarAds marca la conexión «error» con un 403 de CUALQUIER endpoint (la API de uso, portfolios…),
+ *     y un 403 persistente de una lectura dejaba al agente sin escribir nunca, aunque el token y el resto de endpoints funcionaran. Una escritura que dé 403
+ *     falla sola, cuenta como error de autorización y corta la pasada (erroresSeguidos);
+ *   · el RENDIMIENTO lleva > 36 h sin sincronizar (datosViejos): se decidiría con métricas de hace días.
+ * Con solo los TÉRMINOS viejos se escribe, pero `terminosViejos` hace esperar a negativas, cosechas y REVISAR (son lo único que sale de los términos).
  */
-export function guardaDeEscritura(e: { conexion: string | null; datosViejos: { viejos: string[]; rendimientoOTerminos: boolean } | null }):
-  | { ok: true }
+export function guardaDeEscritura(e: {
+  conexion: string | null
+  /** ads_connections.ultimo_error (qué código lo puso). null = no se sabe: con estado «error», para */
+  ultimoError?: string | null
+  datosViejos: { viejos: string[]; rendimientoOTerminos: boolean; rendimiento?: boolean; terminos?: boolean } | null
+}):
+  | { ok: true; terminosViejos: boolean }
   | { no: 'sin_autorizacion' | 'datos_viejos'; motivo: string } {
-  if (e.conexion === 'error' || e.conexion === 'revocada') return { no: 'sin_autorizacion', motivo: `la conexión con Amazon Ads está «${e.conexion}» (Amazon ha contestado 401/403): no escribo hasta que una lectura vaya bien` }
-  if (e.datosViejos?.rendimientoOTerminos) return { no: 'datos_viejos', motivo: `datos viejos (${e.datosViejos.viejos.join(' · ')}): no escribo hasta que se vuelvan a sincronizar` }
-  return { ok: true }
+  const solo403 = typeof e.ultimoError === 'string' && /contestado\s+403\b/.test(e.ultimoError)
+  if (e.conexion === 'revocada' || (e.conexion === 'error' && !solo403)) return { no: 'sin_autorizacion', motivo: `la conexión con Amazon Ads está «${e.conexion}» (Amazon ha contestado 401 o ya no da el token): no escribo hasta que una lectura vaya bien` }
+  const dv = e.datosViejos
+  // Sin el detalle (rendimiento / terminos) se toma el campo conjunto, como antes
+  const rendimiento = dv ? (dv.rendimiento ?? dv.rendimientoOTerminos) : false
+  const terminos = dv ? (dv.terminos ?? false) : false
+  if (rendimiento && dv) return { no: 'datos_viejos', motivo: `datos viejos (${dv.viejos.join(' · ')}): no escribo hasta que se vuelvan a sincronizar` }
+  return { ok: true, terminosViejos: terminos }
+}
+
+/** PURO. Con los términos viejos, lo que sale de ellos espera (no se decide ni se caduca): negativas, cosechas y los REVISAR (que son negativas) */
+export function esperaPorTerminosViejos(tipo: string): boolean {
+  return tipo === 'negativizar' || tipo === 'promover'
 }
 
 /** Lo que hace falta para `guardaDeEscritura` (solo base de datos). Si una lectura falla, no se sabe: no para (la guarda es para fallos que SÍ se ven) */
 export async function leerGuardaDeEscritura(cuenta: CuentaParaSincronizar, ahora: number): Promise<ReturnType<typeof guardaDeEscritura>> {
   const [conexion, fresca] = await Promise.all([
-    Promise.resolve(createServiceClient().from('ads_connections').select('estado').eq('id', cuenta.conexionId).maybeSingle())
-      .then((r) => (r.error ? null : ((r.data as { estado?: string } | null)?.estado ?? null)))
+    Promise.resolve(createServiceClient().from('ads_connections').select('estado, ultimo_error').eq('id', cuenta.conexionId).maybeSingle())
+      .then((r) => (r.error ? null : ((r.data as { estado?: string; ultimo_error?: string | null } | null) ?? null)))
       .catch(() => null),
     frescura(cuenta.id, ahora).catch(() => null),
   ])
-  return guardaDeEscritura({ conexion, datosViejos: fresca ? datosViejos({ ...fresca, horasDesdeStock: null }) : null })
+  return guardaDeEscritura({ conexion: conexion?.estado ?? null, ultimoError: conexion?.ultimo_error ?? null, datosViejos: fresca ? datosViejos({ ...fresca, horasDesdeStock: null }) : null })
 }
 
 /** El código HTTP y el código de Amazon de un error: vive en guardarrailes-calculo (lo usan también vigilar y el panel); se reexporta aquí, donde estaba */
@@ -652,9 +683,20 @@ async function erroresRecientes(perfilId: string, ahora: number): Promise<boolea
  * Una propuesta que falló por transporte (429, 5xx, red) vuelve a pendiente: se reintenta en la siguiente pasada, que RELEE Amazon antes de escribir y, si el
  * cambio ya llegó, lo confirma como aplicado (confirmaReintento). El valor intentado queda en el error para reconocerlo aunque la decisión cambie el valor nuevo
  */
-async function volverAPendiente(perfilId: string, id: string, error: string, valorIntentado: number | null): Promise<void> {
+async function volverAPendiente(perfilId: string, id: string, error: string, valorIntentado: number | null, errorPrevio: string | null): Promise<'pendiente' | 'retenida'> {
+  // Cuántas veces seguidas lleva (siguienteReintento): tras varias, un error persistente (p. ej. un errorType de un 207 que no se conoce) dejaba la misma
+  // escritura repitiéndose cada pasada sin contar como error; se retiene para una persona, con el valor intentado en el error para poder confirmarlo
+  const { veces, retener } = siguienteReintento(errorPrevio, datosDelError(error).httpStatus)
   // devolverAPendiente resuelve el choque con el índice único de pendientes (23505) en vez de dejarla en «error» para siempre
-  await devolverAPendiente(perfilId, id, ['error'], { error: textoDeReintento(error, valorIntentado) })
+  const vuelta = await devolverAPendiente(perfilId, id, ['error'], { error: textoDeReintento(error, valorIntentado, veces) })
+  if (!retener || !vuelta) return 'pendiente'
+  try {
+    await marcarRetenida(perfilId, id, `Amazon ha fallado ${veces} veces seguidas al aplicarla sin decir que no (${error.slice(0, 200)}): puede que el cambio esté en Amazon. Revísala.`)
+    return 'retenida'
+  } catch (e) {
+    console.error(`[agente] no se ha podido retener la propuesta ${id} tras ${veces} reintentos:`, e instanceof Error ? e.message : e)
+    return 'pendiente'
+  }
 }
 
 /**
@@ -993,6 +1035,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
 
   // Guardas técnicas (no frenos): con la conexión en error/revocada o con datos viejos, esta pasada no escribe nada en Amazon; se anota una vez al día y sigue
   // en cuanto el fallo pasa. En ensayo no se escribe de todos modos
+  let terminosViejos = false
   if (!enEnsayo) {
     const g = await leerGuardaDeEscritura(cuenta, ahora)
     if ('no' in g) {
@@ -1000,6 +1043,8 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
       await anotarGuardaUnaVez(perfilId, g.no, inicioDelDiaLocal(local.fecha, zona), g.no === 'datos_viejos' ? 'Datos viejos: no escribo en Amazon' : 'Sin autorización en Amazon: no escribo', g.motivo)
       return r
     }
+    terminosViejos = g.terminosViejos
+    if (terminosViejos) console.warn(`[agente] ${perfilId}: términos de búsqueda viejos: negativas y cosechas esperan; pujas, presupuestos y pausas siguen`)
   }
   // Un fallo al leer el stock NO es «stock desconocido» (que dejaría pasar subidas en productos sin cobertura): con `ok: false` las subidas esperan (stockSinLeer)
   const [lecturaDeStock, errores7] = await Promise.all([
@@ -1071,11 +1116,20 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   let validacion: { ok: boolean } | null = null
   let planes: Array<{ p: Propuesta; d: Extract<DecisionDelAgente, { accion: 'aplicar' }> }> = []
   let rarasEsperando = 0
-  // Subidas de presupuesto que siguen vivas aunque no se apliquen en esta pasada (esperan): sus donantes no se caducan
+  // Subidas de presupuesto que siguen vivas aunque no se apliquen en esta pasada (esperan, o su decisión ha fallado): sus donantes no se caducan
   const r1Esperando = new Set<string>()
+  const esSubidaDePresupuesto = (p: Propuesta) => p.tipo === 'presupuesto' && finito(p.valorActual) && finito(p.valorNuevo) && p.valorNuevo > p.valorActual
+  // ¿Se han decidido TODAS las pendientes? Si el bucle se corta por tiempo o la lista llega al tope, las R1 que no se han mirado siguen vivas sin estar en
+  // ningún conjunto: no se sabe qué donante es huérfano
+  let decididasTodas = pendientes.length < PENDIENTES_A_MIRAR
   let sinEtiqueta = 0
   for (const p of pendientes) {
-    if (sinTiempo()) break
+    if (sinTiempo()) {
+      decididasTodas = false
+      break
+    }
+    // Términos de búsqueda viejos (guardaDeEscritura): negativas y cosechas esperan, sin decidirse ni caducarse, hasta que vuelvan
+    if (terminosViejos && esperaPorTerminosViejos(p.tipo)) continue
     const prod = productoDeP(p)
     let termino: DatosDeTermino | null = null
     let pujaLeida: number | null = null
@@ -1121,9 +1175,11 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
         if (d.motivo.startsWith(MOTIVO_SIN_ETIQUETA)) sinEtiqueta += 1
       } else {
         if (/^Rara/.test(d.motivo)) rarasEsperando += 1
-        if (p.tipo === 'presupuesto' && finito(p.valorActual) && finito(p.valorNuevo) && p.valorNuevo > p.valorActual) r1Esperando.add(p.campaignId)
+        if (esSubidaDePresupuesto(p)) r1Esperando.add(p.campaignId)
       }
     } catch (e) {
+      // Sin decidir sigue pendiente y viva: si es una R1, su donante no es huérfano
+      if (esSubidaDePresupuesto(p)) r1Esperando.add(p.campaignId)
       r.fallidas += 1
       console.error(`[agente] decidir la propuesta ${p.id} de ${perfilId}:`, e instanceof Error ? e.message : e)
     }
@@ -1132,16 +1188,24 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   if (rarasEsperando !== config.rarasSinIa) await actualizarAgente(perfilId, { raras_sin_ia: rarasEsperando }).catch(() => undefined)
   if (sinEtiqueta > 0) await avisarSinEtiquetas(perfilId, inicioDelDiaLocal(local.fecha, zona))
 
-  // Donantes cuya subida ya no va a llegar (la R1 se ha caducado, descartado, retenido u obsoleto): se caducan, no se bajan para nada. Los ya aplicados no se tocan
+  // Donantes cuya subida ya no va a llegar (la R1 se ha caducado, descartado, retenido u obsoleto): se caducan, no se bajan para nada. Los ya aplicados no se tocan.
+  // Solo si se han decidido todas las pendientes (decididasTodas): si no, una R1 sin mirar parecería muerta y se caducaría un donante cuya subida sí va a llegar
   const r1EnPlanes = new Set(planes.filter((x) => x.d.clase === 'presupuesto_subir').map((x) => x.p.campaignId))
   const huerfanos = planes.filter((x) => {
     const financia = x.d.clase === 'presupuesto_bajar' ? r1QueFinancia(x.p.metricas as unknown as Record<string, unknown>) : null
-    return financia != null && !financia.some((id) => r1EnPlanes.has(id) || r1Esperando.has(id)) && !esReintentoDeTransporte(x.p.error)
+    return financia != null && donanteHuerfano(financia, { r1EnPlanes, r1Esperando, decididasTodas })
   })
   for (const x of huerfanos) {
     try {
-      await caducarComoAgente(perfilId, x.p.id, 'la subida de presupuesto que financiaba este donante ya no se va a aplicar')
-      r.caducadas += 1
+      // Un donante que vuelve de un fallo de red puede tener su bajada YA en Amazon: no se caduca (quedaría fuera de topes, efecto y deshacer) ni se salta
+      // para siempre (donantePuedeBajar no lo dejaría pasar nunca sin su R1 y bloquearía la campaña): se retiene para una persona, como en decisionDeReintento
+      if (esReintentoDeTransporte(x.p.error)) {
+        await marcarRetenida(perfilId, x.p.id, 'Falló por la red al bajar este donante y puede que la bajada esté en Amazon; la subida que financiaba ya no se va a aplicar. Revísalo.')
+        r.retenidas += 1
+      } else {
+        await caducarComoAgente(perfilId, x.p.id, 'la subida de presupuesto que financiaba este donante ya no se va a aplicar')
+        r.caducadas += 1
+      }
     } catch (e) {
       console.error(`[agente] caducar el donante ${x.p.id}:`, e instanceof Error ? e.message : e)
     }
@@ -1264,7 +1328,9 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
       if (e instanceof CreadoAMedias) {
         // Cosecha a medias: lo creado está guardado en la propuesta (incompleta). Si Amazon no contestó, vuelve a pendiente y el siguiente intento CONCILIA
         // (busca en Amazon y crea solo lo que falta; nunca a ciegas). Si quedó algo que no se pudo borrar tras un error de validación, lo mira una persona
-        if (e.transitorio) await volverAPendiente(perfilId, p.id, mensaje, null)
+        if (e.transitorio) {
+          if ((await volverAPendiente(perfilId, p.id, mensaje, null, p.error)) === 'retenida') r.retenidas += 1
+        }
         else if (await retenerTrasFalloDeRed(perfilId, p.id, mensaje, `Quedó algo creado a medias en Amazon que no se pudo deshacer: revísalo antes de volver a aplicarla (${mensaje})`)) r.retenidas += 1
         if (tipo === 'autorizacion') {
           r.erroresQueCuentan += 1
@@ -1273,7 +1339,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
       } else if (tipo === 'transporte') {
         if (queHacerTrasFalloDeTransporte(p.tipo, datosDelError(mensaje).httpStatus) === 'retener') {
           if (await retenerTrasFalloDeRed(perfilId, p.id, mensaje)) r.retenidas += 1
-        } else await volverAPendiente(perfilId, p.id, mensaje, p.tipo === 'puja' || p.tipo === 'presupuesto' ? valorNuevo ?? p.valorNuevo : null)
+        } else if ((await volverAPendiente(perfilId, p.id, mensaje, p.tipo === 'puja' || p.tipo === 'presupuesto' ? valorNuevo ?? p.valorNuevo : null, p.error)) === 'retenida') r.retenidas += 1
       } else if (tipo === 'autorizacion') {
         r.erroresQueCuentan += 1
         erroresSeguidos += 1

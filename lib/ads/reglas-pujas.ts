@@ -107,8 +107,9 @@ export function proponerPujas(segmentaciones: readonly SegmentacionParaReglas[],
       // puja escalada por el ACoS (puja × objetivo ÷ ACoS). Con el CPC igual o por debajo de la puja, el mínimo es la objetivo y el resultado es el de siempre.
       const destino = r2(Math.min(objetivo, s.puja * (p.acosObjetivoPct / acos)))
       nueva = pujaValida(Math.max(destino, s.puja * (1 - u.pujaMaxBajadaPct / 100)))
-      // Desde la rama de bajar nunca sale una subida (ni un cambio de céntimos)
-      if (nueva == null || nueva >= s.puja - 0.02) continue
+      // Desde la rama de bajar nunca sale una subida ni un «cambio» igual. El mínimo de cambio es el de siempre (el filtro de abajo, < 0,02): aquí no se pone
+      // otro umbral, que dejaba sin bajar las pujas de hasta ~0,10 con ACoS alto (0,10 → 0,08 es justo 0,02 y se saltaba)
+      if (nueva == null || nueva >= s.puja) continue
       motivo = `ACoS ${coma(acos)} % con ${m.pedidos} pedidos, por encima del objetivo (${coma(p.acosObjetivoPct)} %): la puja que lo deja en el objetivo es ${coma(destino, 2)}${destino < objetivo ? ` (el CPC real, ${coma(m.gasto / m.clics, 2)}, pasa de la puja: se baja en proporción al ACoS)` : ` (${coma(m.ventas / m.clics, 2)} en ventas por clic × ${coma(p.acosObjetivoPct)} %)`}${destino < s.puja * (1 - u.pujaMaxBajadaPct / 100) ? `; se baja como mucho un ${u.pujaMaxBajadaPct} % de golpe` : ''}`
     } else if (m.pedidos === 0 && m.ventas === 0) {
       nueva = pujaValida(s.puja * (1 - u.bajarSinPedidosPct / 100))

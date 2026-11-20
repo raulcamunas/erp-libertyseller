@@ -562,14 +562,15 @@ export async function generarPropuestas(cuenta: CuentaParaSincronizar): Promise<
 
   // Las NEGATIVAS pendientes que ya no tocan con los términos de ahora (el término vende, o hay una cosecha del mismo término en la misma campaña, pendiente o
   // nueva): se caducan. Si no, se aplicarían con métricas de hasta 14 días y la negativa iría antes que la cosecha
-  const { data: pendNeg, error: ePendNeg } = await todasLasFilas((a, b) => service.from('ads_propuestas').select('id, campaign_id, termino').eq('perfil_id', cuenta.id).eq('estado', 'pendiente').eq('tipo', 'negativizar').order('id').range(a, b))
+  // `error` y `aplicada`: las que vuelven de un intento cortado (su negativa puede estar ya en Amazon) no se caducan aquí (negativasACaducar)
+  const { data: pendNeg, error: ePendNeg } = await todasLasFilas((a, b) => service.from('ads_propuestas').select('id, campaign_id, termino, error, aplicada').eq('perfil_id', cuenta.id).eq('estado', 'pendiente').eq('tipo', 'negativizar').order('id').range(a, b))
   if (ePendNeg) throw ePendNeg
   const cosechas = [
     ...((previas ?? []) as Array<{ campaign_id: string; termino: string; tipo: string; estado: string }>).filter((r) => r.tipo === 'promover' && r.estado === 'pendiente').map((r) => ({ campaignId: r.campaign_id, termino: r.termino })),
     ...nuevasDelPlan.filter((n) => n.tipo === 'promover').map((n) => ({ campaignId: n.campaignId, termino: n.termino })),
   ]
   let caducadasNeg = 0
-  for (const c of negativasACaducar((pendNeg ?? []) as Array<{ id: string; campaign_id: string; termino: string }>, terminos, cosechas)) {
+  for (const c of negativasACaducar((pendNeg ?? []) as Array<{ id: string; campaign_id: string; termino: string; error: string | null; aplicada: unknown }>, terminos, cosechas)) {
     const { data: hecha, error: eCad } = await service
       .from('ads_propuestas')
       .update({ estado: 'caducada', resuelta_at: new Date().toISOString(), error: `Caducada: ${c.motivo}`.slice(0, 500) })
@@ -1136,6 +1137,8 @@ async function recorrerAplicar(
 
   let paso: 'crear' | 'negativa' = 'crear'
   let confirmada = false
+  // Lo que se guarda con la cosecha pero NO es suyo (no entra en leerCreado, así que ordenDeBorrado no lo borra al deshacer)
+  const creadoAparte: { negativaPreexistente?: string } = {}
   try {
     // La puja de partida de lo cosechado: el CPC que ya pagaba (lo que ha demostrado que convierte a ese precio). El agente la limita a su puja máxima (decidirPropuesta)
     const cpcCalculado = p.tipo === 'promover' ? pujaDePromover(p.metricas, q.pujaMaxima) : 0.2
@@ -1143,9 +1146,10 @@ async function recorrerAplicar(
     const cpc = cpcCalculado
     if (p.tipo === 'promover' && !creado.keywordId && !creado.targetId) {
       const destino = { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string }
-      // Reanudando: la creación anterior pudo llegar a Amazon (tiempo agotado, 5xx): se busca antes de crearla otra vez
+      // Reanudando: la creación anterior pudo llegar a Amazon (tiempo agotado, 5xx): se busca antes de crearla otra vez. Solo en el grupo de destino y ACTIVA, que
+      // es como la crea el motor: una pausada a mano o de otro grupo no es de este intento y no se adopta (si choca, Amazon dará DUPLICATE y la verá una persona)
       const existente = reanudar
-        ? await buscar(() => (p.esAsin ? buscarSegmentacionDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: destino.campaignId, asin: p.termino }) : buscarKeyword(cuenta.conexionId, cuenta.profileId, { campaignId: destino.campaignId, texto: p.termino, coincidencia })))
+        ? await buscar(() => (p.esAsin ? buscarSegmentacionDeProducto(cuenta.conexionId, cuenta.profileId, { ...destino, asin: p.termino }) : buscarKeyword(cuenta.conexionId, cuenta.profileId, { ...destino, texto: p.termino, coincidencia })))
         : null
       if (existente) confirmada = true
       if (p.esAsin) {
@@ -1162,6 +1166,9 @@ async function recorrerAplicar(
       if (p.esAsin && !p.adGroupId) throw new Error('No se sabe en qué grupo de anuncios apareció este ASIN: exclúyelo a mano en Amazon.')
       let negativa: string | null = reanudar ? await buscarNegativa() : null
       let conciliada = negativa != null
+      // Una negativa en origen que YA estaba antes de esta cosecha (puesta a mano o por otra vía): se anota aparte y NO se adopta su id, para que ni el efecto
+      // ni deshacer (ordenDeBorrado) borren una negativa que no puso el motor
+      let preexistente: string | null = null
       if (!negativa) {
         try {
           negativa = await crearNegativa()
@@ -1176,16 +1183,29 @@ async function recorrerAplicar(
             throw new ObsoletaOLiberada(motivo)
           }
           if (decidirCompensacion({ paso: 'negativa', tipoDeFallo: claseDe(e1), duplicado }) === 'compensar') throw e1
-          // Transporte o DUPLICATE: puede estar puesta. Se mira en Amazon; si está, se adopta. Si no, se intenta UNA vez más (si vuelve a fallar, decide el catch)
-          negativa = await buscarNegativa()
-          conciliada = negativa != null
-          if (!negativa) negativa = await crearNegativa()
+          // Transporte: la petición pudo llegar o seguir procesándose en Amazon, y la lista de la v3 no es consistente al instante. NO se busca ni se crea otra
+          // vez en esta pasada (crear no es idempotente: podían quedar dos negativas con un solo id guardado, o un segundo fallo que compensara la exacta): el
+          // catch la deja incompleta/negativaPendiente y el siguiente intento concilia con buscarNegativa antes de crear
+          if (!duplicado) throw e1
+          // DUPLICATE: ya hay una igual. Se busca su id; si no aparece todavía, también la concilia el siguiente intento
+          const existente = await buscarNegativa()
+          if (!existente) throw e1
+          // Reanudando, lo que hay puede venir del intento cortado: se adopta. En el primer intento no puede ser nuestra: ya estaba
+          if (reanudar) {
+            negativa = existente
+            conciliada = true
+          } else preexistente = existente
         }
       }
-      if (conciliada) confirmada = true
-      if (p.esAsin) creado.negativaProductoId = negativa as string
-      else creado.negativaId = negativa as string
-      await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: campoNegativa, valorNuevo: p.esAsin ? p.termino.toUpperCase() : p.termino, motivo: motivoNegativa + (conciliada ? ' · ya estaba en Amazon (intento anterior cortado)' : ''), entidadId: negativa as string })
+      if (preexistente) {
+        creadoAparte.negativaPreexistente = preexistente
+        await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: campoNegativa, valorNuevo: p.esAsin ? p.termino.toUpperCase() : p.termino, motivo: `${motivoNegativa} · ya estaba en Amazon antes de esta cosecha (no la ha puesto el motor: deshacer no la quita)`, entidadId: preexistente })
+      } else {
+        if (conciliada) confirmada = true
+        if (p.esAsin) creado.negativaProductoId = negativa as string
+        else creado.negativaId = negativa as string
+        await anotarCambio({ ...comun, entidad: 'negativa', accion: 'negativizar', campo: campoNegativa, valorNuevo: p.esAsin ? p.termino.toUpperCase() : p.termino, motivo: motivoNegativa + (conciliada ? ' · ya estaba en Amazon (intento anterior cortado)' : ''), entidadId: negativa as string })
+      }
     }
   } catch (e) {
     if (e instanceof ObsoletaOLiberada) throw e
@@ -1231,7 +1251,7 @@ async function recorrerAplicar(
     await marcarError(detalle, reanudar ? null : undefined)
     throw new Error(detalle)
   }
-  await resolver('aplicada', { aplicada: { ...creado, ...(confirmada ? { confirmadaTrasReintento: true } : {}) }, error: null }, p.tipo === 'promover' ? 'La cosecha' : 'La negativa')
+  await resolver('aplicada', { aplicada: { ...creado, ...creadoAparte, ...(confirmada ? { confirmadaTrasReintento: true } : {}) }, error: null }, p.tipo === 'promover' ? 'La cosecha' : 'La negativa')
 }
 
 /**
@@ -1531,7 +1551,8 @@ export async function barrerReservasColgadas(perfilId: string, ahora = Date.now(
     const limite = new Date(ahora - MINUTOS_RESERVA_COLGADA * 60_000).toISOString()
     const { data, error } = await service
       .from('ads_propuestas')
-      .select(await columnas())
+      // resuelta_por: quién la reservó (null = el agente o el autopiloto), que es lo que decide la ruta (rutaDeReservaColgada)
+      .select(`${await columnas()}, resuelta_por`)
       .eq('perfil_id', perfilId)
       .in('estado', ['aplicando', 'aprobada'])
       .or(`resuelta_at.lt.${limite},resuelta_at.is.null`)
@@ -1541,16 +1562,20 @@ export async function barrerReservasColgadas(perfilId: string, ahora = Date.now(
       return 0
     }
     let n = 0
-    for (const p of ((data ?? []) as unknown as Array<Record<string, unknown>>).map(deFila)) {
+    for (const fila of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+      const p = deFila(fila)
+      const resueltaPor = 'resuelta_por' in fila ? ((fila.resuelta_por as string | null) ?? null) : undefined
       try {
-        const ruta = rutaDeReservaColgada({ tipo: p.tipo, origen: p.origen, aplicada: p.aplicada ?? null, valorNuevo: p.valorNuevo, resueltaAt: p.resueltaAt }, ahora, MINUTOS_RESERVA_COLGADA)
+        const ruta = rutaDeReservaColgada({ tipo: p.tipo, origen: p.origen, aplicada: p.aplicada ?? null, valorNuevo: p.valorNuevo, resueltaAt: p.resueltaAt, resueltaPor }, ahora, MINUTOS_RESERVA_COLGADA)
         if (ruta.a === 'nada') continue
         let hecha = false
+        // Una cosecha cortada a mitad se marca `incompleta` (vaya a pendiente o a error): el siguiente intento, del agente o de una persona, CONCILIA con Amazon
+        // (busca lo que dejó su propio intento) en vez de crear a ciegas, dar DUPLICATE y dejar la exacta huérfana
+        const conciliar = ruta.a !== 'aplicada' && ruta.conciliar ? { aplicada: { ...leerCreado(p.aplicada), incompleta: true } } : {}
         if (ruta.a === 'pendiente') {
-          const previo = leerCreado(p.aplicada)
-          hecha = await devolverAPendiente(perfilId, p.id, ['aplicando', 'aprobada'], { error: ruta.error, ...(ruta.conciliar ? { aplicada: { ...previo, incompleta: true } } : {}) })
+          hecha = await devolverAPendiente(perfilId, p.id, ['aplicando', 'aprobada'], { error: ruta.error, ...conciliar })
         } else {
-          const { data: d, error: e } = await service.from('ads_propuestas').update({ estado: ruta.a, error: ruta.error }).eq('perfil_id', perfilId).eq('id', p.id).in('estado', ['aplicando', 'aprobada']).select('id')
+          const { data: d, error: e } = await service.from('ads_propuestas').update({ estado: ruta.a, error: ruta.error, ...conciliar }).eq('perfil_id', perfilId).eq('id', p.id).in('estado', ['aplicando', 'aprobada']).select('id')
           if (e) throw e
           hecha = (d ?? []).length > 0
         }

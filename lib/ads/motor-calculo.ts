@@ -270,10 +270,36 @@ export function pujaDePromover(metricas: { clics?: unknown; gasto?: unknown } | 
 /** El prefijo del `error` de una propuesta que volvió a pendiente tras un fallo de transporte (aplicar-servidor: volverAPendiente) */
 export const PREFIJO_REINTENTO = 'Reintento (Amazon no ha contestado)'
 
-/** PURO. El texto del `error` de un reintento; con el valor que se intentó escribir (puja/presupuesto) para reconocerlo luego en Amazon */
-export function textoDeReintento(error: string, valorIntentado: number | null): string {
+/**
+ * PURO. El texto del `error` de un reintento; con el valor que se intentó escribir (puja/presupuesto) para reconocerlo luego en Amazon. `veces` (desde 2) va
+ * como «[n]» justo tras los dos puntos: cuántas veces seguidas ha vuelto por transporte (vecesDeReintento), sin tocar lo que leen valorIntentadoDelReintento
+ * y esReintentoDeTransporte.
+ */
+export function textoDeReintento(error: string, valorIntentado: number | null, veces?: number): string {
   const intentado = valorIntentado != null && Number.isFinite(valorIntentado) ? ` · intentado ${Math.round(valorIntentado * 100) / 100}` : ''
-  return `${PREFIJO_REINTENTO}${intentado}: ${error}`.slice(0, 500)
+  const cuenta = veces != null && veces > 1 ? `[${Math.floor(veces)}] ` : ''
+  return `${PREFIJO_REINTENTO}${intentado}: ${cuenta}${error}`.slice(0, 500)
+}
+
+/** PURO. Cuántas veces seguidas ha vuelto la propuesta por un fallo de transporte: 0 si no es un reintento; la marca «[n]» o 1 sin ella */
+export function vecesDeReintento(error: string | null | undefined): number {
+  if (!esReintentoDeTransporte(error)) return 0
+  const m = /^Reintento \(Amazon no ha contestado\)(?: · intentado -?\d+(?:\.\d+)?)?: \[(\d+)\] /.exec(error as string)
+  return m ? Number(m[1]) : 1
+}
+
+/** Reintentos SEGUIDOS por transporte (sin contar los 429) a partir de los cuales una propuesta se retiene para una persona */
+export const MAX_REINTENTOS_DE_TRANSPORTE = 3
+
+/**
+ * PURO. Una propuesta del agente vuelve a fallar por transporte: ¿cuántas veces lleva y se retiene ya? Un error POR ELEMENTO desconocido de un 207 cuenta como
+ * transporte (clasificarErrorDeAmazon); si es persistente, la misma escritura se repetía cada pasada sin contar como error. Tras MAX_REINTENTOS_DE_TRANSPORTE
+ * seguidos se retiene (protección técnica, no un freno). Un 429 no suma: Amazon la rechazó sin aplicarla y se espera que pase.
+ */
+export function siguienteReintento(errorPrevio: string | null | undefined, httpStatus: number | null): { veces: number; retener: boolean } {
+  const antes = vecesDeReintento(errorPrevio)
+  const veces = httpStatus === 429 ? Math.max(antes, 1) : antes + 1
+  return { veces, retener: veces >= MAX_REINTENTOS_DE_TRANSPORTE && httpStatus !== 429 }
 }
 
 /** PURO. ¿La propuesta viene de un reintento por transporte? */
@@ -370,11 +396,15 @@ export function hayQueReanudar(c: CreadoDeCosecha): boolean {
 /**
  * PURO. La clase de un fallo al ESCRIBIR en Amazon, para decidir si se compensa (se borra lo creado) o se concilia. Transporte = Amazon no ha dicho que no
  * (red, tiempo agotado, 429, 5xx, «throttled» dentro de un 207): lo pedido puede haber llegado. Autorización = 401/403. Lo demás, validación (Amazon dijo que no).
+ * Lo pasajero dentro de un 2xx/207 es lo mismo que reconoce clasificarErrorDeAmazon (RE_207_TRANSPORTE): un cuerpo ILEGIBLE (llamarAds: el cambio pudo llegar),
+ * internalServerError / INTERNAL_ERROR, SERVICE_UNAVAILABLE o TEMPORARY. Antes eran «validación» y la cosecha se COMPENSABA: se borraba la exacta mientras la
+ * negativa en origen sí había quedado puesta (el término, negativizado en el origen y sin exacta).
  */
 export function claseDeFalloAlEscribir(estado: number | null | undefined, mensaje: string): 'transporte' | 'autorizacion' | 'validacion' {
   if (estado === 401 || estado === 403) return 'autorizacion'
   if (estado === 429 || (estado != null && estado >= 500)) return 'transporte'
   if (/throttl|tiempo agotado|timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|network|socket|abort/i.test(mensaje)) return 'transporte'
+  if (/ilegible|internal.?(server.?)?error|service.?unavailable|temporar/i.test(mensaje)) return 'transporte'
   return 'validacion'
 }
 
@@ -419,17 +449,20 @@ export type RutaDeReservaColgada =
   | { a: 'aplicada'; error: string }
   /** Del agente: vuelve a pendiente como un reintento; la pasada siguiente relee Amazon (o concilia la cosecha) antes de escribir */
   | { a: 'pendiente'; error: string; conciliar: boolean }
-  /** De una persona: «error» para que lo revise (probablemente aplicada) */
-  | { a: 'error'; error: string }
+  /** De una persona: «error» para que lo revise (probablemente aplicada). Una cosecha se marca para CONCILIAR: si la vuelve a aplicar, se busca en Amazon antes de crear */
+  | { a: 'error'; error: string; conciliar: boolean }
   /** Todavía no lleva bastante: no se toca */
   | { a: 'nada' }
 
 /**
  * PURO. Qué hacer con una propuesta que lleva más de `minutos` en reserva («aplicando»/«aprobada»): el proceso que la reclamó murió entre la llamada a Amazon y
  * guardar el resultado (cada despliegue reinicia el contenedor). El cambio puede estar en Amazon sin efecto, sin deshacer y sin contar en los topes.
+ * Quién la RESERVÓ se decide por la reserva, no por quién la creó: `origen` solo pasa a 'agente' al guardar el resultado, y casi todo lo que aplica el agente
+ * (pujas, pausas, negativas y cosechas del motor) lleva origen 'motor' mientras está «aplicando». reclamar() pone resuelta_por = la persona que aplica, y null
+ * cuando aplica una máquina (el agente o el autopiloto): esas vuelven a pendiente como reintento. `resueltaPor` undefined = no se sabe (solo cuenta el origen).
  */
 export function rutaDeReservaColgada(
-  f: { tipo: string; origen: string | null; aplicada: unknown; valorNuevo: number | null; resueltaAt: string | null },
+  f: { tipo: string; origen: string | null; aplicada: unknown; valorNuevo: number | null; resueltaAt: string | null; resueltaPor?: string | null },
   ahora: number,
   minutos: number,
 ): RutaDeReservaColgada {
@@ -439,8 +472,9 @@ export function rutaDeReservaColgada(
   const creado = leerCreado(f.aplicada)
   const esDeshacer = f.aplicada != null && typeof f.aplicada === 'object' && !hayQueReanudar(creado) && (f.aplicada as Record<string, unknown>).ensayo !== true
   if (esDeshacer) return { a: 'aplicada', error: 'Deshacer interrumpido (el proceso se cortó a mitad): revisa en Amazon si se llegó a deshacer.' }
-  if (f.origen !== 'agente') return { a: 'error', error: 'Reserva abandonada (el proceso se cortó a mitad): probablemente aplicada en Amazon, revísala antes de volver a aplicarla.' }
   const cosecha = f.tipo === 'promover' || f.tipo === 'negativizar'
+  const deUnaMaquina = f.origen === 'agente' || f.resueltaPor === null
+  if (!deUnaMaquina) return { a: 'error', error: 'Reserva abandonada (el proceso se cortó a mitad): probablemente aplicada en Amazon, revísala antes de volver a aplicarla.', conciliar: cosecha }
   const valor = f.tipo === 'puja' || f.tipo === 'presupuesto' ? f.valorNuevo : null
   return { a: 'pendiente', error: textoDeReintento('reserva abandonada (el proceso se cortó a mitad; puede estar aplicada en Amazon)', valor), conciliar: cosecha }
 }
@@ -465,9 +499,11 @@ export function elegirDestino(porAsinYRol: ReadonlyMap<string, DestinoDeCampana 
 /**
  * PURO. Las negativas PENDIENTES que ya no tocan con los términos de ahora: el término ha empezado a vender en esa campaña (la regla de negativizar exige
  * cero pedidos y cero ventas), o hay una cosecha (promover) del mismo término en la misma campaña, que ya pone su propia negativa en origen.
+ * Nunca las que vuelven de un intento cortado (reintento por transporte, o `aplicada` a medias): su negativa puede estar YA en Amazon, y caducada quedaría viva
+ * sin propuesta que la mida ni la deshaga. Esas las decide aplicar (decisionDeReintento las retiene para una persona o las concilia).
  */
 export function negativasACaducar(
-  pendientes: ReadonlyArray<{ id: string; campaign_id: string; termino: string }>,
+  pendientes: ReadonlyArray<{ id: string; campaign_id: string; termino: string; error?: string | null; aplicada?: unknown }>,
   terminos: readonly FilaDeTermino[],
   promover: ReadonlyArray<{ campaignId: string; termino: string }>,
 ): Array<{ id: string; motivo: string }> {
@@ -482,6 +518,7 @@ export function negativasACaducar(
   const cosechas = new Set(promover.map((p) => k(p.campaignId, p.termino)))
   const salida: Array<{ id: string; motivo: string }> = []
   for (const n of pendientes) {
+    if (esReintentoDeTransporte(n.error ?? null) || hayQueReanudar(leerCreado(n.aplicada))) continue
     const v = venta.get(k(n.campaign_id, n.termino))
     if (v && (v.compras > 0 || v.ventas > 0)) salida.push({ id: n.id, motivo: `el término ya vende en esta campaña (${v.compras} pedidos): no se negativiza` })
     else if (cosechas.has(k(n.campaign_id, n.termino))) salida.push({ id: n.id, motivo: 'hay una cosecha del mismo término en esta campaña, que ya pone su negativa en origen' })

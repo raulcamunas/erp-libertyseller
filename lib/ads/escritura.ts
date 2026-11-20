@@ -365,22 +365,27 @@ export async function buscarNegativaDeProducto(conexionId: string, profileId: nu
   return f ? idTexto(f.targetId) : null
 }
 
-/** La keyword de ese texto y concordancia en la campaña (activa o pausada), si ya existe. null = no está */
-export async function buscarKeyword(conexionId: string, profileId: number, k: { campaignId: string; texto: string; coincidencia: CoincidenciaDeKeyword }): Promise<string | null> {
+/**
+ * La keyword ACTIVA de ese texto y concordancia en ese grupo de anuncios, si ya existe. null = no está. Sirve para conciliar una cosecha cortada: el motor la
+ * crea activa en el grupo de destino, así que una pausada (a mano) o de otro grupo no es suya y no se adopta
+ */
+export async function buscarKeyword(conexionId: string, profileId: number, k: { campaignId: string; adGroupId: string; texto: string; coincidencia: CoincidenciaDeKeyword }): Promise<string | null> {
   const filas = await listarEntera<{ keywordId?: unknown; keywordText?: string; matchType?: string }>(conexionId, profileId, '/sp/keywords/list', T_KEYWORD, 'keywords', {
     campaignIdFilter: { include: [k.campaignId] },
-    stateFilter: { include: ['ENABLED', 'PAUSED'] },
+    adGroupIdFilter: { include: [k.adGroupId] },
+    stateFilter: { include: ['ENABLED'] },
   })
   const buscado = textoComparable(k.texto)
   const f = filas.find((x) => x.matchType === k.coincidencia && textoComparable(x.keywordText ?? '') === buscado)
   return f ? idTexto(f.keywordId) : null
 }
 
-/** La segmentación por producto (ASIN_SAME_AS) de ese ASIN en la campaña (activa o pausada), si ya existe. null = no está */
-export async function buscarSegmentacionDeProducto(conexionId: string, profileId: number, s: { campaignId: string; asin: string }): Promise<string | null> {
+/** La segmentación por producto (ASIN_SAME_AS) ACTIVA de ese ASIN en ese grupo de anuncios, si ya existe. null = no está (ver buscarKeyword) */
+export async function buscarSegmentacionDeProducto(conexionId: string, profileId: number, s: { campaignId: string; adGroupId: string; asin: string }): Promise<string | null> {
   const filas = await listarEntera<{ targetId?: unknown; expression?: Array<{ type?: string; value?: string }> }>(conexionId, profileId, '/sp/targets/list', T_TARGET, 'targetingClauses', {
     campaignIdFilter: { include: [s.campaignId] },
-    stateFilter: { include: ['ENABLED', 'PAUSED'] },
+    adGroupIdFilter: { include: [s.adGroupId] },
+    stateFilter: { include: ['ENABLED'] },
   })
   const asin = s.asin.trim().toUpperCase()
   const f = filas.find((t) => (t.expression ?? []).some((e) => e.type === 'ASIN_SAME_AS' && (e.value ?? '').trim().toUpperCase() === asin))

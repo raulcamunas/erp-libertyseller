@@ -50,6 +50,13 @@ console.log('\n=== bajar con pedidos ===')
   ok('con 1 solo pedido el ACoS es ruido → no se baja por ACoS', proponerPujas([seg('c3', 0.6, { clics: 30, gasto: 20, ventas: 20, pedidos: 1 })], P).length === 0)
 }
 
+console.log('\n=== bajar una puja baja con ACoS alto (sin umbral nuevo de céntimos) ===')
+{
+  // 6 € en ventas con 40 clics y 2 pedidos: ACoS 67 %, objetivo 30 %. La bajada máxima (25 %) deja 0,10 → 0,08: un cambio de 0,02 que sí se propone, como antes de A3
+  const r = proponerPujas([seg('pb', 0.1, { clics: 40, gasto: 4, ventas: 6, pedidos: 2 })], P)
+  ok('puja 0,10 con ACoS alto → baja a 0,08', r.length === 1 && r[0].direccion === 'bajar' && r[0].pujaNueva === 0.08, JSON.stringify(r))
+}
+
 console.log('\n=== bajar con el CPC real por encima de la puja (A3) ===')
 {
   // Puja 0,60 pero CPC real 1,00 (40 € en 40 clics), 120 € en ventas con 4 pedidos y objetivo 25 %: la puja objetivo (3 € por clic × 25 % = 0,75) queda POR ENCIMA de la puja. Antes salía una

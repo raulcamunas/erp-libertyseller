@@ -779,8 +779,8 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
   const propuestas: FilaDePropuestaDelAgente[] = []
   let avisos: ResultadoDeVigilar['avisos'] = []
   const r1De = new Map<string, PropuestaDeRitmo>()
-  // Guarda técnica (no un freno): con el rendimiento o los términos sin sincronizar > 36 h, R1–R4 se decidirían con métricas viejas. No se proponen (el recorte del
-  // mes sí: es una bajada por el gasto del mes). Lo anota aplicar, que tampoco escribe mientras dure
+  // Guarda técnica (no un freno): con el RENDIMIENTO sin sincronizar > 36 h, R1–R4 se decidirían con métricas viejas. No se proponen (el recorte del mes sí: es
+  // una bajada por el gasto del mes). Lo anota aplicar, que tampoco escribe mientras dure. Los términos viejos no cuentan aquí: R1–R4 no los usan
   const viejos = frenado || campanasRitmo.length === 0 ? null : datosViejos({ ...(await frescura(config.perfilId, ahora)), horasDesdeStock: null })
   // Sin hueco en el tope de subidas de presupuesto de HOY, una R1 no llegaría y sus donantes bajarían para nada: no se proponen (solo R1; R4 sigue)
   let sinTopeDeSubirHoy = false
@@ -793,7 +793,7 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       console.error(`[agente] lo hecho hoy de ${cuenta.id}:`, err instanceof Error ? err.message : err)
     }
   }
-  if (!frenado && campanasRitmo.length > 0 && !viejos?.rendimientoOTerminos) {
+  if (!frenado && campanasRitmo.length > 0 && !viejos?.rendimiento) {
     // Topes de la suma de presupuestos (topesDeSuma): útil (presupuesto o 1,3 × el máximo de 14 días) contra el techo; la real de hoy contra el techo (o la suma al encender) y contra la de hace 7 días
     let sumaUtil = 0
     for (const c of activas) {

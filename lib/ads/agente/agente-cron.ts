@@ -651,11 +651,13 @@ async function pasoEfectos(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
   const ahora = Date.now()
   const perfilId = cuenta.id
   const hoy = horaLocal(ahora, d.zona).fecha
-  // Guardas técnicas (las de aplicar): con datos viejos se mediría y desharía con métricas de hace días; sin autorización, deshacer fallaría. Se deja para mañana
-  // (las mediciones no se pierden: se hacen cuando toca y hay datos) y se anota una vez al día
+  // Guardas técnicas (las de aplicar): con el rendimiento viejo se mediría y desharía con métricas de hace días; sin autorización, deshacer fallaría. Se anota una
+  // vez al día. El sello del día ya está puesto (reservarPaso): se deja la marca de «a medias» (efectos_resto) para que el paso vuelva en cuanto la guarda pase,
+  // y no al día siguiente (un cambio que empeora seguiría aplicado un día más)
   if (config.estado === 'activo') {
     const g = await leerGuardaDeEscritura(cuenta, ahora)
     if ('no' in g) {
+      await actualizarAgente(perfilId, { efectos_resto: true }).catch((e: unknown) => console.error(`[agente] ${perfilId}: no he podido dejar los efectos para luego:`, e instanceof Error ? e.message : e))
       await anotarGuardaUnaVez(perfilId, g.no, inicioDelDiaLocal(hoy, d.zona), g.no === 'datos_viejos' ? 'Datos viejos: no mido ni deshago cambios' : 'Sin autorización en Amazon: no deshago cambios', g.motivo)
       return { hizoAlgo: false }
     }

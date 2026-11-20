@@ -15,6 +15,9 @@ import {
   rutaDeReservaColgada,
   textoDeReintento,
   valorIntentadoDelReintento,
+  vecesDeReintento,
+  siguienteReintento,
+  MAX_REINTENTOS_DE_TRANSPORTE,
 } from './motor-calculo'
 import { RECOMPROBAR_COLUMNA_MS, hayQueComprobarColumna, resultadoDeComprobarColumna, clavesEnCuarentena, decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, motorTieneTrabajo, pasoHizoAlgo, planificarPropuestas, proximoPasoDelMotor, pujaDePromover, pujasDelMotorACaducar, motivoSegmentacionesSinReleer, sumarPorCampana, tocaGenerar, valorSigueIgual, type EntradaDeAplicar } from './motor-calculo'
 import { esEscritura } from './rastro'
@@ -302,6 +305,10 @@ console.log('\n=== A9: cosecha a medias, ¿conciliar o compensar? ===')
   ok('fetch failed es transporte', claseDeFalloAlEscribir(null, 'fetch failed') === 'transporte')
   ok('207 con un error de validación es validación', claseDeFalloAlEscribir(207, 'Amazon no ha creado el elemento: INVALID_ARGUMENT') === 'validacion')
   ok('401 es autorización', claseDeFalloAlEscribir(401, 'x') === 'autorizacion')
+  ok('200 con un cuerpo ilegible es transporte (la escritura pudo llegar: se concilia, no se compensa)', claseDeFalloAlEscribir(200, 'Amazon Ads ha contestado 200 a /sp/negativeKeywords con una respuesta ilegible de Amazon (no es JSON)') === 'transporte')
+  ok('207 con internalServerError es transporte', claseDeFalloAlEscribir(207, 'Amazon no ha creado el elemento: internalServerError') === 'transporte')
+  ok('207 con INTERNAL_ERROR / SERVICE_UNAVAILABLE / TEMPORARY es transporte', ['INTERNAL_ERROR', 'SERVICE_UNAVAILABLE', 'TEMPORARY_FAILURE'].every((c) => claseDeFalloAlEscribir(207, `Amazon no ha creado el elemento: ${c}`) === 'transporte'))
+  ok('decidirCompensacion con un 200 ilegible en la negativa → conciliar', decidirCompensacion({ paso: 'negativa', tipoDeFallo: claseDeFalloAlEscribir(200, 'respuesta ilegible de Amazon'), duplicado: false }) === 'conciliar')
   ok('DUPLICATE reconocido', esDuplicado('duplicateValueError: DUPLICATE_VALUE') && esDuplicado('ALREADY_EXISTS') && !esDuplicado('INVALID_ARGUMENT'))
   const c = leerCreado({ keywordId: 'K1', negativaPendiente: true, basura: 3 })
   ok('lo guardado a medias se lee y pide reanudar', c.keywordId === 'K1' && hayQueReanudar(c) && !('basura' in c))
@@ -335,6 +342,29 @@ console.log('\n=== A8: reservas colgadas ===')
   ok('promover a medias (incompleta) NO se toma por un deshacer', f({ tipo: 'promover', aplicada: { keywordId: 'K1', incompleta: true } }).a === 'pendiente')
   ok('una ensayada vuelta a pendiente NO se toma por un deshacer', f({ aplicada: { ensayo: true } }).a === 'pendiente')
   ok('de una persona → error para revisar', f({ origen: 'motor' }).a === 'error')
+  // Quién la RESERVÓ manda, no quién la creó: lo del motor que aplica el agente lleva origen 'motor' hasta guardar el resultado
+  const pujaMotorAgente = f({ origen: 'motor', resueltaPor: null })
+  ok('puja del MOTOR reservada por el agente (resuelta_por null) → pendiente como reintento', pujaMotorAgente.a === 'pendiente' && esReintentoDeTransporte(pujaMotorAgente.error) && valorIntentadoDelReintento(pujaMotorAgente.error) === 1.15, JSON.stringify(pujaMotorAgente))
+  const cosMotorAgente = f({ tipo: 'promover', origen: 'motor', resueltaPor: null, valorNuevo: null })
+  ok('cosecha del MOTOR reservada por el agente → pendiente con conciliación', cosMotorAgente.a === 'pendiente' && cosMotorAgente.conciliar, JSON.stringify(cosMotorAgente))
+  ok('reservada por una persona (resuelta_por con su id) → error', f({ origen: 'motor', resueltaPor: 'u-1' }).a === 'error')
+  const cosPersona = f({ tipo: 'promover', origen: 'motor', resueltaPor: 'u-1', valorNuevo: null })
+  ok('cosecha de una persona → error, pero marcada para conciliar (el reintento manual busca antes de crear)', cosPersona.a === 'error' && cosPersona.conciliar, JSON.stringify(cosPersona))
+  const pujaPersona = f({ origen: 'motor', resueltaPor: 'u-1' })
+  ok('puja de una persona → error sin conciliar', pujaPersona.a === 'error' && !pujaPersona.conciliar)
+}
+
+console.log('\n=== reintentos por transporte seguidos ===')
+{
+  const t1 = textoDeReintento('Amazon no ha creado el elemento: FOO_ERROR', 1.15)
+  ok('el primero: 1 vez', vecesDeReintento(t1) === 1)
+  const t2 = textoDeReintento('Amazon no ha creado el elemento: FOO_ERROR', 1.15, 2)
+  ok('con la marca [2]: 2 veces, y el valor intentado se sigue leyendo', vecesDeReintento(t2) === 2 && valorIntentadoDelReintento(t2) === 1.15 && esReintentoDeTransporte(t2), t2)
+  ok('sin valor intentado también se lee', vecesDeReintento(textoDeReintento('x', null, 3)) === 3)
+  ok('no es un reintento → 0', vecesDeReintento('otra cosa') === 0 && vecesDeReintento(null) === 0)
+  ok('el primer fallo no retiene', !siguienteReintento(null, 207).retener && siguienteReintento(null, 207).veces === 1)
+  ok(`al ${MAX_REINTENTOS_DE_TRANSPORTE}.º seguido se retiene`, siguienteReintento(t2, 207).retener && siguienteReintento(t2, 207).veces === 3)
+  ok('un 429 no suma ni retiene', !siguienteReintento(t2, 429).retener && siguienteReintento(t2, 429).veces === 2)
 }
 
 console.log('\n=== A10: la cosecha nunca va a una campaña pausada ===')
@@ -371,6 +401,14 @@ console.log('\n=== A20: negativas pendientes que ya no tocan ===')
   ok('hay una cosecha del mismo término y campaña → se caduca', r.some((x) => x.id === 'n2' && /cosecha/.test(x.motivo)))
   ok('sin ventas ni cosecha → sigue', !r.some((x) => x.id === 'n3'))
   ok('otra campaña no cuenta', !r.some((x) => x.id === 'n4'))
+  // Las que vuelven de un intento cortado pueden estar YA puestas en Amazon: no se caducan aquí (las decide aplicar)
+  const vueltas = [
+    { id: 'r1', campaign_id: 'c1', termino: 'fedora', error: textoDeReintento('tiempo agotado', null), aplicada: { incompleta: true, negativaPendiente: true } },
+    { id: 'r2', campaign_id: 'c1', termino: 'jamon iberico', error: null, aplicada: { incompleta: true } },
+    { id: 'r3', campaign_id: 'c1', termino: 'fedora', error: textoDeReintento('tiempo agotado', null), aplicada: null },
+  ]
+  const rv = negativasACaducar(vueltas, terms, [{ campaignId: 'c1', termino: 'Jamon Iberico ' }])
+  ok('un reintento por transporte o una a medias no se caduca aunque el término venda o haya cosecha', rv.length === 0, JSON.stringify(rv))
 }
 
 console.log('\n=== A18: caducar antes de generar las pujas y pausas viejas del motor ===')
