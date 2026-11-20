@@ -39,7 +39,7 @@ function suscribir(cb: () => void) {
     }
   }
 }
-const useMinuto = () => useSyncExternalStore(suscribir, () => minuto, () => 0)
+export const useMinuto = () => useSyncExternalStore(suscribir, () => minuto, () => 0)
 
 function useFranja(lead: LeadMx) {
   const m = useMinuto()

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Clock3, Loader2, Plus, RefreshCw, Table2, WifiOff } from 'lucide-react'
 import { haceCuanto } from '@/lib/agenda/memoria'
 import { BOTON, COLOR_ESTADO, PANTALLA, TEXTO, TITULO } from '@/lib/estilo/denso'
+import { RelojesDeLaAgenda } from './RelojesDeLaAgenda'
 
 /**
  * LA BARRA DE ARRIBA DE LA AGENDA: título, semana, acciones y quién se ve.
@@ -185,9 +186,13 @@ export function BarraDeAgenda({
           />
           <span className={verGoogle ? 'text-[var(--ls-t1)]' : 'line-through'}>Google Calendar</span>
         </button>
-        <span className={`ml-auto text-[11.5px] tabular-nums ${TEXTO.t3}`}>
+        <div className="ml-auto flex items-center gap-3">
+          <RelojesDeLaAgenda />
+          <span aria-hidden className="h-3 w-px bg-[var(--ls-linea)] max-sm:hidden" />
+        <span className={`text-[11.5px] tabular-nums ${TEXTO.t3}`}>
           {totalVisible} {totalVisible === 1 ? 'cita' : 'citas'} {movil ? 'hoy' : 'esta semana'}
         </span>
+        </div>
       </div>
     </div>
   )
