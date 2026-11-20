@@ -7,6 +7,8 @@
  * cuatro CLÁUSULAS de la automática (coincidencia cercana, amplia, sustitutos, complementos). En el informe todas llevan su id en `keywordId`.
  */
 
+import { pujaParaAmazon } from './agente/tipos'
+
 export interface FilaDeObjetivo {
   fecha: string
   objetivoId: string
@@ -164,12 +166,15 @@ export function textoDeExpresion(expresion: ReadonlyArray<{ type?: string; value
 /** Amazon no acepta pujas por debajo de 0,02 (en la mayoría de mercados) */
 export const PUJA_MINIMA = 0.02
 
-/** Una puja tecleada o calculada, redondeada a céntimos y con el mínimo de Amazon. null si no es un número positivo */
-export function pujaValida(v: unknown): number | null {
+/**
+ * Una puja tecleada o calculada, redondeada y con el mínimo de Amazon. null si no es un número positivo. Con `moneda`, el mínimo y los decimales de
+ * Amazon en ella (limitesDePuja: 0,10 en MXN); sin ella o sin tabla para ella, 0,02 y céntimos como siempre
+ */
+export function pujaValida(v: unknown, moneda?: string | null): number | null {
   const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v)
   if (!Number.isFinite(n) || n <= 0) return null
-  // + 1e-9: 0,5 × 1,15 da 0,57499999… en coma flotante y tiene que redondear a 0,58
-  return Math.max(PUJA_MINIMA, Math.round(n * 100 + 1e-9) / 100)
+  // + 1e-9 (dentro de pujaParaAmazon): 0,5 × 1,15 da 0,57499999… en coma flotante y tiene que redondear a 0,58
+  return pujaParaAmazon(n, moneda)
 }
 
 /** La puja tras subirla o bajarla un tanto por ciento (+10 → ×1,10) */

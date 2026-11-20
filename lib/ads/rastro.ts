@@ -93,6 +93,42 @@ export function esEscritura(metodo: string, ruta: string): boolean {
   return true
 }
 
+/** Intentos de una llamada a Amazon Ads como mucho (el primero y dos reintentos) */
+export const INTENTOS_ADS = 3
+/** Lo que se espera, sumando todos los reintentos de UNA llamada: la pasada del agente dura 240 s y no puede irse en esperas */
+export const ESPERA_REINTENTOS_MAX_MS = 8_000
+/** Un Retry-After de Amazon se respeta hasta esto; si pide más, se espera esto y el siguiente intento dirá */
+const RETRY_AFTER_MAX_MS = 5_000
+
+/**
+ * PURO. ¿Se repite una llamada a Amazon Ads que ha fallado? `estado` = el código HTTP, o null si no hubo respuesta (red caída).
+ *   429                  sí, en CUALQUIER método: Amazon lo rechaza antes de aplicar nada, así que repetir una escritura no la duplica.
+ *   5xx o red caída      solo si NO escribe (una lectura o un …/list): una escritura que falla así PUEDE haber llegado, y repetirla a ciegas la duplicaría o
+ *                        pisaría lo que haya; la siguiente pasada relee Amazon antes de repetirla.
+ *   tiempo agotado       no: ya se han esperado los ESPERA_JSON_MS enteros y otro intento se comería la pasada (`porTiempo`).
+ *   lo demás (4xx)       no: es de los datos o de la autorización, y repetir da lo mismo.
+ */
+export function debeReintentarAds(metodo: string, ruta: string, estado: number | null, porTiempo = false): boolean {
+  if (estado === 429) return true
+  if (esEscritura(metodo, ruta)) return false
+  if (estado === null) return !porTiempo
+  return estado >= 500
+}
+
+/**
+ * PURO. Cuánto esperar antes del intento `intento + 1` (`intento` empieza en 1): lo que diga Retry-After (segundos o fecha HTTP), con tope de 5 s; si no lo dice,
+ * 1 s y luego 2 s, con un poco de azar (`azar` en [0, 1)) para que dos llamadas que chocaron no vuelvan a chocar a la vez
+ */
+export function esperaDeReintento(intento: number, retryAfter: string | null, ahora: number, azar: number): number {
+  if (retryAfter) {
+    const seg = Number(retryAfter)
+    const ms = Number.isFinite(seg) ? seg * 1000 : Date.parse(retryAfter) - ahora
+    if (Number.isFinite(ms) && ms >= 0) return Math.min(RETRY_AFTER_MAX_MS, Math.round(ms))
+  }
+  const base = intento <= 1 ? 1_000 : 2_000
+  return Math.round(base + base * 0.25 * Math.min(Math.max(azar, 0), 1))
+}
+
 /** Las listas de la v3 y el nombre de su id, para la respuesta simulada */
 const LISTAS: Array<[string, string]> = [
   ['campaigns', 'campaignId'],

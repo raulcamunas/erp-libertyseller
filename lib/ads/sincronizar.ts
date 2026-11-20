@@ -37,6 +37,8 @@ export interface CuentaParaSincronizar {
   id: string
   conexionId: string
   profileId: number
+  /** Moneda del perfil (ads_profiles.moneda): las pujas se escriben con el mínimo y los decimales de Amazon en ella. Opcional: sin ella, 0,02 y céntimos */
+  moneda?: string | null
 }
 
 const desplazar = (dia: string, dias: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + dias * 86_400_000).toISOString().slice(0, 10)
@@ -357,9 +359,9 @@ export async function leerGuardado(perfilId: string, dias: number, rango?: Perio
 
 /** Las cuentas que el proceso automático lee: en uso Y asignadas a un cliente (de las apagadas o sin asignar no se pide ni se guarda nada) */
 export async function cuentasASincronizar(): Promise<CuentaParaSincronizar[]> {
-  const { data, error } = await createServiceClient().from('ads_profiles').select('id, profile_id, connection_id').eq('en_uso', true).not('cliente_id', 'is', null)
+  const { data, error } = await createServiceClient().from('ads_profiles').select('id, profile_id, connection_id, moneda').eq('en_uso', true).not('cliente_id', 'is', null)
   if (error) throw error
-  return ((data ?? []) as Array<{ id: string; profile_id: number; connection_id: string }>).map((p) => ({ id: p.id, profileId: Number(p.profile_id), conexionId: p.connection_id }))
+  return ((data ?? []) as Array<{ id: string; profile_id: number; connection_id: string; moneda: string | null }>).map((p) => ({ id: p.id, profileId: Number(p.profile_id), conexionId: p.connection_id, moneda: p.moneda ?? null }))
 }
 
 /**

@@ -27,6 +27,7 @@
 import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { ENDPOINTS, SCOPE_ADS, credenciales, urlDeVuelta, type RegionAds } from './config'
+import { ESPERA_JSON_MS } from '@/lib/tiempos-espera'
 
 /** Cuánto vale un `state`. Diez minutos es de sobra para autorizar y volver */
 const STATE_VIVE_MS = 10 * 60_000
@@ -57,16 +58,25 @@ export class AdsError extends Error {
    */
   readonly estado?: number
   readonly cuerpo?: string
+  /**
+   * El `errorType` de Amazon (los errores por elemento de una respuesta 207 de la v3: `entityStateError`, `rangeError`, `throttledError`…) o el `error` de
+   * Login with Amazon (`invalid_grant`). Con él se decide si un fallo se reintenta, no cuenta o hay que avisar de que la autorización ya no vale.
+   */
+  readonly tipoAmazon?: string
+  /** El `reason` que acompaña al `errorType` (p. ej. `ARCHIVED_ENTITY`, `TOO_LOW`) */
+  readonly razon?: string
 
   constructor(
     mensaje: string,
-    opciones: { esDeAutorizacion?: boolean; estado?: number; cuerpo?: string } = {}
+    opciones: { esDeAutorizacion?: boolean; estado?: number; cuerpo?: string; tipoAmazon?: string; razon?: string } = {}
   ) {
     super(mensaje)
     this.name = 'AdsError'
     this.esDeAutorizacion = opciones.esDeAutorizacion === true
     this.estado = opciones.estado
     this.cuerpo = opciones.cuerpo
+    this.tipoAmazon = opciones.tipoAmazon
+    this.razon = opciones.razon
   }
 }
 
@@ -177,6 +187,8 @@ async function pedirTokens(
   const cred = credenciales()
   if (!cred) throw new AdsError('Faltan las credenciales de Amazon Ads en el servidor.')
 
+  // Con tope de tiempo: sin él, un Login with Amazon que acepta la conexión y no contesta colgaba la llamada ~300 s (más que la pasada entera del agente).
+  // El TimeoutError que lanza se clasifica como «transporte» (se reintenta en la siguiente pasada; no cuenta como autorización)
   const res = await fetch(ENDPOINTS[region].token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -185,6 +197,7 @@ async function pedirTokens(
       client_id: cred.clientId,
       client_secret: cred.clientSecret,
     }),
+    signal: AbortSignal.timeout(ESPERA_JSON_MS),
   })
 
   const datos = (await res.json().catch(() => null)) as {
@@ -209,18 +222,28 @@ async function pedirTokens(
         `Amazon rechaza la aplicación (${codigo}). Casi siempre es una de dos: la URL de vuelta ` +
           `«${urlDeVuelta()}» no está registrada TAL CUAL en Login with Amazon, o el scope ` +
           'advertising no está asignado a este Client ID.',
-        { esDeAutorizacion: true }
+        { esDeAutorizacion: true, estado: res.status, tipoAmazon: codigo }
       )
     }
     if (codigo === 'invalid_grant') {
+      // Quien renueva (accessTokenDe, datos.ts) marca la conexión como «revocada» al ver tipoAmazon = invalid_grant
       throw new AdsError(
         'La autorización ya no vale: el cliente la ha revocado desde su cuenta de Amazon, o el ' +
           'código ha caducado. Hay que volver a conectar.',
-        { esDeAutorizacion: true }
+        { esDeAutorizacion: true, estado: res.status, tipoAmazon: codigo }
+      )
+    }
+    // Un 429 o un 5xx de Login with Amazon es un fallo pasajero del servicio, no de la autorización: el mensaje lleva «ha contestado NNN» para que
+    // tipoDeFallo (agente) lo lea como transporte y la propuesta se reintente. Antes salía sin código y se tomaba como un error de datos («validación»)
+    if (res.status === 429 || res.status >= 500) {
+      throw new AdsError(
+        `Login with Amazon ha contestado ${res.status} al renovar el token (${codigo}): ${datos?.error_description ?? 'sin detalle'}`,
+        { estado: res.status, tipoAmazon: datos?.error }
       )
     }
     throw new AdsError(
-      `Amazon no ha dado el token (${codigo}): ${datos?.error_description ?? 'sin detalle'}`
+      `Amazon no ha dado el token (${codigo}): ${datos?.error_description ?? 'sin detalle'}`,
+      { estado: res.status, tipoAmazon: datos?.error }
     )
   }
 

@@ -29,6 +29,7 @@ import { caducarSubidasPendientes } from '../motor'
 import {
   AGENTE,
   FALTA_MIGRACION_315,
+  motivoSinPujaMaxEnMoneda,
   type ClaseDeTope,
   type ConfigDelAgente,
   type EstadoDelAgente,
@@ -376,6 +377,9 @@ export async function encenderAgente(
     throw new Error(previo.estado === 'frenado' ? 'El agente de esta cuenta está frenado: usa «Reanudar».' : 'El agente de esta cuenta ya está encendido.')
   }
   const cuenta = await datosDeCuenta(perfilId)
+  // Límite técnico, no un freno: en una moneda sin tope de serie (SEK, MXN…) el agente no se enciende sin una puja máxima en esa moneda. Antes de escribir nada
+  const sinPujaMax = motivoSinPujaMaxEnMoneda(cuenta.moneda, previo?.pujaMax ?? null)
+  if (sinPujaMax) throw new Error(sinPujaMax)
   // Sin ensayo ni veda de temporada: se enciende activo siempre (20 nov 2026, Raúl)
   const firmada = await exigirFichaFirmada(perfilId, userId, opciones.firmarFicha)
   // Lo que SUBE y quedó pendiente del modo anterior se creó sin los frenos del agente (subidaPermitida, R1): se caduca ANTES de encender (si falla, no se enciende)
