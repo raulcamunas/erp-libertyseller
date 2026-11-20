@@ -153,8 +153,21 @@ export async function leerTodasLasOfertas(tope = 5000, opciones: { forzar?: bool
   try {
     const salida: OfertaPcc[] = []
     let total = 0
+    let esperas = 0
     for (let desde = 0; salida.length < tope; desde += 100) {
-      const p = await leerOfertas(desde, 100)
+      let p: { ofertas: OfertaPcc[]; total: number }
+      try {
+        p = await leerOfertas(desde, 100)
+      } catch (e) {
+        // La pasada del cron (forzar) aguanta el límite: espera y sigue con la misma página. La pantalla no (falla enseguida, ver arriba)
+        if (opciones.forzar && e instanceof MiraklError && e.estado === 429 && esperas < 8) {
+          esperas += 1
+          await new Promise((r) => setTimeout(r, 30_000))
+          desde -= 100
+          continue
+        }
+        throw e
+      }
       total = p.total
       salida.push(...p.ofertas)
       if (p.ofertas.length < 100 || salida.length >= total) break
@@ -177,6 +190,8 @@ export async function leerTodasLasOfertas(tope = 5000, opciones: { forzar?: bool
 export async function buscarProductosPorEan(eans: readonly string[]): Promise<Map<string, ProductoPcc>> {
   const encontrados = new Map<string, ProductoPcc>()
   for (let i = 0; i < eans.length; i += 100) {
+    // P11 admite unas 26 llamadas por minuto: con muchos productos se espera entre llamadas
+    if (i > 0 && eans.length > 1000) await new Promise((r) => setTimeout(r, 2_500))
     const trozo = eans.slice(i, i + 100)
     const r = json((await llamar('/api/products/offers', { query: { product_references: trozo.map((e) => `EAN|${e}`).join(',') } })).texto) as { products?: unknown[] } | null
     for (const p of r?.products ?? []) {

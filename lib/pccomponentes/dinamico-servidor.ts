@@ -5,7 +5,8 @@ import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { comisionDe, precioMinimoParaMargen } from './margenes'
 import { decidirPrecio, type MotivoDinamico } from './dinamico'
 import { FRASE_DE_CONFIRMACION, leerTodasLasOfertas, ofertasDeProductos, subirOfertas } from './mirakl'
-import type { OfertaParaSubir, OfertaPcc } from './datos'
+import { productosDelProveedor } from './proveedor'
+import type { OfertaParaSubir } from './datos'
 
 /**
  * PRECIOS DINÁMICOS DE ENTRAIS EN PCCOMPONENTES — LA PASADA. SOLO SERVIDOR. ESCRIBE EN LA TIENDA (si no está en ensayo).
@@ -67,6 +68,9 @@ export async function guardarConfig(cambios: Partial<Omit<ConfigDinamica, 'ultim
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
+/** Subidas (de 500) por pasada: PcComponentes admite una por minuto */
+const MAX_LOTES = 4
+
 export interface ResumenDePasada {
   hecho: boolean
   motivo: string
@@ -78,6 +82,10 @@ export interface ResumenDePasada {
   alMinimo?: number
   sinCoste?: number
   enviados?: number
+  nuevas?: number
+  stock?: number
+  pendientes?: number
+  conStockDelProveedor?: boolean
   importaciones?: string[]
   errores?: string[]
 }
@@ -102,68 +110,141 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
   await service.from('pcc_precios_config').update({ ultima_pasada_at: ahora }).eq('unica', true)
 
   const { ofertas } = await leerTodasLasOfertas(5000, { forzar: true })
-  const nuestras = ofertas.filter((o) => o.activa && o.ean && o.precio !== null && o.precio > 0)
-  const mercado = await ofertasDeProductos([...new Set(nuestras.map((o) => o.ean!))])
+  const porSku = new Map(ofertas.map((o) => [o.sku, o]))
 
-  const costes = new Map(
-    (await fetchAll<{ sku: string; coste: number | null }>((a, b) => service.from('entrais_precios').select('sku, coste').order('sku', { ascending: true }).range(a, b))).map((f) => [f.sku, f.coste === null ? null : Number(f.coste)])
+  // EL STOCK, del proveedor (el catálogo que trae el ciclo de stock, sin gastar llamadas). Sin él, el stock no se toca y no se crean ofertas
+  let stockDe: Map<string, number> | null = null
+  try {
+    const p = await productosDelProveedor()
+    if (p.productos.length > 0) stockDe = new Map(p.productos.map((x) => [x.codigo, x.stock]))
+  } catch {
+    stockDe = null
+  }
+
+  // EL CATÁLOGO: todo lo de Entrais con coste que existe en PcComponentes (pcc_mercado), más lo que ya está publicado
+  const precios = await fetchAll<{ sku: string; ean: string | null; coste: number | null; canon: number | null; precio: number | null }>((a, b) =>
+    service.from('entrais_precios').select('sku, ean, coste, canon, precio').order('sku', { ascending: true }).range(a, b)
   )
+  const deEntrais = new Map(precios.map((f) => [f.sku, f]))
+  const enPcc = new Map(
+    (await fetchAll<{ ean: string; categoria: string | null }>((a, b) => service.from('pcc_mercado').select('ean, categoria').eq('existe', true).order('ean', { ascending: true }).range(a, b))).map((f) => [f.ean, f.categoria])
+  )
+  const skus = new Set<string>([...ofertas.filter((o) => o.ean).map((o) => o.sku), ...precios.filter((f) => f.ean && f.coste !== null && enPcc.has(f.ean)).map((f) => f.sku)])
+
+  // Los valores con que nace una oferta nueva: los más repetidos en las que ya hay (plazo, clase logística, estado)
+  const masRepetido = <T,>(xs: Array<T | null>, porDefecto: T): T => {
+    const c = new Map<T, number>()
+    for (const x of xs) if (x !== null && x !== undefined) c.set(x, (c.get(x) ?? 0) + 1)
+    return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? porDefecto
+  }
+  const plazoPorDefecto = masRepetido(ofertas.map((o) => o.plazoEnvioDias), 2)
+  const clasePorDefecto = masRepetido(ofertas.map((o) => o.claseLogistica), 'medio')
+  const estadoPorDefecto = masRepetido(ofertas.map((o) => o.estadoProducto), '1')
+
+  const eansDelCatalogo = [...new Set([...skus].map((sku) => porSku.get(sku)?.ean ?? deEntrais.get(sku)?.ean ?? null).filter((e): e is string => !!e))]
+  const mercado = await ofertasDeProductos(eansDelCatalogo)
 
   const log: Array<Record<string, unknown>> = []
-  const aSubir: Array<{ oferta: OfertaPcc; precio: number; fila: Record<string, unknown> }> = []
+  const aSubir: Array<{ subir: OfertaParaSubir; nueva: boolean; fila: Record<string, unknown> }> = []
   const cuenta: Record<MotivoDinamico, number> = { bajar_bajo_rival: 0, subir_bajo_siguiente: 0, al_minimo_rival_mas_barato: 0, subir_al_minimo: 0, sin_rivales: 0, ya_esta: 0, sin_coste: 0 }
+  let nuevas = 0
+  let cambiosDeStock = 0
 
-  for (const o of nuestras) {
-    const lista = mercado.get(o.ean!) ?? []
-    const idx = lista.findIndex((x) => x.ofertaId !== null && x.ofertaId === o.ofertaId)
+  for (const sku of skus) {
+    const o = porSku.get(sku) ?? null
+    const e = deEntrais.get(sku) ?? null
+    const ean = o?.ean ?? e?.ean ?? null
+    if (!ean) continue
+    const stock = stockDe ? Math.max(0, stockDe.get(sku) ?? 0) : (o?.cantidad ?? 0)
+    // Sin oferta todavía: se crea solo si hay stock y se sabe el stock del proveedor
+    if (!o && (!stockDe || stock <= 0)) continue
+
+    const lista = mercado.get(ean) ?? []
+    const idx = o ? lista.findIndex((x) => x.ofertaId !== null && x.ofertaId === o.ofertaId) : -1
     const yo = idx >= 0 ? lista[idx] : null
     const rivales = lista.filter((x, i) => i !== idx && x.activa && x.cantidad > 0).map((x) => ({ tienda: x.tienda, precio: x.precio, total: x.total }))
-    const coste = costes.get(o.sku) ?? null
+    const coste = e?.coste === null || e?.coste === undefined ? null : Number(e.coste)
     const margen = coste === null ? 0 : coste < config.limite_coste ? config.margen_bajo : config.margen_alto
-    const minimo = coste === null || !(coste > 0) ? null : precioMinimoParaMargen(coste, margen, comisionDe(o.categoria))
-    const d = decidirPrecio({ precio: o.precio!, total: yo?.total ?? null, rivales, minimo, centimos: config.centimos, subir: config.subir })
-    cuenta[d.motivo] += 1
-    if (d.precio === null) continue
+    const categoria = o?.categoria ?? enPcc.get(ean) ?? null
+    const minimo = coste === null || !(coste > 0) ? null : precioMinimoParaMargen(coste, margen, comisionDe(categoria))
+
+    let precioNuevo: number | null
+    let motivo: string
+    let rival: { tienda: string | null; total: number } | null = null
+    if (o && o.precio !== null && o.precio > 0) {
+      const d = decidirPrecio({ precio: o.precio, total: yo?.total ?? null, rivales, minimo, centimos: config.centimos, subir: config.subir })
+      cuenta[d.motivo] += 1
+      precioNuevo = d.precio ?? o.precio
+      motivo = d.motivo
+      rival = d.rival
+    } else {
+      // Oferta NUEVA: por debajo del más barato, nunca bajo el mínimo; sin nadie más, el precio de Amazon (o el mínimo si es más alto)
+      if (minimo === null) continue
+      const d = decidirPrecio({ precio: minimo, total: null, rivales, minimo, centimos: config.centimos, subir: true })
+      const sinRivales = rivales.length === 0
+      precioNuevo = sinRivales ? Math.max(minimo, e?.precio && e.precio > 0 ? Number(e.precio) : minimo) : (d.precio ?? minimo)
+      motivo = 'nueva'
+      rival = d.rival
+      nuevas += 1
+    }
+
+    const cambiaPrecio = !o || o.precio === null || Math.abs(precioNuevo - o.precio) >= 0.005
+    const cambiaStock = !o || o.cantidad !== stock
+    if (!cambiaPrecio && !cambiaStock) continue
+    if (o && !cambiaPrecio && cambiaStock) motivo = 'stock'
+    if (o && cambiaStock) cambiosDeStock += 1
+
     const fila: Record<string, unknown> = {
       pasada_at: ahora,
-      sku: o.sku,
-      ean: o.ean,
-      titulo: o.titulo.slice(0, 200),
-      precio_antes: o.precio,
-      precio_nuevo: d.precio,
+      sku,
+      ean,
+      titulo: (o?.titulo ?? '').slice(0, 200) || null,
+      precio_antes: o?.precio ?? null,
+      precio_nuevo: r2(precioNuevo),
       minimo,
-      competidor_precio: d.rival?.total ?? null,
-      competidor_tienda: d.rival?.tienda ?? null,
+      competidor_precio: rival?.total ?? null,
+      competidor_tienda: rival?.tienda ?? null,
       puesto: idx >= 0 ? idx + 1 : null,
       tiendas: lista.length,
-      motivo: d.motivo,
+      motivo,
       ensayo,
       enviado: false,
     }
     log.push(fila)
-    if (!ensayo) aSubir.push({ oferta: o, precio: d.precio, fila })
+    if (!ensayo) {
+      aSubir.push({
+        nueva: !o,
+        fila,
+        subir: {
+          sku,
+          ean,
+          precio: r2(precioNuevo),
+          cantidad: stock,
+          estadoProducto: o?.estadoProducto ?? estadoPorDefecto,
+          plazoEnvioDias: o?.plazoEnvioDias ?? plazoPorDefecto,
+          claseLogistica: o?.claseLogistica ?? clasePorDefecto,
+          tipoIva: o?.adicionales['tipo-iva'] !== undefined ? Number(o.adicionales['tipo-iva']) : 21,
+          canon: o?.adicionales['canon'] !== undefined ? Number(o.adicionales['canon']) : Number(e?.canon ?? 0) || 0,
+        },
+      })
+    }
   }
+  // Primero lo que ya está publicado (precio y stock), luego las nuevas. PcComponentes admite una subida por minuto: como mucho MAX_LOTES por pasada
+  aSubir.sort((a, b) => Number(a.nueva) - Number(b.nueva))
 
   const importaciones: string[] = []
   const errores: string[] = []
+  let pendientes = 0
   if (!ensayo && aSubir.length > 0) {
-    for (let i = 0; i < aSubir.length; i += 500) {
-      const lote = aSubir.slice(i, i + 500)
-      const paraSubir: OfertaParaSubir[] = lote.map(({ oferta: o, precio }) => ({
-        sku: o.sku,
-        ean: o.ean!,
-        precio: r2(precio),
-        cantidad: o.cantidad,
-        estadoProducto: o.estadoProducto ?? undefined,
-        plazoEnvioDias: o.plazoEnvioDias ?? undefined,
-        claseLogistica: o.claseLogistica ?? undefined,
-        tipoIva: o.adicionales['tipo-iva'] !== undefined ? Number(o.adicionales['tipo-iva']) : undefined,
-        canon: o.adicionales['canon'] !== undefined ? Number(o.adicionales['canon']) : undefined,
-      }))
+    const tope = MAX_LOTES * 500
+    pendientes = Math.max(0, aSubir.length - tope)
+    const estaVez = aSubir.slice(0, tope)
+    for (let i = 0; i < estaVez.length; i += 500) {
+      const lote = estaVez.slice(i, i + 500)
       // PcComponentes admite una subida por minuto
       if (i > 0) await new Promise((r) => setTimeout(r, 62_000))
       try {
-        const { importacionId } = await subirOfertas(paraSubir, FRASE_DE_CONFIRMACION)
+        const { importacionId } = await subirOfertas(lote.map((x) => x.subir), FRASE_DE_CONFIRMACION)
         importaciones.push(importacionId)
         for (const x of lote) Object.assign(x.fila, { enviado: true, importacion_id: importacionId })
       } catch (e) {
@@ -182,9 +263,15 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
   const enviados = log.filter((f) => f.enviado === true).length
   const resumen: ResumenDePasada = {
     hecho: true,
-    motivo: ensayo ? `Ensayo: ${log.length} precios cambiarían` : `${enviados} de ${log.length} precios enviados a PcComponentes`,
+    motivo: ensayo
+      ? `Ensayo: ${log.length} cambios (${nuevas} ofertas nuevas)`
+      : `${enviados} de ${log.length} cambios enviados a PcComponentes (${nuevas} ofertas nuevas, ${cambiosDeStock} de stock)${pendientes > 0 ? `; ${pendientes} quedan para la próxima pasada` : ''}${stockDe ? '' : '. Sin el catálogo del proveedor en memoria: el stock no se ha tocado y no se han creado ofertas'}`,
     ensayo,
-    ofertas: nuestras.length,
+    ofertas: ofertas.length,
+    nuevas,
+    stock: cambiosDeStock,
+    pendientes,
+    conStockDelProveedor: Boolean(stockDe),
     cambios: log.length,
     bajan: cuenta.bajar_bajo_rival,
     suben: cuenta.subir_bajo_siguiente + cuenta.subir_al_minimo,

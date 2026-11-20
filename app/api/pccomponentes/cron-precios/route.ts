@@ -8,7 +8,7 @@ import { FaltaMigracion321, pasadaSiToca, tocaPasada } from '@/lib/pccomponentes
  * configuración (`cada_minutos`, 30 por defecto), así que casi siempre contesta sin hacer nada. Ver lib/pccomponentes/dinamico-servidor.ts.
  */
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+export const maxDuration = 1200
 
 export async function POST(request: NextRequest) {
   const secret = process.env.CRON_SECRET
