@@ -86,6 +86,10 @@ export interface ResumenDePasada {
   stock?: number
   pendientes?: number
   conStockDelProveedor?: boolean
+  /** Ofertas que quedan publicadas tras la pasada, cuántas con stock y en cuántas (con stock) somos los más baratos */
+  publicadas?: number
+  conStock?: number
+  primeros?: number
   importaciones?: string[]
   errores?: string[]
 }
@@ -126,9 +130,9 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
     service.from('entrais_precios').select('sku, ean, coste, canon, precio').order('sku', { ascending: true }).range(a, b)
   )
   const deEntrais = new Map(precios.map((f) => [f.sku, f]))
-  const enPcc = new Map(
-    (await fetchAll<{ ean: string; categoria: string | null }>((a, b) => service.from('pcc_mercado').select('ean, categoria').eq('existe', true).order('ean', { ascending: true }).range(a, b))).map((f) => [f.ean, f.categoria])
-  )
+  const delMercado = await fetchAll<{ ean: string; categoria: string | null; titulo: string | null }>((a, b) => service.from('pcc_mercado').select('ean, categoria, titulo').eq('existe', true).order('ean', { ascending: true }).range(a, b))
+  const enPcc = new Map(delMercado.map((f) => [f.ean, f.categoria]))
+  const tituloDe = new Map(delMercado.filter((f) => f.titulo).map((f) => [f.ean, f.titulo as string]))
   const skus = new Set<string>([...ofertas.filter((o) => o.ean).map((o) => o.sku), ...precios.filter((f) => f.ean && f.coste !== null && enPcc.has(f.ean)).map((f) => f.sku)])
 
   // Los valores con que nace una oferta nueva: los más repetidos en las que ya hay (plazo, clase logística, estado)
@@ -149,6 +153,10 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
   const cuenta: Record<MotivoDinamico, number> = { bajar_bajo_rival: 0, subir_bajo_siguiente: 0, al_minimo_rival_mas_barato: 0, subir_al_minimo: 0, sin_rivales: 0, ya_esta: 0, sin_coste: 0 }
   let nuevas = 0
   let cambiosDeStock = 0
+  // Para las cifras del panel del cliente: cuántas quedan publicadas, cuántas con stock y en cuántas somos los más baratos
+  let publicadas = 0
+  let conStock = 0
+  let primeros = 0
 
   for (const sku of skus) {
     const o = porSku.get(sku) ?? null
@@ -188,6 +196,12 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
       nuevas += 1
     }
 
+    const envioNuestro = yo ? Math.max(0, yo.total - yo.precio) : 0
+    const masBaratoRival = rivales.reduce((m, r) => (r.total > 0 && r.total < m ? r.total : m), Infinity)
+    publicadas += 1
+    if (stock > 0) conStock += 1
+    if (stock > 0 && precioNuevo + envioNuestro <= masBaratoRival + 0.001) primeros += 1
+
     const cambiaPrecio = !o || o.precio === null || Math.abs(precioNuevo - o.precio) >= 0.005
     const cambiaStock = !o || o.cantidad !== stock
     if (!cambiaPrecio && !cambiaStock) continue
@@ -198,7 +212,7 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
       pasada_at: ahora,
       sku,
       ean,
-      titulo: (o?.titulo ?? '').slice(0, 200) || null,
+      titulo: (o?.titulo || tituloDe.get(ean) || '').slice(0, 200) || null,
       precio_antes: o?.precio ?? null,
       precio_nuevo: r2(precioNuevo),
       minimo,
@@ -206,6 +220,8 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
       competidor_tienda: rival?.tienda ?? null,
       puesto: idx >= 0 ? idx + 1 : null,
       tiendas: lista.length,
+      stock_antes: o ? o.cantidad : null,
+      stock_nuevo: stock,
       motivo,
       ensayo,
       enviado: false,
@@ -255,8 +271,22 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
     }
   }
 
+  // Sin la migración 329 no existen las columnas del stock: se guarda sin ellas
+  let sinColumnasDeStock = false
+  const sinStock = (filas: Array<Record<string, unknown>>) =>
+    filas.map((f) => {
+      const c = { ...f }
+      delete c.stock_antes
+      delete c.stock_nuevo
+      return c
+    })
   for (let i = 0; i < log.length; i += 500) {
-    const { error } = await service.from('pcc_precios_log').insert(log.slice(i, i + 500))
+    const trozo = log.slice(i, i + 500)
+    let { error } = await service.from('pcc_precios_log').insert(sinColumnasDeStock ? sinStock(trozo) : trozo)
+    if (error && !sinColumnasDeStock && /stock_(antes|nuevo)/.test(error.message)) {
+      sinColumnasDeStock = true
+      ;({ error } = await service.from('pcc_precios_log').insert(sinStock(trozo)))
+    }
     if (error) errores.push(`No se ha podido guardar el registro: ${error.message}`)
   }
 
@@ -272,6 +302,9 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
     stock: cambiosDeStock,
     pendientes,
     conStockDelProveedor: Boolean(stockDe),
+    publicadas,
+    conStock,
+    primeros,
     cambios: log.length,
     bajan: cuenta.bajar_bajo_rival,
     suben: cuenta.subir_bajo_siguiente + cuenta.subir_al_minimo,

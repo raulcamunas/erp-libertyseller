@@ -8,6 +8,7 @@ import { cajaDelCiclo, enCiclo, esCajaDeFase, estadoVisible, etiquetaDeEstadoVis
 import { esPartner, type ColdLead } from '@/lib/types/cold-leads'
 import { Esqueleto } from '@/components/rendimiento/ui'
 import { MarcaDeFestivo } from './Festivos'
+import { MarcaDeHoraMexico } from './HoraMexico'
 import { CifraDeLista, GlifoDeLead, tinte, tonoDeLista } from './ui'
 import { useVentana } from './useVentana'
 
@@ -82,6 +83,8 @@ export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFesti
           )}
           {/* Un día festivo en su comunidad: casi seguro no contestan. Solo si el festivo es de una comunidad o una zona (uno de toda España sería igual en todas las filas) */}
           <MarcaDeFestivo lead={lead} dia={diaFestivos ?? hoy} hoy={hoy} />
+          {/* México: su franja horaria y la hora que es allí */}
+          <MarcaDeHoraMexico lead={lead} />
           <CifraDeLista lead={lead} />
         </span>
         <span className="mt-px flex items-center gap-1.5 text-[11px] text-[var(--ls-t4)]">

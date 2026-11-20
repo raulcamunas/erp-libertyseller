@@ -113,6 +113,8 @@ export async function middleware(request: NextRequest) {
                        pathname === '/ads-conectado' ||
                        // El auditor de stock para el cliente (migración 323): mismo enlace con clave, solo LEE lo que el auditor guardó
                        pathname.startsWith('/stock/') ||
+                       // El panel de PcComponentes de Entrais (migración 329): mismo enlace con clave, solo LEE ventas y cambios de su tienda
+                       pathname.startsWith('/pcc/') ||
                        // El formulario donde un EMPLEADO envía sus datos de pago (migración 320): el token es la credencial, sirve UNA vez y solo para enviar
                        pathname.startsWith('/datos-de-pago/') ||
                        // El PORTAL del cliente para ese mismo envío (propuesta, etiquetas, cajas y envío), con el

@@ -15,6 +15,7 @@ import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, esPartner, esTiendaOnline, forma
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { MarcaDeFestivo } from './Festivos'
+import { MarcaDeHoraMexico } from './HoraMexico'
 import { ESTADO_VISUAL, GlifoDeLead, InsigniaDeLista, tinte } from './ui'
 import { useEscribirAlLead } from './useEscribirAlLead'
 
@@ -210,6 +211,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                         </span>
                       )}
                       <MarcaDeFestivo lead={l} dia={hoy} hoy={hoy} />
+                      <MarcaDeHoraMexico lead={l} />
                     </span>
                   </td>
 

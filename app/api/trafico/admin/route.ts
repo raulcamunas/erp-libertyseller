@@ -57,6 +57,12 @@ export async function POST(request: NextRequest) {
         if ('error' in cuenta) return fail(404, cuenta.error)
         return NextResponse.json(await crearEnlace({ clientId: cuenta.clientId, marketplaceId: MERCADO_AUDITADO, titulo: b.titulo || `${cuenta.nombre} · stock Amazon y tienda`, desde: null, userId: s.userId, tipo: 'stock' }))
       }
+      // El panel de PcComponentes es de Entrais: el cliente sale de ahí, no del formulario
+      if (b.tipo === 'pccomponentes') {
+        const { data: ent } = await createServiceClient().from('amazon_clients').select('id, name').ilike('name', 'entrais').limit(1).maybeSingle()
+        if (!ent) return fail(404, 'No encuentro el cliente Entrais.')
+        return NextResponse.json(await crearEnlace({ clientId: (ent as { id: string }).id, marketplaceId: 'PCCOMPONENTES', titulo: b.titulo || 'Entrais · PcComponentes', desde: null, userId: s.userId, tipo: 'pccomponentes' }))
+      }
       return NextResponse.json(await crearEnlace({ clientId: b.clientId, marketplaceId: b.marketplaceId, titulo: b.titulo, desde: b.desde, userId: s.userId }))
     }
     if (!/^[0-9a-f-]{36}$/i.test(id)) return fail(400, 'Falta el enlace.')

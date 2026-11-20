@@ -43,7 +43,7 @@ function Copiar({ texto, etiqueta }: { texto: string; etiqueta: string }) {
 export function AdminTrafico() {
   const [datos, setDatos] = useState<{ disponible: boolean; enlaces: EnlaceParaAdmin[]; clientes: Array<{ id: string; nombre: string; marketplaces: string[] }> } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [nuevo, setNuevo] = useState({ tipo: 'trafico' as 'trafico' | 'stock', clientId: '', marketplaceId: '', titulo: '', desde: '2025-08-01' })
+  const [nuevo, setNuevo] = useState({ tipo: 'trafico' as 'trafico' | 'stock' | 'pccomponentes', clientId: '', marketplaceId: '', titulo: '', desde: '2025-08-01' })
   const [creando, setCreando] = useState(false)
   // La clave recién creada o cambiada: se enseña una vez
   const [claveVisible, setClaveVisible] = useState<{ id: string; clave: string } | null>(null)
@@ -69,10 +69,10 @@ export function AdminTrafico() {
   const crear = async () => {
     setCreando(true)
     try {
-      const r = await pedir<{ id: string; token: string; clave: string }>('/api/trafico/admin', { accion: 'crear', ...nuevo, titulo: nuevo.titulo || (nuevo.tipo === 'stock' ? '' : `${cliente?.nombre ?? ''} ${nombreDePais(nuevo.marketplaceId)}`.trim()) })
+      const r = await pedir<{ id: string; token: string; clave: string }>('/api/trafico/admin', { accion: 'crear', ...nuevo, titulo: nuevo.titulo || (nuevo.tipo !== 'trafico' ? '' : `${cliente?.nombre ?? ''} ${nombreDePais(nuevo.marketplaceId)}`.trim()) })
       setClaveVisible({ id: r.id, clave: r.clave })
       setNuevo({ tipo: 'trafico', clientId: '', marketplaceId: '', titulo: '', desde: '2025-08-01' })
-      toast.success(nuevo.tipo === 'stock' ? 'Enlace del auditor de stock creado' : 'Enlace creado: el histórico se empieza a leer en un par de minutos')
+      toast.success(nuevo.tipo === 'stock' ? 'Enlace del auditor de stock creado' : nuevo.tipo === 'pccomponentes' ? 'Enlace del panel de PcComponentes creado' : 'Enlace creado: el histórico se empieza a leer en un par de minutos')
       await cargar()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se ha podido crear')
@@ -99,9 +99,10 @@ export function AdminTrafico() {
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1 text-[11.5px] text-[var(--ls-t4)]">
             Qué enseña
-            <select className={CAMPO} value={nuevo.tipo} onChange={(e) => setNuevo((n) => ({ ...n, tipo: e.target.value as 'trafico' | 'stock' }))}>
+            <select className={CAMPO} value={nuevo.tipo} onChange={(e) => setNuevo((n) => ({ ...n, tipo: e.target.value as 'trafico' | 'stock' | 'pccomponentes' }))}>
               <option value="trafico">Tráfico y conversión</option>
               <option value="stock">Auditor de stock (ShoesF)</option>
+              <option value="pccomponentes">PcComponentes (Entrais)</option>
             </select>
           </label>
           {nuevo.tipo === 'trafico' && <>
@@ -127,34 +128,34 @@ export function AdminTrafico() {
             <input type="date" className={CAMPO} value={nuevo.desde} onChange={(e) => setNuevo((n) => ({ ...n, desde: e.target.value }))} />
           </label>
           </>}
-          {nuevo.tipo === 'stock' && (
+          {nuevo.tipo !== 'trafico' && (
             <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[11.5px] text-[var(--ls-t4)]">
               Título (lo ve el cliente)
-              <input className={CAMPO} value={nuevo.titulo} onChange={(e) => setNuevo((n) => ({ ...n, titulo: e.target.value }))} placeholder="ShoesF · stock Amazon y tienda" maxLength={120} />
+              <input className={CAMPO} value={nuevo.titulo} onChange={(e) => setNuevo((n) => ({ ...n, titulo: e.target.value }))} placeholder={nuevo.tipo === 'stock' ? 'ShoesF · stock Amazon y tienda' : 'Entrais · PcComponentes'} maxLength={120} />
             </label>
           )}
           <button type="button" disabled={(nuevo.tipo === 'trafico' && (!nuevo.clientId || !nuevo.marketplaceId)) || creando} onClick={() => void crear()} className="inline-flex h-9 items-center gap-1.5 rounded-[9px] bg-[var(--ls-acc)] px-3 text-[13px] font-semibold text-white disabled:opacity-50">
             {creando && <Loader2 className="h-4 w-4 animate-spin" />} Crear enlace
           </button>
         </div>
-        <p className="mt-2 text-[11.5px] text-[var(--ls-t4)]">{nuevo.tipo === 'stock' ? 'El auditor de stock enseña lo que ya guarda el ERP cada 20 minutos (con stock, entran, salen, precios y el cruce con PrestaShop), solo para leer.' : <>El histórico se lee día a día de Amazon (unos 30 días por hora): un año tarda una tarde. Lo reciente sale primero.</>}</p>
+        <p className="mt-2 text-[11.5px] text-[var(--ls-t4)]">{nuevo.tipo === 'pccomponentes' ? 'Ventas, pedidos, ingresos y gastos, y cada cambio de precio y de stock que la sincronización ha enviado a PcComponentes. Solo para leer.' : nuevo.tipo === 'stock' ? 'El auditor de stock enseña lo que ya guarda el ERP cada 20 minutos (con stock, entran, salen, precios y el cruce con PrestaShop), solo para leer.' : <>El histórico se lee día a día de Amazon (unos 30 días por hora): un año tarda una tarde. Lo reciente sale primero.</>}</p>
       </section>
 
       {datos?.enlaces.map((e) => {
-        const url = `${origen}/${e.tipo === 'stock' ? 'stock' : 'trafico'}/${e.token}`
+        const url = `${origen}/${e.tipo === 'stock' ? 'stock' : e.tipo === 'pccomponentes' ? 'pcc' : 'trafico'}/${e.token}`
         const total = e.lectura.hechos + e.lectura.faltan
         return (
           <section key={e.id} className={`rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4 ${e.activo ? '' : 'opacity-60'}`}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="text-[16px] font-semibold text-[var(--ls-t1)]">{e.titulo} {!e.activo && <span className="ml-1 text-[12px] font-normal text-[var(--ls-t4)]">· desactivado</span>}</h3>
-                <p className="mt-0.5 text-[12px] text-[var(--ls-t3)]">{e.tipo === 'stock' ? 'Auditor de stock' : 'Tráfico y conversión'} · {e.cliente} · {nombreDePais(e.marketplace_id)} · creado {fecha(e.creado_en)} · {e.accesos} entradas{e.ultimo_acceso ? `, la última ${fecha(e.ultimo_acceso)}` : ''}</p>
+                <p className="mt-0.5 text-[12px] text-[var(--ls-t3)]">{e.tipo === 'stock' ? 'Auditor de stock' : e.tipo === 'pccomponentes' ? 'PcComponentes' : 'Tráfico y conversión'} · {e.cliente} · {e.tipo === 'pccomponentes' ? 'PcComponentes' : nombreDePais(e.marketplace_id)} · creado {fecha(e.creado_en)} · {e.accesos} entradas{e.ultimo_acceso ? `, la última ${fecha(e.ultimo_acceso)}` : ''}</p>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 <Copiar texto={url} etiqueta="Copiar enlace" />
                 <a href={url} target="_blank" rel="noreferrer" className={BOTON}><ExternalLink className="h-3.5 w-3.5" /> Abrir</a>
                 <button type="button" className={BOTON} onClick={async () => { if (!window.confirm('¿Clave nueva? La anterior deja de valer y quien esté dentro tendrá que poner la nueva.')) return; try { const r = await pedir<{ clave: string }>('/api/trafico/admin', { accion: 'clave', id: e.id }); setClaveVisible({ id: e.id, clave: r.clave }) } catch (err) { toast.error(err instanceof Error ? err.message : 'No se ha podido') } }}><KeyRound className="h-3.5 w-3.5" /> Clave nueva</button>
-                {e.tipo !== 'stock' && <button type="button" className={BOTON} onClick={() => setJuegosDe(juegosDe === e.id ? null : e.id)}><Shapes className="h-3.5 w-3.5" /> Juegos ({e.juegos})</button>}
+                {e.tipo === 'trafico' && <button type="button" className={BOTON} onClick={() => setJuegosDe(juegosDe === e.id ? null : e.id)}><Shapes className="h-3.5 w-3.5" /> Juegos ({e.juegos})</button>}
                 <button type="button" className={BOTON} onClick={async () => { try { await pedir('/api/trafico/admin', { accion: 'activar', id: e.id, activo: !e.activo }); await cargar() } catch (err) { toast.error(err instanceof Error ? err.message : 'No se ha podido') } }}><Power className="h-3.5 w-3.5" /> {e.activo ? 'Desactivar' : 'Activar'}</button>
               </div>
             </div>
@@ -169,7 +170,7 @@ export function AdminTrafico() {
               </div>
             )}
 
-            {e.tipo !== 'stock' && <>
+            {e.tipo === 'trafico' && <>
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px] text-[var(--ls-t2)]">
               <span>Leídos de Amazon: <b className="tabular-nums">{e.lectura.hechos}</b> de {total} días{e.lectura.faltan > 0 ? ` (faltan ${e.lectura.faltan})` : ''}</span>
               {e.lectura.pedidos > 0 && <span className="text-[var(--ls-t3)]">{e.lectura.pedidos} preparándose en Amazon</span>}
