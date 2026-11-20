@@ -29,6 +29,7 @@
 import { gunzipSync } from 'node:zlib'
 import { llamarAds } from './datos'
 import { AdsError } from './oauth'
+import { ESPERA_DESCARGA_MS } from '@/lib/tiempos-espera'
 
 /** El tipo de contenido para pedir un informe en la v3 */
 const TIPO_PETICION = 'application/vnd.createasyncreportrequest.v3+json'
@@ -172,7 +173,8 @@ export async function estadoInforme(
  * `fetch` va pelado y no pasa por llamarAds().
  */
 export async function descargarInforme(url: string): Promise<FilaInforme[]> {
-  const res = await fetch(url)
+  // Con tope (lib/tiempos-espera.ts): sin él, una descarga de S3 que se queda colgada no la cortaba nadie
+  const res = await fetch(url, { signal: AbortSignal.timeout(ESPERA_DESCARGA_MS) })
   if (!res.ok) {
     throw new AdsError(
       `No se ha podido descargar el informe (${res.status}). La URL de Amazon caduca a los pocos ` +

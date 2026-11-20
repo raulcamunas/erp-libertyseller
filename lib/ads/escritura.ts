@@ -21,6 +21,7 @@
 import { llamarAds } from './datos'
 import { AdsError } from './oauth'
 import type { CampanaPlan, TargetAuto } from './estructura'
+import { pujaParaAmazon } from './agente/tipos'
 
 const T_CAMPANA = 'application/vnd.spCampaign.v3+json'
 const T_GRUPO = 'application/vnd.spAdGroup.v3+json'
@@ -34,25 +35,43 @@ type ListaMulti = {
   error?: Array<{ index?: number; errors?: Array<{ errorType?: string; errorValue?: unknown }> }>
 }
 
-/** El motivo legible de un error de la v3: su tipo y el primer texto que traiga dentro */
-function motivoDe(e: { errors?: Array<{ errorType?: string; errorValue?: unknown }> } | undefined): string {
+/** El tipo (`errorType`: entityStateError, rangeError, throttledError…), la razón (`reason`: ARCHIVED_ENTITY, TOO_LOW…) y el texto de un error de la v3 */
+export function partesDelError(e: { errors?: Array<{ errorType?: string; errorValue?: unknown }> } | undefined): { tipo: string | null; razon: string | null; texto: string | null } {
   const primero = e?.errors?.[0]
-  if (!primero) return 'Amazon no ha dicho por qué'
-  const texto = JSON.stringify(primero.errorValue ?? {})
-  const dentro = /"(?:message|reason)":"([^"]+)"/.exec(texto)?.[1]
-  return `${primero.errorType ?? 'ERROR'}${dentro ? `: ${dentro}` : texto && texto !== '{}' ? `: ${texto.slice(0, 200)}` : ''}`
+  if (!primero) return { tipo: null, razon: null, texto: null }
+  const crudo = JSON.stringify(primero.errorValue ?? {})
+  const razon = /"reason"\s*:\s*"([^"]+)"/.exec(crudo)?.[1] ?? null
+  const mensaje = /"message"\s*:\s*"([^"]+)"/.exec(crudo)?.[1] ?? null
+  return { tipo: primero.errorType ?? null, razon, texto: mensaje ?? (crudo && crudo !== '{}' ? crudo.slice(0, 200) : null) }
+}
+
+/**
+ * El motivo legible de un error de la v3: SIEMPRE su tipo y su razón (de ellos depende si se reintenta, no cuenta o cuenta como autorización:
+ * clasificarErrorDeAmazon), y después el texto que traiga dentro
+ */
+export function motivoDe(e: { errors?: Array<{ errorType?: string; errorValue?: unknown }> } | undefined): string {
+  const { tipo, razon, texto } = partesDelError(e)
+  if (!tipo && !razon && !texto) return 'Amazon no ha dicho por qué'
+  const cabeza = `${tipo ?? 'ERROR'}${razon ? ` (${razon})` : ''}`
+  return texto && texto !== razon ? `${cabeza}: ${texto}` : cabeza
 }
 
 /**
  * Del cuerpo de una escritura al elemento creado o cambiado, o una excepción con lo que dijo Amazon. `clave` es la lista de la respuesta (`campaigns`, `adGroups`, `productAds`,
- * `targetingClauses`).
+ * `targetingClauses`). La excepción lleva el `errorType` y la `reason` de Amazon (tipoAmazon, razon) además de tenerlos en el texto.
  */
-function aislar(cuerpo: unknown, clave: string, indice = 0): Record<string, unknown> {
+export function aislar(cuerpo: unknown, clave: string, indice = 0): Record<string, unknown> {
   const lista = (cuerpo as Record<string, ListaMulti> | null)?.[clave]
   const bien = lista?.success?.find((s) => (s.index as number | undefined) === indice) ?? lista?.success?.[indice]
   if (bien) return bien
   const mal = lista?.error?.find((e) => (e.index ?? 0) === indice) ?? lista?.error?.[0]
-  throw new AdsError(`Amazon no ha creado el elemento (${clave}): ${motivoDe(mal)}`, { estado: 207, cuerpo: JSON.stringify(cuerpo).slice(0, 600) })
+  const partes = partesDelError(mal)
+  throw new AdsError(`Amazon no ha creado el elemento (${clave}): ${motivoDe(mal)}`, {
+    estado: 207,
+    cuerpo: JSON.stringify(cuerpo).slice(0, 600),
+    tipoAmazon: partes.tipo ?? undefined,
+    razon: partes.razon ?? undefined,
+  })
 }
 
 function idDe(elemento: Record<string, unknown>, campo: string): string {
@@ -208,12 +227,12 @@ export async function borrarNegativaDeCampana(conexionId: string, profileId: num
 export type CoincidenciaDeKeyword = 'PHRASE' | 'EXACT' | 'BROAD'
 
 /** Crea una keyword en un grupo de anuncios, activa y con su puja. Devuelve el keywordId */
-export async function crearKeyword(conexionId: string, profileId: number, k: { campaignId: string; adGroupId: string; texto: string; coincidencia: CoincidenciaDeKeyword; puja: number }): Promise<string> {
+export async function crearKeyword(conexionId: string, profileId: number, k: { campaignId: string; adGroupId: string; texto: string; coincidencia: CoincidenciaDeKeyword; puja: number; moneda?: string | null }): Promise<string> {
   const res = await llamarAds<unknown>(conexionId, '/sp/keywords', {
     perfilId: profileId,
     metodo: 'POST',
     cabeceras: cabeceras(T_KEYWORD),
-    cuerpo: { keywords: [{ campaignId: k.campaignId, adGroupId: k.adGroupId, keywordText: k.texto, matchType: k.coincidencia, state: 'ENABLED', bid: Math.max(0.02, Math.round(k.puja * 100) / 100) }] },
+    cuerpo: { keywords: [{ campaignId: k.campaignId, adGroupId: k.adGroupId, keywordText: k.texto, matchType: k.coincidencia, state: 'ENABLED', bid: pujaParaAmazon(k.puja, k.moneda) }] },
   })
   return idDe(aislar(res, 'keywords'), 'keywordId')
 }
@@ -260,12 +279,12 @@ export async function borrarNegativaDeProducto(conexionId: string, profileId: nu
 }
 
 /** ATACA UN ASIN: segmentación por producto (`ASIN_SAME_AS`, manual) en un grupo de ATAQUE ASIN, activa y con su puja. Devuelve el targetId */
-export async function crearSegmentacionDeProducto(conexionId: string, profileId: number, s: { campaignId: string; adGroupId: string; asin: string; puja: number }): Promise<string> {
+export async function crearSegmentacionDeProducto(conexionId: string, profileId: number, s: { campaignId: string; adGroupId: string; asin: string; puja: number; moneda?: string | null }): Promise<string> {
   const res = await llamarAds<unknown>(conexionId, '/sp/targets', {
     perfilId: profileId,
     metodo: 'POST',
     cabeceras: cabeceras(T_TARGET),
-    cuerpo: { targetingClauses: [{ campaignId: s.campaignId, adGroupId: s.adGroupId, expression: [{ type: 'ASIN_SAME_AS', value: s.asin.trim().toUpperCase() }], expressionType: 'MANUAL', state: 'ENABLED', bid: Math.max(0.02, Math.round(s.puja * 100) / 100) }] },
+    cuerpo: { targetingClauses: [{ campaignId: s.campaignId, adGroupId: s.adGroupId, expression: [{ type: 'ASIN_SAME_AS', value: s.asin.trim().toUpperCase() }], expressionType: 'MANUAL', state: 'ENABLED', bid: pujaParaAmazon(s.puja, s.moneda) }] },
   })
   return idDe(aislar(res, 'targetingClauses'), 'targetId')
 }
@@ -291,9 +310,12 @@ export async function gruposActivosDe(conexionId: string, profileId: number, cam
   return (res.adGroups ?? []).filter((g) => g.adGroupId != null).map((g) => ({ adGroupId: String(g.adGroupId), nombre: g.name ?? '', pujaPorDefecto: typeof g.defaultBid === 'number' ? g.defaultBid : null }))
 }
 
-/** Pone la puja de una keyword (`objetivoTipo` 'keyword') o de una segmentación por producto o automática. El motor la usa para aplicar y deshacer; el log lo escribe quien llama */
-export async function ponerPuja(cuenta: { conexionId: string; profileId: number }, objetivoTipo: string | null, objetivoId: string, puja: number): Promise<void> {
-  const bid = Math.max(0.02, Math.round(puja * 100) / 100)
+/**
+ * Pone la puja de una keyword (`objetivoTipo` 'keyword') o de una segmentación por producto o automática. El motor la usa para aplicar y deshacer; el log lo escribe quien llama.
+ * La puja va con el mínimo y los decimales de Amazon en la moneda de la cuenta (`cuenta.moneda`; sin ella, 0,02 y céntimos)
+ */
+export async function ponerPuja(cuenta: { conexionId: string; profileId: number; moneda?: string | null }, objetivoTipo: string | null, objetivoId: string, puja: number): Promise<void> {
+  const bid = pujaParaAmazon(puja, cuenta.moneda)
   if (objetivoTipo === 'keyword') {
     const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/keywords', { perfilId: cuenta.profileId, metodo: 'PUT', cabeceras: cabeceras(T_KEYWORD), cuerpo: { keywords: [{ keywordId: objetivoId, bid }] } })
     aislar(res, 'keywords')

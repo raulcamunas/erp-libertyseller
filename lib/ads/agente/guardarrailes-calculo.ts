@@ -21,6 +21,7 @@ import {
   AGENTE,
   RAMPA,
   TOPES_DE_PARTIDA,
+  limitesDePuja,
   type ClaseDeCambio,
   type ClaseDeTope,
   type EtiquetaDeTermino,
@@ -152,7 +153,7 @@ export function quedaTope(clase: ClaseDeCambio, hechosHoy: Partial<Record<ClaseD
  * La puja que se puede poner: como mucho ±25 % de la actual (redondeando HACIA DENTRO para no pasarse), nunca < 0,02 y, si sube, nunca > pujaMax.
  * Una subida que tras recortarla ya no sube (≤ actual) se DESCARTA (no merece la pena). Con la puja actual desconocida o ≤ 0 tampoco se toca.
  */
-export function limitarPuja(actual: number, nueva: number, pujaMax: number | null): { valor: number; recortada: boolean; descartar: boolean } {
+export function limitarPuja(actual: number, nueva: number, pujaMax: number | null, moneda?: string | null): { valor: number; recortada: boolean; descartar: boolean } {
   if (!finito(actual) || actual <= 0 || !finito(nueva)) return { valor: finito(actual) ? actual : 0, recortada: false, descartar: true }
   const pedida = round2(nueva)
   const sube = nueva > actual
@@ -160,7 +161,8 @@ export function limitarPuja(actual: number, nueva: number, pujaMax: number | nul
   const minimo = arriba2(actual * (1 - AGENTE.PUJA_CAMBIO_MAX))
   let valor = Math.min(Math.max(pedida, minimo), maximo)
   if (sube && pujaMax !== null && finito(pujaMax) && valor > pujaMax) valor = abajo2(pujaMax)
-  valor = Math.max(AGENTE.PUJA_MINIMA, round2(valor))
+  // El suelo es el mínimo técnico de Amazon en la moneda de la cuenta (0,02 en EUR; 0,10 en MXN). Sin tabla para la moneda, el 0,02 de siempre
+  valor = Math.max(limitesDePuja(moneda)?.minima ?? AGENTE.PUJA_MINIMA, round2(valor))
   // una subida que ya no sube, o una bajada que ya no baja (p. ej. en el mínimo de 0,02), no merece la pena
   const descartar = sube ? valor <= actual + EPS : valor >= actual - EPS
   return { valor, recortada: Math.abs(valor - pedida) > EPS, descartar }
@@ -380,10 +382,43 @@ const RE_AUTORIZACION = /UNAUTHORIZED|FORBIDDEN|ACCESS_?DENIED|INVALID_TOKEN|EXP
 const RE_VALIDACION = /DUPLICATE|INVALID_ARGUMENT|INVALID|MALFORMED|BAD_REQUEST|VALIDATION|NOT_FOUND|OBSOLET|ALREADY_EXISTS|UNPROCESSABLE|OUT_OF_RANGE/i
 
 /**
+ * Los errores POR ELEMENTO de una respuesta 207 de la v3 (`errorType` en camelCase y su `reason`). Antes solo se reconocía lo que encajaba con RE_VALIDACION y todo
+ * lo demás contaba como «autorización»: un throttledError dejaba la propuesta en error sin reintentarla, y un entityStateError (keyword archivada) o un rangeError
+ * (puja fuera de límites) contaban como si el cliente hubiera quitado el acceso.
+ */
+// ILEGIBLE: un 2xx cuyo cuerpo no es JSON (llamarAds): la escritura pudo llegar, así que se relee antes de repetir
+const RE_207_TRANSPORTE = /THROTTL|TOO.?MANY|INTERNAL.?(SERVER.?)?ERROR|SERVICE.?UNAVAILABLE|TEMPORAR|ILEGIBLE/i
+const RE_207_VALIDACION =
+  /ENTITY.?STATE|ENTITY.?NOT.?FOUND|RANGE.?ERROR|DUPLICATE.?VALUE|MALFORMED.?VALUE|MISSING.?VALUE|PARENT.?ENTITY|ENTITY.?QUOTA|TOO_(LOW|HIGH)|ARCHIVED|UNSUPPORTED.?OPERATION|INVALID.?ARGUMENT|BILLING/i
+const RE_207_AUTORIZACION = /UNAUTHORI[SZ]ED|FORBIDDEN|ACCESS.?DENIED|NOT.?AUTHORI[SZ]ED|PERMISSION|PERMISOS/i
+
+/**
+ * Lo que el propio ERP dice cuando Login with Amazon ya no da el token (invalid_grant, la conexión marcada «revocada», la aplicación rechazada). No llevan código
+ * HTTP en el texto, y sin esto tipoDeFallo los tomaba por un fallo de datos («validación») y la conexión rota nunca se veía.
+ */
+const RE_AUTORIZACION_ERP = /autorizaci[oó]n ya no vale|ha revocado la autorizaci[oó]n|Amazon rechaza la aplicaci[oó]n|invalid_grant|unauthorized_client|invalid_client/i
+
+/** PURO. ¿El texto de un error es de los que el ERP pone cuando la autorización de Amazon ya no vale? */
+export function esFalloDeAutorizacionDelErp(mensaje: string | null | undefined): boolean {
+  return typeof mensaje === 'string' && RE_AUTORIZACION_ERP.test(mensaje)
+}
+
+/** PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …»; los de Login with Amazon: «… ha contestado 503 al renovar el token») */
+export function datosDelError(mensaje: string): { httpStatus: number | null; codigo: string | null } {
+  const m = /contestado\s+(\d{3})\b/i.exec(mensaje)
+  let httpStatus = m ? Number(m[1]) : null
+  if (httpStatus == null && /Amazon no ha creado el elemento/i.test(mensaje)) httpStatus = 207
+  const c = /"code"\s*:\s*"([A-Z0-9_]+)"/.exec(mensaje) ?? /\b(DUPLICATE[A-Z_]*|INVALID_ARGUMENT|THROTTLED|UNAUTHORIZED|ACCESS_DENIED)\b/.exec(mensaje)
+  return { httpStatus, codigo: c ? c[1] : null }
+}
+
+/**
  * Qué clase de error es:
- *   transporte   429, 5xx, o sin respuesta por tiempo agotado / red caída — se reintenta en la siguiente pasada; NO cuenta para el freno.
- *   autorizacion 401/403 (o un código de autorización), y también un multi-status (207) con un error que no sea de validación — CUENTA para el freno.
- *   validacion   400/422 y demás 4xx, DUPLICATE, INVALID_ARGUMENT, obsoleta — la propuesta queda en error u obsoleta; NO cuenta.
+ *   transporte   429, 5xx, o sin respuesta por tiempo agotado / red caída, y en un 207 los throttledError / internalServerError o un error desconocido — se
+ *                reintenta en la siguiente pasada (que RELEE Amazon antes de repetir); NO cuenta para el freno.
+ *   autorizacion 401/403 (o un código de autorización), la autorización de Login with Amazon que ya no vale, y en un 207 un error de permisos — CUENTA.
+ *   validacion   400/422 y demás 4xx, DUPLICATE, INVALID_ARGUMENT, obsoleta, y en un 207 entityStateError, rangeError, entityNotFound… — la propuesta queda en
+ *                error u obsoleta; NO cuenta.
  */
 export function clasificarErrorDeAmazon(httpStatus: number | null, codigo: string | null, mensaje: string | null): TipoDeErrorDeAmazon {
   const cod = codigo ?? ''
@@ -393,15 +428,18 @@ export function clasificarErrorDeAmazon(httpStatus: number | null, codigo: strin
   if (httpStatus === null) {
     // sin respuesta HTTP: casi siempre red o tiempo agotado
     if (RE_TRANSPORTE.test(texto)) return 'transporte'
-    if (RE_AUTORIZACION.test(texto)) return 'autorizacion'
+    if (RE_AUTORIZACION.test(texto) || RE_AUTORIZACION_ERP.test(texto)) return 'autorizacion'
     if (RE_VALIDACION.test(texto)) return 'validacion'
     return 'transporte'
   }
   if (RE_AUTORIZACION.test(cod)) return 'autorizacion'
   if (httpStatus >= 400 && httpStatus < 500) return 'validacion'
-  // 2xx / 207 con un error dentro: de validación no cuenta; cualquier otro, sí (que el freno lo vea)
-  if (RE_VALIDACION.test(texto)) return 'validacion'
-  return 'autorizacion'
+  // 2xx / 207 con un error dentro, por su errorType: lo pasajero se reintenta, lo de los datos no cuenta, lo de permisos sí. Lo desconocido, como transporte:
+  // vuelve a pendiente y la siguiente pasada relee Amazon antes de repetir (mejor que darlo por un acceso revocado)
+  if (RE_207_TRANSPORTE.test(texto)) return 'transporte'
+  if (RE_207_VALIDACION.test(texto) || RE_VALIDACION.test(texto)) return 'validacion'
+  if (RE_207_AUTORIZACION.test(texto)) return 'autorizacion'
+  return 'transporte'
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

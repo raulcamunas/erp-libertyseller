@@ -261,6 +261,53 @@ export const AGENTE = {
   SEMANAS_TERMINOS_SE_CONSERVAN: 26,
 } as const
 
+/**
+ * LÍMITES TÉCNICOS DE PUJA DE AMAZON POR MONEDA (Sponsored Products): la puja mínima que acepta y con cuántos decimales.
+ *
+ * Son límites de Amazon, no reglas de negocio: por debajo del mínimo rechaza la puja. Hoy todas las cuentas del agente están en EUR, pero hay perfiles
+ * conectados en SEK, PLN, MXN, BRL, SAR y AED: con el 0,02 fijo, una cuenta en MXN pujaría por debajo de su mínimo (0,10). Solo están las monedas cuyo
+ * mínimo se ha comprobado; una que no esté da null y quien escribe se queda con lo de siempre (0,02 y 2 decimales), y el agente no se enciende en ella
+ * sin una puja máxima fijada en su moneda (encenderAgente).
+ */
+const LIMITES_DE_PUJA: Readonly<Record<string, { minima: number; decimales: number }>> = {
+  EUR: { minima: 0.02, decimales: 2 },
+  GBP: { minima: 0.02, decimales: 2 },
+  USD: { minima: 0.02, decimales: 2 },
+  MXN: { minima: 0.1, decimales: 2 },
+}
+
+/** PURO. La puja mínima y los decimales que acepta Amazon en esta moneda. null = moneda sin tabla (o sin moneda) */
+export function limitesDePuja(moneda: string | null | undefined): { minima: number; decimales: number } | null {
+  if (!moneda) return null
+  return LIMITES_DE_PUJA[moneda.trim().toUpperCase()] ?? null
+}
+
+/** Monedas en las que el tope de serie (`AGENTE.PUJA_MAX_ABSOLUTA`, pensado en euros) vale sin que una persona fije la puja máxima en su moneda */
+export const MONEDAS_CON_TOPE_DE_SERIE: ReadonlySet<string> = new Set(['EUR', 'GBP', 'USD'])
+
+/**
+ * PURO. El motivo por el que el agente NO se puede encender en esta moneda, o null. El tope de serie de la puja (3) está pensado en euros: en SEK o MXN sería
+ * otra cosa (3 MXN no deja subir ninguna puja). Fuera de EUR/GBP/USD hace falta una puja máxima fijada por una persona en la moneda de la cuenta. Convertir el
+ * tope a otras monedas es una decisión de negocio que no se toma aquí. Sin moneda conocida no se bloquea (no se sabe; las cuentas de hoy son EUR)
+ */
+export function motivoSinPujaMaxEnMoneda(moneda: string | null | undefined, pujaMax: number | null | undefined): string | null {
+  if (!moneda) return null
+  const m = moneda.trim().toUpperCase()
+  if (MONEDAS_CON_TOPE_DE_SERIE.has(m)) return null
+  if (pujaMax != null && Number.isFinite(pujaMax) && pujaMax > 0) return null
+  return `La cuenta está en ${m}: fija la puja máxima en ${m} en «Topes» antes de encender el agente (la de serie, ${AGENTE.PUJA_MAX_ABSOLUTA}, está pensada en euros).`
+}
+
+/**
+ * PURO. La puja tal y como se le manda a Amazon: redondeada a los decimales de la moneda y nunca por debajo de su mínimo. Sin tabla para la moneda,
+ * lo de siempre (0,02 y céntimos). El + 1e-9: 0,575 es 0,57499999… en coma flotante y tiene que redondear a 0,58
+ */
+export function pujaParaAmazon(puja: number, moneda?: string | null): number {
+  const l = limitesDePuja(moneda) ?? { minima: AGENTE.PUJA_MINIMA, decimales: 2 }
+  const f = 10 ** l.decimales
+  return Math.max(l.minima, Math.round(puja * f + 1e-9) / f)
+}
+
 export const FALTA_MIGRACION_315 = 'Falta lanzar la migración 315 en Supabase (agente PPC).'
 
 /** El error de deshacer como agente con el interruptor general puesto: no se ha intentado (quien deshace varias seguidas corta, y la medición lo aplaza) */

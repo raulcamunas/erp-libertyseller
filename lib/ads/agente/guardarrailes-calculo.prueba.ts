@@ -22,9 +22,10 @@ import {
   sinSubidasDePresupuesto,
   subidasACaducar,
   clasificarSubidasPendientes,
+  datosDelError,
 } from './guardarrailes-calculo'
 import { textoDeReintento } from '../motor-calculo'
-import { TOPES_DE_PARTIDA, type EtiquetaDeTermino } from './tipos'
+import { TOPES_DE_PARTIDA, limitesDePuja, motivoSinPujaMaxEnMoneda, pujaParaAmazon, type EtiquetaDeTermino } from './tipos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -239,7 +240,24 @@ console.log('\n=== errores de Amazon ===')
   ok('422 = validación', clasificarErrorDeAmazon(422, null, null) === 'validacion')
   ok('207 con DUPLICATE = validación', clasificarErrorDeAmazon(207, 'DUPLICATE_VALUE', null) === 'validacion')
   ok('207 con INVALID_ARGUMENT = validación', clasificarErrorDeAmazon(207, 'INVALID_ARGUMENT', null) === 'validacion')
-  ok('207 con un error que no es de validación = cuenta (autorización)', clasificarErrorDeAmazon(207, 'INTERNAL_ERROR', null) === 'autorizacion')
+  // A13: un error interno de Amazon dentro de un 207 es pasajero (se reintenta), no un acceso revocado
+  ok('207 con INTERNAL_ERROR = transporte', clasificarErrorDeAmazon(207, 'INTERNAL_ERROR', null) === 'transporte')
+  // A13: los errores por elemento de la v3 llegan en camelCase
+  const de207 = (tipo: string, razon = '') => `Amazon no ha creado el elemento (keywords): ${tipo}${razon ? ` (${razon})` : ''}: algo`
+  ok('207 throttledError = transporte', clasificarErrorDeAmazon(207, null, de207('throttledError')) === 'transporte')
+  ok('207 internalServerError = transporte', clasificarErrorDeAmazon(207, null, de207('internalServerError')) === 'transporte')
+  ok('207 rangeError = validación', clasificarErrorDeAmazon(207, null, de207('rangeError', 'TOO_LOW')) === 'validacion')
+  ok('207 entityStateError = validación', clasificarErrorDeAmazon(207, null, de207('entityStateError', 'ARCHIVED_ENTITY')) === 'validacion')
+  ok('207 entityNotFoundError = validación', clasificarErrorDeAmazon(207, null, de207('entityNotFoundError')) === 'validacion')
+  ok('207 duplicateValueError = validación', clasificarErrorDeAmazon(207, null, de207('duplicateValueError')) === 'validacion')
+  ok('207 parentEntityError / missingValueError / entityQuotaError = validación', ['parentEntityError', 'missingValueError', 'entityQuotaError', 'malformedValueError'].every((t) => clasificarErrorDeAmazon(207, null, de207(t)) === 'validacion'))
+  ok('207 desconocido = transporte (se relee antes de repetir)', clasificarErrorDeAmazon(207, null, de207('otherError')) === 'transporte')
+  ok('207 de permisos = autorización', clasificarErrorDeAmazon(207, null, de207('unauthorizedError')) === 'autorizacion')
+  ok('207 con respuesta ilegible = transporte', clasificarErrorDeAmazon(200, null, 'Amazon Ads ha contestado 200 a /sp/keywords con una respuesta ilegible de Amazon (no es JSON)') === 'transporte')
+  ok('403 sin código = autorización', clasificarErrorDeAmazon(403, null, null) === 'autorizacion')
+  ok('«La autorización ya no vale» sin HTTP = autorización', clasificarErrorDeAmazon(null, null, 'La autorización ya no vale: el cliente la ha revocado desde su cuenta de Amazon') === 'autorizacion')
+  ok('datosDelError lee el 503 de Login with Amazon', datosDelError('Login with Amazon ha contestado 503 al renovar el token (503): sin detalle').httpStatus === 503)
+  ok('datosDelError: un 207 sin «contestado» es 207', datosDelError(de207('rangeError')).httpStatus === 207)
   ok('obsoleta sin estado HTTP = validación', clasificarErrorDeAmazon(null, 'OBSOLETA', 'el valor cambió en Amazon') === 'validacion')
 }
 
@@ -422,6 +440,21 @@ console.log('\n=== al frenar o reanudar: nada que suba ===')
   ok('una subida sin reintento se caduca como siempre', k.caducar.includes('pujaNormal'), J(k))
   ok('una bajada en reintento ni se caduca ni se retiene (se queda y se reintenta)', !k.caducar.includes('bajadaReintento') && !k.retener.includes('bajadaReintento'), J(k))
   ok('subidasACaducar tampoco las caduca', !subidasACaducar(conReintento).includes('pujaReintento'))
+}
+
+console.log('\n=== límites de puja por moneda (A32) ===')
+{
+  ok('EUR → 0,02 / 2', J(limitesDePuja('EUR')) === J({ minima: 0.02, decimales: 2 }))
+  ok('MXN → 0,10 / 2 (y en minúsculas)', J(limitesDePuja('mxn')) === J({ minima: 0.1, decimales: 2 }))
+  ok('moneda sin tabla → null', limitesDePuja('SEK') === null && limitesDePuja(null) === null)
+  ok('pujaParaAmazon: redondea a céntimos y nunca baja del mínimo de la moneda', pujaParaAmazon(0.575, 'EUR') === 0.58 && pujaParaAmazon(0.05, 'MXN') === 0.1 && pujaParaAmazon(0.01, 'EUR') === 0.02)
+  ok('pujaParaAmazon sin moneda o sin tabla: 0,02 y céntimos de siempre', pujaParaAmazon(0.011) === 0.02 && pujaParaAmazon(1.234, 'SEK') === 1.23)
+  ok('limitarPuja: el suelo es el mínimo de la moneda (MXN 0,10)', limitarPuja(0.12, 0.05, null, 'MXN').valor === 0.1, J(limitarPuja(0.12, 0.05, null, 'MXN')))
+  ok('limitarPuja sin moneda: el 0,02 de siempre', limitarPuja(0.025, 0.01, null).valor === 0.02)
+  ok('encender en EUR sin puja máxima: se puede', motivoSinPujaMaxEnMoneda('EUR', null) === null)
+  ok('encender en MXN sin puja máxima: no', /fija la puja máxima en MXN/.test(motivoSinPujaMaxEnMoneda('MXN', null) ?? ''))
+  ok('encender en SEK con puja máxima: se puede', motivoSinPujaMaxEnMoneda('SEK', 12) === null)
+  ok('moneda desconocida (null): no bloquea', motivoSinPujaMaxEnMoneda(null, null) === null)
 }
 
 console.log(fallos ? `\n${fallos} FALLOS\n` : '\nTodo bien\n')

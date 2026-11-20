@@ -52,7 +52,7 @@ import {
 } from './contexto-servidor'
 import { subidasVetadasDeCuenta } from './ajustes-servidor'
 import { hechosDeHoy } from './estado-servidor'
-import { clasificarErrorDeAmazon, datosViejos, esRara, evaluarFrenos, faltaEnSumas, FRENOS_AUTOMATICOS, quedaTope, ventasParaFreno, presupuestoUtil, sinSubidasDePresupuesto, topesDelDia } from './guardarrailes-calculo'
+import { clasificarErrorDeAmazon, datosDelError, datosViejos, esRara, evaluarFrenos, faltaEnSumas, FRENOS_AUTOMATICOS, quedaTope, ventasParaFreno, presupuestoUtil, sinSubidasDePresupuesto, topesDelDia } from './guardarrailes-calculo'
 import { combinarAjustes } from './objetivos-calculo'
 import { diaDeRampa } from './pasos-calculo'
 import { presionDelDia, recortePorRitmo, reglasDePresupuesto, ritmoDelMes } from './ritmo-calculo'
@@ -273,7 +273,9 @@ async function erroresDelAgente(perfilId: string, ahora: number): Promise<Array<
       salida.push({ at, ok: true })
       continue
     }
-    const tipo = clasificarErrorDeAmazon(numero(f.http_status), null, (f.error as string | null) ?? null)
+    // Con el código de Amazon del texto (como aplicar-servidor): sin él, un 207 se clasificaba solo por el mensaje
+    const msg = (f.error as string | null) ?? null
+    const tipo = clasificarErrorDeAmazon(numero(f.http_status), msg ? datosDelError(msg).codigo : null, msg)
     if (tipo === 'autorizacion') salida.push({ at, ok: false })
   }
   return salida

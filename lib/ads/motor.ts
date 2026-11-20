@@ -881,16 +881,25 @@ async function recorrerAplicar(
     }
     let heredada = false
     let valorAhora: number | null = null
+    let estadoAhora: string | null = null
     try {
-      const actual = p.tipo === 'puja' ? await leerPujaActual(cuenta, p.objetivoTipo, p.objetivoId as string) : { puja: await leerPresupuestoActual(cuenta, p.campaignId), heredada: false }
+      const actual = p.tipo === 'puja' ? await leerPujaActual(cuenta, p.objetivoTipo, p.objetivoId as string) : { puja: await leerPresupuestoActual(cuenta, p.campaignId), heredada: false, estado: null }
       heredada = Boolean(actual?.heredada)
       valorAhora = actual?.puja ?? null
+      estadoAhora = actual?.estado ?? null
     } catch (e) {
       // No se ha podido LEER: no se ha escrito nada, así que se libera tal como estaba
       const detalle = `No se ha podido leer el valor actual en Amazon: ${e instanceof Error ? e.message : String(e)}`
       if (!q.ensayo) await liberar(cuenta.id, id, q.estadoAntes, detalle.slice(0, 500))
       await anotarCambio({ ...comun, entidad, accion: 'cambiar', campo, ok: false, error: detalle, motivo: p.motivo, entidadId })
       throw new ObsoletaOLiberada(detalle)
+    }
+    // Una keyword o segmentación ARCHIVADA en Amazon no admite cambios (el PUT volvería con un entityStateError): obsoleta, sin escribir nada
+    if (p.tipo === 'puja' && estadoAhora === 'ARCHIVED') {
+      const motivo = `En Amazon «${p.termino}» está archivada: ya no se le puede cambiar la puja.`
+      await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'descartar', campo: 'propuesta obsoleta', valorAnterior: p.valorActual == null ? null : fmt(p.valorActual), valorNuevo: null, motivo, entidadId })
+      await resolver(estadoObsoleta, { error: motivo }, 'Marcarla obsoleta')
+      throw new ObsoletaOLiberada(motivo)
     }
     // Un REINTENTO tras un fallo de transporte al escribir: si Amazon ya tiene lo que el agente intentó poner, el cambio llegó. Se resuelve «aplicada» con la
     // marca del agente (topes, efecto, freno), no obsoleta: si no, lo que el agente subió de verdad quedaría fuera de todos los controles
@@ -935,11 +944,11 @@ async function recorrerAplicar(
     if (cpcCalculado == null) throw new Error('No se puede calcular la puja de partida (CPC o puja máxima no válidos): no se crea nada.')
     const cpc = cpcCalculado
     if (p.tipo === 'promover' && p.esAsin) {
-      creado.targetId = await crearSegmentacionDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, asin: p.termino, puja: cpc })
+      creado.targetId = await crearSegmentacionDeProducto(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, asin: p.termino, puja: cpc, moneda: cuenta.moneda })
       await anotarCambio({ ...comun, campaignId: p.haciaCampaignId, nombreCampana: p.haciaCampaignNombre, entidad: 'target', accion: 'promover', campo: 'segmentación por producto (ASIN)', valorAnterior: p.desdeRol, valorNuevo: `${p.termino.toUpperCase()} → ${p.haciaRol}`, motivo: p.motivo, entidadId: creado.targetId })
     } else if (p.tipo === 'promover') {
       const coincidencia = (p.haciaRol ?? '').includes('EXACTA') ? 'EXACT' : 'PHRASE'
-      creado.keywordId = await crearKeyword(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, texto: p.termino, coincidencia, puja: cpc })
+      creado.keywordId = await crearKeyword(cuenta.conexionId, cuenta.profileId, { campaignId: p.haciaCampaignId as string, adGroupId: p.haciaAdGroupId as string, texto: p.termino, coincidencia, puja: cpc, moneda: cuenta.moneda })
       await anotarCambio({ ...comun, campaignId: p.haciaCampaignId, nombreCampana: p.haciaCampaignNombre, entidad: 'keyword', accion: 'promover', campo: `keyword ${coincidencia === 'EXACT' ? 'exacta' : 'de frase'}`, valorAnterior: p.desdeRol, valorNuevo: `${p.termino} → ${p.haciaRol}`, motivo: p.motivo, entidadId: creado.keywordId })
     }
     if ((p.tipo === 'negativizar' || p.negativizarEnOrigen) && p.esAsin) {

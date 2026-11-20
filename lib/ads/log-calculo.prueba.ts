@@ -2,7 +2,7 @@
  * Pruebas del log auditable (cursor, filtros, CSV) y del rastro (qué escribe, la respuesta simulada del ensayo). npx tsx lib/ads/log-calculo.prueba.ts
  */
 import { celdaCsv, condicionDeCursor, cursorATexto, cursorDeTexto, filtrosDeParametros, finDeDia, logACsv, textoDeBusqueda } from './log-calculo'
-import { conRastro, enEnsayo, esEscritura, recortarParaLog, respuestaSimulada, tomarLlamadasNuevas, apuntarLlamada, propuestaDelRastro } from './rastro'
+import { debeReintentarAds, esperaDeReintento, conRastro, enEnsayo, esEscritura, recortarParaLog, respuestaSimulada, tomarLlamadasNuevas, apuntarLlamada, propuestaDelRastro } from './rastro'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -56,6 +56,15 @@ console.log('\n=== rastro: qué escribe y qué no ===')
   ok('POST …/delete escribe', esEscritura('POST', '/sp/targets/delete'))
   ok('POST …/list NO escribe', !esEscritura('POST', '/sp/keywords/list'))
   ok('GET no escribe; pedir un informe tampoco', !esEscritura('GET', '/v2/profiles') && !esEscritura('POST', '/reporting/reports'))
+  // A16: qué se repite en llamarAds
+  ok('PUT con 503 NO se repite (puede haber llegado)', !debeReintentarAds('PUT', '/sp/keywords', 503))
+  ok('PUT con 429 sí (Amazon no lo ha aplicado)', debeReintentarAds('PUT', '/sp/keywords', 429))
+  ok('POST …/list con 503 sí', debeReintentarAds('POST', '/sp/keywords/list', 503))
+  ok('POST que crea con la red caída NO', !debeReintentarAds('POST', '/sp/keywords', null))
+  ok('lectura con la red caída sí; con tiempo agotado no', debeReintentarAds('POST', '/sp/targets/list', null) && !debeReintentarAds('POST', '/sp/targets/list', null, true))
+  ok('un 400 o un 401 no se repiten', !debeReintentarAds('GET', '/v2/profiles', 400) && !debeReintentarAds('GET', '/v2/profiles', 401))
+  ok('Retry-After en segundos, con tope de 5 s', esperaDeReintento(1, '2', 0, 0) === 2000 && esperaDeReintento(1, '60', 0, 0) === 5000)
+  ok('sin Retry-After: 1 s y luego 2 s, con algo de azar', esperaDeReintento(1, null, 0, 0) === 1000 && esperaDeReintento(2, null, 0, 0.99) > 2000 && esperaDeReintento(2, null, 0, 0.99) <= 2500)
   const sim = respuestaSimulada({ keywords: [{}, {}] }) as Record<string, { success: Array<Record<string, unknown>> }>
   ok('la respuesta simulada tiene un éxito por elemento, con id ENSAYO', sim.keywords.success.length === 2 && sim.keywords.success[1].keywordId === 'ENSAYO-2')
   ok('y sirve para cualquier lista (negativas de campaña)', (sim.campaignNegativeKeywords as { success: Array<Record<string, unknown>> }).success[0].campaignNegativeKeywordId === 'ENSAYO-1')

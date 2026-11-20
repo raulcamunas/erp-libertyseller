@@ -21,7 +21,7 @@ import { leerContextoDelAgente, nombreDeCuenta } from './contexto-servidor'
 import { resumenDeVeredictos } from './efectos-calculo'
 import { veredictosRecientes } from './efectos-servidor'
 import { hayEscrituraRealEnAlgunaCuenta, hechosDeHoy, leerConfigDelAgente, paradaGeneral } from './estado-servidor'
-import { claseDeCambio, clasificarErrorDeAmazon, FRENOS_AUTOMATICOS, topesDelDia } from './guardarrailes-calculo'
+import { claseDeCambio, clasificarErrorDeAmazon, datosDelError, FRENOS_AUTOMATICOS, topesDelDia } from './guardarrailes-calculo'
 import { diaDeRampa, textoDeEstado } from './pasos-calculo'
 import { enVedaDeActivacion, eventoEn } from './temporada-calculo'
 import {
@@ -228,7 +228,8 @@ export function lineaDelAgente(
 
 /** PURO. ¿Hay errores de Amazon que CUENTAN (autorización) en las filas del log? Con ellos la rampa no pasa del 75 % */
 export function hayErroresQueCuentan(filas: ReadonlyArray<{ ok: boolean | null; httpStatus: number | null; error: string | null }>): boolean {
-  return filas.some((f) => f.ok === false && clasificarErrorDeAmazon(f.httpStatus, null, f.error) === 'autorizacion')
+  // Con el código de Amazon del texto (como aplicar-servidor y vigilar)
+  return filas.some((f) => f.ok === false && clasificarErrorDeAmazon(f.httpStatus, f.error ? datosDelError(f.error).codigo : null, f.error) === 'autorizacion')
 }
 
 /** PURO. El panel cuando falta la migración 315: lo mínimo para que la pantalla diga qué falta */

@@ -51,7 +51,9 @@ import { anotarEvento, anotarGuardaUnaVez, avisar } from './eventos-servidor'
 import {
   claseDeCambio,
   clasificarErrorDeAmazon,
+  datosDelError,
   datosViejos,
+  esFalloDeAutorizacionDelErp,
   decisionDeTermino,
   esRara,
   formaReducida,
@@ -157,6 +159,8 @@ export interface CuentaParaDecidir {
   gastoDesconocido?: boolean
   /** Inicio del día LOCAL de la cuenta (ms): una subida R1 («se agota HOY») creada antes es de otro día y se caduca. Sin el dato, no se mira */
   inicioDelDiaLocal?: number
+  /** Moneda de la cuenta (ads_profiles.moneda): el suelo de la puja es el mínimo de Amazon en ella (limitesDePuja). Sin ella, 0,02 */
+  moneda?: string | null
 }
 
 /** Lo que se ha leído para un término REVISAR */
@@ -362,7 +366,7 @@ export function decidirPropuesta(
       clase === 'puja_subir'
         ? pujaMaxima({ precio: producto?.precio ?? null, cvrPct: finito(p.metricas?.cvrPct) ? (p.metricas.cvrPct as number) : null, acosObjetivoPct: producto?.acosObjetivoPct ?? 0, topeFijo: c.topePuja })
         : null
-    const l = limitarPuja(valorActual, valorNuevo, pujaMax)
+    const l = limitarPuja(valorActual, valorNuevo, pujaMax, c.moneda)
     if (l.descartar) return { accion: 'descartar', motivo: `Guardarraíl: con el ±${Math.round(AGENTE.PUJA_CAMBIO_MAX * 100)} %${pujaMax != null ? ` y la puja máxima (${euros(pujaMax)})` : ''} el cambio ya no merece la pena.` }
     if (l.recortada) {
       valorNuevo = l.valor
@@ -536,14 +540,8 @@ export async function leerGuardaDeEscritura(cuenta: CuentaParaSincronizar, ahora
   return guardaDeEscritura({ conexion, datosViejos: fresca ? datosViejos({ ...fresca, horasDesdeStock: null }) : null })
 }
 
-/** PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …») */
-export function datosDelError(mensaje: string): { httpStatus: number | null; codigo: string | null } {
-  const m = /contestado\s+(\d{3})\b/i.exec(mensaje)
-  let httpStatus = m ? Number(m[1]) : null
-  if (httpStatus == null && /Amazon no ha creado el elemento/i.test(mensaje)) httpStatus = 207
-  const c = /"code"\s*:\s*"([A-Z0-9_]+)"/.exec(mensaje) ?? /\b(DUPLICATE[A-Z_]*|INVALID_ARGUMENT|THROTTLED|UNAUTHORIZED|ACCESS_DENIED)\b/.exec(mensaje)
-  return { httpStatus, codigo: c ? c[1] : null }
-}
+/** El código HTTP y el código de Amazon de un error: vive en guardarrailes-calculo (lo usan también vigilar y el panel); se reexporta aquí, donde estaba */
+export { datosDelError }
 
 const RE_RED = /tiempo|timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|network|socket|abort/i
 
@@ -553,6 +551,8 @@ const RE_RED = /tiempo|timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTF
  */
 export function tipoDeFallo(mensaje: string): TipoDeErrorDeAmazon {
   const { httpStatus, codigo } = datosDelError(mensaje)
+  // La autorización de Login with Amazon que ya no vale (invalid_grant, conexión «revocada») no trae código HTTP en el texto: es de autorización, no del ERP
+  if (httpStatus == null && esFalloDeAutorizacionDelErp(mensaje)) return 'autorizacion'
   if (httpStatus == null) return RE_RED.test(mensaje) ? 'transporte' : 'validacion'
   return clasificarErrorDeAmazon(httpStatus, codigo, mensaje)
 }
@@ -846,6 +846,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     // Un error pasajero de la API de uso (429, 5xx) solo cuenta tras varios seguidos (usoErrorBloquea): uno suelto no para las subidas
     gastoDesconocido: usoErrorBloquea(config.usoError),
     inicioDelDiaLocal: Date.parse(inicioDelDiaLocal(local.fecha, zona)),
+    moneda: l.perfil.moneda,
   }
 
   // Productos: postura, defensivo, marca, fase, gasto 30 d, stock y cobertura

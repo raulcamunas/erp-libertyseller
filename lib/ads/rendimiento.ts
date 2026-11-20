@@ -12,6 +12,7 @@
 import { gunzipSync } from 'node:zlib'
 import { llamarAds } from './datos'
 import { AdsError } from './oauth'
+import { ESPERA_DESCARGA_MS } from '@/lib/tiempos-espera'
 import { filasDeInforme, type FilaDiaria } from './rendimiento-calculo'
 
 const TIPO_PETICION = 'application/vnd.createasyncreportrequest.v3+json'
@@ -95,7 +96,8 @@ export async function estadoDeInforme(conexionId: string, profileId: number, rep
 /** Descarga un informe YA COMPLETADO y devuelve sus filas tal cual las manda Amazon */
 export async function descargarCrudas(url: string): Promise<Array<Record<string, unknown>>> {
   // La URL es de S3 y va firmada: mandarle nuestras cabeceras la rechaza
-  const res = await fetch(url)
+  // Con tope (lib/tiempos-espera.ts): sin él, una descarga de S3 que se queda colgada no la cortaba nadie
+  const res = await fetch(url, { signal: AbortSignal.timeout(ESPERA_DESCARGA_MS) })
   if (!res.ok) throw new AdsError(`No se ha podido descargar el informe (${res.status}).`)
   const crudo = Buffer.from(await res.arrayBuffer())
   let texto: string

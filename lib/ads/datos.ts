@@ -8,7 +8,8 @@
  * informes todavía — eso viene cuando esté decidida la estructura.
  */
 
-import { apuntarLlamada, enEnsayo, esEscritura, recortarParaLog, respuestaSimulada } from './rastro'
+import { ESPERA_REINTENTOS_MAX_MS, INTENTOS_ADS, apuntarLlamada, debeReintentarAds, enEnsayo, esEscritura, esperaDeReintento, recortarParaLog, respuestaSimulada } from './rastro'
+import { ESPERA_JSON_MS } from '@/lib/tiempos-espera'
 import { createServiceClient } from '@/lib/supabase/service'
 import { decryptToken, encryptToken, hasTokenKey } from '@/lib/amazon/crypto'
 import { ENDPOINTS, credenciales, type RegionAds } from './config'
@@ -170,10 +171,21 @@ async function accessTokenDe(conexionId: string): Promise<{ token: string; regio
     return { token: decryptToken(data.access_token_cifrado as string), region }
   }
 
-  const tokens = await renovarAccessToken(
-    decryptToken(data.refresh_token_cifrado as string),
-    region
-  )
+  let tokens: TokensAds
+  try {
+    tokens = await renovarAccessToken(decryptToken(data.refresh_token_cifrado as string), region)
+  } catch (e) {
+    // invalid_grant = el refresh token ya no vale (el cliente revocó el acceso o caducó): no se arregla solo, hay que volver a conectar. Se marca la conexión
+    // «revocada» con el motivo para que se vea en la pantalla; antes ni se marcaba y cada llamada repetía el canje fallido sin que nadie se enterara
+    if (e instanceof AdsError && e.tipoAmazon === 'invalid_grant') {
+      const { error: errorMarca } = await service
+        .from('ads_connections')
+        .update({ estado: 'revocada', ultimo_error: e.message.slice(0, 500), updated_at: new Date().toISOString() })
+        .eq('id', conexionId)
+      if (errorMarca) console.error('[ads] no se ha podido marcar la conexión como revocada:', errorMarca)
+    }
+    throw e
+  }
 
   const { error: errorGuardado } = await service
     .from('ads_connections')
@@ -215,6 +227,8 @@ export async function llamarAds<T>(
      * esperaba, y es imposible adivinarlo desde el error.
      */
     cabeceras?: Record<string, string>
+    /** Instante (ms) a partir del cual ya no se espera para reintentar: quien tiene una pasada con hora de fin la pasa para no comérsela en esperas */
+    fechaLimite?: number
   } = {}
 ): Promise<T> {
   const cred = credenciales()
@@ -239,25 +253,56 @@ export async function llamarAds<T>(
     apuntarLlamada({ metodo, ruta, cuerpo: opciones.cuerpo ?? null, status: null, requestId: null, respuesta: simulada, simulada: true, ms: 0 })
     return simulada as T
   }
-  const inicio = Date.now()
-  const res = await fetch(`${ENDPOINTS[region].api}${ruta}`, {
-    method: metodo,
-    headers: cabeceras,
-    body: opciones.cuerpo === undefined ? undefined : JSON.stringify(opciones.cuerpo),
-  })
-
-  const texto = await res.text()
-  if (esEscritura(metodo, ruta)) {
-    apuntarLlamada({
-      metodo,
-      ruta,
-      cuerpo: opciones.cuerpo ?? null,
-      status: res.status,
-      requestId: res.headers.get('x-amz-request-id') ?? res.headers.get('x-amzn-requestid') ?? res.headers.get('x-amzn-request-id'),
-      respuesta: recortarParaLog(texto),
-      simulada: false,
-      ms: Date.now() - inicio,
-    })
+  // Tope de tiempo y reintentos acotados (ver debeReintentarAds en rastro.ts). Sin `signal`, una llamada que Amazon acepta y no contesta colgaba ~300 s (el
+  // headersTimeout de undici), más que la pasada entera del agente (240 s) y que su reserva (330 s). Un 429 o un 5xx de una lectura fallaban a la primera
+  const url = `${ENDPOINTS[region].api}${ruta}`
+  const escribe = esEscritura(metodo, ruta)
+  let esperado = 0
+  let res: Response
+  let texto: string
+  for (let intento = 1; ; intento++) {
+    const inicio = Date.now()
+    try {
+      res = await fetch(url, {
+        method: metodo,
+        headers: cabeceras,
+        body: opciones.cuerpo === undefined ? undefined : JSON.stringify(opciones.cuerpo),
+        signal: AbortSignal.timeout(ESPERA_JSON_MS),
+      })
+      texto = await res.text()
+    } catch (e) {
+      // Sin respuesta: red caída o tiempo agotado. El TimeoutError / AbortError se clasifica como transporte (la siguiente pasada relee antes de repetir)
+      const porTiempo = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
+      if (escribe) apuntarLlamada({ metodo, ruta, cuerpo: opciones.cuerpo ?? null, status: null, requestId: null, respuesta: { error: e instanceof Error ? e.message : String(e) }, simulada: false, ms: Date.now() - inicio })
+      const espera = intento < INTENTOS_ADS && debeReintentarAds(metodo, ruta, null, porTiempo) ? esperaDeReintento(intento, null, Date.now(), Math.random()) : null
+      if (espera != null && cabeEspera(esperado, espera, opciones.fechaLimite)) {
+        esperado += espera
+        await dormir(espera)
+        continue
+      }
+      throw e
+    }
+    if (escribe) {
+      apuntarLlamada({
+        metodo,
+        ruta,
+        cuerpo: opciones.cuerpo ?? null,
+        status: res.status,
+        requestId: res.headers.get('x-amz-request-id') ?? res.headers.get('x-amzn-requestid') ?? res.headers.get('x-amzn-request-id'),
+        respuesta: recortarParaLog(texto),
+        simulada: false,
+        ms: Date.now() - inicio,
+      })
+    }
+    if (!res.ok && intento < INTENTOS_ADS && debeReintentarAds(metodo, ruta, res.status)) {
+      const espera = esperaDeReintento(intento, res.headers.get('retry-after'), Date.now(), Math.random())
+      if (cabeEspera(esperado, espera, opciones.fechaLimite)) {
+        esperado += espera
+        await dormir(espera)
+        continue
+      }
+    }
+    break
   }
 
   if (!res.ok) {
@@ -285,14 +330,37 @@ export async function llamarAds<T>(
     )
   }
 
+  // La marca de «se ha usado y va bien», como mucho una vez cada 5 minutos: antes era un UPDATE por cada llamada correcta (cientos por pasada) y podía
+  // pisar el «error» que otra llamada acababa de poner. Solo se escribe si la conexión no está «activa» (vuelve a estarlo) o la marca es vieja; una
+  // «revocada» no la levanta una llamada suelta con un token aún en caché: eso lo hace volver a conectar
   const service = createServiceClient()
+  const ahoraIso = new Date().toISOString()
+  const hace5Min = new Date(Date.now() - 5 * 60_000).toISOString()
   await service
     .from('ads_connections')
-    .update({ ultimo_uso_at: new Date().toISOString(), estado: 'activa', ultimo_error: null })
+    .update({ ultimo_uso_at: ahoraIso, estado: 'activa', ultimo_error: null })
     .eq('id', conexionId)
+    .neq('estado', 'revocada')
+    .or(`estado.neq.activa,ultimo_uso_at.is.null,ultimo_uso_at.lt.${hace5Min}`)
 
-  return (texto ? JSON.parse(texto) : null) as T
+  if (!texto) return null as T
+  try {
+    return JSON.parse(texto) as T
+  } catch {
+    // Un 2xx con un cuerpo que no se puede leer (cortado, HTML de un proxy): después de una escritura, el cambio PUEDE haber llegado. Antes salía un SyntaxError
+    // que se tomaba por un error de datos y dejaba en «error» un cambio aplicado; así es transporte y la siguiente pasada relee Amazon antes de repetir
+    throw new AdsError(`Amazon Ads ha contestado ${res.status} a ${ruta} con una respuesta ilegible de Amazon (no es JSON)`, { estado: res.status, cuerpo: texto.slice(0, 600) })
+  }
 }
+
+/** ¿Cabe otra espera de reintento? Como mucho ESPERA_REINTENTOS_MAX_MS en total por llamada, y nunca más allá de la fecha límite de quien llama */
+function cabeEspera(esperado: number, espera: number, fechaLimite: number | undefined): boolean {
+  if (esperado + espera > ESPERA_REINTENTOS_MAX_MS) return false
+  if (fechaLimite != null && Date.now() + espera >= fechaLimite) return false
+  return true
+}
+
+const dormir = (ms: number) => new Promise<void>((resolver) => setTimeout(resolver, ms))
 
 /* ------------------------------------------------------------------ */
 /* Los perfiles: las cuentas de anunciante del cliente                 */

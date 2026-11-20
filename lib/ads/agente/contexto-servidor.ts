@@ -114,11 +114,12 @@ export async function nombreDeCuenta(perfilId: string): Promise<{ nombre: string
 
 /** La cuenta (para llamar a Amazon) a partir del id del perfil */
 export async function cuentaDePerfil(perfilId: string): Promise<CuentaParaSincronizar> {
-  const { data, error } = await createServiceClient().from('ads_profiles').select('id, profile_id, connection_id').eq('id', perfilId).maybeSingle()
+  const { data, error } = await createServiceClient().from('ads_profiles').select('id, profile_id, connection_id, moneda').eq('id', perfilId).maybeSingle()
   if (error) throw error
   if (!data) throw new Error('No encuentro esa cuenta de anunciante.')
-  const f = data as { id: string; profile_id: number; connection_id: string }
-  return { id: f.id, profileId: Number(f.profile_id), conexionId: f.connection_id }
+  const f = data as { id: string; profile_id: number; connection_id: string; moneda: string | null }
+  // La moneda: las pujas se escriben con el mínimo de Amazon en ella (pujaParaAmazon)
+  return { id: f.id, profileId: Number(f.profile_id), conexionId: f.connection_id, moneda: f.moneda ?? null }
 }
 
 const ESTADOS: readonly EstadoDelAgente[] = ['apagado', 'ensayo', 'activo', 'frenado']
