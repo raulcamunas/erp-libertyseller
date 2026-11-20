@@ -17,6 +17,7 @@ import {
 } from './cerebro-ia'
 import { datosDelResumen, hechosPorClase, necesitaPersona, veredictosDelResumen } from './resumen-servidor'
 import { textoDelResumen } from './avisos-calculo'
+import { FRENOS_AUTOMATICOS } from './guardarrailes-calculo'
 import type { ContextoDelAgente, ProductoDelContexto } from './tipos'
 
 let fallos = 0
@@ -116,15 +117,20 @@ const raras = rarasDeLasPendientes(
   productos,
 )
 const ids = raras.map((r) => r.id)
-ok('pausa con ≥ 10 % del gasto del producto → rara', ids.includes('pausa-grande'))
-ok('pausa pequeña → no', !ids.includes('pausa-pequena'))
-ok('bajada con 6 pedidos → rara', ids.includes('bajada-vende'))
-ok('con decisión de la IA → fuera', !ids.includes('ya-decidida'))
-ok('REVISAR → fuera (va por la etiqueta)', !ids.includes('revisar'))
-ok('negativizar un ASIN → rara', ids.includes('negativa-asin'))
-ok('subida en campaña con ubicación alta → rara', ids.includes('sube-ubicacion'))
-ok('subida de presupuesto sin stock conocido → rara', ids.includes('presupuesto-sin-producto'))
-ok('el motivo dice por qué es rara', raras.find((r) => r.id === 'bajada-vende')!.motivo.startsWith('Rara: '))
+if (!FRENOS_AUTOMATICOS) {
+  // Sin «raras» (20 nov 2026, Raúl): esRara siempre dice que no, así que ninguna pendiente se manda a la IA por rara
+  ok('sin frenos automáticos: ninguna pendiente es rara', raras.length === 0, JSON.stringify(ids))
+} else {
+  ok('pausa con ≥ 10 % del gasto del producto → rara', ids.includes('pausa-grande'))
+  ok('pausa pequeña → no', !ids.includes('pausa-pequena'))
+  ok('bajada con 6 pedidos → rara', ids.includes('bajada-vende'))
+  ok('con decisión de la IA → fuera', !ids.includes('ya-decidida'))
+  ok('REVISAR → fuera (va por la etiqueta)', !ids.includes('revisar'))
+  ok('negativizar un ASIN → rara', ids.includes('negativa-asin'))
+  ok('subida en campaña con ubicación alta → rara', ids.includes('sube-ubicacion'))
+  ok('subida de presupuesto sin stock conocido → rara', ids.includes('presupuesto-sin-producto'))
+  ok('el motivo dice por qué es rara', raras.find((r) => r.id === 'bajada-vende')!.motivo.startsWith('Rara: '))
+}
 
 console.log('\n=== etiquetas vigentes ===')
 const ahora = Date.parse('2026-11-19T08:00:00Z')
