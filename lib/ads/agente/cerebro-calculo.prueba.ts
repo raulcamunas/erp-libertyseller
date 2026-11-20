@@ -9,6 +9,8 @@ import {
   limpiarTextoIa,
   posturaFinal,
   validarSalidaDelCerebro,
+  acotarPorStockViejo,
+  conservarPosturaPorStock,
 } from './cerebro-calculo'
 import type { ContextoDelAgente, ProductoDelContexto } from './tipos'
 
@@ -282,6 +284,22 @@ console.log('\n=== hash del título ===')
   ok('normaliza: tildes, mayúsculas y espacios dan el mismo hash', hashDeTitulo('Jamón  Serrano ') === hashDeTitulo('jamon serrano'))
   ok('otro título, otro hash', hashDeTitulo('jamon serrano') !== hashDeTitulo('jamon iberico'))
   ok('8 cifras hex', /^[0-9a-f]{8}$/.test(hashDeTitulo('JAMON SERRANO 2,5KG')))
+}
+
+console.log('\n=== stock sin leer o viejo: no se tocan las posturas por stock ===')
+{
+  const recortaPorStock = { postura: 'recortar' as const, fuentePostura: 'stock' as const }
+  ok('lectura fallida + «recortar» por stock → se conserva (no cae a «mantener»)', conservarPosturaPorStock(recortaPorStock, false))
+  ok('lectura fallida + «mantener» por stock (cobertura) → se conserva', conservarPosturaPorStock({ postura: 'mantener', fuentePostura: 'stock' }, false))
+  ok('lectura fallida + postura de la IA → se recalcula (como mucho mantener)', !conservarPosturaPorStock({ postura: 'crecer', fuentePostura: 'ia' }, false))
+  ok('stock viejo + «recortar» por stock → se conserva', conservarPosturaPorStock({ ...recortaPorStock, stockViejo: true }, true))
+  ok('stock fresco + «recortar» por stock → se recalcula (las reglas de siempre)', !conservarPosturaPorStock({ ...recortaPorStock, stockViejo: false }, true))
+  ok('stock viejo + «mantener» por stock → se recalcula', !conservarPosturaPorStock({ postura: 'mantener', fuentePostura: 'stock', stockViejo: true }, true))
+  const crece = { postura: 'crecer' as const, fuente: 'ia' as const, motivo: 'va bien' }
+  const v = acotarPorStockViejo(crece, true)
+  ok('stock viejo: «crecer» → «mantener» por stock', v.postura === 'mantener' && v.fuente === 'stock', JSON.stringify(v))
+  ok('stock fresco: «crecer» se queda', acotarPorStockViejo(crece, false) === crece)
+  ok('stock viejo: «recortar» no cambia', acotarPorStockViejo({ postura: 'recortar', fuente: 'reglas', motivo: 'x' }, true).postura === 'recortar')
 }
 
 console.log(fallos ? `\n${fallos} FALLOS` : '\nTodo bien')

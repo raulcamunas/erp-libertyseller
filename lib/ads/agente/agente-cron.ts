@@ -21,7 +21,7 @@ import { calibrarCuenta } from './calibrar-servidor'
 import { pensarCuenta } from './cerebro-ia'
 import { configDeFila, filasDeUso, leerContextoDelAgente, nombreDeCuenta } from './contexto-servidor'
 import { medirEfectos, veredictosRecientes } from './efectos-servidor'
-import { actualizarAgente, frenarAgente, leerConfigDelAgente, paradaGeneral, pasarAActivo, reservarPaso, soltarCuenta, tomarCuenta } from './estado-servidor'
+import { actualizarAgente, frenarAgente, leerConfigDelAgente, paradaGeneral, pasarAActivo, renovarCuenta, reservarPaso, soltarCuenta, tomarCuenta } from './estado-servidor'
 import { anotarEvento, avisar } from './eventos-servidor'
 import { claseDeCambio, sinSubidasDePresupuesto } from './guardarrailes-calculo'
 import { recalcularObjetivos } from './objetivos-servidor'
@@ -93,6 +93,29 @@ export function vigilarHizoAlgo(e: { insertadas: number; frenado: boolean; deshe
   return e.insertadas > 0 || e.frenado || e.deshechas > 0 || e.activado || e.eventos > 0 || e.reactivadas > 0
 }
 
+/** PURO. Un instante ISO a ms; null (o ilegible) = −∞, el más antiguo posible */
+const msOMenosInfinito = (iso: string | null): number => {
+  const t = iso ? Date.parse(iso) : NaN
+  return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY
+}
+
+/**
+ * PURO. El orden en que la pasada recorre las cuentas: primero la que lleva más sin un vigilar bueno (`vigilarOkAt` null o más viejo: sin él, aplicar no escribe y el
+ * freno no está evaluado) y, a igualdad, la que lleva más sin aplicar (`marcas.aplicarAt`). Así las cuentas que se quedaron sin tiempo en una pasada van primero en la
+ * siguiente, en vez de quedarse siempre al final de la lista. Estable: a igualdad de todo, el orden de entrada.
+ */
+export function ordenarPorUrgencia<T extends { config: Pick<ConfigDelAgente, 'vigilarOkAt'> & { marcas: Pick<ConfigDelAgente['marcas'], 'aplicarAt'> } }>(cuentas: readonly T[]): T[] {
+  return cuentas
+    .map((c, i) => ({ c, i }))
+    .sort(
+      (a, b) =>
+        msOMenosInfinito(a.c.config.vigilarOkAt) - msOMenosInfinito(b.c.config.vigilarOkAt) ||
+        msOMenosInfinito(a.c.config.marcas.aplicarAt) - msOMenosInfinito(b.c.config.marcas.aplicarAt) ||
+        a.i - b.i,
+    )
+    .map((x) => x.c)
+}
+
 /* =============================================================================================================================================================
  * Las cuentas con trabajo
  * ============================================================================================================================================================= */
@@ -102,28 +125,48 @@ export interface CuentaDelAgente {
   config: ConfigDelAgente
 }
 
-/** Pendientes libres por cuenta (una consulta): si hay alguna y si alguna es un REVISAR (término que espera la etiqueta de la IA) */
-async function pendientesPorCuenta(ids: readonly string[]): Promise<Map<string, { hay: boolean; revisar: boolean }>> {
+/**
+ * PURO. Lo que dicen las dos consultas de una cuenta (`pendientesPorCuenta`): cuántas filas devolvió «¿hay alguna libre?» y cuántas «¿hay algún REVISAR libre?» (las dos
+ * con límite 1). Un REVISAR libre también es una pendiente libre, aunque la primera consulta no lo devolviera.
+ */
+export function pendientesDeResultados(ids: readonly string[], filas: ReadonlyArray<{ hay: number; revisar: number }>): Map<string, { hay: boolean; revisar: boolean }> {
   const salida = new Map<string, { hay: boolean; revisar: boolean }>()
-  if (ids.length === 0) return salida
-  const { data, error } = await createServiceClient()
-    .from('ads_propuestas')
-    .select('perfil_id, tipo, motivo, metricas')
-    .in('perfil_id', ids as string[])
-    .eq('estado', 'pendiente')
-    .is('retenida_at', null)
-    .limit(2000)
-  if (error) {
-    if (faltaLa315(error)) throw new Error(FALTA_MIGRACION_315)
-    throw error
-  }
-  for (const f of (data ?? []) as Array<{ perfil_id: string; tipo: string; motivo: string | null; metricas: Record<string, unknown> | null }>) {
-    const x = salida.get(f.perfil_id) ?? { hay: false, revisar: false }
-    x.hay = true
-    if (f.tipo === 'negativizar' && (f.metricas?.revisar === true || /^REVISAR:/i.test(f.motivo ?? ''))) x.revisar = true
-    salida.set(f.perfil_id, x)
-  }
+  ids.forEach((id, i) => {
+    const f = filas[i]
+    const revisar = (f?.revisar ?? 0) > 0
+    const hay = revisar || (f?.hay ?? 0) > 0
+    if (hay) salida.set(id, { hay, revisar })
+  })
   return salida
+}
+
+/**
+ * Pendientes libres por cuenta: si hay alguna y si alguna es un REVISAR (término que espera la etiqueta de la IA). DOS consultas pequeñas por cuenta (límite 1), en
+ * paralelo. Antes era una sola consulta para todas, cortada por PostgREST a 1.000 filas (max_rows) y sin orden: con más de 1.000 pendientes entre todas, algunas cuentas
+ * salían «sin pendientes» y se quedaban sin paso «aplicar» (solo aplicaban cuando les tocaba vigilar) y sin cerebro de la tarde para sus REVISAR. Con pocas cuentas
+ * (5 hoy) esto son 10 consultas con índice; si algún día pasan de 50, conviene un RPC con GROUP BY perfil_id.
+ */
+async function pendientesPorCuenta(ids: readonly string[]): Promise<Map<string, { hay: boolean; revisar: boolean }>> {
+  if (ids.length === 0) return new Map()
+  const db = createServiceClient()
+  const libres = (id: string) => db.from('ads_propuestas').select('id').eq('perfil_id', id).eq('estado', 'pendiente').is('retenida_at', null)
+  const filas = await Promise.all(
+    ids.map(async (id) => {
+      const [hay, revisar] = await Promise.all([
+        libres(id).limit(1),
+        // El mismo criterio que `esRevisar`: la marca en las métricas o el motivo «REVISAR: …»
+        libres(id).eq('tipo', 'negativizar').or('metricas->>revisar.eq.true,motivo.ilike."REVISAR:*"').limit(1),
+      ])
+      for (const r of [hay, revisar]) {
+        if (r.error) {
+          if (faltaLa315(r.error)) throw new Error(FALTA_MIGRACION_315)
+          throw r.error
+        }
+      }
+      return { hay: (hay.data ?? []).length, revisar: (revisar.data ?? []).length }
+    }),
+  )
+  return pendientesDeResultados(ids, filas)
 }
 
 /** Zona horaria de cada cuenta (una consulta) */
@@ -183,13 +226,13 @@ export async function cuentasDelAgente(ahora: number): Promise<{ cuentas: Cuenta
   const ids = validas.map((c) => c.perfilId)
   const [pend, zonas] = await Promise.all([pendientesPorCuenta(ids), zonasDe(ids)])
 
-  // 4. Las que tienen un paso
+  // 4. Las que tienen un paso, la más urgente primero (ordenarPorUrgencia): sin orden, las del final de la lista eran las que se quedaban sin tiempo en cada pasada
   const cuentas: CuentaDelAgente[] = []
   for (const config of validas) {
     const zona = zonas.get(config.perfilId)?.zona ?? 'Europe/Madrid'
     if (pasoDe(config, zona, ahora, pend.get(config.perfilId))) cuentas.push({ cuenta: cuentaDe.get(config.perfilId)!, config })
   }
-  return { cuentas, faltaMigracion: false }
+  return { cuentas: ordenarPorUrgencia(cuentas), faltaMigracion: false }
 }
 
 /** Las cuentas del agente que tienen un paso que dar ahora (§2.2). Sin la 315, ninguna */
@@ -705,15 +748,15 @@ export async function correrAgente(cuentas: ReadonlyArray<{ cuenta: CuentaParaSi
       salida.sinTiempo += 1
       continue
     }
-    let tomada = false
+    let firma: string | null = null
     try {
-      tomada = await tomarCuenta(cuenta.id)
+      firma = await tomarCuenta(cuenta.id)
     } catch (e) {
       salida.errores.push(`${cuenta.id.slice(0, 8)}: reserva: ${textoDe(e, 100)}`)
       salida.hizoAlgo = true
       continue
     }
-    if (!tomada) continue // otra invocación la está trabajando
+    if (!firma) continue // otra invocación la está trabajando
     salida.cuentas += 1
 
     let datos: DatosDeCuenta | null = null
@@ -737,6 +780,14 @@ export async function correrAgente(cuentas: ReadonlyArray<{ cuenta: CuentaParaSi
         intentados.add(paso)
         // El momento del cerebro se decide antes del sello (el sello apaga «Pensar ahora»)
         const momento: 'manana' | 'tarde' = !config.pensarYa && horaEnMadrid(ahora).hora >= AGENTE.HORA_CEREBRO_TARDE ? 'tarde' : 'manana'
+        // La reserva de la cuenta se ALARGA antes de cada paso (con su firma): un paso largo no deja que caduque a mitad y entre otra pasada. Si ya no es nuestra
+        // (caducó y otra la tomó), esta pasada deja la cuenta: la otra la está trabajando
+        const renovada = await renovarCuenta(cuenta.id, firma)
+        if (!renovada) {
+          console.warn(`[agente] ${cuenta.id}: la reserva de la cuenta ya no es de esta pasada; la dejo`)
+          break
+        }
+        firma = renovada
         if (!(await reservarPaso(cuenta.id, paso, ahora, datos.zona))) continue // otro proceso lo acaba de hacer
         salida.pasos += 1
         try {
@@ -759,7 +810,7 @@ export async function correrAgente(cuentas: ReadonlyArray<{ cuenta: CuentaParaSi
       salida.errores.push(`${datos?.nombre ?? cuenta.id.slice(0, 8)}: ${textoDe(e, 140)}`)
       salida.hizoAlgo = true
     } finally {
-      await soltarCuenta(cuenta.id)
+      await soltarCuenta(cuenta.id, firma)
     }
   }
   return salida

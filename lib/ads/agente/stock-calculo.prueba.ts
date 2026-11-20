@@ -1,4 +1,4 @@
-import { coberturaDias, decisionDeStock, PAISES_EFN, pausasYaHechas, posturasPorStock, puedeReactivar, stockDeAsin, stockEfectivo, topeDePosturaPorStock } from './stock-calculo'
+import { coberturaDias, decisionDeStock, PAISES_EFN, pausasYaHechas, posturasPorStock, puedeReactivar, stockDeAsin, stockEfectivo, stockEsViejo, topeDePosturaPorStock } from './stock-calculo'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -140,6 +140,14 @@ console.log('\n=== pausas por stock ya hechas (la ensayada no se repite en el en
   ok('en activo, una ensayada NO cuenta (se pausa de verdad)', !a.campanas.has('c1') && !a.anuncios.has('ad9') && a.campanas.has('c4'))
   const sinEnc = pausasYaHechas(filas, 'ensayo', null, AHORA)
   ok('sin fecha de encendido: solo las ensayadas de las últimas 24 h', sinEnc.campanas.has('c1') && !sinEnc.campanas.has('c3'))
+}
+
+console.log('\n=== ¿stock viejo? ===')
+{
+  const t = Date.parse('2026-12-10T12:00:00Z')
+  ok('leído hace 1 h → fresco', !stockEsViejo('2026-12-10T11:00:00Z', t))
+  ok('leído hace 6 h → viejo', stockEsViejo('2026-12-10T06:00:00Z', t))
+  ok('sin fecha → viejo', stockEsViejo(null, t) && stockEsViejo('no es fecha', t))
 }
 
 console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)

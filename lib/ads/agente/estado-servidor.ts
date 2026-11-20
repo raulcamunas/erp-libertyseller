@@ -765,23 +765,49 @@ export async function actualizarAgente(perfilId: string, campos: Record<string, 
 // Reservas: la cuenta y cada paso
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Reserva la cuenta 330 s para esta pasada. false = otra invocación la está trabajando */
-export async function tomarCuenta(perfilId: string): Promise<boolean> {
+/**
+ * PURO. El instante de caducidad de una reserva FIRMADO: `ms` con 3 cifras más de microsegundos al azar («…12.345678Z»). `trabajando_hasta` es TIMESTAMPTZ (guarda
+ * microsegundos), así que el valor exacto escrito es la firma de quien reservó: soltar o renovar con `.eq('trabajando_hasta', firma)` solo toca la reserva PROPIA.
+ * Sin columna nueva (no hace falta migración). `azar` en [0, 1) entra por parámetro para poder probarlo.
+ */
+export function firmaDeReserva(ms: number, azar: number = Math.random()): string {
+  const micro = String(Math.min(999, Math.max(0, Math.floor(azar * 1000)))).padStart(3, '0')
+  return new Date(ms).toISOString().replace(/Z$/, `${micro}Z`)
+}
+
+/**
+ * Reserva la cuenta 330 s para esta pasada. Devuelve la FIRMA de la reserva (ver `firmaDeReserva`) o null si otra invocación la está trabajando.
+ * Con la firma, `renovarCuenta` alarga la reserva antes de cada paso y `soltarCuenta` solo suelta la propia: una pasada que se alarga más de 330 s y otra que entra
+ * después ya no se pisan (antes la primera, al acabar, borraba la reserva de la segunda y una tercera podía entrar en la misma cuenta).
+ */
+export async function tomarCuenta(perfilId: string): Promise<string | null> {
   const ahora = Date.now()
+  const firma = firmaDeReserva(ahora + AGENTE.RESERVA_CUENTA_S * 1000)
   const { data, error } = await createServiceClient()
     .from('ads_agente')
-    .update({ trabajando_hasta: ahoraIso(ahora + AGENTE.RESERVA_CUENTA_S * 1000) })
+    .update({ trabajando_hasta: firma })
     .eq('perfil_id', perfilId)
     .or(`trabajando_hasta.is.null,trabajando_hasta.lt.${comillas(ahoraIso(ahora))}`)
     .select('perfil_id')
   if (error) lanzar(error, 'No se ha podido reservar la cuenta')
-  return (data ?? []).length > 0
+  return (data ?? []).length > 0 ? firma : null
 }
 
-/** Suelta la reserva de la cuenta (en el finally de la pasada). Nunca lanza: la reserva caduca sola a los 330 s */
-export async function soltarCuenta(perfilId: string): Promise<void> {
+/**
+ * Alarga la reserva PROPIA otros 330 s (antes de cada paso). Devuelve la firma nueva, o null si la reserva ya no es nuestra (caducó y otra pasada la tomó, o se
+ * soltó): entonces esta pasada deja la cuenta. Lanza si falla la base (quien llama deja la cuenta igual: sin saber si la reserva sigue, no se sigue).
+ */
+export async function renovarCuenta(perfilId: string, firma: string): Promise<string | null> {
+  const nueva = firmaDeReserva(Date.now() + AGENTE.RESERVA_CUENTA_S * 1000)
+  const { data, error } = await createServiceClient().from('ads_agente').update({ trabajando_hasta: nueva }).eq('perfil_id', perfilId).eq('trabajando_hasta', firma).select('perfil_id')
+  if (error) lanzar(error, 'No se ha podido renovar la reserva de la cuenta')
+  return (data ?? []).length > 0 ? nueva : null
+}
+
+/** Suelta la reserva PROPIA de la cuenta (en el finally de la pasada): solo si sigue llevando nuestra firma. Nunca lanza: la reserva caduca sola a los 330 s */
+export async function soltarCuenta(perfilId: string, firma: string): Promise<void> {
   try {
-    const { error } = await createServiceClient().from('ads_agente').update({ trabajando_hasta: null }).eq('perfil_id', perfilId)
+    const { error } = await createServiceClient().from('ads_agente').update({ trabajando_hasta: null }).eq('perfil_id', perfilId).eq('trabajando_hasta', firma)
     if (error && !faltaLa315(error)) console.error(`Agente PPC: no se ha podido soltar la cuenta ${perfilId}:`, error.message)
   } catch (e) {
     console.error(`Agente PPC: no se ha podido soltar la cuenta ${perfilId}:`, e instanceof Error ? e.message : e)

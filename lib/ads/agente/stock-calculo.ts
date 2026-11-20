@@ -277,3 +277,13 @@ export function pausasYaHechas(
   }
   return { campanas, anuncios }
 }
+
+/**
+ * PURO. ¿El stock leído es de hace demasiado (≥ `AGENTE.LISTING_FRESCO_HORAS`, o sin fecha)? Con la sincronización de listados parada, el número sigue ahí pero es de hace
+ * días: para SUBIR cuenta como desconocido (no se sabe si hay cobertura). Lo mismo que exige la pausa y la reactivación por stock.
+ */
+export function stockEsViejo(actualizadoAt: string | null, ahora: number): boolean {
+  const t = actualizadoAt ? Date.parse(actualizadoAt) : NaN
+  if (!Number.isFinite(t)) return true
+  return (ahora - t) / 3_600_000 >= AGENTE.LISTING_FRESCO_HORAS
+}

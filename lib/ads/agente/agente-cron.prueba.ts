@@ -2,7 +2,8 @@
  * Pruebas de las piezas PURAS de agente-cron.ts (sin red ni base de datos).
  *   npx tsx lib/ads/agente/agente-cron.prueba.ts
  */
-import { camposDeVigilarFallido, cambiosDistintosDelEnsayo, horaDeMinuto, seguirTrasPasoFallido, vigilarHizoAlgo } from './agente-cron'
+import { camposDeVigilarFallido, cambiosDistintosDelEnsayo, horaDeMinuto, ordenarPorUrgencia, pendientesDeResultados, seguirTrasPasoFallido, vigilarHizoAlgo } from './agente-cron'
+import { firmaDeReserva } from './estado-servidor'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -53,6 +54,50 @@ console.log('\n=== vigilar fallido: cierra el paso ===')
   ok('fallos raros cuentan desde 0', camposDeVigilarFallido(Number.NaN).vigilar_fallos === 1)
   ok('tras un vigilar fallido no se da otro paso (ni aplicar)', seguirTrasPasoFallido('vigilar') === false)
   ok('tras otro paso fallido se sigue', seguirTrasPasoFallido('cerebro') === true)
+}
+
+console.log('\n=== pendientes por cuenta (dos consultas de límite 1 por cuenta, sin el corte de 1.000 filas) ===')
+{
+  const m = pendientesDeResultados(['a', 'b', 'c', 'd'], [
+    { hay: 1, revisar: 0 },
+    { hay: 0, revisar: 0 },
+    { hay: 1, revisar: 1 },
+    // Un REVISAR libre es también una pendiente libre aunque la primera consulta no la trajera
+    { hay: 0, revisar: 1 },
+  ])
+  ok('con una libre: hay, sin REVISAR', m.get('a')?.hay === true && m.get('a')?.revisar === false)
+  ok('sin ninguna: no sale', !m.has('b'))
+  ok('con REVISAR: hay y revisar', m.get('c')?.hay === true && m.get('c')?.revisar === true)
+  ok('solo el REVISAR: hay = true', m.get('d')?.hay === true && m.get('d')?.revisar === true)
+  // Cada cuenta se mira por separado: que otra cuenta tenga miles de pendientes no deja a esta sin ellas
+  const muchas = pendientesDeResultados(['grande', 'pequena'], [{ hay: 1, revisar: 1 }, { hay: 1, revisar: 0 }])
+  ok('una cuenta con pocas pendientes sigue con hay = true junto a una con muchas', muchas.get('pequena')?.hay === true)
+}
+
+console.log('\n=== orden de las cuentas: la más urgente primero ===')
+{
+  const c = (id: string, vigilarOkAt: string | null, aplicarAt: string | null = null) => ({ id, config: { vigilarOkAt, marcas: { aplicarAt } } })
+  const orden = ordenarPorUrgencia([
+    c('reciente', '2026-12-10T11:55:00Z', '2026-12-10T11:50:00Z'),
+    c('vieja', '2026-12-10T10:00:00Z'),
+    c('nunca', null),
+    c('igual-aplico-antes', '2026-12-10T11:55:00Z', '2026-12-10T08:00:00Z'),
+    c('igual-sin-aplicar', '2026-12-10T11:55:00Z', null),
+  ]).map((x) => x.id)
+  ok('sin vigilar bueno primero', orden[0] === 'nunca', orden.join(','))
+  ok('después el vigilar más viejo', orden[1] === 'vieja', orden.join(','))
+  ok('a igualdad de vigilar, la que nunca aplicó y luego la que aplicó hace más', orden.slice(2).join(',') === 'igual-sin-aplicar,igual-aplico-antes,reciente', orden.join(','))
+  ok('no cambia la lista de entrada', ordenarPorUrgencia([c('x', null)]).length === 1)
+}
+
+console.log('\n=== firma de la reserva de la cuenta ===')
+{
+  const ms = Date.parse('2026-12-10T12:00:00.123Z')
+  const f = firmaDeReserva(ms, 0.4567)
+  ok('lleva microsegundos: 6 decimales', f === '2026-12-10T12:00:00.123456Z', f)
+  ok('el instante es el mismo (al milisegundo)', Date.parse(f) === ms)
+  ok('dos reservas del mismo milisegundo con distinto azar no se confunden (soltar con una firma ajena no toca la reserva)', firmaDeReserva(ms, 0.1) !== firmaDeReserva(ms, 0.2))
+  ok('azar fuera de rango se acota', firmaDeReserva(ms, 1) === '2026-12-10T12:00:00.123999Z' && firmaDeReserva(ms, -1) === '2026-12-10T12:00:00.123000Z')
 }
 
 if (fallos) {

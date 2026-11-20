@@ -411,6 +411,28 @@ export function posturaFinal(e: {
   return { postura, fuente, motivo }
 }
 
+/**
+ * PURO. ¿Se deja la postura GUARDADA de un producto tal cual (sin recalcular ni guardar) por un problema con el dato del stock?
+ *   · la lectura del stock ha FALLADO (`stockLeido` false) y la postura la puso el stock: con el stock a null, `posturaFinal` rebajaría un «recortar» por stock a
+ *     «mantener» («stock desconocido») por un fallo de la base, no porque haya vuelto el stock;
+ *   · el stock es VIEJO (de ≥ LISTING_FRESCO_HORAS) y la postura es «recortar» por stock: un número de hace días no basta para levantar el recorte.
+ * Es una protección técnica: con el stock leído y fresco, las reglas de §5.6 deciden igual que siempre.
+ */
+export function conservarPosturaPorStock(p: { postura: Postura; fuentePostura: FuenteDePostura | null; stockViejo?: boolean }, stockLeido: boolean): boolean {
+  if (p.fuentePostura !== 'stock') return false
+  if (!stockLeido) return true
+  return p.stockViejo === true && p.postura === 'recortar'
+}
+
+/** PURO. Con el stock VIEJO, para subir cuenta como desconocido: una postura «crecer» se queda en «mantener» (fuente `stock`). Lo demás no cambia */
+export function acotarPorStockViejo(
+  f: { postura: Postura; fuente: FuenteDePostura; motivo: string },
+  stockViejo: boolean,
+): { postura: Postura; fuente: FuenteDePostura; motivo: string } {
+  if (!stockViejo || f.postura !== 'crecer') return f
+  return { postura: 'mantener', fuente: 'stock', motivo: `El stock se leyó hace ${AGENTE.LISTING_FRESCO_HORAS} h o más: como mucho mantener hasta que se relea` }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Coste
 // ─────────────────────────────────────────────────────────────────────────────

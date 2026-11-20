@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { esSinMigracion } from '@/lib/ads/cuenta'
 import { correrAgente, cuentasDelAgente } from '@/lib/ads/agente/agente-cron'
-import { FALTA_MIGRACION_315 } from '@/lib/ads/agente/tipos'
+import { AGENTE, FALTA_MIGRACION_315 } from '@/lib/ads/agente/tipos'
+import { crearGuardianDePasadas } from '@/lib/sistema/una-a-la-vez'
 
 /**
  * EL AGENTE PPC DE AMAZON ADS (proceso `ads-agente`, cada 5 minutos).
@@ -19,12 +20,29 @@ export const maxDuration = 300
 
 const PRESUPUESTO_MS = 240_000
 
+/**
+ * UNA SOLA PASADA DEL AGENTE A LA VEZ EN ESTE PROCESO (lib/sistema/una-a-la-vez.ts). crond llama cada minuto y `tocaAhora` solo mira la última fila del registro,
+ * que esta ruta abre solo si la pasada hizo algo: sin esto, una pasada larga convivía con las siguientes (cada una con sus lecturas de Amazon y sus pasos). Las reservas
+ * por cuenta siguen siendo la protección entre procesos; esto evita que ni lo intenten. Una pasada que pasa de los 330 s de la reserva se da por muerta.
+ */
+const guardian = crearGuardianDePasadas(AGENTE.RESERVA_CUENTA_S * 1000)
+
 export async function POST(request: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (!secret || request.headers.get('x-cron-secret') !== secret) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
+  const soltar = guardian.entrar()
+  if (!soltar) return NextResponse.json({ ok: true, saltado: 'ya hay una pasada del agente en curso' })
+  try {
+    return await pasada(request)
+  } finally {
+    soltar()
+  }
+}
+
+async function pasada(request: NextRequest): Promise<NextResponse> {
   if (request.nextUrl.searchParams.get('forzar') !== '1') {
     const veredicto = await tocaAhora('ads-agente')
     if (!veredicto.toca) return NextResponse.json({ ok: true, saltado: veredicto.motivo })
