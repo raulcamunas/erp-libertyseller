@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { CircleAlert, ClipboardCopy, Download, FileSearch, Filter, ListTree, RefreshCw, ScrollText, Search, X } from 'lucide-react'
+import { CalendarDays, CircleAlert, ClipboardCopy, Download, FileSearch, Filter, ListTree, RefreshCw, ScrollText, Search, X } from 'lucide-react'
 import { Boton, EstadoVacio, Insignia, PanelLateral, Segmentado, TablaAdaptable, Tarjeta, haceCuanto, type Columna } from '@/components/ui-ls'
 import { CAMPO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import type { EntradaDeLog } from '@/lib/ads/log'
@@ -10,6 +10,7 @@ import type { ProductoDeAds } from '@/lib/ads/cuenta'
 import { ETIQUETA_ORIGEN, quienSinPersona, type OrigenDeLog } from '@/lib/ads/log-calculo'
 import { textoParaPegar } from '@/lib/ads/log-sop'
 import { llamar } from './llamar'
+import { DiarioDeCuenta } from './PestanaFlujo'
 
 const TONO_ORIGEN: Record<OrigenDeLog, TonoEstado> = { automatico: 'naranja', estructura: 'violeta', manual: 'azul', ensayo: 'cian', agente: 'verde' }
 
@@ -75,6 +76,27 @@ const cuando = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: '2-
  *   · Cada fila abre su detalle (petición y respuesta) con enlaces a su propuesta y a su campaña.
  */
 export function PestanaLog({ perfilId, irA }: { perfilId: string; irA?: (pestana: string) => void }) {
+  const [vista, setVista] = useState<'tabla' | 'dias'>('tabla')
+  return (
+    <div className="flex flex-col gap-3">
+      <Segmentado
+        etiqueta="Cómo ver el log"
+        tamano="sm"
+        className="self-start"
+        opciones={[
+          { id: 'tabla', texto: 'Tabla', icono: ScrollText },
+          { id: 'dias', texto: 'Por días', icono: CalendarDays },
+        ]}
+        valor={vista}
+        onCambio={setVista}
+      />
+      {vista === 'tabla' ? <TablaDelLog perfilId={perfilId} irA={irA} /> : <DiarioDeCuenta perfilId={perfilId} />}
+    </div>
+  )
+}
+
+/** La tabla auditable del log (la vista «Tabla» de la pestaña) */
+function TablaDelLog({ perfilId, irA }: { perfilId: string; irA?: (pestana: string) => void }) {
   const [f, setF] = useState<Filtros>(FILTROS_INICIALES)
   const [busqueda, setBusqueda] = useState('')
   const [entradas, setEntradas] = useState<EntradaDeLog[]>([])
