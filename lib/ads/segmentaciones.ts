@@ -200,7 +200,7 @@ export async function cambiarPuja(ctx: ContextoDeCambio, o: { tipo: TipoDeObjeti
 }
 
 /** Pausa o activa una keyword o una segmentación */
-export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean; motivo?: string; origen?: 'manual' | 'automatico' | 'agente' }): Promise<void> {
+export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObjetivo; id: string; texto: string; activar: boolean; motivo?: string; origen?: 'manual' | 'automatico' | 'agente'; valorAnterior?: string }): Promise<void> {
   return enRastro(async () => {
   const state = o.activar ? 'ENABLED' : 'PAUSED'
   const entidad = o.tipo === 'keyword' ? 'keyword' : 'target'
@@ -210,12 +210,26 @@ export async function cambiarEstado(ctx: ContextoDeCambio, o: { tipo: TipoDeObje
   try {
     if (o.tipo === 'keyword') comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/keywords', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_KEYWORD), cuerpo: { keywords: [{ keywordId: o.id, state }] } }), 'keywords')
     else comprobar(await llamarAds(ctx.cuenta.conexionId, '/sp/targets', { perfilId: ctx.cuenta.profileId, metodo: 'PUT', cabeceras: cab(T_TARGET), cuerpo: { targetingClauses: [{ targetId: o.id, state }] } }), 'targetingClauses')
-    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, valorAnterior: o.activar ? 'pausada' : 'activa', valorNuevo: o.activar ? 'activa' : 'pausada', motivo, origen, userId: ctx.userId, entidadId: o.id })
+    await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, valorAnterior: o.valorAnterior ?? (o.activar ? 'pausada' : 'activa'), valorNuevo: o.activar ? 'activa' : 'pausada', motivo, origen, userId: ctx.userId, entidadId: o.id })
   } catch (e) {
     await anotarCambio({ perfilId: ctx.cuenta.id, campaignId: ctx.campaignId, nombreCampana: ctx.nombreCampana, entidad, accion: o.activar ? 'activar' : 'pausar', campo: `estado de «${o.texto.slice(0, 120)}»`, motivo, origen, ok: false, error: e instanceof Error ? e.message : String(e), userId: ctx.userId, entidadId: o.id })
     throw e
   }
   })
+}
+
+/**
+ * El estado que tiene AHORA una keyword (`keyword`) o una segmentación (`producto`/`auto`) en Amazon: ENABLED, PAUSED o ARCHIVED. null = no la encuentra. Solo LEE.
+ * El motor lo mira antes de pausar (no pisa una pausa a mano ni apunta «activa» si no lo estaba) y antes de deshacer la pausa (no reactiva lo que alguien cambió).
+ */
+export async function leerEstadoDeSegmentacion(cuenta: { conexionId: string; profileId: number }, tipo: TipoDeObjetivo, id: string): Promise<string | null> {
+  const estados = { stateFilter: { include: ['ENABLED', 'PAUSED', 'ARCHIVED'] }, maxResults: 10 }
+  if (tipo === 'keyword') {
+    const res = await llamarAds<{ keywords?: Array<{ state?: string }> }>(cuenta.conexionId, '/sp/keywords/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cab(T_KEYWORD), cuerpo: { keywordIdFilter: { include: [id] }, ...estados } })
+    return res?.keywords?.[0]?.state ?? null
+  }
+  const res = await llamarAds<{ targetingClauses?: Array<{ state?: string }> }>(cuenta.conexionId, '/sp/targets/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cab(T_TARGET), cuerpo: { targetIdFilter: { include: [id] }, ...estados } })
+  return res?.targetingClauses?.[0]?.state ?? null
 }
 
 /** Pausa o activa una campaña entera */

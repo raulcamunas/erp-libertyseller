@@ -55,6 +55,24 @@ function aislar(cuerpo: unknown, clave: string, indice = 0): Record<string, unkn
   throw new AdsError(`Amazon no ha creado el elemento (${clave}): ${motivoDe(mal)}`, { estado: 207, cuerpo: JSON.stringify(cuerpo).slice(0, 600) })
 }
 
+/**
+ * Como `aislar`, para BORRAR: si Amazon dice que el elemento ya no existe (o ya está archivado), el borrado ya está hecho. Así deshacer es idempotente: un
+ * reintento tras un fallo a mitad no se atasca en lo que ya se borró la vez anterior. Cualquier otro error se lanza igual.
+ */
+export function aislarBorrado(cuerpo: unknown, clave: string): void {
+  try {
+    aislar(cuerpo, clave)
+  } catch (e) {
+    if (e instanceof AdsError && yaNoExiste(`${e.message} ${e.cuerpo ?? ''}`)) return
+    throw e
+  }
+}
+
+/** PURO. ¿El error de un borrado dice que el elemento ya no está (no encontrado o ya archivado)? */
+export function yaNoExiste(texto: string): boolean {
+  return /entityNotFound|ENTITY_NOT_FOUND|NOT_FOUND|already archived|ya archivad|is archived|ARCHIVED_ENTITY/i.test(texto)
+}
+
 function idDe(elemento: Record<string, unknown>, campo: string): string {
   const id = elemento[campo] ?? (elemento[campo.replace(/Id$/, '')] as Record<string, unknown> | undefined)?.[campo]
   if (id == null || String(id) === '') throw new AdsError(`Amazon ha contestado sin «${campo}»: ${JSON.stringify(elemento).slice(0, 200)}`)
@@ -202,7 +220,7 @@ export async function borrarNegativaDeCampana(conexionId: string, profileId: num
     cabeceras: cabeceras(T_NEGATIVA_DE_CAMPANA),
     cuerpo: { campaignNegativeKeywordIdFilter: { include: [negativaId] } },
   })
-  aislar(res, 'campaignNegativeKeywords')
+  aislarBorrado(res, 'campaignNegativeKeywords')
 }
 
 export type CoincidenciaDeKeyword = 'PHRASE' | 'EXACT' | 'BROAD'
@@ -225,7 +243,7 @@ export async function borrarKeyword(conexionId: string, profileId: number, keywo
     cabeceras: cabeceras(T_KEYWORD),
     cuerpo: { keywordIdFilter: { include: [keywordId] } },
   })
-  aislar(res, 'keywords')
+  aislarBorrado(res, 'keywords')
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,7 +274,7 @@ export async function borrarNegativaDeProducto(conexionId: string, profileId: nu
     cabeceras: cabeceras(T_NEGATIVA_DE_PRODUCTO),
     cuerpo: { negativeTargetIdFilter: { include: [negativaId] } },
   })
-  aislar(res, 'negativeTargetingClauses')
+  aislarBorrado(res, 'negativeTargetingClauses')
 }
 
 /** ATACA UN ASIN: segmentación por producto (`ASIN_SAME_AS`, manual) en un grupo de ATAQUE ASIN, activa y con su puja. Devuelve el targetId */
@@ -277,7 +295,77 @@ export async function borrarSegmentacion(conexionId: string, profileId: number, 
     cabeceras: cabeceras(T_TARGET),
     cuerpo: { targetIdFilter: { include: [targetId] } },
   })
-  aislar(res, 'targetingClauses')
+  aislarBorrado(res, 'targetingClauses')
+}
+
+/* ------------------------------------------------------------------ */
+/* Conciliar una cosecha a medias: ¿está ya en Amazon? (solo LEE)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Todas las filas de un /list de la v3 (con nextToken). Si se acaban las páginas y Amazon sigue dando nextToken, LANZA: una lista cortada diría «no está»
+ * de algo que sí está, y la cosecha se volvería a crear (DUPLICATE) o se borraría la exacta pensando que no hay negativa.
+ */
+async function listarEntera<T>(conexionId: string, profileId: number, ruta: string, tipo: string, clave: string, filtro: Record<string, unknown>): Promise<T[]> {
+  const salida: T[] = []
+  let token: string | undefined
+  for (let i = 0; i < 20; i++) {
+    const res = await llamarAds<Record<string, unknown>>(conexionId, ruta, { perfilId: profileId, metodo: 'POST', cabeceras: cabeceras(tipo), cuerpo: { ...filtro, maxResults: 1000, ...(token ? { nextToken: token } : {}) } })
+    salida.push(...((res?.[clave] as T[] | undefined) ?? []))
+    token = (res?.nextToken as string | undefined) || undefined
+    if (!token) return salida
+  }
+  throw new AdsError(`La lista de ${ruta} tiene demasiadas páginas: no se puede comprobar si el elemento existe.`)
+}
+
+/** PURO. Un texto de keyword comparable (Amazon lo devuelve en minúsculas y con los espacios normalizados) */
+export const textoComparable = (t: string) => t.trim().toLowerCase().replace(/\s+/g, ' ')
+
+const idTexto = (x: unknown) => (x == null || String(x) === '' ? null : String(x))
+
+/** La negativa exacta de campaña de ese texto, si ya existe (activa). null = no está */
+export async function buscarNegativaDeCampana(conexionId: string, profileId: number, campaignId: string, texto: string): Promise<string | null> {
+  const filas = await listarEntera<{ keywordId?: unknown; campaignNegativeKeywordId?: unknown; keywordText?: string; matchType?: string }>(conexionId, profileId, '/sp/campaignNegativeKeywords/list', T_NEGATIVA_DE_CAMPANA, 'campaignNegativeKeywords', {
+    campaignIdFilter: { include: [campaignId] },
+    stateFilter: { include: ['ENABLED'] },
+  })
+  const buscado = textoComparable(texto)
+  const f = filas.find((n) => (n.matchType ?? 'NEGATIVE_EXACT') === 'NEGATIVE_EXACT' && textoComparable(n.keywordText ?? '') === buscado)
+  return f ? idTexto(f.keywordId ?? f.campaignNegativeKeywordId) : null
+}
+
+/** La segmentación negativa por producto (ASIN_SAME_AS) de ese ASIN en ese grupo, si ya existe. null = no está */
+export async function buscarNegativaDeProducto(conexionId: string, profileId: number, n: { campaignId: string; adGroupId: string; asin: string }): Promise<string | null> {
+  const filas = await listarEntera<{ targetId?: unknown; expression?: Array<{ type?: string; value?: string }> }>(conexionId, profileId, '/sp/negativeTargets/list', T_NEGATIVA_DE_PRODUCTO, 'negativeTargetingClauses', {
+    campaignIdFilter: { include: [n.campaignId] },
+    adGroupIdFilter: { include: [n.adGroupId] },
+    stateFilter: { include: ['ENABLED'] },
+  })
+  const asin = n.asin.trim().toUpperCase()
+  const f = filas.find((t) => (t.expression ?? []).some((e) => e.type === 'ASIN_SAME_AS' && (e.value ?? '').trim().toUpperCase() === asin))
+  return f ? idTexto(f.targetId) : null
+}
+
+/** La keyword de ese texto y concordancia en la campaña (activa o pausada), si ya existe. null = no está */
+export async function buscarKeyword(conexionId: string, profileId: number, k: { campaignId: string; texto: string; coincidencia: CoincidenciaDeKeyword }): Promise<string | null> {
+  const filas = await listarEntera<{ keywordId?: unknown; keywordText?: string; matchType?: string }>(conexionId, profileId, '/sp/keywords/list', T_KEYWORD, 'keywords', {
+    campaignIdFilter: { include: [k.campaignId] },
+    stateFilter: { include: ['ENABLED', 'PAUSED'] },
+  })
+  const buscado = textoComparable(k.texto)
+  const f = filas.find((x) => x.matchType === k.coincidencia && textoComparable(x.keywordText ?? '') === buscado)
+  return f ? idTexto(f.keywordId) : null
+}
+
+/** La segmentación por producto (ASIN_SAME_AS) de ese ASIN en la campaña (activa o pausada), si ya existe. null = no está */
+export async function buscarSegmentacionDeProducto(conexionId: string, profileId: number, s: { campaignId: string; asin: string }): Promise<string | null> {
+  const filas = await listarEntera<{ targetId?: unknown; expression?: Array<{ type?: string; value?: string }> }>(conexionId, profileId, '/sp/targets/list', T_TARGET, 'targetingClauses', {
+    campaignIdFilter: { include: [s.campaignId] },
+    stateFilter: { include: ['ENABLED', 'PAUSED'] },
+  })
+  const asin = s.asin.trim().toUpperCase()
+  const f = filas.find((t) => (t.expression ?? []).some((e) => e.type === 'ASIN_SAME_AS' && (e.value ?? '').trim().toUpperCase() === asin))
+  return f ? idTexto(f.targetId) : null
 }
 
 /** Los grupos de anuncios activos de una campaña, para saber dónde poner una keyword */

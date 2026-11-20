@@ -682,7 +682,16 @@ export async function medirEfectos(
       }
       deshacerQuedan--
       const textoMotivo = `Deshecho solo por el agente (medición ${cuando === 'rapida' ? 'rápida de 3 días' : 'de 7 días'}): ${motivo}`
+      // La marca de «deshecho por el agente» va ANTES de deshacer (y se quita si falla): si el proceso se corta justo después de deshacer, la pasada siguiente
+      // no confunde su propio deshacer con uno a mano y no cierra la medición como «mezclado»
+      const marcar = (v: boolean) => db.from('ads_efectos').update({ deshecho_auto: v }).eq('perfil_id', perfilId).eq('propuesta_id', f.propuesta_id)
+      const { error: eMarca } = await marcar(true)
+      if (eMarca && !falta315(eMarca)) console.error('[agente·efectos] no se pudo marcar el deshacer', f.propuesta_id, eMarca.message)
       const r = await deps.deshacer(f.propuesta_id, textoMotivo, valorMaximo).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+      if (!r.ok && !eMarca) {
+        const { error: eDesmarca } = await marcar(false)
+        if (eDesmarca) console.error('[agente·efectos] no se pudo quitar la marca de deshacer', f.propuesta_id, eDesmarca.message)
+      }
       if (!r.ok && r.error === ERROR_INTERRUPTOR_GENERAL) {
         // No se ha intentado (interruptor general): no es un fallo; se aplaza y no se deshace nada más en esta pasada
         deshacerQuedan = 0

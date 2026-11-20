@@ -23,18 +23,25 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { leerPujaActual } from '../escritura'
+import { todasLasFilas } from '../paginar'
+import { gruposActivosDe, leerPujaActual } from '../escritura'
 import { esReintentoDeTransporte, pujaDePromover, queHacerTrasFalloDeTransporte, textoDeReintento } from '../motor-calculo'
 import {
+  aplicadasDelAgenteDesde,
   aplicarPropuesta,
   ajustarConcordancia,
   ajustarValorNuevo,
+  barrerReservasColgadas,
   caducarComoAgente,
+  CreadoAMedias,
+  decidirConContexto,
   descartarComoAgente,
+  devolverAPendiente,
   ensayarComoAgente,
   leerModo,
   marcarRetenida,
   pendientesLibres,
+  type ContextoDeAplicar,
   type Propuesta,
 } from '../motor'
 import { asinDeCampana } from '../productos-agrupar'
@@ -113,6 +120,8 @@ export interface PropuestaParaDecidir {
   campaignId: string
   campaignNombre: string
   haciaCampaignNombre: string | null
+  /** Promover: la campaña de destino. null = el producto no tiene una EXACTA (o ATAQUE ASIN) activa: la cosecha espera. Sin el dato (undefined), no se mira */
+  haciaCampaignId?: string | null
   motivo: string
   metricas: Record<string, unknown>
   objetivoTipo: string | null
@@ -154,6 +163,15 @@ export interface CuentaParaDecidir {
   gastoDesconocido?: boolean
   /** Inicio del día LOCAL de la cuenta (ms): una subida R1 («se agota HOY») creada antes es de otro día y se caduca. Sin el dato, no se mira */
   inicioDelDiaLocal?: number
+}
+
+/**
+ * Lo que se ha leído para una NEGATIVA pendiente con los términos de AHORA (ads_terminos) y las cosechas pendientes. `ventas` null = el término no está en la
+ * lectura de ahora o no se ha podido leer: no se negativiza a ciegas (espera)
+ */
+export interface DatosDeNegativa {
+  ventas: { pedidos: number; ventas: number } | null
+  promoverPendiente: boolean
 }
 
 /** Lo que se ha leído para un término REVISAR */
@@ -226,7 +244,7 @@ export function decidirPropuesta(
   p: PropuestaParaDecidir,
   c: CuentaParaDecidir,
   producto: ProductoParaDecidir | null,
-  extra: { termino: DatosDeTermino | null; pujaLeida: number | null; campanasConUbicacionAlta: readonly string[] },
+  extra: { termino: DatosDeTermino | null; pujaLeida: number | null; campanasConUbicacionAlta: readonly string[]; negativa?: DatosDeNegativa },
 ): DecisionDelAgente {
   const horas = horasDesde(p.creadaAt, c.ahora)
   const gasto = num(p.metricas?.gasto)
@@ -262,6 +280,19 @@ export function decidirPropuesta(
   if (esPausaDeStock(p)) {
     if (producto && producto.stock != null && producto.stock > 0) return { accion: 'caducar', motivo: `el producto vuelve a tener stock (${producto.stock}): ya no hay que pausar` }
     if (horas > AGENTE.STOCK_PAUSA_PENDIENTE_HORAS) return { accion: 'caducar', motivo: `pausa por stock de hace más de ${AGENTE.STOCK_PAUSA_PENDIENTE_HORAS} h: si sigue a 0, se vuelve a proponer con el stock de ahora` }
+  }
+
+  // ---- 3d. Promover sin campaña de destino: espera (no se caduca: «Qué hacer hoy» la usa para avisar de que hay que crear la campaña) y no gasta intento ----
+  if (p.tipo === 'promover' && p.haciaCampaignId === null) {
+    return { accion: 'esperar', motivo: 'Cosecha sin campaña de destino activa: hay que crearla (pestaña «Crear campañas»)' }
+  }
+
+  // ---- 3e. Negativas con los términos de AHORA: la regla exige cero pedidos y cero ventas; una pendiente puede llevar días con métricas viejas ----
+  if (p.tipo === 'negativizar' && extra.negativa) {
+    if (extra.negativa.promoverPendiente) return { accion: 'caducar', motivo: 'hay una cosecha pendiente del mismo término en esta campaña, que ya pone su negativa en origen' }
+    const v = extra.negativa.ventas
+    if (v == null) return { accion: 'esperar', motivo: 'No tengo los datos de ahora de este término: no lo negativizo sin comprobar que no vende' }
+    if (v.pedidos > 0 || v.ventas > 0) return { accion: 'caducar', motivo: `el término ya vende en esta campaña (${v.pedidos} pedidos, ${euros(v.ventas)} en ventas): no se negativiza` }
   }
 
   // ---- 4. Términos REVISAR: decide la etiqueta de la IA ----
@@ -468,8 +499,13 @@ export function decisionDeReintento(error: string | null, d: DecisionDelAgente):
   return { accion: 'retener', motivo: `Falló por la red al aplicarla y puede que el cambio esté en Amazon; ahora el agente la ${d.accion === 'descartar' ? 'descartaría' : 'caducaría'} (${d.motivo}). Revísala.` }
 }
 
-/** PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …») */
-export function datosDelError(mensaje: string): { httpStatus: number | null; codigo: string | null } {
+/**
+ * PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …»).
+ * Solo se mira el fallo PRINCIPAL, lo de antes de « (OJO:»: lo de después es el borrado de compensación que también falló, y su 429 no dice nada del fallo que importa.
+ */
+export function datosDelError(mensajeEntero: string): { httpStatus: number | null; codigo: string | null } {
+  const corte = mensajeEntero.indexOf(' (OJO:')
+  const mensaje = corte >= 0 ? mensajeEntero.slice(0, corte) : mensajeEntero
   const m = /contestado\s+(\d{3})\b/i.exec(mensaje)
   let httpStatus = m ? Number(m[1]) : null
   if (httpStatus == null && /Amazon no ha creado el elemento/i.test(mensaje)) httpStatus = 207
@@ -527,20 +563,15 @@ async function erroresRecientes(perfilId: string, ahora: number): Promise<boolea
  * cambio ya llegó, lo confirma como aplicado (confirmaReintento). El valor intentado queda en el error para reconocerlo aunque la decisión cambie el valor nuevo
  */
 async function volverAPendiente(perfilId: string, id: string, error: string, valorIntentado: number | null): Promise<void> {
-  const { error: e } = await createServiceClient()
-    .from('ads_propuestas')
-    .update({ estado: 'pendiente', error: textoDeReintento(error, valorIntentado), resuelta_at: null, resuelta_por: null })
-    .eq('perfil_id', perfilId)
-    .eq('id', id)
-    .eq('estado', 'error')
-  if (e) console.error(`[agente] no se ha podido devolver a pendiente la propuesta ${id}:`, e.message)
+  // devolverAPendiente resuelve el choque con el índice único de pendientes (23505) en vez de dejarla en «error» para siempre
+  await devolverAPendiente(perfilId, id, ['error'], { error: textoDeReintento(error, valorIntentado) })
 }
 
 /**
  * Promover o negativizar que falló por tiempo agotado, red o 5xx: la keyword o la negativa PUEDE estar creada en Amazon. No se reintenta a ciegas (daría DUPLICATE
  * y quedaría viva sin propuesta «aplicada» que la deshaga): vuelve a pendiente RETENIDA para una persona. Solo si sigue en error
  */
-async function retenerTrasFalloDeRed(perfilId: string, id: string, error: string): Promise<boolean> {
+async function retenerTrasFalloDeRed(perfilId: string, id: string, error: string, porque?: string): Promise<boolean> {
   const ahora = new Date().toISOString()
   const { data, error: e } = await createServiceClient()
     .from('ads_propuestas')
@@ -549,7 +580,7 @@ async function retenerTrasFalloDeRed(perfilId: string, id: string, error: string
       error: textoDeReintento(error, null),
       resuelta_at: null,
       resuelta_por: null,
-      retenida_motivo: `Amazon no ha contestado al crearla: puede estar creada en Amazon. Compruébalo antes de volver a aplicarla (${error})`.slice(0, 500),
+      retenida_motivo: (porque ?? `Amazon no ha contestado al crearla: puede estar creada en Amazon. Compruébalo antes de volver a aplicarla (${error})`).slice(0, 500),
       retenida_at: ahora,
     })
     .eq('perfil_id', perfilId)
@@ -558,6 +589,83 @@ async function retenerTrasFalloDeRed(perfilId: string, id: string, error: string
     .select('id')
   if (e) console.error(`[agente] no se ha podido retener la propuesta ${id} tras un fallo de red:`, e.message)
   return !e && (data ?? []).length > 0
+}
+
+/**
+ * Las negativas pendientes con los términos de AHORA (ads_terminos: pedidos y ventas del término en su campaña, sumados por grupo) y si hay una cosecha pendiente
+ * del mismo término en la misma campaña. Una consulta por cada 50 términos y otra para las cosechas. Si algo falla, todas quedan sin dato (`ventas: null`):
+ * esperan, nunca se negativiza a ciegas.
+ */
+async function datosDeNegativas(perfilId: string, negativas: readonly Propuesta[]): Promise<Map<string, DatosDeNegativa>> {
+  const salida = new Map<string, DatosDeNegativa>()
+  if (negativas.length === 0) return salida
+  const k = (c: string, t: string) => `${c}|${t.trim().toLowerCase()}`
+  try {
+    const db = createServiceClient()
+    const ventas = new Map<string, { pedidos: number; ventas: number }>()
+    const terminos = [...new Set(negativas.map((n) => n.termino.trim()))]
+    for (let i = 0; i < terminos.length; i += 50) {
+      const trozo = terminos.slice(i, i + 50)
+      const { data, error } = await todasLasFilas((a, b) =>
+        db.from('ads_terminos').select('campaign_id, ad_group_id, termino, ventas, pedidos').eq('perfil_id', perfilId).in('termino', trozo).order('campaign_id').order('ad_group_id').order('termino').range(a, b),
+      )
+      if (error) throw new Error(error.message ?? 'no se han podido leer los términos')
+      for (const f of (data ?? []) as Array<{ campaign_id: string; termino: string; ventas: unknown; pedidos: unknown }>) {
+        const x = ventas.get(k(f.campaign_id, f.termino)) ?? { pedidos: 0, ventas: 0 }
+        x.pedidos += num(f.pedidos)
+        x.ventas += num(f.ventas)
+        ventas.set(k(f.campaign_id, f.termino), x)
+      }
+    }
+    const { data: cosechas, error: eCos } = await todasLasFilas((a, b) => db.from('ads_propuestas').select('id, campaign_id, termino').eq('perfil_id', perfilId).eq('estado', 'pendiente').eq('tipo', 'promover').order('id').range(a, b))
+    if (eCos) throw new Error(eCos.message ?? 'no se han podido leer las cosechas pendientes')
+    const conCosecha = new Set(((cosechas ?? []) as Array<{ campaign_id: string; termino: string }>).map((c) => k(c.campaign_id, c.termino)))
+    for (const n of negativas) salida.set(n.id, { ventas: ventas.get(k(n.campaignId, n.termino)) ?? null, promoverPendiente: conCosecha.has(k(n.campaignId, n.termino)) })
+  } catch (e) {
+    console.error(`[agente] ${perfilId}: no se han podido comprobar las negativas con los términos de ahora:`, e instanceof Error ? e.message : e)
+    for (const n of negativas) salida.set(n.id, { ventas: null, promoverPendiente: false })
+  }
+  return salida
+}
+
+/**
+ * Promover con campaña de destino pero sin grupo (la lectura del grupo falló al generar): se resuelve ahora (solo lectura en Amazon) y se guarda en la propuesta.
+ * null si no hay grupo activo o la lectura falla: la cosecha espera, sin gastar un intento de la pasada.
+ */
+async function resolverGrupoDeDestino(cuenta: CuentaParaSincronizar, p: Propuesta): Promise<string | null> {
+  if (!p.haciaCampaignId) return null
+  try {
+    const grupo = (await gruposActivosDe(cuenta.conexionId, cuenta.profileId, p.haciaCampaignId))[0]?.adGroupId ?? null
+    if (!grupo) return null
+    const { error } = await createServiceClient().from('ads_propuestas').update({ hacia_ad_group_id: grupo }).eq('perfil_id', cuenta.id).eq('id', p.id).eq('estado', 'pendiente')
+    if (error) {
+      console.error(`[agente] no se ha podido guardar el grupo de destino de ${p.id}:`, error.message)
+      return null
+    }
+    return grupo
+  } catch (e) {
+    console.error(`[agente] no se ha podido leer el grupo de destino de ${p.id}:`, e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+/**
+ * Las aplicadas del agente de las últimas 48 h que se quedaron SIN medición (el proceso murió entre guardar el resultado y abrir el efecto): se abre ahora.
+ * abrirEfecto no pisa uno que ya exista. Nunca lanza.
+ */
+async function abrirEfectosPerdidos(perfilId: string, ahora: number, contexto: (p: Propuesta) => Parameters<typeof abrirEfecto>[2]): Promise<void> {
+  try {
+    const recientes = await aplicadasDelAgenteDesde(perfilId, new Date(ahora - 48 * HORA_MS).toISOString())
+    for (let i = 0; i < recientes.length; i += 100) {
+      const trozo = recientes.slice(i, i + 100)
+      const { data, error } = await createServiceClient().from('ads_efectos').select('propuesta_id').eq('perfil_id', perfilId).in('propuesta_id', trozo.map((x) => x.id))
+      if (error) return
+      const con = new Set(((data ?? []) as Array<{ propuesta_id: string }>).map((x) => x.propuesta_id))
+      for (const h of trozo) if (!con.has(h.id)) await abrirEfecto(perfilId, h, contexto(h))
+    }
+  } catch (e) {
+    console.error(`[agente] ${perfilId}: mediciones sin abrir:`, e instanceof Error ? e.message : e)
+  }
 }
 
 /** Pone la primera escritura real de la cuenta (solo si no la había) y avisa una vez */
@@ -590,6 +698,7 @@ const paraDecidir = (p: Propuesta): PropuestaParaDecidir => ({
   campaignId: p.campaignId,
   campaignNombre: p.campaignNombre,
   haciaCampaignNombre: p.haciaCampaignNombre,
+  haciaCampaignId: p.haciaCampaignId,
   motivo: p.motivo,
   metricas: (p.metricas ?? {}) as unknown as Record<string, unknown>,
   objetivoTipo: p.objetivoTipo,
@@ -734,6 +843,8 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   const [modo, parada] = await Promise.all([leerModo(perfilId), paradaGeneral()])
   if (modo !== 'agente' || parada.parado) return r
   const enEnsayo = config.estado === 'ensayo'
+  // Las reservas de un proceso que murió a mitad (despliegue): vuelven a pendiente como reintento (o a aplicada si era un deshacer) ANTES de mirar las pendientes
+  await barrerReservasColgadas(perfilId, ahora)
   // Sin un vigilar que haya TERMINADO bien hace poco, el freno no está evaluado (gasto, ACoS, errores, datos viejos): no se escribe nada en Amazon. En ensayo no escribe y sigue
   if (!enEnsayo && !vigilarReciente(config.vigilarOkAt, ahora)) {
     console.warn(`[agente] ${perfilId}: sin un vigilar bueno en ${AGENTE.VIGILAR_OK_MAX_MIN} min (último: ${config.vigilarOkAt ?? 'nunca'}): no aplico`)
@@ -793,6 +904,14 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   }
   const productoDeP = (p: Propuesta) => (p.asin ? productoDe.get(p.asin.toUpperCase()) ?? null : null)
   const conUbicacionAlta = [...new Set(pendientes.filter((p) => p.metricas?.ubicacionAlta === true).map((p) => p.campaignId))]
+  const contextoDelEfecto = (h: Propuesta, raraAplicada: boolean) => {
+    const prod = productoDeP(h)
+    // cvrPct va en % (0,8 = 0,8 %): abrirEfecto lo quiere en fracción (0,008)
+    return { acosObjetivoPct: prod?.acosObjetivoPct ?? null, cvr: cvrDeMetricas(h.metricas as unknown as Record<string, unknown>), fase: prod?.fase ?? 'normal', raraAplicada, zona }
+  }
+  if (!enEnsayo) await abrirEfectosPerdidos(perfilId, ahora, (h) => contextoDelEfecto(h, /Forma reducida/.test(h.motivo)))
+  // Las negativas pendientes, con los términos de ahora (¿vende ya?, ¿hay una cosecha del mismo término?)
+  const negativas = await datosDeNegativas(perfilId, pendientes.filter((p) => p.tipo === 'negativizar'))
 
   // ---- 4–7. decidir cada pendiente ----
   let validacion: { ok: boolean } | null = null
@@ -824,7 +943,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
           pujaLeida = null
         }
       }
-      const d0 = decidirPropuesta(paraDecidir(p), cuentaDecide, prod, { termino, pujaLeida, campanasConUbicacionAlta: conUbicacionAlta })
+      const d0 = decidirPropuesta(paraDecidir(p), cuentaDecide, prod, { termino, pujaLeida, campanasConUbicacionAlta: conUbicacionAlta, negativa: negativas.get(p.id) })
       const d = decisionDeReintento(p.error, d0)
       if (d.accion === 'aplicar') planes.push({ p, d })
       else if (d.accion === 'retener') {
@@ -852,6 +971,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
 
   // ---- 8–12. aplicar en orden ----
   const inicioDelDia = inicioDelDiaLocal(local.fecha, zona)
+  const contextoAgente: ContextoDeAplicar = { modo: 'agente', fichaFirmada: Boolean(l.ficha.firmadaAt), aplicadasHoy: 0, topeDiario: Number.MAX_SAFE_INTEGER }
   let intentos = 0
   let erroresSeguidos = 0
   for (const { p, d } of ordenarParaAplicar(planes.map((x) => ({ ...x, orden: x.d.orden, gasto: x.d.gasto })))) {
@@ -884,6 +1004,16 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
         nota = nota ? `${nota} · ${g.nota}` : g.nota
       }
     }
+
+    // Una cosecha con campaña pero sin grupo de destino: se resuelve ahora (solo lectura). Sin grupo, espera sin gastar intento
+    if (p.tipo === 'promover' && p.haciaCampaignId && !p.haciaAdGroupId) {
+      const grupo = await resolverGrupoDeDestino(cuenta, p)
+      if (!grupo) continue
+      p.haciaAdGroupId = grupo
+    }
+    // Los candados (decidirSiSePuedeAplicar, puro) ANTES de contar el intento: lo que no se puede aplicar (p. ej. una cosecha sin destino) no gasta una de las
+    // MAX_APLICAR_POR_PASADA plazas ni cuenta como error; si no, ocho imposibles con mucho gasto tapaban cada pasada las cosechas buenas y las R1
+    if (!decidirConContexto(contextoAgente, p, true, { origen: 'agente', iaAprueba: d.iaAprueba }).ok) continue
 
     intentos += 1
     try {
@@ -919,7 +1049,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
         origen: 'agente',
         iaAprueba: d.iaAprueba,
         pujaMaxima: d.pujaMaxima,
-        contexto: { modo: 'agente', fichaFirmada: Boolean(l.ficha.firmadaAt), aplicadasHoy: 0, topeDiario: Number.MAX_SAFE_INTEGER },
+        contexto: contextoAgente,
       })
       erroresSeguidos = 0
       if (hecha.estado === 'aplicada') {
@@ -927,22 +1057,23 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
         if (sumas && hecha.tipo === 'presupuesto' && finito(hecha.valorActual) && finito(hecha.valorNuevo)) moverSumas(sumas, hecha.campaignId, hecha.valorActual, hecha.valorNuevo)
         // El presupuesto nuevo, a la fila de hoy de `ads_presupuesto_dia`: la pasada siguiente de aplicar suma con él (vigilar solo relee cada 30 min)
         if (hecha.tipo === 'presupuesto' && finito(hecha.valorNuevo)) await anotarPresupuestoDeHoy(perfilId, hecha.campaignId, local.fecha, hecha.valorNuevo)
-        const prod = productoDeP(hecha)
-        await abrirEfecto(perfilId, hecha, {
-          acosObjetivoPct: prod?.acosObjetivoPct ?? null,
-          // cvrPct va en % (0,8 = 0,8 %): abrirEfecto lo quiere en fracción (0,008)
-          cvr: cvrDeMetricas(hecha.metricas as unknown as Record<string, unknown>),
-          fase: prod?.fase ?? 'normal',
-          raraAplicada: d.raraAplicada,
-          zona,
-        })
+        await abrirEfecto(perfilId, hecha, contextoDelEfecto(hecha, d.raraAplicada))
         if (!config.primeraEscrituraAt) await marcarPrimeraEscritura(perfilId, hecha, Date.now())
       }
     } catch (e) {
       const mensaje = e instanceof Error ? e.message : String(e)
       r.fallidas += 1
       const tipo = tipoDeFallo(mensaje)
-      if (tipo === 'transporte') {
+      if (e instanceof CreadoAMedias) {
+        // Cosecha a medias: lo creado está guardado en la propuesta (incompleta). Si Amazon no contestó, vuelve a pendiente y el siguiente intento CONCILIA
+        // (busca en Amazon y crea solo lo que falta; nunca a ciegas). Si quedó algo que no se pudo borrar tras un error de validación, lo mira una persona
+        if (e.transitorio) await volverAPendiente(perfilId, p.id, mensaje, null)
+        else if (await retenerTrasFalloDeRed(perfilId, p.id, mensaje, `Quedó algo creado a medias en Amazon que no se pudo deshacer: revísalo antes de volver a aplicarla (${mensaje})`)) r.retenidas += 1
+        if (tipo === 'autorizacion') {
+          r.erroresQueCuentan += 1
+          erroresSeguidos += 1
+        }
+      } else if (tipo === 'transporte') {
         if (queHacerTrasFalloDeTransporte(p.tipo, datosDelError(mensaje).httpStatus) === 'retener') {
           if (await retenerTrasFalloDeRed(perfilId, p.id, mensaje)) r.retenidas += 1
         } else await volverAPendiente(perfilId, p.id, mensaje, p.tipo === 'puja' || p.tipo === 'presupuesto' ? valorNuevo ?? p.valorNuevo : null)

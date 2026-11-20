@@ -13,7 +13,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { deshacerPropuesta, guardarDecisionesIa, insertarPropuestasDelAgente, modosConMotor } from '../motor'
+import { barrerReservasColgadas, deshacerPropuesta, guardarDecisionesIa, insertarPropuestasDelAgente, modosConMotor } from '../motor'
 import { cuentasASincronizar, type CuentaParaSincronizar } from '../sincronizar'
 import { anotarCampanaActivaHoy, anotarPresupuestoDeHoy, aplicarComoAgente, permitidoParaReactivarCampana, permitidoParaVolverPresupuesto } from './aplicar-servidor'
 import { avisoDeNoReactivar, avisoDeRecortarPorStock, idDeAvisoDePausaPorStock, textoDeAgotada, textoDeEnsayoFin, textoDeIa, textoDeStock, textoDeStockFallo, textoDeTechoAuto } from './avisos-calculo'
@@ -325,6 +325,8 @@ async function pasoVigilar(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
   const perfilId = cuenta.id
   const madrid = horaEnMadrid(ahora).fecha
   const errores: string[] = []
+  // Las reservas de un proceso que murió a mitad (cada despliegue reinicia el contenedor): también aquí, porque «aplicar» solo corre si hay pendientes libres. Nunca lanza
+  await barrerReservasColgadas(perfilId, ahora)
   const r: ResultadoDeVigilar = await vigilarCuenta(cuenta, config, ahora)
   let activado = false
   let frenado = false
