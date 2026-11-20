@@ -476,7 +476,8 @@ export async function panelDelAgente(cuenta: CuentaParaSincronizar, esAdmin: boo
     rampa: rampaDelPanel(config?.estado ?? null, rampaDesdeLocal, fecha, hoyTopes),
     evento,
     veda,
-    cuentaPequena: contexto.cuentaPequena,
+    // Sin límites por cuenta pequeña (20 nov 2026, Raúl)
+    cuentaPequena: false,
     moneda: contexto.moneda,
     objetivos: {
       tacosObjetivoPct: contexto.tacosObjetivoPct,

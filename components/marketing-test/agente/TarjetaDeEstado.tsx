@@ -121,7 +121,6 @@ type Dialogo = null | 'encender' | 'apagar' | 'saltar' | 'frenar' | 'reanudar' |
  */
 export function TarjetaDeEstado({ panel, accion, irA }: { panel: PanelDelAgente; accion: Accion; irA: (pestana: string) => void }) {
   const [dialogo, setDialogo] = useState<Dialogo>(null)
-  const [saltarEnsayoAlEncender, setSaltarEnsayoAlEncender] = useState(false)
   const [firmarFicha, setFirmarFicha] = useState(false)
   const [modoAlApagar, setModoAlApagar] = useState<'aprueba' | 'sugiere'>('aprueba')
   const [motivoParada, setMotivoParada] = useState('')
@@ -151,7 +150,7 @@ export function TarjetaDeEstado({ panel, accion, irA }: { panel: PanelDelAgente;
       toast.error(texto)
       throw new ErrorDeAccion(texto, 400)
     }
-    await accion('PUT', { accion: 'encender', saltarEnsayo: saltarEnsayoAlEncender && !porQueNoSaltar, firmarFicha: !panel.fichaFirmada && firmarFicha }, { exito: saltarEnsayoAlEncender && !porQueNoSaltar ? 'Agente encendido y activo (rampa de 7 días).' : `Agente encendido: ${AGENTE.DIAS_DE_ENSAYO} días de ensayo.` })
+    await accion('PUT', { accion: 'encender', saltarEnsayo: true, firmarFicha: !panel.fichaFirmada && firmarFicha }, { exito: 'Agente encendido y activo: ya optimiza.' })
   }
 
   async function reanudar(ignorarMotivo: boolean) {
@@ -310,7 +309,7 @@ export function TarjetaDeEstado({ panel, accion, irA }: { panel: PanelDelAgente;
           <div className="flex flex-col gap-2 border-t border-[var(--ls-linea)] pt-3">
             <div className="flex flex-wrap gap-2">
               {estado === 'apagado' && (
-                <Boton variante="primario" icono={Power} disabled={parada.parado} onClick={() => { setSaltarEnsayoAlEncender(false); setFirmarFicha(!panel.fichaFirmada); setDialogo('encender') }}>
+                <Boton variante="primario" icono={Power} disabled={parada.parado} onClick={() => { setFirmarFicha(!panel.fichaFirmada); setDialogo('encender') }}>
                   Encender el agente
                 </Boton>
               )}
@@ -354,20 +353,13 @@ export function TarjetaDeEstado({ panel, accion, irA }: { panel: PanelDelAgente;
         abierto={dialogo === 'encender'}
         onCambio={cerrar}
         titulo="¿Encender el agente PPC en esta cuenta?"
-        descripcion={`El agente aplicará cambios en Amazon sin pedir permiso: negativas, pujas, presupuestos y pausas, con topes diarios y freno automático. Los ${AGENTE.DIAS_DE_ENSAYO} primeros días solo ensaya y avisa; después sube poco a poco en 7 días.`}
+        descripcion="El agente aplicará cambios en Amazon desde ya, sin pedir permiso: negativas, pujas, presupuestos y pausas. Sin ensayo, sin rampa y sin frenos automáticos: solo lo para un administrador."
         palabra="ENCENDER"
         tono="normal"
         textoConfirmar="Encender"
         onConfirmar={encender}
       >
         <div className="mt-3 flex flex-col gap-2 text-[12.5px] text-[var(--ls-t2)]">
-          <label className={`flex items-start gap-2 ${porQueNoSaltar ? 'opacity-60' : 'cursor-pointer'} ${TACTIL}`}>
-            <input type="checkbox" className="mt-[3px] h-4 w-4 shrink-0" checked={saltarEnsayoAlEncender && !porQueNoSaltar} disabled={porQueNoSaltar !== null} onChange={(e) => setSaltarEnsayoAlEncender(e.target.checked)} />
-            <span>
-              Saltar el ensayo (empieza activo, con la rampa)
-              {porQueNoSaltar && <span className="block text-[var(--ls-t4)]">{porQueNoSaltar}</span>}
-            </span>
-          </label>
           {!panel.fichaFirmada && (
             <label className={`flex cursor-pointer items-start gap-2 ${TACTIL}`}>
               <input type="checkbox" className="mt-[3px] h-4 w-4 shrink-0" checked={firmarFicha} onChange={(e) => setFirmarFicha(e.target.checked)} />

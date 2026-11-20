@@ -49,6 +49,8 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
+const SIN_ENSAYO = true
+
 const MENSAJE_PRIMER_ENSAYO = 'La primera cuenta del agente tiene que pasar el ensayo.'
 
 const FASES: readonly FaseDeProducto[] = ['lanzamiento', 'normal']
@@ -58,6 +60,8 @@ const esFalta315 = (e: unknown) => e instanceof Error && e.message === FALTA_MIG
 
 /** El porqué de no poder saltar el ensayo ahora (null si se puede): sin ninguna escritura real del agente en ninguna cuenta, o en la veda de temporada */
 async function porQueNoSeSaltaElEnsayo(perfilId: string, eventosManuales: Parameters<typeof enVedaDeActivacion>[2]): Promise<string | null> {
+  // Sin ensayo ni veda (20 nov 2026, Raúl): el agente se enciende activo siempre
+  if (SIN_ENSAYO) return null
   if (!(await hayEscrituraRealEnAlgunaCuenta())) return MENSAJE_PRIMER_ENSAYO
   const { pais, zona } = await nombreDeCuenta(perfilId)
   const veda = enVedaDeActivacion(horaLocal(Date.now(), zona).fecha, pais, eventosManuales)
