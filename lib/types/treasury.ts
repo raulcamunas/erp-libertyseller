@@ -37,6 +37,24 @@ export interface TreasuryClientMonth {
   notes: string | null
 }
 
+/**
+ * UN SUBENCARGO (migración 328): creatividades, packaging, un estudio… Suma en lo que paga el cliente ese mes y se factura
+ * aparte, en su propia factura (Facturación). `zoho_invoice_id` = ya tiene factura; enviado y cobrado los marca Zoho.
+ */
+export interface TreasuryExtra {
+  id: string
+  client_id: string
+  /** 'yyyy-MM-01' */
+  period: string
+  concept: string
+  /** Lo que nos paga el cliente por él, en euros, sin IVA */
+  amount: number
+  zoho_invoice_id: string | null
+  invoice_sent: boolean
+  paid: boolean
+  notes: string | null
+}
+
 export interface TreasuryExpense {
   id: string
   period: string

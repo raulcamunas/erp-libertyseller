@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, ExternalLink, FileText, Loader2, Plus, Send, Trash2, X } from 'lucide-react'
 import { BOTON, CAMPO, CIFRAS, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
-import { huecosDeEnlace, lineasDelMes, proponerEnlaces, rotuloDeHueco, sumarDias } from '@/lib/facturacion/logica'
+import { huecosDeEnlace, lineasDeFila, proponerEnlaces, rotuloDeHueco, sumarDias } from '@/lib/facturacion/logica'
 import type { ContactoZoho, CorreoPreparado, DetalleFactura, FilaFacturacion, LineaFactura } from '@/lib/facturacion/tipos'
 import { Aviso, dinero, EditorCorreo, hoyISO, pedir, SobreLaPagina, useSalida, type ManejoEditor } from './comun'
 
@@ -158,7 +158,7 @@ function PasoFactura({
   const [fecha, setFecha] = useState(hoy)
   const [vence, setVence] = useState(sumarDias(hoy, 7))
   const [lineas, setLineas] = useState<LineaFactura[]>(() => {
-    const iniciales = lineasDelMes(fila.fee, fila.comision, fila.informes)
+    const iniciales = lineasDeFila(fila)
     return iniciales.length > 0 ? iniciales : [{ descripcion: 'Fee Mensual de Gestión', importe: 0 }]
   })
   const [contactoId, setContactoId] = useState(fila.contactoId ?? '')
@@ -193,7 +193,7 @@ function PasoFactura({
   const enviada = Boolean(detalle && detalle.estadoZoho !== 'draft' && detalle.estadoZoho !== 'void')
   const cobrado = detalle ? Math.round((detalle.total - detalle.saldo) * 100) / 100 : 0
   const difiereDeTesoreria = fila.totalTesoreria > 0 && Math.abs(total - fila.totalTesoreria) >= 0.005
-  const cifrasDeTesoreria = lineasDelMes(fila.fee, fila.comision, fila.informes)
+  const cifrasDeTesoreria = lineasDeFila(fila)
 
   const cambiarLinea = (i: number, cambio: Partial<LineaFactura>) =>
     setLineas((actuales) => actuales.map((l, j) => (j === i ? { ...l, ...cambio } : l)))
@@ -219,7 +219,7 @@ function PasoFactura({
         const r = await fetch('/api/facturacion/factura', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...cuerpo, contactoId, otraDelMes }),
+          body: JSON.stringify({ ...cuerpo, contactoId, otraDelMes, subencargoId: fila.subencargo?.id ?? null }),
         })
         const d = (await r.json().catch(() => null)) as { id?: string; error?: string; repetida?: boolean } | null
         if (r.status === 409 && d?.repetida) {

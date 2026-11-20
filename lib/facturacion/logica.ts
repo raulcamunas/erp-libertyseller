@@ -1,4 +1,4 @@
-import type { EstadoFila, InformeDeComision, LineaFactura, PlantillaResumen } from './tipos'
+import type { EstadoFila, FilaFacturacion, InformeDeComision, LineaFactura, PlantillaResumen } from './tipos'
 
 /**
  * LAS REGLAS DE FACTURACIÓN, SIN BASE DE DATOS NI RED, PARA PODER PROBARLAS.
@@ -102,6 +102,17 @@ export function estadoParaElReflejo(estadoZoho: string): 'draft' | 'sent' | 'pai
 }
 
 /** Las dos líneas de siempre. Un importe a cero no se factura */
+/** Las líneas con que nace el borrador de una fila: el subencargo solo, o el fee y las comisiones del mes */
+export function lineasDeFila(f: Pick<FilaFacturacion, 'fee' | 'comision' | 'informes' | 'subencargo'>): LineaFactura[] {
+  if (f.subencargo) return [{ descripcion: f.subencargo.concepto, importe: f.subencargo.importe }]
+  return lineasDelMes(f.fee, f.comision, f.informes)
+}
+
+/** «Creative Toys | Packaging | Noviembre 2026»: el subencargo lleva su concepto en el número, para no chocar con la del fee */
+export function numeroDeSubencargo(etiqueta: string, concepto: string, period: string): string {
+  return `${etiqueta.trim()} | ${concepto.trim().replace(/\|/g, '/')} | ${mesDelPeriodo(period)}`
+}
+
 export function lineasDelMes(fee: number | null, comision: number | null, informes: InformeDeComision[] = []): LineaFactura[] {
   const lineas: LineaFactura[] = []
   if (fee && fee > 0) lineas.push({ descripcion: 'Fee Mensual de Gestión', importe: fee })

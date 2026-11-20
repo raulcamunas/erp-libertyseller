@@ -122,6 +122,8 @@ export async function POST(request: NextRequest) {
     lineas?: LineaFactura[]
     /** Crear otra aunque ese mes ya tenga factura: un cargo aparte */
     otraDelMes?: boolean
+    /** Es la factura de un subencargo (migración 328): va aparte de la del mes y queda atada a él */
+    subencargoId?: string | null
   }
   if (!cuerpo.contactoId) return NextResponse.json({ error: 'Falta elegir el cliente de Zoho' }, { status: 400 })
   if (!cuerpo.period || !/^\d{4}-\d{2}-01$/.test(cuerpo.period)) {
@@ -132,7 +134,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // Dos facturas del mismo mes son un problema contable de verdad: se pregunta antes
-    if (!cuerpo.otraDelMes) {
+    if (!cuerpo.otraDelMes && !cuerpo.subencargoId) {
       const suyas = await zohoTodo<{ invoice_number: string; date: string; status: string }>('invoices', 'invoices', {
         customer_id: cuerpo.contactoId,
       })
@@ -147,6 +149,14 @@ export async function POST(request: NextRequest) {
       query: { ignore_auto_number_generation: 'true' },
       cuerpo: await cuerpoParaZoho(cuerpo.contactoId, cuerpo),
     })
+
+    if (cuerpo.subencargoId) {
+      const { error } = await createServiceClient()
+        .from('treasury_extras')
+        .update({ zoho_invoice_id: invoice.invoice_id, invoice_sent: false, paid: false })
+        .eq('id', cuerpo.subencargoId)
+      if (error) console.error('La factura del subencargo se creó, pero no se ha podido atar:', error.message)
+    }
 
     // La pareja deducida por el nombre queda guardada en cuanto se usa de verdad
     if (cuerpo.treasuryClientId) {

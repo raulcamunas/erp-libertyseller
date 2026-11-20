@@ -86,6 +86,11 @@ export interface FilaFacturacion {
   informes: InformeDeComision[]
   /** Lo que no cuadra entre Zoho y Tesorería. Vacío si todo está bien */
   avisos: string[]
+  /**
+   * UN SUBENCARGO (migración 328): creatividades, packaging, un estudio… Se factura aparte, en su propia factura, y la fila
+   * es solo de él. null o ausente = la fila del mes (fee y comisiones).
+   */
+  subencargo?: { id: string; concepto: string; importe: number } | null
 }
 
 export interface ContactoZoho {

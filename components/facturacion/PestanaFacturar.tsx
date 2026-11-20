@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { BarraDeCarga } from '@/components/rendimiento/ui'
 import { BOTON, CAMPO, COLOR_ESTADO, PANTALLA, TABLA, TEXTO, TEXTO_ESTADO, TIPO, TITULO, type TonoEstado } from '@/lib/estilo/denso'
-import { AVISO_SIN_INFORME, GRUPOS_FACTURACION, agruparFilas, diasDesde, lineasDelMes, mesDelPeriodo, repartoDelMes, sumarDias, type IdGrupo } from '@/lib/facturacion/logica'
+import { AVISO_SIN_INFORME, GRUPOS_FACTURACION, agruparFilas, diasDesde, lineasDeFila, mesDelPeriodo, repartoDelMes, sumarDias, type IdGrupo } from '@/lib/facturacion/logica'
 import type { FilaFacturacion, Tablero } from '@/lib/facturacion/tipos'
 import { Aviso, BarraDeReparto, CasillaDeResumen, Cuenta, dinero, EsqueletoDePestana, fechaCorta, hoyISO, pedir, tonoComoEstilo } from './comun'
 
@@ -57,7 +57,7 @@ const PASOS: { id: IdGrupo; nombre: string; grupos: IdGrupo[]; urgente: boolean;
   { id: 'cobrada', nombre: 'Cobradas', grupos: ['cobrada'], urgente: false, parte: 'cobrado' },
 ]
 
-const claveDeFila = (f: FilaFacturacion) => f.treasuryClientId ?? f.contactoId ?? f.nombre
+const claveDeFila = (f: FilaFacturacion) => (f.subencargo ? `sub:${f.subencargo.id}` : (f.treasuryClientId ?? f.contactoId ?? f.nombre))
 const totalDe = (f: FilaFacturacion) => f.factura?.total ?? f.totalTesoreria
 const sumar = (filas: FilaFacturacion[], valor: (f: FilaFacturacion) => number | null | undefined) => filas.reduce((s, f) => s + (valor(f) ?? 0), 0)
 /** Lo que aún falta por entrar: en lo que ya salió es el saldo, no el total */
@@ -158,7 +158,8 @@ export function PestanaFacturar({
             numero: f.numeroPropuesto,
             fecha: hoy,
             vence: sumarDias(hoy, 7),
-            lineas: lineasDelMes(f.fee, f.comision, f.informes),
+            lineas: lineasDeFila(f),
+            subencargoId: f.subencargo?.id ?? null,
           },
         })
         hechos += 1
@@ -495,6 +496,11 @@ function FilaCliente({
           <span className={`fac-nombre ${TABLA.corta} max-w-[220px] ${TEXTO.t1}`} title={fila.nombre}>
             {fila.nombre}
           </span>
+          {fila.subencargo && (
+            <span className={`${TABLA.corta} max-w-[160px] rounded-full border border-[var(--ls-linea2)] px-2 py-[1px] text-[10.5px] ${TEXTO.t2}`} title={`Subencargo: ${fila.subencargo.concepto}. Se factura aparte`}>
+              {fila.subencargo.concepto}
+            </span>
+          )}
         </span>
       </td>
       <td className={`${celda} ${f ? '' : TEXTO.t4}`}>

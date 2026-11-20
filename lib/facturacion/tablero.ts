@@ -9,6 +9,7 @@ import {
   estadoParaElReflejo,
   etiquetaDeNumero,
   mesDelPeriodo,
+  numeroDeSubencargo,
   numeroPropuesto,
   periodoDeFactura,
   importeDeInformes,
@@ -47,6 +48,9 @@ export function facturaDesdeZoho(f: FacturaCruda): FacturaZoho {
     estadoZoho: f.status,
   }
 }
+
+/** Una fila de treasury_extras (migración 328) */
+type FilaSubencargo = { id: string; client_id: string; concept: string; amount: number; zoho_invoice_id: string | null; invoice_sent: boolean; paid: boolean }
 
 type FilaCliente = { id: string; name: string; email?: string | null; email_alt?: string | null; zoho_contact_id?: string | null }
 
@@ -142,6 +146,16 @@ export async function cargarTablero(period: string): Promise<Tablero> {
     clientes = (data as FilaCliente[] | null) ?? []
   }
 
+  /** Los subencargos del mes (migración 328). Sin la tabla, ninguno: el tablero sale como antes */
+  const subencargosRes = await service
+    .from('treasury_extras')
+    .select('id, client_id, concept, amount, zoho_invoice_id, invoice_sent, paid')
+    .eq('period', period)
+    .order('created_at', { ascending: true })
+  const subencargos = (subencargosRes.error ? [] : (subencargosRes.data ?? [])) as FilaSubencargo[]
+  /** Las facturas que son de un subencargo: no cuentan como «la del mes» de su cliente */
+  const deSubencargo = new Set(subencargos.map((x) => x.zoho_invoice_id).filter((x): x is string => Boolean(x)))
+
   const meses = new Map(
     ((mesesRes.data ?? []) as { client_id: string; fee: number | null; commission: number | null; paid: boolean; invoice_sent: boolean }[]).map(
       (m) => [m.client_id, m]
@@ -188,25 +202,31 @@ export async function cargarTablero(period: string): Promise<Tablero> {
     contacto: ContactoCrudo | null
     parejaDeducida: boolean
     correosTesoreria: string[]
+    subencargo?: FilaSubencargo
   }): FilaFacturacion => {
-    const { contacto } = args
-    const mes = args.treasuryClientId ? meses.get(args.treasuryClientId) : undefined
+    const { contacto, subencargo } = args
+    const mes = args.treasuryClientId && !subencargo ? meses.get(args.treasuryClientId) : undefined
     const fee = mes?.fee != null ? Number(mes.fee) : null
     const comision = mes?.commission != null ? Number(mes.commission) : null
-    const totalTesoreria = Math.round(((fee ?? 0) + (comision ?? 0)) * 100) / 100
-    const cobradoEnTesoreria = Boolean(mes?.paid)
+    const totalTesoreria = subencargo ? Math.round(Number(subencargo.amount) * 100) / 100 : Math.round(((fee ?? 0) + (comision ?? 0)) * 100) / 100
+    const cobradoEnTesoreria = subencargo ? Boolean(subencargo.paid) : Boolean(mes?.paid)
 
-    const suyas = contacto ? delMes.filter((f) => f.customer_id === contacto.contact_id) : []
+    // La del subencargo es la que tiene atada (de cualquier mes: se puede emitir más tarde); la del mes, una que no sea de ninguno
+    const suyas = subencargo
+      ? facturas.filter((f) => f.status !== 'void' && f.invoice_id === subencargo.zoho_invoice_id)
+      : contacto
+        ? delMes.filter((f) => f.customer_id === contacto.contact_id && !deSubencargo.has(f.invoice_id))
+        : []
     const crudo = suyas[0] ?? null
     const factura = crudo ? facturaDesdeZoho(crudo) : null
     const estado = factura ? estadoDesdeZoho(factura.estadoZoho) : totalTesoreria > 0 ? 'por_crear' : 'sin_importes'
 
     const etiqueta =
       facturas
-        .filter((f) => contacto && f.customer_id === contacto.contact_id)
+        .filter((f) => contacto && f.customer_id === contacto.contact_id && !deSubencargo.has(f.invoice_id))
         .map((f) => etiquetaDeNumero(f.invoice_number))
         .find(Boolean) || args.nombre
-    const informesDeFila = args.treasuryClientId ? informesDe(args.treasuryClientId, args.nombre) : []
+    const informesDeFila = args.treasuryClientId && !subencargo ? informesDe(args.treasuryClientId, args.nombre) : []
     const contactoTieneCorreo = Boolean(contacto?.email)
 
     return {
@@ -224,7 +244,8 @@ export async function cargarTablero(period: string): Promise<Tablero> {
       estado,
       factura,
       otrasFacturas: Math.max(0, suyas.length - 1),
-      numeroPropuesto: numeroPropuesto(etiqueta, period),
+      numeroPropuesto: subencargo ? numeroDeSubencargo(etiqueta, subencargo.concept, period) : numeroPropuesto(etiqueta, period),
+      subencargo: subencargo ? { id: subencargo.id, concepto: subencargo.concept, importe: totalTesoreria } : null,
       informes: informesDeFila,
       avisos: zohoOk
         ? avisosDeFila({
@@ -247,23 +268,25 @@ export async function cargarTablero(period: string): Promise<Tablero> {
     }
   }
 
-  const filas: FilaFacturacion[] = clientes.map((c) => {
+  const filas: FilaFacturacion[] = clientes.flatMap((c) => {
     const guardado = c.zoho_contact_id ? (contactoPorId.get(c.zoho_contact_id) ?? null) : null
     const deducido = guardado ? null : emparejarContacto(c.name, libres.filter((l) => !usados.has(l.contact_id)))
     const contacto = guardado ?? deducido
     if (contacto) usados.add(contacto.contact_id)
-    return montarFila({
+    const base = {
       treasuryClientId: c.id,
       nombre: c.name,
       contacto,
       parejaDeducida: Boolean(deducido),
       correosTesoreria: [c.email, c.email_alt].map((x) => x?.trim() ?? '').filter(Boolean),
-    })
+    }
+    // La fila del mes y, debajo, una por subencargo: cada uno es su propia factura
+    return [montarFila(base), ...subencargos.filter((x) => x.client_id === c.id).map((x) => montarFila({ ...base, subencargo: x }))]
   })
 
   // Facturas de este mes de contactos que no están en Tesorería: existen, y se pueden enviar y cobrar igual
   for (const f of delMes) {
-    if (usados.has(f.customer_id)) continue
+    if (usados.has(f.customer_id) || deSubencargo.has(f.invoice_id)) continue
     usados.add(f.customer_id)
     filas.push(
       montarFila({
@@ -276,7 +299,7 @@ export async function cargarTablero(period: string): Promise<Tablero> {
     )
   }
 
-  if (zohoOk && !faltaMigracion) await actualizarReflejo(period, filas, delMes, meses)
+  if (zohoOk && !faltaMigracion) await actualizarReflejo(period, filas, delMes, meses, subencargos)
 
   const contactosLista: ContactoZoho[] = contactos
     .map((c) => ({ id: c.contact_id, nombre: c.contact_name ?? c.company_name ?? c.contact_id }))
@@ -305,7 +328,8 @@ async function actualizarReflejo(
   period: string,
   filas: FilaFacturacion[],
   delMes: FacturaCruda[],
-  meses: Map<string, { paid: boolean; invoice_sent: boolean }>
+  meses: Map<string, { paid: boolean; invoice_sent: boolean }>,
+  subencargos: FilaSubencargo[] = []
 ): Promise<void> {
   try {
     const service = createServiceClient()
@@ -319,6 +343,17 @@ async function actualizarReflejo(
     for (const fila of filas) {
       const f = fila.factura
       if (!f || !fila.treasuryClientId) continue
+      // Un subencargo no va a `invoices` (es lo que frena a Comisiones, y su índice es uno por cliente y mes) ni marca el
+      // mes: marca el subencargo, y solo hacia delante, como el mes
+      if (fila.subencargo) {
+        const x = subencargos.find((s) => s.id === fila.subencargo!.id)
+        if (!x) continue
+        const cambios: { invoice_sent?: boolean; paid?: boolean } = {}
+        if (f.estadoZoho !== 'draft' && !x.invoice_sent) cambios.invoice_sent = true
+        if (f.estadoZoho === 'paid' && !x.paid) cambios.paid = true
+        if (Object.keys(cambios).length > 0) await service.from('treasury_extras').update(cambios).eq('id', x.id)
+        continue
+      }
       const status = estadoParaElReflejo(f.estadoZoho)
       const previo = porZoho.get(f.id)
       if (!previo || previo.status !== status || Number(previo.total) !== f.total || previo.invoice_number !== f.numero) {

@@ -112,7 +112,11 @@ export async function POST(request: NextRequest) {
       }
       const service = createServiceClient()
       await service.from('invoices').update({ status: estadoParaElReflejo(invoice.status), email_sent_at: ahora, report_url: Object.values(c.enlaces ?? {})[0] || null }).eq('zoho_invoice_id', c.id)
-      if (c.treasuryClientId && c.period) {
+      // Si es la factura de un subencargo, se marca él y no el mes (migración 328; sin la tabla, no encuentra nada)
+      const { data: subencargo } = await service.from('treasury_extras').select('id').eq('zoho_invoice_id', c.id).maybeSingle()
+      if (subencargo) {
+        await service.from('treasury_extras').update({ invoice_sent: true }).eq('id', (subencargo as { id: string }).id)
+      } else if (c.treasuryClientId && c.period) {
         await service.from('treasury_client_months').update({ invoice_sent: true }).eq('client_id', c.treasuryClientId).eq('period', c.period)
       }
     }

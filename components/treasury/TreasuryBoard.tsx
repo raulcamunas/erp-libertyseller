@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -19,11 +19,13 @@ import {
   CopyPlus,
   CalendarDays,
   BarChart3,
+  ChevronDown,
 } from 'lucide-react'
 import {
   TreasuryClient,
   TreasuryClientMonth,
   TreasuryExpense,
+  TreasuryExtra,
   ExpenseCategory,
   EXPENSE_CATEGORIES,
   EXPENSE_LABELS,
@@ -43,6 +45,7 @@ import {
 import { EmployeesMonthBlock } from './EmployeesMonthBlock'
 import { ApuntesComisiones } from './ApuntesComisiones'
 import { EvolucionModal } from './EvolucionModal'
+import { FilasDeSubencargos } from './Subencargos'
 
 interface TreasuryBoardProps {
   clients: TreasuryClient[]
@@ -93,6 +96,35 @@ export function TreasuryBoard({
   const [evolucionAbierta, setEvolucionAbierta] = useState(false)
 
   const period = useMemo(() => periodKey(offset), [offset])
+
+  // ---------- Subencargos (migración 328) ----------
+  // Pocos: se leen todos de una vez. Sin la tabla, ninguno y la pantalla sigue como antes.
+  const [extras, setExtras] = useState<TreasuryExtra[]>([])
+  const [sinTablaDeExtras, setSinTablaDeExtras] = useState(false)
+  const [desplegados, setDesplegados] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    let vivo = true
+    supabase
+      .from('treasury_extras')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (!vivo) return
+        if (error) setSinTablaDeExtras(true)
+        else setExtras((data ?? []) as TreasuryExtra[])
+      })
+    return () => {
+      vivo = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const extrasDelMes = useMemo(() => {
+    const map = new Map<string, TreasuryExtra[]>()
+    for (const x of extras) if (x.period === period) map.set(x.client_id, [...(map.get(x.client_id) ?? []), x])
+    return map
+  }, [extras, period])
+  const sumaExtras = (lista: TreasuryExtra[] | undefined, soloSinCobrar = false) =>
+    (lista ?? []).reduce((s, x) => s + (soloSinCobrar && x.paid ? 0 : Number(x.amount) || 0), 0)
 
   // ---------- Coste del equipo ----------
   // Cacheado por mes: el servidor manda una ventana ancha y solo se pide al
@@ -167,9 +199,10 @@ export function TreasuryBoard({
     () =>
       visibleClients.reduce((sum, c) => {
         const m = monthByClient.get(c.id)
-        return sum + (Number(m?.fee) || 0) + (Number(m?.commission) || 0)
+        return sum + (Number(m?.fee) || 0) + (Number(m?.commission) || 0) + sumaExtras(extrasDelMes.get(c.id))
       }, 0),
-    [visibleClients, monthByClient]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleClients, monthByClient, extrasDelMes]
   )
 
   /**
@@ -213,10 +246,11 @@ export function TreasuryBoard({
     () =>
       visibleClients.reduce((sum, c) => {
         const m = monthByClient.get(c.id)
-        if (!m || m.paid) return sum
-        return sum + (Number(m.fee) || 0) + (Number(m.commission) || 0)
+        const delMes = !m || m.paid ? 0 : (Number(m.fee) || 0) + (Number(m.commission) || 0)
+        return sum + delMes + sumaExtras(extrasDelMes.get(c.id), true)
       }, 0),
-    [visibleClients, monthByClient]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleClients, monthByClient, extrasDelMes]
   )
 
   // ---------- Evolución de los últimos 12 meses ----------
@@ -227,9 +261,9 @@ export function TreasuryBoard({
   const evolution = useMemo(() => {
     const keys = Array.from({ length: 12 }, (_, i) => periodKey(offset - 11 + i))
     return keys.map((k) => {
-      const inc = months
-        .filter((m) => m.period === k)
-        .reduce((s, m) => s + (Number(m.fee) || 0) + (Number(m.commission) || 0), 0)
+      const inc =
+        months.filter((m) => m.period === k).reduce((s, m) => s + (Number(m.fee) || 0) + (Number(m.commission) || 0), 0) +
+        extras.filter((x) => x.period === k).reduce((s, x) => s + (Number(x.amount) || 0), 0)
       // Mismo filtro por categoría que arriba, y por el mismo motivo: si aquí
       // entrara una fila que la interfaz no pinta, las doce barras dirían una
       // cosa y la tarjeta de «Gastos» otra.
@@ -239,7 +273,7 @@ export function TreasuryBoard({
           .reduce((s, e) => s + expenseInEuros(e, usdEur), 0) + (employeeTotals[k]?.eur ?? 0)
       return { key: k, income: inc, expense: exp }
     })
-  }, [months, expenses, offset, usdEur, employeeTotals])
+  }, [months, expenses, extras, offset, usdEur, employeeTotals])
 
   const evoMax = Math.max(1, ...evolution.flatMap((e) => [e.income, e.expense]))
 
@@ -499,18 +533,68 @@ export function TreasuryBoard({
     }
   }
 
-  const totalDe = (c: TreasuryClient) => {
+  /** Fee + comisiones del mes, sin los subencargos: es lo que lleva la factura del mes */
+  const totalDelMes = (c: TreasuryClient) => {
     const m = monthByClient.get(c.id)
     return (Number(m?.fee) || 0) + (Number(m?.commission) || 0)
   }
-  // Solo cuentan los clientes con algo que facturar este mes: los demás no tienen nada que enviar ni cobrar
-  const sinEnviar = visibleClients.filter((c) => totalDe(c) > 0 && !monthByClient.get(c.id)?.invoice_sent).length
-  const sinCobrar = visibleClients.filter((c) => totalDe(c) > 0 && !monthByClient.get(c.id)?.paid).length
+  /** Lo que nos paga el cliente este mes: el mes y sus subencargos */
+  const totalDe = (c: TreasuryClient) => totalDelMes(c) + sumaExtras(extrasDelMes.get(c.id))
+  // Solo cuentan los clientes con algo que facturar este mes: los demás no tienen nada que enviar ni cobrar. Un subencargo sin
+  // enviar o sin cobrar también cuenta: es otra factura
+  const faltaEnviar = (c: TreasuryClient) =>
+    (totalDelMes(c) > 0 && !monthByClient.get(c.id)?.invoice_sent) || (extrasDelMes.get(c.id) ?? []).some((x) => Number(x.amount) > 0 && !x.invoice_sent)
+  const faltaCobrar = (c: TreasuryClient) =>
+    (totalDelMes(c) > 0 && !monthByClient.get(c.id)?.paid) || (extrasDelMes.get(c.id) ?? []).some((x) => Number(x.amount) > 0 && !x.paid)
+  const sinEnviar = visibleClients.filter(faltaEnviar).length
+  const sinCobrar = visibleClients.filter(faltaCobrar).length
   const shownClients = visibleClients.filter((c) => {
-    if (filtro === 'sin_enviar') return totalDe(c) > 0 && !monthByClient.get(c.id)?.invoice_sent
-    if (filtro === 'sin_cobrar') return totalDe(c) > 0 && !monthByClient.get(c.id)?.paid
+    if (filtro === 'sin_enviar') return faltaEnviar(c)
+    if (filtro === 'sin_cobrar') return faltaCobrar(c)
     return true
   })
+
+  function desplegar(id: string) {
+    setDesplegados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function guardarSubencargo(id: string, cambio: Partial<TreasuryExtra>) {
+    const antes = extras
+    setExtras((prev) => prev.map((x) => (x.id === id ? { ...x, ...cambio } : x)))
+    const { error } = await supabase.from('treasury_extras').update(cambio).eq('id', id)
+    if (error) {
+      setExtras(antes)
+      toast.error('No se ha podido guardar el subencargo')
+    }
+  }
+
+  async function anadirSubencargo(clientId: string, concept: string, amount: number): Promise<boolean> {
+    const { data, error } = await supabase.from('treasury_extras').insert({ client_id: clientId, period, concept, amount }).select('*').single()
+    if (error || !data) {
+      toast.error(sinTablaDeExtras ? 'Falta lanzar la migración 328 (subencargos)' : 'No se ha podido añadir el subencargo')
+      return false
+    }
+    setExtras((prev) => [...prev, data as TreasuryExtra])
+    return true
+  }
+
+  async function borrarSubencargo(x: TreasuryExtra) {
+    const aviso = x.zoho_invoice_id
+      ? `¿Quitar «${x.concept}» de Tesorería? Su factura de Zoho NO se borra: si sobra, anúlala en Facturación.`
+      : `¿Quitar «${x.concept}» (${eurosPrecise(Number(x.amount))})?`
+    if (!window.confirm(aviso)) return
+    const { error } = await supabase.from('treasury_extras').delete().eq('id', x.id)
+    if (error) {
+      toast.error('No se ha podido quitar')
+      return
+    }
+    setExtras((prev) => prev.filter((y) => y.id !== x.id))
+  }
 
   return (
     <div className="flex flex-col h-full gap-3 min-w-0">
@@ -749,7 +833,10 @@ export function TreasuryBoard({
                 {shownClients.map((c) => {
                   const m = monthByClient.get(c.id)
                   const total = totalDe(c)
+                  const susExtras = extrasDelMes.get(c.id) ?? []
+                  const abierto = desplegados.has(c.id)
                   return (
+                    <Fragment key={c.id}>
                     <tr
                       key={c.id}
                       // Verde al marcar cobrado: al repasar el mes se ve de
@@ -764,15 +851,30 @@ export function TreasuryBoard({
                       } ${total === 0 ? 'opacity-55 hover:opacity-100' : ''}`}
                     >
                       <td className="px-1.5 py-1 text-white font-medium">
-                        <input
-                          defaultValue={c.name}
-                          key={`name-${c.id}`}
-                          onBlur={(e) => {
-                            const v = e.target.value.trim()
-                            if (v && v !== c.name) saveClient(c.id, { name: v })
-                          }}
-                          className="w-full bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[12px] text-white font-medium outline-none transition-colors"
-                        />
+                        <span className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => desplegar(c.id)}
+                            className={`shrink-0 h-5 w-5 rounded flex items-center justify-center transition-colors ${susExtras.length > 0 ? 'text-[#FF8A3D] hover:bg-[#FF6600]/10' : 'text-white/20 hover:text-white/60 hover:bg-white/[0.05]'}`}
+                            title={abierto ? 'Plegar los subencargos' : 'Subencargos: creatividades, packaging, estudios… que se facturan aparte'}
+                          >
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${abierto ? '' : '-rotate-90'}`} />
+                          </button>
+                          <input
+                            defaultValue={c.name}
+                            key={`name-${c.id}`}
+                            onBlur={(e) => {
+                              const v = e.target.value.trim()
+                              if (v && v !== c.name) saveClient(c.id, { name: v })
+                            }}
+                            className="min-w-0 flex-1 bg-transparent hover:bg-white/[0.05] focus:bg-white/[0.08] border border-transparent focus:border-[#FF6600] rounded px-1.5 py-1 text-[12px] text-white font-medium outline-none transition-colors"
+                          />
+                          {susExtras.length > 0 && (
+                            <button type="button" onClick={() => desplegar(c.id)} className="shrink-0 text-[10px] text-[#FF8A3D] hover:underline" title={susExtras.map((x) => `${x.concept}: ${eurosPrecise(Number(x.amount))}`).join('\n')}>
+                              {susExtras.length} {susExtras.length === 1 ? 'subencargo' : 'subencargos'}
+                            </button>
+                          )}
+                        </span>
                       </td>
                       <td className="px-1 py-1">
                         <input
@@ -858,6 +960,15 @@ export function TreasuryBoard({
                         </button>
                       </td>
                     </tr>
+                    {abierto && (
+                      <FilasDeSubencargos
+                        subencargos={susExtras}
+                        onGuardar={(id, cambio) => void guardarSubencargo(id, cambio)}
+                        onAnadir={(concepto, importe) => anadirSubencargo(c.id, concepto, importe)}
+                        onBorrar={(x) => void borrarSubencargo(x)}
+                      />
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>

@@ -188,7 +188,10 @@ export async function POST(request: NextRequest) {
       await service.from('invoices').update({ status: estadoParaElReflejo(despues.status), ...(cobradaEntera ? { paid_at: new Date().toISOString(), paid_amount: Number(f.total), bank_reference: c.referencia?.trim() || null } : {}) }).eq('zoho_invoice_id', c.facturaId)
       const { data: cliente } = await service.from('treasury_clients').select('id').eq('zoho_contact_id', f.customer_id).maybeSingle()
       treasuryClientId = (cliente?.id as string | undefined) ?? null
-      if (cobradaEntera && treasuryClientId) {
+      const { data: subencargo } = await service.from('treasury_extras').select('id').eq('zoho_invoice_id', c.facturaId).maybeSingle()
+      if (cobradaEntera && subencargo) {
+        await service.from('treasury_extras').update({ paid: true, invoice_sent: true }).eq('id', (subencargo as { id: string }).id)
+      } else if (cobradaEntera && treasuryClientId) {
         await service.from('treasury_client_months').update({ paid: true }).eq('client_id', treasuryClientId).eq('period', period)
       }
     } catch (e) {
