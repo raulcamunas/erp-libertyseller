@@ -87,21 +87,27 @@ export async function generarEtiquetasDeRemesa(remesaId: string, formato: string
       }
     }
 
-    // Si falta el FNSKU (o es el ASIN), se le pregunta a Amazon ahora. Solo lectura
+    // Si falta el FNSKU (o es el ASIN) o el NOMBRE del producto, se le pregunta a Amazon ahora. Solo lectura.
+    // Sin nombre la etiqueta repetía el SKU en la línea del título; Amazon pide el nombre del producto en la etiqueta.
     const esAsin = (f: string, a: string | null) => !!a && f.trim().toUpperCase() === a.trim().toUpperCase()
     const faltan = filas
       .filter((l) => {
         const c = catalogo.get(l.sku)
         const f = l.fnsku ?? c?.fnsku ?? null
-        return !f || esAsin(f, c?.asin ?? null)
+        return !f || esAsin(f, c?.asin ?? null) || !c?.title?.trim()
       })
       .map((l) => l.sku)
     if (faltan.length > 0) {
       const { leidos } = await leerFnskusDeAmazon(service, remesa.connection_id, remesa.marketplace_id, faltan)
       for (const x of leidos) {
-        if (!x.fnsku) continue
         const previo = catalogo.get(x.sku)
-        catalogo.set(x.sku, { fnsku: x.fnsku, title: previo?.title ?? null, asin: previo?.asin ?? null })
+        if (!x.fnsku && !x.titulo) continue
+        catalogo.set(x.sku, { fnsku: x.fnsku ?? previo?.fnsku ?? null, title: previo?.title?.trim() ? previo.title : (x.titulo ?? null), asin: previo?.asin ?? null })
+      }
+      // El nombre leído se queda en el espejo para la próxima tirada (solo donde no había)
+      for (const x of leidos) {
+        if (!x.titulo) continue
+        await service.from('amazon_listings').update({ title: x.titulo }).eq('connection_id', remesa.connection_id).eq('marketplace_id', remesa.marketplace_id).eq('sku', x.sku).is('title', null)
       }
     }
   }
@@ -109,8 +115,9 @@ export async function generarEtiquetasDeRemesa(remesaId: string, formato: string
   const etiquetas: EtiquetaProducto[] = filas.map((l) => {
     const delEspejo = catalogo.get(l.sku)
     // El título de Amazon manda: quien pega y quien recibe en el almacén ven el mismo texto que Seller Central
-    const titulo = delEspejo?.title ?? [l.nombre, l.variante].filter(Boolean).join(' · ') ?? l.sku
-    return { fnsku: l.fnsku ?? delEspejo?.fnsku ?? '', titulo: titulo || l.sku, sku: l.sku, asin: delEspejo?.asin ?? null, unidades: l.unidades }
+    // Nunca el SKU como título: ya va en su propia línea, y repetido no dice qué producto es
+    const titulo = delEspejo?.title?.trim() || [l.nombre, l.variante].filter(Boolean).join(' · ') || ''
+    return { fnsku: l.fnsku ?? delEspejo?.fnsku ?? '', titulo, sku: l.sku, asin: delEspejo?.asin ?? null, unidades: l.unidades }
   })
 
   const { pdf, etiquetas: impresas, paginas, descartadas, avisos } = hojaDeEtiquetas(etiquetas, formato)

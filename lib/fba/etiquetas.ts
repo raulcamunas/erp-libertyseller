@@ -263,6 +263,33 @@ function barrasLegibles(anchoModulo: number): boolean {
  * si ocupaba dos, se apretaba contra el borde. Amazon la exige, así que tiene
  * sitio propio.
  */
+/**
+ * EL TÍTULO EN LAS LÍNEAS QUE CABEN, RECORTADO POR EL MEDIO COMO LO HACE AMAZON.
+ *
+ * «Luisetti Zapato Confo... Talla 40 Color Negro»: el final de un título de Amazon es la variante (talla, color), que es
+ * justo lo que distingue una etiqueta de la de al lado. Cortar por el final dejaba diez etiquetas iguales. Si no cabe
+ * entero, se queda el principio y el final, con «...» en medio, en el ancho de las líneas disponibles.
+ */
+function lineasDelTitulo(doc: jsPDF, titulo: string, ancho: number, maxLineas: number): string[] {
+  const limpio = titulo.replace(/\s+/g, ' ').trim()
+  if (!limpio) return []
+  const enteras = doc.splitTextToSize(limpio, ancho) as string[]
+  if (enteras.length <= maxLineas) return enteras
+  const cabe = (t: string) => (doc.splitTextToSize(t, ancho) as string[]).length <= maxLineas && (maxLineas > 1 || doc.getTextWidth(t) <= ancho)
+  // La cola: lo que va detrás de la marca y el tipo de producto, hasta un 45 % de lo que cabe
+  const palabras = limpio.split(' ')
+  let cola = ''
+  for (let i = palabras.length - 1; i > 0; i--) {
+    const prueba = palabras.slice(i).join(' ')
+    if (doc.getTextWidth(prueba) > ancho * maxLineas * 0.45) break
+    cola = prueba
+  }
+  let cabeza = limpio.slice(0, Math.max(0, limpio.length - cola.length)).trim()
+  while (cabeza.length > 0 && !cabe(`${cabeza}... ${cola}`)) cabeza = cabeza.slice(0, -1)
+  const recortado = cabeza.length > 0 ? `${cabeza.trimEnd()}... ${cola}` : cola
+  return (doc.splitTextToSize(recortado, ancho) as string[]).slice(0, maxLineas)
+}
+
 function dibujar(
   doc: jsPDF,
   x: number,
@@ -332,7 +359,7 @@ function dibujar(
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(PT_TITULO)
-  const lineas = (doc.splitTextToSize(etiqueta.titulo, ancho - MARGEN_TEXTO * 2) as string[]).slice(0, maxLineas)
+  const lineas = lineasDelTitulo(doc, etiqueta.titulo, ancho - MARGEN_TEXTO * 2, maxLineas)
   let yTexto = ySku
   for (const linea of lineas) {
     yTexto += SALTO_TITULO

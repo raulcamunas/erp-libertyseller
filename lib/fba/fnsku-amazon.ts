@@ -19,6 +19,8 @@ export interface FnskuLeido {
   sku: string
   fnsku: string | null
   estado: EstadoFnsku
+  /** El nombre del producto en Amazon (itemName del listing), para la etiqueta */
+  titulo?: string | null
   /** De dónde salió, para poder ver qué contesta Amazon cuando algo no cuadra */
   fuentes: { inventario: string | null; listing: string | null }
 }
@@ -51,8 +53,8 @@ export async function leerFnskusDeAmazon(
       fetchListingsBySku(credentials, { marketplaceId: mercado, skus, incluir: ['summaries'] }).catch(() => null),
     ])
 
-    const delListing = new Map<string, { fnsku: string | null; asin: string | null }>()
-    for (const i of listings?.items ?? []) delListing.set(i.sku, { fnsku: i.fnsku ?? null, asin: i.asin })
+    const delListing = new Map<string, { fnsku: string | null; asin: string | null; titulo: string | null }>()
+    for (const i of listings?.items ?? []) delListing.set(i.sku, { fnsku: i.fnsku ?? null, asin: i.asin, titulo: i.title ?? null })
 
     const leidos: FnskuLeido[] = skus.map((sku) => {
       const l = delListing.get(sku)
@@ -62,7 +64,7 @@ export async function leerFnskusDeAmazon(
       const real = [deInventario, deListing].find((v) => !!v && !esAsin(v)) ?? null
       const fnsku = real ?? deInventario ?? deListing
       const estado: EstadoFnsku = real ? 'real' : fnsku ? 'asin' : 'ninguno'
-      return { sku, fnsku, estado, fuentes: { inventario: deInventario, listing: deListing } }
+      return { sku, fnsku, estado, titulo: l?.titulo ?? null, fuentes: { inventario: deInventario, listing: deListing } }
     })
 
     await guardarFnskus(
