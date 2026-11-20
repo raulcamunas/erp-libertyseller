@@ -9,7 +9,7 @@ import { entero, porcentaje } from '@/components/marketing-test/formato'
 import { llamar } from '@/components/marketing-test/llamar'
 import { Vacio } from '@/components/plataforma/comun'
 import { resumenDeProducto } from '@/lib/seo/resumen'
-import { consultasDe, diagnosticoDe, estiloDeVeredicto, fichaDe, nombreDe, serieDe } from './comun'
+import { consultasDe, decisionesDe, diagnosticoDe, estiloDeVeredicto, fichaDe, nombreDe, serieDe } from './comun'
 import { revisarFicha } from '@/lib/seo/norma'
 import { RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
 import type { PuntoDeEvolucion } from '@/lib/seo/datos'
@@ -70,7 +70,7 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
             const ficha = fichaDe(datos, p.asin)
             const mes = consultasDe(datos, p.asin, 'MONTH')
             const consultas = mes.length > 0 ? mes : consultasDe(datos, p.asin, 'WEEK')
-            const r = resumenDeProducto(consultas, ficha)
+            const r = resumenDeProducto(consultas, ficha, datos.precios?.[p.asin] ?? null, decisionesDe(datos))
             const nombre = nombreDe(p, ficha)
             const v = consultas.length > 0 ? diagnosticoDe(datos, p.asin).producto.veredicto : null
             const norma = ficha ? revisarFicha(ficha).incidencias : []

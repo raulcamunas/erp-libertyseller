@@ -149,14 +149,28 @@ export interface DiagnosticoDeProducto {
   contexto: ContextoDeEmbudo
   busquedas: Array<BusquedaDiagnosticada<ConsultaGuardada>>
   porConsulta: Map<string, Veredicto>
+  /** Las búsquedas sin datos que pueden ser de otro producto (chip «¿Ajena?») */
+  posiblesAjenas: Set<string>
   producto: ReturnType<typeof embudoDelProducto<ConsultaGuardada>>
 }
 
 /** El diagnóstico de un producto con las búsquedas del periodo pedido (o, sin `periodo`, las del mes si hay y si no las de la semana) */
 export function diagnosticoDe(datos: DatosSeo, asin: string, periodo?: 'MONTH' | 'WEEK'): DiagnosticoDeProducto {
   const elegido = periodo ? { filas: consultasDe(datos, asin, periodo), periodo } : consultasDelProducto(datos.consultas, asin)
-  const { contexto, busquedas } = diagnosticarTodas(elegido.filas, datos.precios?.[asin] ?? null)
-  return { periodo: elegido.periodo, contexto, busquedas, porConsulta: new Map(busquedas.map((b) => [b.fila.consulta, b.veredicto])), producto: embudoDelProducto(busquedas, contexto) }
+  const { contexto, busquedas } = diagnosticarTodas(elegido.filas, datos.precios?.[asin] ?? null, { ficha: fichaDe(datos, asin), ...decisionesDe(datos) })
+  return {
+    periodo: elegido.periodo,
+    contexto,
+    busquedas,
+    porConsulta: new Map(busquedas.map((b) => [b.fila.consulta, b.veredicto])),
+    posiblesAjenas: new Set(busquedas.filter((b) => b.posibleAjena).map((b) => b.fila.consulta)),
+    producto: embudoDelProducto(busquedas, contexto),
+  }
+}
+
+/** Las búsquedas decididas a mano en la cuenta (migración 333), para pasarlas al diagnóstico */
+export function decisionesDe(datos: DatosSeo): { ajenas: string[]; nuestras: string[] } {
+  return { ajenas: datos.decisiones?.ajenas ?? [], nuestras: datos.decisiones?.nuestras ?? [] }
 }
 
 /** El color y el texto corto de cada veredicto */
@@ -174,14 +188,40 @@ export function estiloDeVeredicto(v: Veredicto): { texto: string; color: string;
       return { texto: 'Falta visibilidad', color: COLOR_ESTADO.azul, pista: 'Es SEO: falta salir más' }
     case 'fuga':
       return { texto: `Pierde en ${NOMBRE_DE_ETAPA[v.etapa].toLowerCase()}`, color: v.caida >= 0.7 ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar, pista: `${RESPONSABLE[v.etapa].quien} — no es SEO` }
+    case 'sin-datos':
+      return { texto: 'Pocos datos', color: 'var(--ls-t4)', pista: 'Sales tan poco que no se puede juzgar' }
+    case 'ajena':
+      return { texto: 'No es tuya', color: 'var(--ls-t4)', pista: 'Marcada como otro producto' }
   }
+}
+
+/** El chip «¿Ajena?»: búsqueda sin datos con palabras que no están en la ficha ni en las búsquedas habituales del producto. No cuenta para la ficha ni para las tareas */
+export function ChipAjena({ compacto = false }: { compacto?: boolean }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-[5px] font-semibold ${compacto ? 'h-[18px] px-[5px] text-[10px]' : 'h-[20px] px-[6px] text-[10.5px]'}`}
+      style={{ color: COLOR_ESTADO.ambar, background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 13%, transparent)` }}
+      title="Puede ser otro producto o una marca ajena: lleva palabras que no están en tu ficha ni en tus búsquedas habituales. No cuenta para la ficha, las tareas ni la IA. Si no es tuya, márcala con «No es nuestro producto» y valora negativizarla en PPC."
+    >
+      ¿Ajena?
+    </span>
+  )
 }
 
 /** La etiqueta del diagnóstico de una búsqueda, con el porqué y qué hacer al pasar el ratón */
 export function EtiquetaDeVeredicto({ v }: { v: Veredicto | undefined }) {
   if (!v) return <span className="text-[11px] text-[var(--ls-t4)]">—</span>
   const e = estiloDeVeredicto(v)
-  const accion = v.tipo === 'fuga' ? RESPONSABLE[v.etapa].accion : v.tipo === 'visibilidad' ? RESPONSABLE.impresiones.accion : v.tipo === 'infraexpuesta' ? RESPONSABLE_INFRAEXPUESTA.accion : ''
+  const accion =
+    v.tipo === 'fuga'
+      ? RESPONSABLE[v.etapa].accion
+      : v.tipo === 'visibilidad' || v.tipo === 'sin-datos'
+        ? RESPONSABLE.impresiones.accion
+        : v.tipo === 'infraexpuesta'
+          ? RESPONSABLE_INFRAEXPUESTA.accion
+          : v.tipo === 'ajena'
+            ? 'Valora negativizarla en PPC.'
+            : ''
   return (
     <span className="inline-flex flex-col items-start gap-[1px]" title={`${v.motivo}${accion ? `\n\nQué hacer: ${accion}` : ''}`}>
       <span className="inline-flex h-[20px] items-center rounded-[5px] px-[6px] text-[10.5px] font-semibold" style={{ color: e.color, background: `color-mix(in srgb, ${e.color} 13%, transparent)` }}>
@@ -227,7 +267,7 @@ export function TarjetaDeEmbudo({ d, compacta = false }: { d: DiagnosticoDeProdu
       <header className="flex min-h-[46px] flex-wrap items-center gap-2 border-b border-[var(--ls-linea)] px-4 py-2">
         <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Embudo del producto</h3>
         <span className="text-[11.5px] text-[var(--ls-t4)]">
-          {d.producto.relevantes} búsquedas del producto · {d.producto.descartadas} descartadas (ruido u otro precio) · {d.periodo === 'MONTH' ? 'último mes' : 'última semana'}
+          {d.producto.relevantes} búsquedas del producto · {d.producto.descartadas} descartadas (ruido, otro precio o ajenas) · {d.periodo === 'MONTH' ? 'último mes' : 'última semana'}
         </span>
         {e && (
           <span className="ml-auto inline-flex h-[22px] items-center rounded-full px-[9px] text-[11.5px] font-semibold" style={{ color: e.color, background: `color-mix(in srgb, ${e.color} 13%, transparent)` }}>
@@ -237,7 +277,7 @@ export function TarjetaDeEmbudo({ d, compacta = false }: { d: DiagnosticoDeProdu
       </header>
       <div className="px-4 py-[14px]">
         {!v ? (
-          <p className="text-[12.5px] text-[var(--ls-t3)]">Sin búsquedas del producto que diagnosticar: todas son ruido o compran a otro precio, o aún no han llegado.</p>
+          <p className="text-[12.5px] text-[var(--ls-t3)]">Sin búsquedas del producto que diagnosticar: todas son ruido, compran a otro precio o son de otro producto, o aún no han llegado.</p>
         ) : (
           <div className={`grid gap-4 ${compacta ? '' : 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]'}`}>
             <div className="grid grid-cols-4 gap-2">

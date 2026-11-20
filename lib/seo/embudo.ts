@@ -25,7 +25,16 @@
  *   · Sin intención de compra: búsquedas que casi nunca acaban en compra («google», «mis reseñas»): no hay nada que ganar.
  *   · Otro precio, otra categoría: si el sector compra a menos de la mitad de nuestro precio, no hay título que lo arregle (y suele ser un falso amigo: «nfc» compra pegatinas de 8 €).
  * Lo que queda y no se cae en ningún escalón es VISIBILIDAD: cuando sale, le va bien; lo que falta es salir más. Eso sí es SEO.
+ *
+ * POCOS DATOS Y BÚSQUEDAS AJENAS (nov 2026). Si no se ha podido juzgar ningún escalón (lo esperable no llega a 3 en ninguno) y el producto no tiene ni un carrito ni una compra, no se sabe nada de
+ * esa búsqueda: es 'sin-datos'. Antes caía en 'visibilidad' y búsquedas de otro producto («lego», «murdoku», «hitster juego de mesa», «risk») encabezaban las tareas y le llegaban a la IA como
+ * «falta salir más». Si además (o si pierde en clics sin un carrito ni una compra propios) alguna palabra distintiva de la búsqueda no está en ninguna parte de la ficha, se marca `posibleAjena`:
+ * sigue en la tabla y en la cobertura, pero no cuenta para las
+ * palabras, la oportunidad, el embudo del producto ni la propuesta. Lo que el SEO decide a mano («No es nuestro producto», migración 333) manda sobre la heurística: 'ajena' (impacto 0) o «sí es
+ * nuestro» (nunca posibleAjena).
  */
+
+import { normalizar, palabras, type TextosDeFicha } from './cobertura'
 
 export type Etapa = 'impresiones' | 'clics' | 'carrito' | 'compra'
 
@@ -77,6 +86,10 @@ export type Veredicto =
   | { tipo: 'infraexpuesta'; motivo: string; fuerza: number }
   /** Ya se lleva una parte grande de las compras: mantener */
   | { tipo: 'lider'; motivo: string }
+  /** No se ha podido juzgar ningún escalón y no hay ni un carrito ni una compra propios: no se sabe nada (y puede ser de otro producto) */
+  | { tipo: 'sin-datos'; motivo: string }
+  /** El SEO ha dicho que no es nuestro producto (lista por cuenta y país, migración 333): no se trabaja */
+  | { tipo: 'ajena'; motivo: string }
 
 /**
  * LOS UMBRALES, TODOS ESTIMACIONES (sin fuente primaria; revisarlos tras un trimestre con datos propios). Se pueden cambiar por llamada con `ContextoDeEmbudo.umbrales`.
@@ -160,6 +173,7 @@ export function diagnosticar(f: FilaDeEmbudo, ctx: ContextoDeEmbudo): Veredicto 
   const anterior: Record<Exclude<Etapa, 'impresiones'>, Etapa> = { clics: 'impresiones', carrito: 'clics', compra: 'carrito' }
 
   // El primer escalón que se cae (en orden): arreglar ese primero, que lo de detrás depende de él
+  let juzgados = 0
   for (const e of ['clics', 'carrito', 'compra'] as const) {
     const previa = c[anterior[e]]
     const total = totales[e]
@@ -167,6 +181,7 @@ export function diagnosticar(f: FilaDeEmbudo, ctx: ContextoDeEmbudo): Veredicto 
     if (previa == null || total == null || propio == null) continue
     const esperado = previa * total
     if (esperado < u.minimoEsperado) continue
+    juzgados++
     const ratio = propio / esperado
     if (ratio < u.caida) {
       const que = e === 'clics' ? 'clics' : e === 'carrito' ? 'añadidos al carrito' : 'compras'
@@ -179,7 +194,20 @@ export function diagnosticar(f: FilaDeEmbudo, ctx: ContextoDeEmbudo): Veredicto 
     }
   }
 
-  if (c.compra != null && c.compra >= u.lider) return { tipo: 'lider', motivo: `Ya te llevas el ${pct(c.compra)} de las compras de esta búsqueda: mantenerla.` }
+  // Ningún escalón juzgable y ni un carrito ni una compra: no hay nada que decir (con 661 impresiones de 14 millones, «falta visibilidad» era inventar)
+  if (juzgados === 0 && (f.comprasAsin ?? 0) === 0 && (f.carritosAsin ?? 0) === 0) {
+    return {
+      tipo: 'sin-datos',
+      motivo:
+        c.impresiones == null
+          ? 'Amazon no da tus impresiones en esta búsqueda y no tienes ni un carrito ni una compra: pocos datos para juzgarla.'
+          : `Sales en el ${pct(c.impresiones)} de las impresiones, sin carritos ni compras, y con eso no se puede juzgar ningún escalón del embudo: pocos datos. Si no describe tu producto, puede ser de otro.`,
+    }
+  }
+
+  // Liderar con una compra de una es azar: hacen falta compras propias suficientes y un mercado que se pueda juzgar (lo mismo que se pide a «infraexpuesta»)
+  if (c.compra != null && c.compra >= u.lider && (f.comprasAsin ?? 0) >= u.comprasMinimas && comprasTotal >= u.minimoEsperado)
+    return { tipo: 'lider', motivo: `Ya te llevas el ${pct(c.compra)} de las compras de esta búsqueda: mantenerla.` }
 
   const imp = c.impresiones
   if (imp != null && imp > 0 && imp <= u.impresionesMax && c.compra != null && (f.comprasAsin ?? 0) >= u.comprasMinimas && c.compra / imp >= u.infraexpuesta) {
@@ -237,39 +265,108 @@ export function sumarEmbudo(filas: ReadonlyArray<FilaDeEmbudo>): FilaDeEmbudo {
 export interface BusquedaDiagnosticada<T extends FilaDeEmbudo> {
   fila: T
   veredicto: Veredicto
-  /** Las compras de todo Amazon en esa búsqueda que todavía no son tuyas, ajustadas por lo que se puede ganar (para ordenar: lo de más impacto primero) */
+  /** Las compras de todo Amazon en esa búsqueda que todavía no son tuyas, ajustadas por lo que se puede ganar. SOLO PARA ORDENAR: no se enseña como compras (puede ser hasta el doble) */
   impacto: number
+  /** Las compras de todo Amazon en esa búsqueda que todavía no son tuyas, tal cual (sin multiplicador): lo que se enseña */
+  compras: number
+  /** 'sin-datos' (o pierde en clics sin un carrito ni una compra propios) y con alguna palabra distintiva que no está en ninguna parte de la ficha: puede ser otro producto o una marca ajena. Sigue en
+   * la tabla, pero no cuenta para la ficha */
+  posibleAjena: boolean
 }
 
-/** Cuánto pesa arreglar una búsqueda: compras que aún no son tuyas. El ruido no pesa y lo de otro precio pesa poco */
+/** Las compras que aún no son tuyas en una búsqueda (sin ajustar) */
+export const comprasEnJuego = (f: Pick<FilaDeEmbudo, 'comprasTotal' | 'comprasAsin'>) => Math.max(0, (f.comprasTotal ?? 0) - (f.comprasAsin ?? 0))
+
+/** Cuánto pesa arreglar una búsqueda: compras que aún no son tuyas. El ruido y lo ajeno no pesan, lo de otro precio pesa poco y lo que no se puede juzgar, algo */
 export function impactoDe(f: FilaDeEmbudo, v: Veredicto): number {
-  const enJuego = Math.max(0, (f.comprasTotal ?? 0) - (f.comprasAsin ?? 0))
-  if (v.tipo === 'ruido') return 0
+  const enJuego = comprasEnJuego(f)
+  if (v.tipo === 'ruido' || v.tipo === 'ajena') return 0
   if (v.tipo === 'otro-precio') return enJuego * 0.1
+  if (v.tipo === 'sin-datos') return enJuego * 0.3
   if (v.tipo === 'lider') return enJuego * 0.2
   // Lo infraexpuesto convierte: cada impresión de más rinde por encima de la media
   if (v.tipo === 'infraexpuesta') return enJuego * Math.min(2, v.fuerza / 1.2)
   return enJuego
 }
 
-export function diagnosticarTodas<T extends FilaDeEmbudo>(filas: readonly T[], precioListing: number | null | undefined): { contexto: ContextoDeEmbudo; busquedas: Array<BusquedaDiagnosticada<T>> } {
+/** La ficha tal como la usa la heurística de búsquedas ajenas: también los Item Highlights si se han leído */
+export type FichaParaAjenas = TextosDeFicha & { highlights?: string | null }
+
+/** Lo que el SEO ha decidido a mano por cuenta y país (migración 333): búsquedas que no son del producto y búsquedas que la heurística marcaba y sí lo son. Texto tal cual: se normaliza dentro */
+export interface DecisionesDeBusquedas {
+  ajenas?: readonly string[]
+  nuestras?: readonly string[]
+}
+
+export interface OpcionesDeDiagnostico extends DecisionesDeBusquedas {
+  /** La ficha leída: sin ella no se marca ninguna búsqueda como posible ajena (no hay con qué comparar) */
+  ficha?: FichaParaAjenas | null
+}
+
+/** La clave con que se guarda una búsqueda decidida a mano: sin tildes, mayúsculas ni signos */
+export const claveDeBusqueda = (consulta: string) => normalizar(consulta).replace(/\s+/g, ' ')
+
+/** Cuántas palabras más repetidas de las búsquedas del producto se consideran «del producto» (no distintivas) */
+export const PALABRAS_COMUNES = 10
+
+/**
+ * Las palabras más repetidas en las búsquedas de un producto (por raíz, contando cada búsqueda una vez y sin las palabras vacías). Las que NO están aquí son «distintivas»: si una búsqueda sin
+ * datos lleva una palabra distintiva que tampoco está en la ficha, puede ser de otro producto.
+ */
+export function palabrasComunes(consultas: readonly string[], n = PALABRAS_COMUNES): Set<string> {
+  const veces = new Map<string, number>()
+  for (const q of consultas) for (const r of new Set(palabras(q))) veces.set(r, (veces.get(r) ?? 0) + 1)
+  // «Repetida» es que salga en al menos 2 búsquedas: en un producto con pocas búsquedas, las 10 primeras serían todas sus palabras y nada sería distintivo
+  return new Set([...veces.entries()].filter(([, v]) => v >= 2).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, n).map(([r]) => r))
+}
+
+/** Las palabras de la ficha (título, viñetas, Item Highlights, backend y descripción), en raíz */
+export function palabrasDeLaFicha(ficha: FichaParaAjenas): Set<string> {
+  return new Set(palabras([ficha.titulo, ...ficha.bullets, ficha.highlights, ficha.backend, ficha.descripcion].filter(Boolean).join(' ')))
+}
+
+/** ¿Lleva la búsqueda alguna palabra distintiva (ni de las comunes del producto ni de la ficha)? Los números sueltos y lo de menos de 3 letras no cuentan (dan falsos avisos) */
+export function tienePalabraAjena(consulta: string, comunes: ReadonlySet<string>, enFicha: ReadonlySet<string>): boolean {
+  return palabras(consulta).some((r) => r.length >= 3 && !/^\d+$/.test(r) && !comunes.has(r) && !enFicha.has(r))
+}
+
+/**
+ * ¿Puede ser de otro producto por cómo le va? Sin datos (lo de siempre) o perdiendo en los clics sin un solo carrito ni compra propios: con 14 millones de impresiones de «lego», lo esperable de
+ * clics ya se puede juzgar y sale «pierde en clics», pero no es la imagen: es que no es tu producto. Lo decide del todo la palabra distintiva (tienePalabraAjena).
+ */
+function puedeSerAjena(f: FilaDeEmbudo, v: Veredicto): boolean {
+  if (v.tipo === 'sin-datos') return true
+  return v.tipo === 'fuga' && v.etapa === 'clics' && (f.comprasAsin ?? 0) === 0 && (f.carritosAsin ?? 0) === 0
+}
+
+export function diagnosticarTodas<T extends FilaDeEmbudo>(filas: readonly T[], precioListing: number | null | undefined, opciones: OpcionesDeDiagnostico = {}): { contexto: ContextoDeEmbudo; busquedas: Array<BusquedaDiagnosticada<T>> } {
   const contexto = contextoDe(filas, precioListing)
+  const ajenas = new Set((opciones.ajenas ?? []).map(claveDeBusqueda))
+  const nuestras = new Set((opciones.nuestras ?? []).map(claveDeBusqueda))
+  const comunes = palabrasComunes(filas.map((f) => f.consulta ?? ''))
+  const enFicha = opciones.ficha ? palabrasDeLaFicha(opciones.ficha) : null
   const busquedas = filas.map((fila) => {
-    const veredicto = diagnosticar(fila, contexto)
-    return { fila, veredicto, impacto: impactoDe(fila, veredicto) }
+    const clave = claveDeBusqueda(fila.consulta ?? '')
+    const veredicto: Veredicto = ajenas.has(clave) ? { tipo: 'ajena', motivo: 'Marcada como «No es nuestro producto»: no se trabaja en la ficha. Valora negativizarla en PPC.' } : diagnosticar(fila, contexto)
+    const posibleAjena = puedeSerAjena(fila, veredicto) && !nuestras.has(clave) && enFicha != null && tienePalabraAjena(fila.consulta ?? '', comunes, enFicha)
+    return { fila, veredicto, impacto: impactoDe(fila, veredicto), compras: veredicto.tipo === 'ajena' ? 0 : comprasEnJuego(fila), posibleAjena }
   })
   return { contexto, busquedas }
 }
 
-/** Las búsquedas que sí son del producto (ni ruido ni de otro precio): sobre ellas se eligen las palabras de la ficha */
-export const esRelevante = (v: Veredicto) => v.tipo !== 'ruido' && v.tipo !== 'otro-precio'
+/** Las búsquedas que sí son del producto (ni ruido, ni de otro precio, ni marcadas como ajenas): sobre ellas se eligen las palabras de la ficha */
+export const esRelevante = (v: Veredicto) => v.tipo !== 'ruido' && v.tipo !== 'otro-precio' && v.tipo !== 'ajena'
+
+/** Relevante y sin sospecha de ser de otro producto: lo que cuenta para la ficha, las tareas, el embudo del producto, los paneles y la IA */
+export const esDelProducto = (d: Pick<BusquedaDiagnosticada<FilaDeEmbudo>, 'veredicto' | 'posibleAjena'>) => esRelevante(d.veredicto) && !d.posibleAjena
 
 /**
  * EL EMBUDO DEL PRODUCTO ENTERO: la suma de sus búsquedas relevantes, diagnosticada igual. Es la «puerta de salida» del SOP: si dice que la fuga está en clics, carrito o compra, reescribir la
  * ficha no es lo primero.
  */
 export function embudoDelProducto<T extends FilaDeEmbudo>(diagnosticadas: ReadonlyArray<BusquedaDiagnosticada<T>>, contexto: ContextoDeEmbudo): { suma: FilaDeEmbudo; veredicto: Veredicto | null; relevantes: number; descartadas: number } {
-  const relevantes = diagnosticadas.filter((d) => esRelevante(d.veredicto)).map((d) => d.fila)
+  // Las posibles ajenas no se suman: 661 impresiones de 14 millones de «lego» hunden la cuota del producto sin decir nada de él
+  const relevantes = diagnosticadas.filter(esDelProducto).map((d) => d.fila)
   const suma = sumarEmbudo(relevantes)
   // En la suma ya no se mira el precio ni el ruido: se han quitado antes
   const veredicto = relevantes.length === 0 ? null : diagnosticar(suma, { precioPropio: null, tasaMediana: null, umbrales: contexto.umbrales })
