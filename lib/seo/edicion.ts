@@ -41,7 +41,10 @@ export const MAX_VINETAS = 5
 /** Espacios normalizados: lo que Amazon devuelve puede traer dobles espacios o saltos que no cambian nada */
 export const normalizarTexto = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 
-const valorDe = (t: TextosFicha, campo: CampoFicha): string => (campo === 'bullets' ? t.bullets.map(normalizarTexto).filter(Boolean).join('\n') : normalizarTexto(t[campo] as string | null | undefined))
+const valorDe = (t: Partial<TextosFicha>, campo: CampoFicha): string => (campo === 'bullets' ? (t.bullets ?? []).map(normalizarTexto).filter(Boolean).join('\n') : normalizarTexto(t[campo] as string | null | undefined))
+
+/** El valor comparable de un campo (espacios normalizados; las viñetas, sin vacías y en orden). Sirve también con textos a medias (el «antes» visto) */
+export const valorDeCampo = valorDe
 
 /** Los campos que de verdad cambian entre lo que hay y lo nuevo (lo que no cambia no se manda: así no se pisa nada sin querer) */
 export function camposCambiados(antes: TextosFicha, despues: TextosFicha): CampoFicha[] {
@@ -91,10 +94,67 @@ export function bloqueosDeEdicion(t: TextosFicha, campos: readonly CampoFicha[])
   if (toca('bullets')) {
     const llenas = t.bullets.filter((b) => normalizarTexto(b)).length
     if (llenas === 0) bloqueos.push('Hay que dejar al menos una viñeta.')
-    if (t.bullets.length > MAX_VINETAS) bloqueos.push(`Como mucho ${MAX_VINETAS} viñetas.`)
+    // Nunca se recorta en silencio: quien edita elige qué viñetas quita (la confirmación dice cuáles salen)
+    if (llenas > MAX_VINETAS) bloqueos.push(`Como mucho ${MAX_VINETAS} viñetas (hay ${llenas}): quita a mano las que sobren antes de mandar las viñetas.`)
   }
   const { incidencias } = revisarFicha({ titulo: t.titulo, bullets: t.bullets, descripcion: t.descripcion ?? null, backend: t.backend })
   return { bloqueos, incidencias }
+}
+
+/** Las viñetas que había y no siguen en lo nuevo (para decirlo en la confirmación: «se borran estas») */
+export function vinetasQueSalen(antes: TextosFicha, despues: TextosFicha): string[] {
+  const quedan = new Set(despues.bullets.map(normalizarTexto).filter(Boolean))
+  return antes.bullets.map(normalizarTexto).filter((b) => b && !quedan.has(b))
+}
+
+/* ------------------------------------------------------------------ */
+/* Antes de mandar: solo lo tocado y sin pisar lo que cambió en Amazon  */
+/* ------------------------------------------------------------------ */
+
+/** Los campos que se comparan con lo «esperado» (la ficha sobre la que se hizo una propuesta). Los highlights no: la lectura diaria no siempre los trae */
+export const CAMPOS_ESPERADOS: readonly CampoFicha[] = ['titulo', 'bullets', 'backend']
+
+export type DecisionDeEdicion = { ok: true; campos: CampoFicha[] } | { ok: false; motivo: string; camposCambiadosEnAmazon?: CampoFicha[] }
+
+/**
+ * QUÉ SE MANDA DE VERDAD. PURO. Con la ficha VIVA (leída de Amazon en este momento), no con la guardada (que puede tener hasta 24 h):
+ *   · sin `soloCampos` (los campos que la persona tocó) no se manda nada: no se adivina;
+ *   · un campo tocado que cambió en Amazon desde que se leyó (vivo ≠ `antesVisto` y vivo ≠ lo nuevo) no se pisa: hay que recargar la ficha;
+ *   · con `esperado` (la ficha sobre la que se hizo una propuesta de la IA): si el título, las viñetas o el backend vivos ya no son esos, no se manda nada;
+ *   · en dos idiomas en el mismo país (Bélgica, Canadá) no se edita desde aquí: el PATCH borraría el otro idioma;
+ *   · se mandan los campos que cambian frente a la ficha viva Y que la persona tocó (lo que cambió en Amazon y no se ha tocado se queda como está).
+ */
+export function decidirEdicion(o: { viva: TextosFicha; despues: TextosFicha; soloCampos?: readonly CampoFicha[] | null; antesVisto?: Partial<TextosFicha> | null; esperado?: TextosFicha | null; otrosIdiomas?: readonly string[]; languageTag?: string | null }): DecisionDeEdicion {
+  if ((o.otrosIdiomas?.length ?? 0) > 0) {
+    const idiomas = [...new Set([o.languageTag, ...(o.otrosIdiomas ?? [])].filter((x): x is string => Boolean(x)))]
+    return { ok: false, motivo: `Esta ficha está en dos idiomas (${idiomas.join(' y ')}) en este país: edítala en Seller Central. Desde aquí se borraría el otro idioma.` }
+  }
+  if (!o.soloCampos || o.soloCampos.length === 0) return { ok: false, motivo: 'No se sabe qué campos has tocado: recarga la página y vuelve a editar.' }
+  if (o.esperado) {
+    const distintos = CAMPOS_ESPERADOS.filter((c) => valorDe(o.viva, c) !== valorDe(o.esperado as TextosFicha, c))
+    if (distintos.length > 0) return { ok: false, motivo: `La ficha ha cambiado en Amazon desde que se hizo la propuesta (${distintos.map((c) => NOMBRE_DE_CAMPO[c].toLowerCase()).join(', ')}): no se manda nada. Pide otra propuesta sobre la ficha de ahora.`, camposCambiadosEnAmazon: distintos }
+  }
+  if (o.antesVisto) {
+    const pisados = o.soloCampos.filter((c) => {
+      const vivo = valorDe(o.viva, c)
+      return vivo !== valorDe(o.antesVisto as Partial<TextosFicha>, c) && vivo !== valorDe(o.despues, c)
+    })
+    if (pisados.length > 0) {
+      const nombres = pisados.map((c) => NOMBRE_DE_CAMPO[c].toLowerCase()).join(', ')
+      return { ok: false, motivo: `${pisados.length === 1 ? `Este campo (${nombres}) ha cambiado` : `Estos campos (${nombres}) han cambiado`} en Amazon desde la última lectura: recarga la ficha.`, camposCambiadosEnAmazon: pisados }
+    }
+  }
+  const campos = camposCambiados(o.viva, o.despues).filter((c) => o.soloCampos?.includes(c))
+  if (campos.length === 0) return { ok: false, motivo: 'No hay nada que cambiar: lo que quieres mandar es lo que ya está en Amazon.' }
+  return { ok: true, campos }
+}
+
+/** Al aplicar (hasta 2 h después de validar): ¿algún campo de la edición ha cambiado en Amazon desde el «antes» guardado al validar? PURO */
+export function camposPisadosDesdeValidar(viva: TextosFicha, antes: TextosFicha, despues: TextosFicha, campos: readonly CampoFicha[]): CampoFicha[] {
+  return campos.filter((c) => {
+    const vivo = valorDe(viva, c)
+    return vivo !== valorDe(antes, c) && vivo !== valorDe(despues, c)
+  })
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,19 +177,34 @@ export function atributoDeHighlights(propiedades: Iterable<string>): string | nu
 
 type ValorDeAtributo = { value?: unknown; marketplace_id?: string; language_tag?: string }
 
-/** Los valores de texto de un atributo de un listing, de este marketplace (o, si ninguno dice cuál, todos) */
-export function valoresDeAtributo(atributos: Record<string, unknown> | undefined, clave: string, marketplaceId: string): string[] {
+/** Los valores de un atributo que son de este marketplace (o, si ninguno dice cuál, todos) */
+function delMercado(atributos: Record<string, unknown> | undefined, clave: string, marketplaceId: string): ValorDeAtributo[] {
   const lista = (atributos?.[clave] ?? []) as ValorDeAtributo[]
   if (!Array.isArray(lista)) return []
-  const delMercado = lista.filter((v) => !v.marketplace_id || v.marketplace_id === marketplaceId)
-  return (delMercado.length > 0 ? delMercado : lista).map((v) => (typeof v.value === 'string' ? v.value.trim() : '')).filter(Boolean)
+  const del = lista.filter((v) => v && (!v.marketplace_id || v.marketplace_id === marketplaceId))
+  return del.length > 0 ? del : lista.filter(Boolean)
 }
 
-/** Los Item Highlights de un listing leído: con el atributo conocido, o buscando entre los nombres posibles */
-export function highlightsDeAtributos(atributos: Record<string, unknown> | undefined, marketplaceId: string, atributo?: string | null): string | null {
+/**
+ * Los valores de texto de un atributo de un listing, de este marketplace (o, si ninguno dice cuál, todos). Con `languageTag`, solo los de ese idioma (y
+ * los que no dicen idioma): en Bélgica o Canadá una ficha trae los dos idiomas y mezclarlos daba 6 viñetas y un título en neerlandés.
+ */
+export function valoresDeAtributo(atributos: Record<string, unknown> | undefined, clave: string, marketplaceId: string, languageTag?: string | null): string[] {
+  const lista = delMercado(atributos, clave, marketplaceId)
+  const delIdioma = languageTag ? lista.filter((v) => !v.language_tag || v.language_tag === languageTag) : lista
+  return delIdioma.map((v) => (typeof v.value === 'string' ? v.value.trim() : '')).filter(Boolean)
+}
+
+/** Los idiomas (language_tag) en que viene un atributo en este marketplace, en el orden en que llegan */
+export function idiomasDeAtributo(atributos: Record<string, unknown> | undefined, clave: string, marketplaceId: string): string[] {
+  return [...new Set(delMercado(atributos, clave, marketplaceId).map((v) => v.language_tag).filter((x): x is string => typeof x === 'string' && x.length > 0))]
+}
+
+/** Los Item Highlights de un listing leído: con el atributo conocido, o buscando entre los nombres posibles (del idioma pedido, si se dice) */
+export function highlightsDeAtributos(atributos: Record<string, unknown> | undefined, marketplaceId: string, atributo?: string | null, languageTag?: string | null): string | null {
   const clave = atributo ?? atributoDeHighlights(Object.keys(atributos ?? {}))
   if (!clave) return null
-  const v = valoresDeAtributo(atributos, clave, marketplaceId)
+  const v = valoresDeAtributo(atributos, clave, marketplaceId, languageTag)
   return v.length > 0 ? v.join(' ') : null
 }
 
@@ -175,8 +250,13 @@ export function planDePatch(t: TextosFicha, campos: readonly CampoFicha[], o: { 
       continue
     }
     if (c === 'bullets') {
-      const lista = t.bullets.map(normalizarTexto).filter(Boolean).slice(0, MAX_VINETAS)
+      const lista = t.bullets.map(normalizarTexto).filter(Boolean)
       if (lista.length === 0) continue
+      // Nunca se recorta en silencio (se perderían las que sobran): bloqueosDeEdicion ya lo impide; esto es la última red
+      if (lista.length > MAX_VINETAS) {
+        avisos.push(`Hay ${lista.length} viñetas y el ERP trabaja con ${MAX_VINETAS}: no se han mandado. Quita a mano las que sobren.`)
+        continue
+      }
       patches.push({ op: 'replace', path: RUTA.bullets, value: lista.map(v) })
       enviados.push(c)
       continue

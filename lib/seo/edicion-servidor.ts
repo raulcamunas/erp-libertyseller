@@ -17,9 +17,8 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError, describeIssues, type AmazonIssue } from '@/lib/amazon/errors'
 import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { bloqueosDeEdicion, camposCambiados, CAMPOS_FICHA, explicacionDeNoAplicada, highlightsDeAtributos, MINUTOS_ANTES_DE_VERIFICAR, planDePatch, verificarEdicion, atributoDeHighlights, type CampoFicha, type ComparacionDeCampo, type EstadoVerificado, type TextosFicha } from './edicion'
+import { bloqueosDeEdicion, camposPisadosDesdeValidar, CAMPOS_FICHA, decidirEdicion, NOMBRE_DE_CAMPO, explicacionDeNoAplicada, highlightsDeAtributos, MINUTOS_ANTES_DE_VERIFICAR, planDePatch, verificarEdicion, atributoDeHighlights, type CampoFicha, type ComparacionDeCampo, type EstadoVerificado, type TextosFicha } from './edicion'
 import { fichaDeItem, type FichaLeida } from './ficha-servidor'
-import { IDIOMA_DE_MARKETPLACE } from './propuesta'
 import { DIAS_ENTRE_CAMBIOS, ventanaDeCambio } from './tareas'
 import { cambiosAplicados } from './datos'
 
@@ -125,6 +124,8 @@ interface ListingLeido {
   ficha: FichaLeida
   productType: string
   languageTag: string
+  /** Otros idiomas de la ficha en este país (Bélgica, Canadá): con alguno, no se edita desde el ERP */
+  otrosIdiomas: string[]
   atributoHighlights: string | null
   textos: TextosFicha
 }
@@ -140,19 +141,20 @@ async function leerListing(creds: AmazonCredentials, marketplaceId: string, sku:
   const ficha = item ? fichaDeItem(item, marketplaceId) : null
   if (!item || !ficha) return { motivo: `Amazon no encuentra el SKU ${sku} en esta cuenta y país.` }
   if (!ficha.productType) return { motivo: 'Amazon no ha devuelto el tipo de producto de este listing: no se puede cambiar desde aquí.' }
-  const atributos = item.attributes as Record<string, Array<{ language_tag?: string; marketplace_id?: string }>> | undefined
-  const tagActual = (atributos?.item_name ?? []).find((v) => !v.marketplace_id || v.marketplace_id === marketplaceId)?.language_tag
+  // Un solo idioma (fichaDeItem ya lo ha elegido): el del título de este marketplace o, si no dice, el del país
+  const languageTag = ficha.languageTag ?? 'es_ES'
   // Si la definición no se puede leer, los highlights se avisan (no se mandan a ciegas con un nombre inventado)
   const propiedades = await propiedadesDelTipo(creds, marketplaceId, ficha.productType).catch((e) => {
     console.error('SEO: definición del tipo de producto:', e instanceof Error ? e.message : e)
     return [] as string[]
   })
   const atributoHighlights = atributoDeHighlights(propiedades)
-  const highlights = atributoHighlights ? highlightsDeAtributos(ficha.atributos, marketplaceId, atributoHighlights) : ficha.highlights
+  const highlights = atributoHighlights ? highlightsDeAtributos(ficha.atributos, marketplaceId, atributoHighlights, languageTag) : ficha.highlights
   return {
     ficha,
     productType: ficha.productType,
-    languageTag: tagActual ?? IDIOMA_DE_MARKETPLACE[marketplaceId]?.tag ?? 'es_ES',
+    languageTag,
+    otrosIdiomas: ficha.otrosIdiomas ?? [],
     atributoHighlights,
     textos: { titulo: ficha.titulo ?? '', highlights: highlights ?? '', bullets: ficha.bullets, descripcion: ficha.descripcion ?? '', backend: ficha.backend ?? '' },
   }
@@ -185,7 +187,18 @@ export interface Cuenta {
 
 export type ResultadoDeValidacion =
   | { ok: true; edicion: EdicionGuardada | null; campos: CampoFicha[]; avisos: string[]; issues: AmazonIssue[]; antes: TextosFicha; ventana: { bloqueada: boolean; ultimo: string; puedeDesde: string } | null }
-  | { ok: false; motivo: string; issues: AmazonIssue[]; edicion?: EdicionGuardada | null }
+  | {
+      ok: false
+      motivo: string
+      issues: AmazonIssue[]
+      edicion?: EdicionGuardada | null
+      /** La ficha tal cual está ahora en Amazon (si se ha llegado a leer): el editor la usa como nuevo «original» */
+      antes?: TextosFicha
+      /** Los campos tocados que han cambiado en Amazon desde la última lectura */
+      camposCambiadosEnAmazon?: CampoFicha[]
+      /** Los idiomas de una ficha bilingüe (Bélgica, Canadá): el editor no deja editarla */
+      idiomas?: string[]
+    }
 
 /** ¿La ventana del SOP (30 días entre cambios de título) está cerrada para este producto? Cuenta lo aplicado por la IA y lo editado a mano */
 async function ventanaDe(c: Cuenta, asin: string) {
@@ -201,27 +214,46 @@ async function credencialesDe(c: Cuenta): Promise<AmazonCredentials | null> {
  * PASO 1 · VALIDAR EN AMAZON. No guarda nada en la ficha (VALIDATION_PREVIEW). Apunta la edición «validada» o «rechazada» con lo que dijo Amazon y el
  * «antes» leído en este momento. Solo se puede aplicar una edición validada.
  */
-export async function validarEdicion(c: Cuenta, e: { asin: string; sku: string; despues: TextosFicha; origen: 'manual' | 'ia'; propuestaId?: string | null; userId: string; soloCampos?: CampoFicha[] }): Promise<ResultadoDeValidacion> {
+export async function validarEdicion(
+  c: Cuenta,
+  e: {
+    asin: string
+    sku: string
+    despues: TextosFicha
+    origen: 'manual' | 'ia'
+    propuestaId?: string | null
+    userId: string
+    /** Los campos que la persona ha tocado. Obligatorio: sin él no se manda nada (antes se mandaba todo lo distinto y se pisaba Seller Central) */
+    soloCampos: CampoFicha[] | null | undefined
+    /** Lo que había en esos campos cuando la persona empezó a editar: si Amazon ya no lo tiene (y tampoco lo nuevo), no se pisa */
+    antesVisto?: Partial<TextosFicha> | null
+    /** La ficha sobre la que se hizo una propuesta de la IA: si el título, las viñetas o el backend ya no son esos, no se manda nada */
+    esperado?: TextosFicha | null
+  }
+): Promise<ResultadoDeValidacion> {
   const creds = await credencialesDe(c)
   if (!creds) return { ok: false, motivo: 'La conexión de Amazon ya no existe.', issues: [] }
   const listing = await leerListing(creds, c.marketplaceId, e.sku)
   if ('motivo' in listing) return { ok: false, motivo: listing.motivo, issues: [] }
 
-  let campos = camposCambiados(listing.textos, e.despues)
-  if (e.soloCampos) campos = campos.filter((x) => e.soloCampos?.includes(x))
-  if (campos.length === 0) return { ok: false, motivo: 'No hay nada que cambiar: lo que quieres mandar es lo que ya está en Amazon.', issues: [] }
+  const decision = decidirEdicion({ viva: listing.textos, despues: e.despues, soloCampos: e.soloCampos, antesVisto: e.antesVisto, esperado: e.esperado, otrosIdiomas: listing.otrosIdiomas, languageTag: listing.languageTag })
+  if (!decision.ok) {
+    const idiomas = listing.otrosIdiomas.length > 0 ? [listing.languageTag, ...listing.otrosIdiomas] : undefined
+    return { ok: false, motivo: decision.motivo, issues: [], antes: listing.textos, camposCambiadosEnAmazon: decision.camposCambiadosEnAmazon, idiomas }
+  }
+  const campos = decision.campos
   const { bloqueos } = bloqueosDeEdicion(e.despues, campos)
-  if (bloqueos.length > 0) return { ok: false, motivo: bloqueos.join(' '), issues: [] }
+  if (bloqueos.length > 0) return { ok: false, motivo: bloqueos.join(' '), issues: [], antes: listing.textos }
 
   const plan = planDePatch(e.despues, campos, { marketplaceId: c.marketplaceId, languageTag: listing.languageTag, atributoHighlights: listing.atributoHighlights })
-  if (plan.patches.length === 0) return { ok: false, motivo: plan.avisos.join(' ') || 'No hay nada que mandar.', issues: [] }
+  if (plan.patches.length === 0) return { ok: false, motivo: plan.avisos.join(' ') || 'No hay nada que mandar.', issues: [], antes: listing.textos }
 
   let respuesta: RespuestaPatch
   try {
     respuesta = await patch(creds, c.marketplaceId, e.sku, listing.productType, plan.patches, true)
   } catch (err) {
     if (!(err instanceof AmazonApiError)) throw err
-    return { ok: false, motivo: err.humanMessage ?? err.message, issues: err.issues ?? [] }
+    return { ok: false, motivo: err.humanMessage ?? err.message, issues: err.issues ?? [], antes: listing.textos }
   }
   const issues = respuesta.issues ?? []
   const rechazada = bloquea(respuesta)
@@ -250,7 +282,7 @@ export async function validarEdicion(c: Cuenta, e: { asin: string; sku: string; 
   // Sin la migración 312 se puede validar igual (no hay dónde apuntarlo); aplicar a mano sí la necesita
   if (error && !isMissingSchema(error)) throw error
   const edicion = data ? deFila(data as Record<string, unknown>, await nombresDe([e.userId])) : null
-  if (rechazada) return { ok: false, motivo: `Amazon no lo acepta: ${describeIssues(issues)}`, issues, edicion }
+  if (rechazada) return { ok: false, motivo: `Amazon no lo acepta: ${describeIssues(issues)}`, issues, edicion, antes: listing.textos }
   return { ok: true, edicion, campos: plan.enviados, avisos: plan.avisos, issues, antes: listing.textos, ventana: ventana ? { bloqueada: ventana.bloqueada, ultimo: ventana.ultimo, puedeDesde: ventana.puedeDesde } : null }
 }
 
@@ -281,7 +313,16 @@ export async function aplicarEdicion(c: Cuenta, id: string, userId: string, opci
   if (!creds) return { ok: false, motivo: 'La conexión de Amazon ya no existe.', issues: [] }
   const listing = await leerListing(creds, c.marketplaceId, ed.sku)
   if ('motivo' in listing) return { ok: false, motivo: listing.motivo, issues: [] }
+  if (listing.otrosIdiomas.length > 0) return { ok: false, motivo: `Esta ficha está en dos idiomas (${[listing.languageTag, ...listing.otrosIdiomas].join(' y ')}) en este país: edítala en Seller Central.`, issues: [] }
+  // Entre validar y aplicar (hasta 2 h) alguien puede haber cambiado la ficha en Seller Central: no se pisa
+  const pisados = camposPisadosDesdeValidar(listing.textos, ed.antes, ed.despues, ed.campos)
+  if (pisados.length > 0) {
+    await service.from('seo_ediciones').update({ estado: 'rechazada', error: `Cambiado en Amazon antes de aplicar: ${pisados.join(', ')}` }).eq('id', id)
+    const nombres = pisados.map((x) => NOMBRE_DE_CAMPO[x].toLowerCase()).join(', ')
+    return { ok: false, motivo: `${pisados.length === 1 ? `Este campo (${nombres}) ha cambiado` : `Estos campos (${nombres}) han cambiado`} en Amazon desde que lo validaste: recarga la ficha y vuelve a validar.`, issues: [] }
+  }
   const plan = planDePatch(ed.despues, ed.campos, { marketplaceId: c.marketplaceId, languageTag: listing.languageTag, atributoHighlights: (fila.atributo_highlights as string | null) ?? listing.atributoHighlights })
+  if (plan.patches.length === 0) return { ok: false, motivo: plan.avisos.join(' ') || 'No hay nada que mandar.', issues: [] }
 
   try {
     const prueba = await patch(creds, c.marketplaceId, ed.sku, listing.productType, plan.patches, true)
@@ -306,6 +347,8 @@ export async function aplicarEdicion(c: Cuenta, id: string, userId: string, opci
     if (e2) throw e2
     // La ficha se vuelve a leer en la pasada siguiente; la verificación compara a partir de los 5 minutos
     await service.from('seo_lecturas').update({ ficha_leida_at: null }).eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId)
+    // Un cambio a mano deja viejas las propuestas de la IA pendientes de ese producto: se descartan (si no, una podría pisar lo que se acaba de mandar)
+    if (ed.origen === 'manual') await descartarPropuestasPendientes(c, ed.asin)
     const nombres = await nombresDe([fila.creado_por, userId])
     return { ok: true, edicion: deFila(actualizada as Record<string, unknown>, nombres), submissionId: hecho.submissionId ?? null, avisos: issues.length > 0 ? describeIssues(issues) : null }
   } catch (err) {
@@ -313,6 +356,12 @@ export async function aplicarEdicion(c: Cuenta, id: string, userId: string, opci
     await service.from('seo_ediciones').update({ estado: 'error', error: (err.humanMessage ?? err.message).slice(0, 1000) }).eq('id', id)
     return { ok: false, motivo: err.humanMessage ?? err.message, issues: err.issues ?? [] }
   }
+}
+
+/** Marca como descartadas las propuestas de la IA pendientes de un producto. No rompe el envío si falla (ya está hecho en Amazon) */
+async function descartarPropuestasPendientes(c: Cuenta, asin: string): Promise<void> {
+  const { error } = await createServiceClient().from('seo_propuestas').update({ estado: 'descartada' }).eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('asin', asin).eq('estado', 'pendiente')
+  if (error && !isMissingSchema(error)) console.error('SEO: descartar propuestas pendientes tras editar a mano:', error.message)
 }
 
 /* ------------------------------------------------------------------ */
@@ -396,7 +445,7 @@ export async function verificarEdiciones(c: Cuenta, creds: AmazonCredentials): P
           backend: f.backend ?? '',
           // Los highlights se leen con el MISMO atributo con el que se mandaron. Si se mandaron con un atributo conocido y la ficha no los trae,
           // es que NO están (vacío → «distinto»), no que no se puedan leer: si no, una edición solo de highlights se daba por aplicada a las 24 h
-          highlights: r.atributo_highlights ? (highlightsDeAtributos(f.atributos, c.marketplaceId, String(r.atributo_highlights)) ?? '') : (f.highlights ?? undefined),
+          highlights: r.atributo_highlights ? (highlightsDeAtributos(f.atributos, c.marketplaceId, String(r.atributo_highlights), f.languageTag) ?? '') : (f.highlights ?? undefined),
         }
       : {}
     const v = verificarEdicion(r.despues as TextosFicha, leido, campos.filter((x) => CAMPOS_FICHA.includes(x)), horas)
@@ -422,9 +471,12 @@ async function marcarPropuesta(id: string, estado: EstadoVerificado, verificacio
   await service.from('seo_propuestas').update({ resultado: { ...resultado, verificacion: { estado, ...verificacion } } }).eq('id', id)
 }
 
-/** Para la propuesta de la IA: valida y, si Amazon dice que sí, manda en el mismo paso (la persona ya confirmó en la pantalla) */
-export async function validarYAplicar(c: Cuenta, e: { asin: string; sku: string; despues: TextosFicha; propuestaId: string; userId: string }): Promise<ResultadoDeAplicarIa> {
-  const v = await validarEdicion(c, { ...e, origen: 'ia', soloCampos: ['titulo', 'highlights', 'bullets', 'backend'] })
+/**
+ * Para la propuesta de la IA: valida y, si Amazon dice que sí, manda en el mismo paso (la persona ya confirmó en la pantalla). Con `esperado` (la ficha
+ * sobre la que se hizo la propuesta, `p.antes`): si el título, las viñetas o el backend de Amazon ya no son esos, no se manda nada.
+ */
+export async function validarYAplicar(c: Cuenta, e: { asin: string; sku: string; despues: TextosFicha; propuestaId: string; userId: string }, opciones: { esperado?: TextosFicha | null } = {}): Promise<ResultadoDeAplicarIa> {
+  const v = await validarEdicion(c, { ...e, origen: 'ia', soloCampos: ['titulo', 'highlights', 'bullets', 'backend'], esperado: opciones.esperado ?? null })
   if (!v.ok) return { ok: false, motivo: v.motivo, issues: v.issues }
   if (!v.edicion) return enviarSinRegistro(c, e.sku, e.despues, v.campos)
   // La ventana del SOP ya la comprobó quien llama (aplicarPropuesta): aquí no se vuelve a bloquear

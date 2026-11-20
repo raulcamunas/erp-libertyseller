@@ -27,7 +27,7 @@ const COLOR_GRAVEDAD: Record<Gravedad, string> = { grave: COLOR_ESTADO.rojo, ate
  *   · el título, las viñetas y el backend tal cual están en Amazon, con lo que se gasta en balde;
  *   · las palabras que pesan en búsquedas DEL producto (sin ruido ni falsos amigos) y dónde está cada una, las búsquedas que venden y no están, y lo que vende por publicidad y la ficha no dice.
  */
-export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void }) {
+export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, recargar }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void; recargar?: () => void | Promise<unknown> }) {
   const publicidad = useDelProducto<DatosDePublicidad>(asin ? `/api/seo/publicidad?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const ficha = asin ? fichaDe(datos, asin) : null
   const diagnostico = useMemo(() => (asin ? diagnosticoDe(datos, asin) : null), [datos, asin])
@@ -76,7 +76,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos }
           {revision && <RevisionDeNorma incidencias={revision.incidencias} />}
           {(ficha.issues?.length ?? 0) > 0 && <IncidenciasDeAmazon issues={ficha.issues ?? []} />}
           {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={hayBusquedas} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} diagnostico={diagnostico} ventana={ventana} />}
-          {asin && ficha.sku && <EditorDeFicha key={`editor-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} ventana={ventana} />}
+          {asin && ficha.sku && <EditorDeFicha key={`editor-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} ventana={ventana} onAplicada={recargar ? () => void recargar() : undefined} />}
 
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
             <div className="flex min-w-0 flex-col gap-3">
