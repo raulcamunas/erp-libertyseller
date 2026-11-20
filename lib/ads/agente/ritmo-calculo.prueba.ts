@@ -3,6 +3,7 @@ import { AGENTE, type CampanaParaRitmo, type EstadoDelMes } from './tipos'
 import { limitarPresupuestoAhora, moverSumas, type SumasDePresupuesto } from './aplicar-servidor'
 import { faltaEnSumas, FRENOS_AUTOMATICOS } from './guardarrailes-calculo'
 import { techoAutomatico } from './objetivos-calculo'
+import { sumarDias, ultimoDiaCerrado, ultimoDiaConVentasCerradas, type DiaDeCampana } from './contexto-servidor'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -382,6 +383,39 @@ console.log('\n=== postura por reglas ===')
   ok('… salvo en lanzamiento', posturaPorReglas(p({ acos14Pct: 35, fase: 'lanzamiento' }), 'normal').postura === 'mantener')
   ok('cobertura 5 días → recortar', posturaPorReglas(p({ coberturaDias: 5 }), 'crecer').postura === 'recortar')
   ok('stock 0 → recortar', posturaPorReglas(p({ stock: 0, coberturaDias: null }), 'crecer').postura === 'recortar')
+}
+
+console.log('\n=== A4: las ventanas de ACoS acaban en los días con las ventas ya atribuidas ===')
+{
+  // Una campaña con ACoS REAL igual al objetivo (25 %): 30 al día de gasto y 120 de ventas. Los 2 últimos días Amazon aún no ha atribuido todas las ventas (salen un 40 % o un 60 % más bajas)
+  const fechaLocal = '2026-11-20'
+  const dias = (corte: number): DiaDeCampana[] =>
+    Array.from({ length: 17 }, (_, i) => {
+      const fecha = new Date(Date.parse('2026-11-03T00:00:00Z') + i * 86_400_000).toISOString().slice(0, 10)
+      const ultimos = fecha >= '2026-11-18'
+      return { campaignId: 'nu', nombre: 'B0X | SKU | NU', fecha, clics: 30, gasto: 30, ventas: ultimos ? 120 * (1 - corte) : 120, pedidos: ultimos ? 2 : 4, unidades: 4 }
+    })
+  const hasta = ultimoDiaCerrado(dias(0.4), fechaLocal)
+  const hastaVentas = ultimoDiaConVentasCerradas(hasta, fechaLocal, 3)
+  ok('hasta = ayer; hastaVentas = 3 días antes de hoy', hasta === '2026-11-19' && hastaVentas === '2026-11-17', `${hasta} ${hastaVentas}`)
+  ok('hastaVentas nunca pasa de «hasta» (si el rendimiento va atrasado)', ultimoDiaConVentasCerradas('2026-11-15', fechaLocal, 3) === '2026-11-15')
+  const ventana = (filas: DiaDeCampana[], h: string) => sumarDias(filas, new Date(Date.parse(`${h}T00:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10), h)
+  const comoCampana = (w: ReturnType<typeof sumarDias>, id: string) => camp(id, { gasto7: w.gasto, ventas7: w.ventas, pedidos7: w.pedidos, clics7: w.clics, diasConDatos7: w.dias, acosParaBajar: 25 })
+  const mes: EstadoDelMes = { gastoMes: 500, techo: 1000, proyeccion: 1060, media7: 31, diasRestantes: 20, ritmo: 'recorte', cambiado: false, motivo: '' }
+  // La «mala» de verdad (ACoS 50 %) cubre ella sola el exceso de 3 al día
+  const mala = camp('ma', { gasto7: 140, ventas7: 280, presupuesto: 30, acosParaBajar: 25 })
+
+  const antes = recortePorRitmo([comoCampana(ventana(dias(0.4), hasta), 'nu'), mala], mes, 1)
+  ok('con la ventana hasta ayer (ventas a medio atribuir) la que cumple el objetivo salía «mala»', antes.presionBajar[0] === 'nu', j(antes))
+  const ahora = recortePorRitmo([comoCampana(ventana(dias(0.4), hastaVentas), 'nu'), mala], mes, 1)
+  ok('con la ventana de hastaVentas no se la marca mala (baja la mala de verdad)', j(ahora.presionBajar) === j(['ma']), j(ahora))
+
+  const r2Antes = presionDelDia([comoCampana(ventana(dias(0.6), hasta), 'nu')], { ritmo: 'normal' })
+  ok('R2 con la ventana hasta ayer daba «bajar»', r2Antes.nu === 'bajar', j(r2Antes))
+  const r2 = presionDelDia([comoCampana(ventana(dias(0.6), hastaVentas), 'nu')], { ritmo: 'normal' })
+  ok('R2 con la ventana de hastaVentas no da «bajar»', r2.nu !== 'bajar', j(r2))
+  const w = ventana(dias(0.6), hastaVentas)
+  ok('gasto y ventas del cociente salen de la MISMA ventana (7 días, ACoS 25 %)', w.dias === 7 && Math.abs((w.gasto / w.ventas) * 100 - 25) < 1e-9, j(w))
 }
 
 console.log(fallos ? `\n${fallos} FALLOS` : '\nTodo OK')

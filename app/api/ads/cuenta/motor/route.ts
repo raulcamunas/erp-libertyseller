@@ -1,4 +1,3 @@
-import { generarPropuestasDePujaYPresupuesto } from '@/lib/ads/motor-pujas'
 import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, fail } from '@/lib/amazon/api'
 import { leerFicha } from '@/lib/ads/cuenta'
@@ -12,7 +11,6 @@ import {
   deshacerPropuesta,
   ensayarPropuesta,
   MINUTOS_RESERVA_COLGADA,
-  generarPropuestas,
   guardarModo,
   guardarUmbrales,
   leerModo,
@@ -28,7 +26,7 @@ import { resumenDeHoy } from '@/lib/ads/hoy'
 import { avanzarTerminos, estadoDeTerminos } from '@/lib/ads/terminos'
 import { abrirCuenta, errorDeRuta, esAdministrador, soloAdministradores } from '@/lib/ads/ruta'
 import { estadoDelMotor } from '@/lib/ads/motor-estado'
-import { marcarGenerado } from '@/lib/ads/motor-cron'
+import { generarDelMotor } from '@/lib/ads/motor-cron'
 
 /**
  * EL MOTOR DE OPTIMIZACIÓN DE UNA CUENTA. Quien lleva cuentas (administrador o con la casilla de PPC). APLICAR escribe en la cuenta del cliente.
@@ -123,11 +121,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, accion: r.accion, detalle: r.detalle ?? null })
       }
       case 'generar': {
-        const r = await generarPropuestas(cuenta)
-        // Fase 3 (pujas, pausas y presupuesto) también al pulsar; si el modo está apagado no se propone nada
-        const f3 = r.omitido === 'apagado' ? { pujas: 0, presupuestos: 0, pausas: 0 } : await generarPropuestasDePujaYPresupuesto(cuenta)
-        if (r.omitido !== 'apagado') await marcarGenerado(cuenta.id)
-        return NextResponse.json({ ok: true, resumen: { ...r, ...f3, nuevas: r.nuevas + f3.pujas + f3.presupuestos + f3.pausas } })
+        // Lo mismo que el proceso de fondo (generarDelMotor): en modo agente, con los ajustes del agente; si no se pueden leer, hoy sin pujas. Con el modo apagado no se propone nada
+        const g = await generarDelMotor(cuenta, await leerModo(cuenta.id))
+        const f3 = g.fase3 ?? { pujas: 0, presupuestos: 0, pausas: 0 }
+        return NextResponse.json({ ok: true, resumen: { ...g.resumen, ...f3, nuevas: g.nuevas, errores: g.errores } })
       }
       case 'aplicar': {
         if (!id) return fail(400, 'Falta la propuesta.')

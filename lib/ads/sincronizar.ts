@@ -61,19 +61,43 @@ export interface EstadoParaDecidir {
   hayError: boolean
   ahora: number
   forzar: boolean
+  /** La última lectura guardó las campañas pero NO las segmentaciones (error con PREFIJO_OBJETIVOS_SIN_LEER): se reintenta tras REINTENTO_TRAS_ERROR_MS, sin esperar las 3 h */
+  faltanObjetivos?: boolean
 }
+
+/** El `error` de ads_sincronizacion cuando las campañas se guardaron pero las segmentaciones no (rechazado, pendiente, FAILED o fallo al guardar) */
+export const PREFIJO_OBJETIVOS_SIN_LEER = 'Segmentaciones sin leer: '
 
 /** ¿Hay que EMPEZAR una lectura nueva? (Solo se pregunta en reposo.) */
 export function debeEmpezar(e: EstadoParaDecidir, intervaloMs: number = INTERVALO_MS): boolean {
   if (e.forzar) return e.pedidoAt === null || e.ahora - e.pedidoAt >= ENFRIAMIENTO_DE_FORZAR_MS
   // Tras un error no se reintenta cada pasada: se espera un rato
   if (e.hayError && e.pedidoAt !== null && e.ahora - e.pedidoAt < REINTENTO_TRAS_ERROR_MS) return false
+  // Faltaron las segmentaciones: pasado ese rato se vuelven a pedir (si se esperasen las 3 h, las pujas se decidirían con días sin releer)
+  if (e.faltanObjetivos && e.pedidoAt !== null) return true
   if (e.ultimoOkAt === null) return true
   return e.ahora - e.ultimoOkAt >= intervaloMs
 }
 
-/** Un informe pedido. Sin `tipo` = el de campañas (así estaban guardados los de antes); 'objetivos' = el de segmentaciones */
-type InformePedido = { id: string; desde: string; hasta: string; tipo?: 'objetivos' }
+/** Un informe pedido. Sin `tipo` = el de campañas (así estaban guardados los de antes); 'objetivos' = el de segmentaciones. `rechazado`: Amazon no aceptó pedirlo (no hay id que consultar) */
+export type InformePedido = { id: string; desde: string; hasta: string; tipo?: 'objetivos'; rechazado?: string }
+
+/**
+ * PURO. ¿Han llegado bien TODAS las segmentaciones? Devuelve el motivo si no (null = bien). Antes, si el informe de objetivos fallaba, se quedaba pendiente o Amazon no lo aceptaba, solo se
+ * guardaban las campañas y la lectura se daba por buena: las pujas se decidían con días leídos una sola vez. Sin informes de objetivos pedidos (tabla sin migrar) no hay nada que comprobar.
+ * `estados` va en el mismo orden que los informes de objetivos con id (los no rechazados).
+ */
+export function motivoDeObjetivosSinLeer(informes: readonly InformePedido[], estados: ReadonlyArray<{ estado: string; url?: string; detalle?: string }>, errorAlGuardar: string | null): string | null {
+  const deObjetivos = informes.filter((i) => i.tipo === 'objetivos')
+  if (deObjetivos.length === 0) return null
+  const rechazado = deObjetivos.find((i) => i.rechazado)
+  if (rechazado) return `Amazon no ha aceptado el informe (${rechazado.rechazado})`.slice(0, 300)
+  const fallido = estados.find((e) => e.estado === 'FAILED')
+  if (fallido) return `Amazon no ha podido generar el informe${fallido.detalle ? `: ${fallido.detalle}` : ''}`.slice(0, 300)
+  if (estados.length < deObjetivos.length || estados.some((e) => e.estado !== 'COMPLETED' || !e.url)) return 'el informe sigue pendiente en Amazon'
+  if (errorAlGuardar) return `no se han podido guardar (${errorAlGuardar})`.slice(0, 300)
+  return null
+}
 
 interface FilaEstado {
   estado: 'reposo' | 'esperando'
@@ -196,7 +220,8 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
         return { accion: 'error', detalle: 'caducado' }
       }
       const deCampanas = estado.informes.filter((i) => i.tipo !== 'objetivos')
-      const deObjetivos = estado.informes.filter((i) => i.tipo === 'objetivos')
+      // Los rechazados al pedirlos no tienen id: no se consultan (pero cuentan como segmentaciones sin leer)
+      const deObjetivos = estado.informes.filter((i) => i.tipo === 'objetivos' && i.id && !i.rechazado)
       const estados = await Promise.all(deCampanas.map((i) => estadoDeInforme(cuenta.conexionId, cuenta.profileId, i.id)))
       const fallido = estados.find((e) => e.estado === 'FAILED')
       if (fallido) {
@@ -210,6 +235,7 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
       const objetivosPendientes = estadosObj.some((e) => e.estado !== 'COMPLETED' && e.estado !== 'FAILED')
       if (objetivosPendientes && ahora - pedidoAt < ESPERA_MAXIMA_MS - 5 * 60_000) return { accion: 'esperando' }
       let filasObjetivos = 0
+      let errorAlGuardarObjetivos: string | null = null
       const listos = estadosObj.filter((e) => e.estado === 'COMPLETED' && e.url)
       for (const e of estadosObj.filter((x) => x.estado === 'FAILED')) console.error(`[ads] el informe de segmentaciones de ${cuenta.id} ha fallado: ${e.detalle ?? ''}`)
       if (listos.length > 0) {
@@ -224,9 +250,11 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
           await service.from('ads_objetivos_diario').delete().eq('perfil_id', cuenta.id).lt('fecha', desplazar(hoyUTC(), -DIAS_QUE_SE_CONSERVAN))
           filasObjetivos = filas.length
         } catch (e) {
-          console.error(`[ads] no se han podido guardar las segmentaciones de ${cuenta.id}:`, e instanceof Error ? e.message : e)
+          errorAlGuardarObjetivos = e instanceof Error ? e.message : String((e as { message?: string })?.message ?? e)
+          console.error(`[ads] no se han podido guardar las segmentaciones de ${cuenta.id}:`, errorAlGuardarObjetivos)
         }
       }
+      const objetivosSinLeer = motivoDeObjetivosSinLeer(estado.informes, estadosObj, errorAlGuardarObjetivos)
 
       const filas = (await Promise.all(estados.map((e) => descargarFilas(e.url as string)))).flat()
       const paraGuardar = filasParaGuardar(cuenta.id, filas)
@@ -245,10 +273,11 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
         ultimo_ok_at: new Date().toISOString(),
         datos_desde: estado.datos_desde && estado.datos_desde < desde ? estado.datos_desde : desde,
         datos_hasta: hasta,
-        error: null,
+        // Las campañas sí están; si faltaron las segmentaciones se dice aquí y la pasada siguiente las vuelve a pedir tras REINTENTO_TRAS_ERROR_MS (debeEmpezar con faltanObjetivos)
+        error: objetivosSinLeer ? `${PREFIJO_OBJETIVOS_SIN_LEER}${objetivosSinLeer}`.slice(0, 500) : null,
         intentos: 0,
       })
-      return { accion: 'guardado', detalle: `${paraGuardar.length} filas de campañas, ${filasObjetivos} de segmentaciones` }
+      return { accion: 'guardado', detalle: `${paraGuardar.length} filas de campañas, ${filasObjetivos} de segmentaciones${objetivosSinLeer ? ` (segmentaciones sin leer: ${objetivosSinLeer})` : ''}` }
     }
 
     // ---------- en reposo: ¿toca empezar? ----------
@@ -258,6 +287,7 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
       hayError: Boolean(estado?.error),
       ahora,
       forzar: Boolean(opciones.forzar),
+      faltanObjetivos: Boolean(estado?.error?.startsWith(PREFIJO_OBJETIVOS_SIN_LEER)),
     })
     if (!toca) return { accion: 'nada' }
 
@@ -274,7 +304,10 @@ export async function avanzar(cuenta: CuentaParaSincronizar, opciones: { forzar?
         try {
           informes.push({ id: await pedirInformeDeObjetivos(cuenta.conexionId, cuenta.profileId, p), desde: p.desde, hasta: p.hasta, tipo: 'objetivos' })
         } catch (e) {
-          console.error(`[ads] Amazon no ha aceptado el informe de segmentaciones de ${cuenta.id}:`, e instanceof Error ? e.message : e)
+          const texto = e instanceof Error ? e.message : String(e)
+          console.error(`[ads] Amazon no ha aceptado el informe de segmentaciones de ${cuenta.id}:`, texto)
+          // Ya no es un corte silencioso: queda apuntado y, al recoger, la lectura sale como «segmentaciones sin leer»
+          informes.push({ id: '', desde: p.desde, hasta: p.hasta, tipo: 'objetivos', rechazado: texto.slice(0, 200) })
           break
         }
       }
@@ -378,6 +411,6 @@ export async function cuentasConTrabajo(): Promise<CuentaParaSincronizar[]> {
   return cuentas.filter((c) => {
     const e = por.get(c.id)
     if (e?.estado === 'esperando') return true
-    return debeEmpezar({ ultimoOkAt: e?.ultimo_ok_at ? Date.parse(e.ultimo_ok_at) : null, pedidoAt: e?.pedido_at ? Date.parse(e.pedido_at) : null, hayError: Boolean(e?.error), ahora, forzar: false })
+    return debeEmpezar({ ultimoOkAt: e?.ultimo_ok_at ? Date.parse(e.ultimo_ok_at) : null, pedidoAt: e?.pedido_at ? Date.parse(e.pedido_at) : null, hayError: Boolean(e?.error), ahora, forzar: false, faltanObjetivos: Boolean(e?.error?.startsWith(PREFIJO_OBJETIVOS_SIN_LEER)) })
   })
 }

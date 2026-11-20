@@ -23,11 +23,11 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { cuentasASincronizar, debeEmpezar, type CuentaParaSincronizar } from './sincronizar'
 import { avanzarTerminos, INTERVALO_TERMINOS_MS } from './terminos'
-import { generarPropuestas, leerModo, modosConMotor, pilotoAutomatico, TOPE_DIARIO_AUTOPILOTO, type ModoDelMotor } from './motor'
+import { caducarPujasViejasDelMotor, generarPropuestas, leerModo, modosConMotor, pilotoAutomatico, TOPE_DIARIO_AUTOPILOTO, type ModoDelMotor, type ResumenDeGeneracion } from './motor'
 import { generarPropuestasDePujaYPresupuesto } from './motor-pujas'
 import { inicioDelDiaEnEspana, motorTieneTrabajo, tocaGenerar } from './motor-calculo'
 import { ajustesParaPujas } from './agente/ajustes-servidor'
-import type { AjustesDelAgenteParaPujas } from './agente/tipos'
+import { AGENTE, type AjustesDelAgenteParaPujas } from './agente/tipos'
 
 /** null = sin comprobar; false = sin la columna generado_at (migración 311) */
 let hayGeneradoAt: boolean | null = null
@@ -117,6 +117,77 @@ async function hayQueGenerar(perfilId: string, accionDeTerminos: string): Promis
   return tocaGenerar(s?.ultimo_ok_at ?? null, s?.generado_at ?? null)
 }
 
+/** Lo que necesita generarDelMotor (inyectable para las pruebas) */
+export interface DependenciasDeGenerar {
+  generarPropuestas: typeof generarPropuestas
+  ajustesParaPujas: typeof ajustesParaPujas
+  generarPropuestasDePujaYPresupuesto: typeof generarPropuestasDePujaYPresupuesto
+  caducarPujasViejasDelMotor: typeof caducarPujasViejasDelMotor
+  marcarGenerado: typeof marcarGenerado
+}
+
+const DEPENDENCIAS: DependenciasDeGenerar = { generarPropuestas, ajustesParaPujas, generarPropuestasDePujaYPresupuesto, caducarPujasViejasDelMotor, marcarGenerado }
+
+export interface ResultadoDeGenerar {
+  resumen: ResumenDeGeneracion
+  /** Fase 3 (pujas, pausas, presupuesto); null si no se ha generado (motor apagado, sin ajustes del agente o ha fallado) */
+  fase3: Awaited<ReturnType<typeof generarPropuestasDePujaYPresupuesto>> | null
+  nuevas: number
+  errores: string[]
+}
+
+/**
+ * GENERAR (términos → propuestas; pujas, pausas y presupuesto; marcar el día como generado). Lo comparten el proceso de fondo y el botón «Generar» de la pantalla: antes el botón generaba las pujas
+ * SIN los ajustes del agente en cuentas en modo agente (sin cuarentena por efecto abierto, sin la pausa con doble muestra en lanzamiento…) y además marcaba el día como generado, así que ese día
+ * el proceso ya no generaba bien.
+ * En modo «agente»: primero caduca las pujas y pausas pendientes del motor de otra generación (se recalculan ahora con la ventana de hoy) y después lee los ajustes; si fallan, hoy no hay pujas
+ * (sin ellos subirían sin los frenos del agente) y se dice en `errores`.
+ */
+export async function generarDelMotor(cuenta: CuentaParaSincronizar, modo: ModoDelMotor, deps: DependenciasDeGenerar = DEPENDENCIAS): Promise<ResultadoDeGenerar> {
+  const errores: string[] = []
+  const resumen = await deps.generarPropuestas(cuenta)
+  let nuevas = resumen.nuevas
+  // Lo que la generación no ha podido hacer (p. ej. cosechar sin la lista entera de segmentaciones de los destinos) queda en el registro de la pasada
+  for (const a of resumen.avisos ?? []) errores.push(`generar: ${a.slice(0, 160)}`)
+  if (resumen.omitido === 'apagado') return { resumen, fase3: null, nuevas, errores }
+  let ajustes: AjustesDelAgenteParaPujas | undefined
+  let sinPujasHoy = false
+  if (modo === 'agente') {
+    // Las de otra generación fuera ANTES de generar (si no, siguen bloqueando su segmentación y se aplicarían con métricas viejas). Si falla, se sigue: decidirPropuesta las caduca igual a las 36 h
+    try {
+      await deps.caducarPujasViejasDelMotor(cuenta.id, AGENTE.PROPUESTA_PUJA_CADUCA_HORAS)
+    } catch (e) {
+      const texto = e instanceof Error ? e.message : String(e)
+      console.error(`[ads] caducar pujas viejas de ${cuenta.id}:`, texto)
+      errores.push(`agente: no se han podido caducar las pujas de otra generación (${texto.slice(0, 120)})`)
+    }
+    try {
+      ajustes = await deps.ajustesParaPujas(cuenta.id, Date.now())
+    } catch (e) {
+      const texto = e instanceof Error ? e.message : String(e)
+      console.error(`[ads] ajustes del agente de ${cuenta.id}:`, texto)
+      errores.push(`agente: sin ajustes, hoy no se proponen pujas (${texto.slice(0, 120)})`)
+      sinPujasHoy = true
+    }
+  }
+  // Fase 3: pujas y presupuesto, con la misma cadencia diaria. Si falla, lo de arriba ya está guardado y se dice en el registro
+  let fase3: ResultadoDeGenerar['fase3'] = null
+  if (!sinPujasHoy) {
+    try {
+      fase3 = await deps.generarPropuestasDePujaYPresupuesto(cuenta, ajustes)
+      nuevas += fase3.pujas + fase3.presupuestos + fase3.pausas
+      // Omitida por datos sin releer: no es un «no había nada que hacer», se dice
+      if (fase3.omitido?.startsWith('segmentaciones')) errores.push(`pujas: ${fase3.omitido.slice(0, 160)}`)
+    } catch (e) {
+      const texto = e instanceof Error ? e.message : String(e)
+      console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, texto)
+      errores.push(`pujas y presupuesto: ${texto.slice(0, 120)}`)
+    }
+  }
+  await deps.marcarGenerado(cuenta.id)
+  return { resumen, fase3, nuevas, errores }
+}
+
 /**
  * Un paso del motor en una cuenta: términos → propuestas → piloto automático. `modo`: el de la cuenta (cuentasDelMotorConTrabajo lo trae); si no viene, se lee.
  * En modo «agente» la fase 3 va con los ajustes del agente; el piloto automático, solo en «autopiloto».
@@ -128,36 +199,10 @@ export async function pasoDelMotor(cuenta: CuentaParaSincronizar, modo?: ModoDel
   let nuevas = 0
   let generado = false
   if (await hayQueGenerar(cuenta.id, t.accion)) {
-    const g = await generarPropuestas(cuenta)
+    const g = await generarDelMotor(cuenta, elModo)
     nuevas = g.nuevas
-    // Lo que la generación no ha podido hacer (p. ej. cosechar sin la lista entera de segmentaciones de los destinos) queda en el registro de la pasada
-    for (const a of g.avisos ?? []) errores.push(`generar: ${a.slice(0, 160)}`)
     generado = true
-    // En modo agente, los ajustes del agente (una vez al día, con la generación). Si fallan, hoy no hay pujas: sin ellos subirían sin sus frenos
-    let ajustes: AjustesDelAgenteParaPujas | undefined
-    let sinPujasHoy = false
-    if (elModo === 'agente') {
-      try {
-        ajustes = await ajustesParaPujas(cuenta.id, Date.now())
-      } catch (e) {
-        const texto = e instanceof Error ? e.message : String(e)
-        console.error(`[ads] ajustes del agente de ${cuenta.id}:`, texto)
-        errores.push(`agente: sin ajustes, hoy no se proponen pujas (${texto.slice(0, 120)})`)
-        sinPujasHoy = true
-      }
-    }
-    // Fase 3: pujas y presupuesto, con la misma cadencia diaria. Si falla, lo de arriba ya está guardado y se dice en el registro
-    if (!sinPujasHoy) {
-      try {
-        const r = await generarPropuestasDePujaYPresupuesto(cuenta, ajustes)
-        nuevas += r.pujas + r.presupuestos + r.pausas
-      } catch (e) {
-        const texto = e instanceof Error ? e.message : String(e)
-        console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, texto)
-        errores.push(`pujas y presupuesto: ${texto.slice(0, 120)}`)
-      }
-    }
-    await marcarGenerado(cuenta.id)
+    errores.push(...g.errores)
   }
   if (t.accion === 'error' && t.detalle) errores.push(`términos: ${t.detalle.slice(0, 120)}`)
   let aplicadas = 0

@@ -625,3 +625,40 @@ export function resultadoDeComprobarColumna(error: { code?: string; message?: st
   if (error.code && CODIGOS_DE_ESQUEMA.has(error.code)) return { valor: false, at: ahora }
   throw new Error(error.message ?? 'Error de la base de datos al comprobar las columnas de ads_propuestas')
 }
+
+/**
+ * PURO. Las pujas y pausas PENDIENTES de la generación diaria del motor que hay que caducar ANTES de volver a generar (modo agente): se calcularon con la ventana de métricas de otro día y, mientras
+ * siguen pendientes, bloquean la segmentación (no se recalcula). Caducadas, la misma generación las vuelve a calcular con la ventana de hoy, así que nada se queda un día sin propuesta.
+ * No se tocan las retenidas (las mira una persona) ni los reintentos de transporte (su cambio puede estar ya en Amazon).
+ */
+export function pujasDelMotorACaducar(
+  filas: ReadonlyArray<{ id: string; tipo: string; origen?: string | null; retenida_at?: string | null; error: string | null; creada_at: string }>,
+  ahora: number,
+  horas: number
+): string[] {
+  const limite = ahora - horas * 3_600_000
+  return filas
+    .filter((f) => (f.tipo === 'puja' || f.tipo === 'pausar') && (f.origen ?? 'motor') === 'motor' && !f.retenida_at && !esReintentoDeTransporte(f.error))
+    .filter((f) => {
+      const t = Date.parse(f.creada_at)
+      return Number.isFinite(t) && t < limite
+    })
+    .map((f) => f.id)
+}
+
+/** Las horas que pueden pasar sin releer las segmentaciones (ads_objetivos_diario) antes de dejar de decidir pujas con ellas. La lectura normal es cada 3 h */
+export const HORAS_MAX_SIN_RELEER_SEGMENTACIONES = 36
+
+/**
+ * PURO. ¿Se pueden decidir pujas y pausas con las segmentaciones guardadas? Devuelve el motivo para NO hacerlo (null = adelante).
+ *   · `ultimaLecturaMs`: el `actualizado_at` más reciente de las filas de la ventana (cada lectura buena reescribe los últimos 14 días): si es de hace más de 36 h, el informe de objetivos lleva
+ *     fallando y las filas son de días leídos una sola vez, con las ventas a medio atribuir.
+ *   · `maxFecha` frente a `hasta`: si el último día de la ventana tuvo gasto en campañas pero no hay ni una fila de segmentaciones, faltan días (se pausaría o bajaría lo que sí vendió).
+ * Es relativo (edad), no a una hora fija, para no omitir de madrugada. No cambia ninguna regla: solo impide decidir con datos rotos.
+ */
+export function motivoSegmentacionesSinReleer(e: { ultimaLecturaMs: number | null; maxFecha: string | null; hasta: string; gastoEnHasta: boolean; ahora: number; maxHoras?: number }): string | null {
+  const maxHoras = e.maxHoras ?? HORAS_MAX_SIN_RELEER_SEGMENTACIONES
+  if (e.gastoEnHasta && (!e.maxFecha || e.maxFecha < e.hasta)) return `segmentaciones sin releer: no hay filas del ${e.hasta} (último día con datos: ${e.maxFecha ?? 'ninguno'}) y ese día hubo gasto`
+  if (e.ultimaLecturaMs != null && e.ahora - e.ultimaLecturaMs > maxHoras * 3_600_000) return `segmentaciones sin releer desde ${new Date(e.ultimaLecturaMs).toISOString().slice(0, 16).replace('T', ' ')} UTC (más de ${maxHoras} h)`
+  return null
+}

@@ -102,8 +102,14 @@ export function proponerPujas(segmentaciones: readonly SegmentacionParaReglas[],
       nueva = pujaValida(Math.min(s.puja * (1 + u.subirPujaPct / 100), objetivo))
       motivo = `${m.pedidos} pedidos con ACoS ${coma(acos)} %, muy por debajo del objetivo (${coma(p.acosObjetivoPct)} %): cada clic trae ${coma(m.ventas / m.clics, 2)} en ventas y se puede pujar hasta ${coma(objetivo, 2)}. Se sube para ganar posición`
     } else if (m.pedidos >= u.pedidosParaBajar && acos !== null && acos > p.acosObjetivoPct * u.bajarSiAcosSobreX && objetivo !== null) {
-      nueva = pujaValida(Math.max(objetivo, s.puja * (1 - u.pujaMaxBajadaPct / 100)))
-      motivo = `ACoS ${coma(acos)} % con ${m.pedidos} pedidos, por encima del objetivo (${coma(p.acosObjetivoPct)} %): la puja que lo deja en el objetivo es ${coma(objetivo, 2)} (${coma(m.ventas / m.clics, 2)} en ventas por clic × ${coma(p.acosObjetivoPct)} %)${objetivo < s.puja * (1 - u.pujaMaxBajadaPct / 100) ? `; se baja como mucho un ${u.pujaMaxBajadaPct} % de golpe` : ''}`
+      // La puja objetivo sale de ventas por clic y NO depende de la puja: si el CPC real pasa de la puja (pujas dinámicas, ajuste por ubicación o una bajada reciente), puede quedar POR
+      // ENCIMA de la puja actual y esta rama proponía una «subida» que el agente tiraba (ACoS alto), así que la keyword no bajaba nunca. Por eso el destino es el menor entre la objetivo y la
+      // puja escalada por el ACoS (puja × objetivo ÷ ACoS). Con el CPC igual o por debajo de la puja, el mínimo es la objetivo y el resultado es el de siempre.
+      const destino = r2(Math.min(objetivo, s.puja * (p.acosObjetivoPct / acos)))
+      nueva = pujaValida(Math.max(destino, s.puja * (1 - u.pujaMaxBajadaPct / 100)))
+      // Desde la rama de bajar nunca sale una subida (ni un cambio de céntimos)
+      if (nueva == null || nueva >= s.puja - 0.02) continue
+      motivo = `ACoS ${coma(acos)} % con ${m.pedidos} pedidos, por encima del objetivo (${coma(p.acosObjetivoPct)} %): la puja que lo deja en el objetivo es ${coma(destino, 2)}${destino < objetivo ? ` (el CPC real, ${coma(m.gasto / m.clics, 2)}, pasa de la puja: se baja en proporción al ACoS)` : ` (${coma(m.ventas / m.clics, 2)} en ventas por clic × ${coma(p.acosObjetivoPct)} %)`}${destino < s.puja * (1 - u.pujaMaxBajadaPct / 100) ? `; se baja como mucho un ${u.pujaMaxBajadaPct} % de golpe` : ''}`
     } else if (m.pedidos === 0 && m.ventas === 0) {
       nueva = pujaValida(s.puja * (1 - u.bajarSinPedidosPct / 100))
       motivo = `${coma(m.gasto, 2)} gastados en ${m.clics} clics sin ningún pedido (con un CVR del ${coma(cvr * 100)} %, a estas alturas tendría que llevar al menos uno): se le baja la puja un ${u.bajarSinPedidosPct} %`

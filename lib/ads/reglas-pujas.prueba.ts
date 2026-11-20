@@ -50,6 +50,20 @@ console.log('\n=== bajar con pedidos ===')
   ok('con 1 solo pedido el ACoS es ruido → no se baja por ACoS', proponerPujas([seg('c3', 0.6, { clics: 30, gasto: 20, ventas: 20, pedidos: 1 })], P).length === 0)
 }
 
+console.log('\n=== bajar con el CPC real por encima de la puja (A3) ===')
+{
+  // Puja 0,60 pero CPC real 1,00 (40 € en 40 clics), 120 € en ventas con 4 pedidos y objetivo 25 %: la puja objetivo (3 € por clic × 25 % = 0,75) queda POR ENCIMA de la puja. Antes salía una
+  // «subida» a 0,75 que el agente tiraba; ahora baja en proporción al ACoS (0,60 × 25 ÷ 33,3 = 0,45), con el tope del 25 %
+  const r = proponerPujas([seg('h', 0.6, { clics: 40, gasto: 40, ventas: 120, pedidos: 4 })], { ...P, acosObjetivoPct: 25 })
+  ok('CPC > puja con ACoS alto → baja a 0,45, nunca sube', r.length === 1 && r[0].direccion === 'bajar' && r[0].pujaNueva === 0.45, JSON.stringify(r))
+  // Con el CPC por debajo de la puja el resultado es el de antes (0,60 → 0,45, objetivo 0,40)
+  const n = proponerPujas([seg('h2', 0.6, { clics: 30, gasto: 15, ventas: 30, pedidos: 2 })], P)
+  ok('CPC < puja → igual que antes (hacia la puja objetivo con tope 25 %)', n.length === 1 && n[0].direccion === 'bajar' && n[0].pujaNueva === 0.45, JSON.stringify(n))
+  // La rama de bajar nunca emite una subida aunque el destino quede por encima de la puja
+  const nada = proponerPujas([seg('h3', 0.6, { clics: 40, gasto: 40, ventas: 120, pedidos: 4 })], { ...P, acosObjetivoPct: 27 })
+  ok('… y nunca devuelve dirección «subir» desde la rama de bajar', nada.every((x) => x.direccion === 'bajar'), JSON.stringify(nada))
+}
+
 console.log('\n=== bajar sin pedidos ===')
 {
   const r = proponerPujas([seg('d', 0.4, { clics: 15, gasto: 6, ventas: 0, pedidos: 0 })], P)

@@ -16,7 +16,7 @@ import {
   textoDeReintento,
   valorIntentadoDelReintento,
 } from './motor-calculo'
-import { RECOMPROBAR_COLUMNA_MS, hayQueComprobarColumna, resultadoDeComprobarColumna, clavesEnCuarentena, decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, motorTieneTrabajo, pasoHizoAlgo, planificarPropuestas, proximoPasoDelMotor, pujaDePromover, sumarPorCampana, tocaGenerar, valorSigueIgual, type EntradaDeAplicar } from './motor-calculo'
+import { RECOMPROBAR_COLUMNA_MS, hayQueComprobarColumna, resultadoDeComprobarColumna, clavesEnCuarentena, decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, motorTieneTrabajo, pasoHizoAlgo, planificarPropuestas, proximoPasoDelMotor, pujaDePromover, pujasDelMotorACaducar, motivoSegmentacionesSinReleer, sumarPorCampana, tocaGenerar, valorSigueIgual, type EntradaDeAplicar } from './motor-calculo'
 import { esEscritura } from './rastro'
 import { ETIQUETA_ORIGEN, quienSinPersona } from './log-calculo'
 import type { FilaDeTermino } from './terminos'
@@ -371,6 +371,37 @@ console.log('\n=== A20: negativas pendientes que ya no tocan ===')
   ok('hay una cosecha del mismo término y campaña → se caduca', r.some((x) => x.id === 'n2' && /cosecha/.test(x.motivo)))
   ok('sin ventas ni cosecha → sigue', !r.some((x) => x.id === 'n3'))
   ok('otra campaña no cuenta', !r.some((x) => x.id === 'n4'))
+}
+
+console.log('\n=== A18: caducar antes de generar las pujas y pausas viejas del motor ===')
+{
+  const ahora = Date.parse('2026-11-20T10:00:00Z')
+  const h = (n: number) => new Date(ahora - n * 3_600_000).toISOString()
+  const ids = pujasDelMotorACaducar(
+    [
+      { id: 'vieja', tipo: 'puja', origen: 'motor', retenida_at: null, error: null, creada_at: h(24) },
+      { id: 'pausa', tipo: 'pausar', origen: 'motor', retenida_at: null, error: null, creada_at: h(30) },
+      { id: 'reciente', tipo: 'puja', origen: 'motor', retenida_at: null, error: null, creada_at: h(5) },
+      { id: 'reintento', tipo: 'puja', origen: 'motor', retenida_at: null, error: textoDeReintento('Amazon Ads ha contestado 503', 0.5), creada_at: h(40) },
+      { id: 'retenida', tipo: 'puja', origen: 'motor', retenida_at: h(2), error: null, creada_at: h(40) },
+      { id: 'agente', tipo: 'pausar', origen: 'agente', retenida_at: null, error: null, creada_at: h(40) },
+      { id: 'negativa', tipo: 'negativizar', origen: 'motor', retenida_at: null, error: null, creada_at: h(40) },
+    ],
+    ahora,
+    20
+  )
+  ok('caduca la puja y la pausa del motor de más de 20 h', ids.includes('vieja') && ids.includes('pausa'), JSON.stringify(ids))
+  ok('… y no toca la reciente, el reintento de transporte, la retenida, la del agente ni las negativas', ids.length === 2, JSON.stringify(ids))
+}
+
+console.log('\n=== A14: frescura de las segmentaciones ===')
+{
+  const ahora = Date.parse('2026-11-20T10:00:00Z')
+  ok('última lectura de hace 40 h → omitir', motivoSegmentacionesSinReleer({ ultimaLecturaMs: ahora - 40 * 3_600_000, maxFecha: '2026-11-17', hasta: '2026-11-17', gastoEnHasta: true, ahora }) !== null)
+  ok('falta el día «hasta» y ese día hubo gasto → omitir', motivoSegmentacionesSinReleer({ ultimaLecturaMs: ahora - 2 * 3_600_000, maxFecha: '2026-11-15', hasta: '2026-11-17', gastoEnHasta: true, ahora }) !== null)
+  ok('sin ninguna fila y con gasto → omitir', motivoSegmentacionesSinReleer({ ultimaLecturaMs: null, maxFecha: null, hasta: '2026-11-17', gastoEnHasta: true, ahora }) !== null)
+  ok('datos frescos (lectura de hace 2 h con el día «hasta») → seguir', motivoSegmentacionesSinReleer({ ultimaLecturaMs: ahora - 2 * 3_600_000, maxFecha: '2026-11-17', hasta: '2026-11-17', gastoEnHasta: true, ahora }) === null)
+  ok('sin gasto el día «hasta» (cuenta parada ese día) y lectura fresca → seguir', motivoSegmentacionesSinReleer({ ultimaLecturaMs: ahora - 2 * 3_600_000, maxFecha: '2026-11-15', hasta: '2026-11-17', gastoEnHasta: false, ahora }) === null)
 }
 
 console.log('\n=== A23: una lectura topada lanza en vez de devolver la mitad ===')

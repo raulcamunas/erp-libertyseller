@@ -281,6 +281,13 @@ export function decidirPropuesta(
     }
   }
 
+  // ---- 3b'. Pujas y pausas de la generación diaria del motor: se calcularon con la ventana de métricas de SU día. Con más de PROPUESTA_PUJA_MAX_HORAS se caducan y la generación siguiente las
+  //      vuelve a calcular con la ventana de hoy (motor-cron ya las caduca antes de generar; esto es la red de seguridad). Un reintento de transporte no llega a caducarse: decisionDeReintento
+  //      lo convierte en retener (su cambio puede estar ya en Amazon) ----
+  if ((p.tipo === 'puja' || p.tipo === 'pausar') && p.origen === 'motor' && !esPausaDeStock(p) && horas > AGENTE.PROPUESTA_PUJA_MAX_HORAS) {
+    return { accion: 'caducar', motivo: `propuesta del motor de hace ${Math.round(horas)} h: sus métricas son de otra generación (si sigue haciendo falta, se vuelve a proponer con las de hoy)` }
+  }
+
   // ---- 3c. Pausa por stock: solo mientras el producto siga a 0 y la decisión sea reciente. Si el stock ha vuelto, o lleva más de
   //      STOCK_PAUSA_PENDIENTE_HORAS esperando (sin tope ese día, frenado…), se caduca: aplicarla ahora pausaría una campaña CON stock y el vigilar
   //      siguiente la reactivaría (dos escrituras, dos huecos del tope y la campaña parada entre medias). Si sigue a 0, vigilar la vuelve a proponer ----

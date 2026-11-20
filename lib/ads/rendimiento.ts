@@ -108,7 +108,9 @@ export async function descargarCrudas(url: string): Promise<Array<Record<string,
     texto = crudo.toString('utf8')
   }
   const filas = JSON.parse(texto) as unknown
-  return Array.isArray(filas) ? (filas as Array<Record<string, unknown>>) : []
+  // Un informe que no es una lista no es «un informe vacío»: tomarlo como 0 filas daba la lectura por buena (y en términos borraba la ventana anterior)
+  if (!Array.isArray(filas)) throw new AdsError('El informe descargado no tiene el formato esperado (no es una lista de filas).')
+  return filas as Array<Record<string, unknown>>
 }
 
 /** Descarga un informe de campañas YA COMPLETADO y lo convierte en filas diarias */

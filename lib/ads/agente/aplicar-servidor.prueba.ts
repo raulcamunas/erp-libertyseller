@@ -459,6 +459,19 @@ console.log('\n=== A11: las cosechas sin destino no gastan las plazas de la pasa
   ok('un promover CON destino sí se aplica', decidirPropuesta(promoverSinDestino(9), CUENTA, PROD, SIN).accion === 'esperar' && decidirPropuesta({ ...promoverSinDestino(9), haciaCampaignId: 'dest' }, CUENTA, PROD, SIN).accion === 'aplicar')
 }
 
+console.log('\n=== A18: pujas y pausas del motor con métricas de otra generación ===')
+{
+  const vieja = decidirPropuesta(prop({ origen: 'motor', creadaAt: hace(40), valorNuevo: 0.85 }), CUENTA, PROD, SIN)
+  ok('bajada de puja del motor con 40 h → caducar', vieja.accion === 'caducar', JSON.stringify(vieja))
+  const pausa = decidirPropuesta(prop({ origen: 'motor', tipo: 'pausar', creadaAt: hace(40), valorActual: null, valorNuevo: null }), CUENTA, PROD, SIN)
+  ok('pausa del motor con 40 h → caducar', pausa.accion === 'caducar', JSON.stringify(pausa))
+  ok('… pero si viene de un reintento de transporte no se caduca (se retiene: puede estar en Amazon)', decisionDeReintento(textoDeReintento('Amazon Ads ha contestado 503', 0.85), vieja).accion === 'retener')
+  const reciente = decidirPropuesta(prop({ origen: 'motor', creadaAt: hace(10), valorNuevo: 0.85 }), CUENTA, PROD, SIN)
+  ok('una del motor con 10 h sigue su curso (no caduca)', reciente.accion !== 'caducar', JSON.stringify(reciente))
+  const delAgente = decidirPropuesta(prop({ origen: 'agente', creadaAt: hace(40), valorNuevo: 0.85 }), CUENTA, PROD, SIN)
+  ok('una del agente con 40 h no caduca por esta regla', !(delAgente.accion === 'caducar' && /otra generación/.test(delAgente.motivo)), JSON.stringify(delAgente))
+}
+
 if (fallos) {
   console.log(`\n${fallos} FALLO(S)`)
   process.exit(1)

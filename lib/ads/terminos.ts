@@ -15,6 +15,7 @@ import { descargarCrudas, estadoDeInforme, pedirInformeDeTerminos, type Periodo 
 import { debeEmpezar, ESPERA_MAXIMA_MS, type CuentaParaSincronizar } from './sincronizar'
 import type { TerminoDeBusqueda } from './reglas'
 import { leerUmbrales } from './umbrales-cuenta'
+import { todasLasFilas } from './paginar'
 
 export const INTERVALO_TERMINOS_MS = 24 * 3_600_000
 /** 30 días: la cosecha pide «≥ 3 pedidos en 30 días» y con 14 casi ningún término de una cuenta pequeña llega a la muestra */
@@ -22,6 +23,8 @@ export const DIAS_DE_TERMINOS = 30
 /** Desde el primer clic: la regla de irrelevantes («no comparte nada con el producto») se propone al primer clic. El tope de filas sigue protegiendo la base */
 export const CLICS_MINIMOS_PARA_GUARDAR = 1
 export const MAX_TERMINOS_GUARDADOS = 20_000
+/** Si el informe nuevo llega vacío y había más de estos términos guardados, no se cree: se conservan los anteriores */
+const TERMINOS_PARA_DESCONFIAR_DE_VACIO = 50
 
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : Number.NaN
@@ -61,8 +64,12 @@ export function terminosDeInforme(crudas: ReadonlyArray<Record<string, unknown>>
   return salida
 }
 
-/** Se queda con los que tienen señal, suma los repetidos (mismo término en la misma campaña y grupo) y limita el total, de más a menos gasto */
-export function paraGuardar(filas: readonly FilaDeTermino[]): FilaDeTermino[] {
+/**
+ * Se queda con los que tienen señal, suma los repetidos (mismo término en la misma campaña y grupo) y limita el total. El tope SOLO recorta filas sin pedido ni venta (de más a menos gasto): antes
+ * se cortaba todo por gasto y las primeras en caer eran las filas baratas CON pedido, así que un término que vende podía sumar 0 pedidos y negativizarse. Si las que tienen venta ya pasan del
+ * tope, se lanza un error en vez de truncar (mejor no guardar que guardar sumas falsas).
+ */
+export function paraGuardar(filas: readonly FilaDeTermino[], tope = MAX_TERMINOS_GUARDADOS): FilaDeTermino[] {
   const por = new Map<string, FilaDeTermino>()
   for (const f of filas) {
     const clave = `${f.campaignId}|${f.adGroupId}|${f.termino.toLowerCase()}`
@@ -76,10 +83,28 @@ export function paraGuardar(filas: readonly FilaDeTermino[]): FilaDeTermino[] {
       x.compras += f.compras
     }
   }
-  return [...por.values()]
-    .filter((f) => f.clics >= CLICS_MINIMOS_PARA_GUARDAR || f.compras >= 1)
-    .sort((a, b) => b.gasto - a.gasto)
-    .slice(0, MAX_TERMINOS_GUARDADOS)
+  const conSenal = [...por.values()].filter((f) => f.clics >= CLICS_MINIMOS_PARA_GUARDAR || f.compras >= 1)
+  const conVenta = conSenal.filter((f) => f.compras > 0 || f.ventas > 0)
+  // AdsError: avanzarTerminos lo apunta en la fila (y se reintenta) en vez de tumbar el paso cada 2 minutos
+  if (conVenta.length > tope) throw new AdsError(`El informe de términos trae ${conVenta.length} términos con venta, más que el tope de ${tope}: no se guarda para no perder pedidos.`)
+  const sinVenta = conSenal.filter((f) => !(f.compras > 0 || f.ventas > 0)).sort((a, b) => b.gasto - a.gasto)
+  return [...conVenta, ...sinVenta.slice(0, tope - conVenta.length)].sort((a, b) => b.gasto - a.gasto)
+}
+
+/**
+ * Quita las filas repetidas (misma campaña, grupo y término) que pueda traer una lectura paginada. Con orden total no debería salir ninguna, pero una fila repetida duplica clics y pedidos al sumar
+ * por campaña (sumarPorCampana) y eso cambia qué se negativiza o se cosecha: se queda la primera.
+ */
+export function dedupTerminos(filas: readonly FilaDeTermino[]): FilaDeTermino[] {
+  const vistos = new Set<string>()
+  const salida: FilaDeTermino[] = []
+  for (const f of filas) {
+    const clave = `${f.campaignId}|${f.adGroupId}|${f.termino}`
+    if (vistos.has(clave)) continue
+    vistos.add(clave)
+    salida.push(f)
+  }
+  return salida
 }
 
 /**
@@ -138,6 +163,15 @@ export async function avanzarTerminos(cuenta: CuentaParaSincronizar, opciones: {
 
       const filas = paraGuardar(terminosDeInforme(await descargarCrudas(e.url)))
       const service = createServiceClient()
+      // Un informe VACÍO cuando la ventana anterior tenía bastantes términos huele a fallo de Amazon, no a una cuenta que ha dejado de tener búsquedas: no se borra lo anterior
+      // (se reemplazaría por nada) y se reintenta más tarde como cualquier error
+      if (filas.length === 0) {
+        const { count } = await service.from('ads_terminos').select('termino', { count: 'exact', head: true }).eq('perfil_id', cuenta.id)
+        if ((count ?? 0) > TERMINOS_PARA_DESCONFIAR_DE_VACIO) {
+          await guardarSync(cuenta.id, { estado: 'reposo', informe_id: null, error: `El informe de términos ha llegado vacío y había ${count} guardados: se conservan y se vuelve a pedir.`, intentos: (estado.intentos ?? 0) + 1, pedido_at: new Date(ahora).toISOString() })
+          return { accion: 'error', detalle: 'informe vacío' }
+        }
+      }
       // Se REEMPLAZA lo anterior (es la última ventana de 30 días, no un histórico), pero SIN dejar la cuenta vacía a medias: primero se escribe lo nuevo
       // (upsert, que marca actualizado_at) y DESPUÉS se borra lo que no se ha tocado. Si algo falla a mitad, queda la ventana vieja entera más lo nuevo, nunca nada
       const ahoraIso = new Date().toISOString()
@@ -199,34 +233,39 @@ export async function estadoDeTerminos(perfilId: string): Promise<EstadoDeTermin
   return { actualizadoAt: s?.ultimo_ok_at ?? null, sincronizando: s?.estado === 'esperando', error: s?.error ?? null, desde: s?.desde ?? null, hasta: s?.hasta ?? null, filas: count ?? 0 }
 }
 
-/** Los términos guardados de la cuenta (PostgREST devuelve como mucho 1.000 por consulta: se pagina) */
+/**
+ * Los términos guardados de la cuenta (PostgREST devuelve como mucho 1.000 por consulta: se pagina). El orden es TOTAL (gasto, campaña, grupo, término): ordenando solo por gasto, los empates
+ * cambiaban de página entre consultas y una fila salía dos veces y otra ninguna. Si la lectura llega al tope, falla en vez de seguir con una parte.
+ */
 export async function leerTerminos(perfilId: string): Promise<FilaDeTermino[]> {
-  const salida: FilaDeTermino[] = []
   const service = createServiceClient()
-  for (let desde = 0; desde < MAX_TERMINOS_GUARDADOS; desde += 1000) {
-    const { data, error } = await service
-      .from('ads_terminos')
-      .select('campaign_id, ad_group_id, termino, keyword, match_type, campaign_nombre, impresiones, clics, gasto, ventas, pedidos')
-      .eq('perfil_id', perfilId)
-      .order('gasto', { ascending: false })
-      .range(desde, desde + 999)
-    if (error) throw error
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
-      salida.push({
-        termino: String(r.termino),
-        campaignId: String(r.campaign_id),
-        campaignName: String(r.campaign_nombre),
-        adGroupId: String(r.ad_group_id ?? ''),
-        keyword: (r.keyword as string | null) ?? null,
-        matchType: (r.match_type as string | null) ?? null,
-        impresiones: Number(r.impresiones),
-        clics: Number(r.clics),
-        gasto: Number(r.gasto),
-        ventas: Number(r.ventas),
-        compras: Number(r.pedidos),
-      })
-    }
-    if (!data || data.length < 1000) break
-  }
-  return salida
+  const { data, error } = await todasLasFilas(
+    (a, b) =>
+      service
+        .from('ads_terminos')
+        .select('campaign_id, ad_group_id, termino, keyword, match_type, campaign_nombre, impresiones, clics, gasto, ventas, pedidos')
+        .eq('perfil_id', perfilId)
+        .order('gasto', { ascending: false })
+        .order('campaign_id')
+        .order('ad_group_id')
+        .order('termino')
+        .range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: { code?: string; message?: string } | null }>,
+    { tope: MAX_TERMINOS_GUARDADOS * 2, lanzarAlTope: true }
+  )
+  if (error) throw error
+  return dedupTerminos(
+    data.map((r) => ({
+      termino: String(r.termino),
+      campaignId: String(r.campaign_id),
+      campaignName: String(r.campaign_nombre),
+      adGroupId: String(r.ad_group_id ?? ''),
+      keyword: (r.keyword as string | null) ?? null,
+      matchType: (r.match_type as string | null) ?? null,
+      impresiones: Number(r.impresiones),
+      clics: Number(r.clics),
+      gasto: Number(r.gasto),
+      ventas: Number(r.ventas),
+      compras: Number(r.pedidos),
+    }))
+  )
 }

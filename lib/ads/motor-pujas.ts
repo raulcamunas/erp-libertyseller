@@ -14,13 +14,15 @@
  * y un producto en lanzamiento solo pausa con el doble de muestra. Sin `ajustes`, todo como siempre.
  */
 
-import { todasLasFilas } from './paginar'
+import { todasLasFilas, trozos } from './paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { campanasDe } from './campanas'
 import { leerFicha } from './cuenta'
 import { llamarAds } from './datos'
 import { objetivosDeCuenta } from './motor'
+import { motivoSegmentacionesSinReleer } from './motor-calculo'
+import { efectosAbiertos } from './agente/efectos-servidor'
 import { cvrsDeCuenta, leerUmbrales } from './umbrales-cuenta'
 import { asinDeCampana } from './productos-agrupar'
 import { partesDeNombre } from './reglas'
@@ -33,6 +35,8 @@ import { AGENTE, type AjustesDelAgenteParaPujas, type Presion } from './agente/t
 
 const DIA_MS = 86_400_000
 const VENTANA_PUJAS_DIAS = 14
+/** Filas de ads_objetivos_diario por trozo de 100 campañas (14 días): de sobra; si se llega, la lectura falla en vez de truncar */
+const TOPE_FILAS_POR_TROZO = 300_000
 const cab = (t: string) => ({ Accept: t, 'Content-Type': t })
 const desplazar = (dia: string, dias: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + dias * DIA_MS).toISOString().slice(0, 10)
 
@@ -109,6 +113,11 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   if (ajustes) {
     for (const id of ajustes.bloqueadasPorEfecto) bloqueadas.add(id)
     for (const id of ajustes.campanasBloqueadasPorEfecto) campanasBloqueadas.add(id)
+  } else {
+    // Sin ajustes también (p. ej. una llamada que no los pasa): los efectos abiertos se leen aquí (solo lectura; sin la 315, vacío). Un cambio del agente sin medir no se pisa nunca
+    const efectos = await efectosAbiertos(cuenta.id)
+    for (const id of efectos.objetivos) bloqueadas.add(id)
+    for (const id of efectos.campanas) campanasBloqueadas.add(id)
   }
 
   // ---- pujas: estado vivo + métricas de 14 días ----
@@ -124,11 +133,32 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   const hoy = new Date().toISOString().slice(0, 10)
   const hasta = desplazar(hoy, -Math.max(1, umbrales.diasSinCerrar))
   const desde = desplazar(hasta, -(VENTANA_PUJAS_DIAS - 1))
+
+  // FRESCURA: si el informe de segmentaciones lleva fallando, las filas son de días leídos una sola vez (ventas a medio atribuir) o faltan días: no se decide nada con ellas.
+  // No cambia el estado del agente ni ninguna regla; solo se omite hoy y se dice en el registro
+  const sinReleer = await frescuraDeSegmentaciones(cuenta.id, desde, hasta, ids)
+  if (sinReleer) return { pujas: 0, presupuestos: 0, pausas: 0, omitido: sinReleer }
+
+  // Por trozos de 100 campañas: con todas en un solo `.in()` la URL pasaba de lo que admite PostgREST (414/400) con unas 600 campañas, y ese día la cuenta no generaba pujas.
+  // Cada trozo se lee entero; si llega al tope, falla («lectura incompleta») en vez de decidir con los días más recientes cortados
   const suma = new Map<string, { impresiones: number; clics: number; gasto: number; ventas: number; pedidos: number }>()
-  for (let i = 0; i < 100_000; i += 1000) {
-    const { data, error } = await service.from('ads_objetivos_diario').select('objetivo_id, impresiones, clics, gasto, ventas, pedidos').eq('perfil_id', cuenta.id).gte('fecha', desde).lte('fecha', hasta).in('campaign_id', ids).order('fecha').order('objetivo_id').range(i, i + 999)
+  for (const trozo of trozos(ids, 100)) {
+    const { data, error } = await todasLasFilas(
+      (a, b) =>
+        service
+          .from('ads_objetivos_diario')
+          .select('objetivo_id, impresiones, clics, gasto, ventas, pedidos')
+          .eq('perfil_id', cuenta.id)
+          .gte('fecha', desde)
+          .lte('fecha', hasta)
+          .in('campaign_id', trozo)
+          .order('fecha')
+          .order('objetivo_id')
+          .range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: { code?: string; message?: string } | null }>,
+      { tope: TOPE_FILAS_POR_TROZO, lanzarAlTope: true }
+    )
     if (error) throw error
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    for (const r of data) {
       const x = suma.get(String(r.objetivo_id)) ?? { impresiones: 0, clics: 0, gasto: 0, ventas: 0, pedidos: 0 }
       x.impresiones += Number(r.impresiones)
       x.clics += Number(r.clics)
@@ -137,7 +167,6 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
       x.pedidos += Number(r.pedidos)
       suma.set(String(r.objetivo_id), x)
     }
-    if (!data || data.length < 1000) break
   }
 
   const porAsin = new Map<string, SegmentacionParaReglas[]>()
@@ -228,10 +257,14 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
 
   // ---- presupuesto: últimos 7 días contra el presupuesto de hoy ----
   const desde7 = desplazar(hasta, -6)
-  const { data: diario, error: eDiario } = await todasLasFilas((a, b) => service.from('ads_rendimiento_diario').select('campaign_id, fecha, gasto, ventas').eq('perfil_id', cuenta.id).gte('fecha', desde7).lte('fecha', hasta).in('campaign_id', ids).order('fecha').order('campaign_id').range(a, b))
-  if (eDiario) throw eDiario
+  const diario: Array<{ campaign_id: string; fecha: string; gasto: number; ventas: number }> = []
+  for (const trozo of trozos(ids, 100)) {
+    const { data, error: eDiario } = await todasLasFilas((a, b) => service.from('ads_rendimiento_diario').select('campaign_id, fecha, gasto, ventas').eq('perfil_id', cuenta.id).gte('fecha', desde7).lte('fecha', hasta).in('campaign_id', trozo).order('fecha').order('campaign_id').range(a, b), { lanzarAlTope: true })
+    if (eDiario) throw eDiario
+    diario.push(...(data as Array<{ campaign_id: string; fecha: string; gasto: number; ventas: number }>))
+  }
   const g7 = new Map<string, { gasto: number; ventas: number; dias: Set<string> }>()
-  for (const r of (diario ?? []) as Array<{ campaign_id: string; fecha: string; gasto: number; ventas: number }>) {
+  for (const r of diario) {
     const x = g7.get(r.campaign_id) ?? { gasto: 0, ventas: 0, dias: new Set<string>() }
     x.gasto += Number(r.gasto)
     x.ventas += Number(r.ventas)
@@ -338,6 +371,32 @@ function filtrarSubidaDelAgente<T extends { direccion: 'subir' | 'bajar'; objeti
   const ubicacionAlta = ajustes.campanasConUbicacionAlta.includes(pr.campaignId)
   // `agente: true`: la subida ha pasado ESTE filtro (decidirPropuesta retiene toda subida de puja sin la marca: p. ej. las del motor en «aprueba» mientras el agente estaba frenado)
   return { ...pr, pujaNueva, motivo, metricas: { ...pr.metricas, agente: true as const, ...(ubicacionAlta ? { ubicacionAlta: true } : {}) } }
+}
+
+/**
+ * ¿Están frescas las segmentaciones de la ventana? (motivoSegmentacionesSinReleer). Tres lecturas pequeñas: el `actualizado_at` más reciente y el último día de ads_objetivos_diario en la ventana,
+ * y si el día `hasta` tuvo gasto en alguna campaña viva (ads_rendimiento_diario). Devuelve el motivo para omitir, o null.
+ */
+async function frescuraDeSegmentaciones(perfilId: string, desde: string, hasta: string, ids: readonly string[]): Promise<string | null> {
+  const service = createServiceClient()
+  const [ultima, ultimoDia, gastoHasta] = await Promise.all([
+    service.from('ads_objetivos_diario').select('actualizado_at').eq('perfil_id', perfilId).gte('fecha', desde).lte('fecha', hasta).order('actualizado_at', { ascending: false }).limit(1).maybeSingle(),
+    service.from('ads_objetivos_diario').select('fecha').eq('perfil_id', perfilId).gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false }).limit(1).maybeSingle(),
+    // Solo las campañas vivas (las que se van a decidir), por trozos como el resto
+    Promise.all(trozos(ids, 100).map((t) => service.from('ads_rendimiento_diario').select('campaign_id').eq('perfil_id', perfilId).eq('fecha', hasta).gt('gasto', 0).in('campaign_id', t).limit(1))),
+  ])
+  if (ultima.error) throw ultima.error
+  if (ultimoDia.error) throw ultimoDia.error
+  for (const g of gastoHasta) if (g.error) throw g.error
+  const actualizado = (ultima.data as { actualizado_at?: string | null } | null)?.actualizado_at
+  const ms = actualizado ? Date.parse(actualizado) : Number.NaN
+  return motivoSegmentacionesSinReleer({
+    ultimaLecturaMs: Number.isFinite(ms) ? ms : null,
+    maxFecha: (ultimoDia.data as { fecha?: string } | null)?.fecha ?? null,
+    hasta,
+    gastoEnHasta: gastoHasta.some((g) => (g.data ?? []).length > 0),
+    ahora: Date.now(),
+  })
 }
 
 /** Los cambios de puja, estado y presupuesto hechos A MANO (o por el motor) que Amazon aceptó desde `desde`. Sin la 311 no hay entidad_id: solo sirven los de presupuesto */
