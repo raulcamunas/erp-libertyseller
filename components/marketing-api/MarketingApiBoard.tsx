@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { ChevronDown, ChevronRight, CircleAlert, ExternalLink, Loader2, Plug, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, ExternalLink,
+  Link2, Loader2, Plug, RefreshCw } from 'lucide-react'
 import { nombreDePais } from '@/lib/ads/paises'
 import { BOTON, CAMPO, COLOR_ESTADO, INSIGNIA, TABLA, TARJETA, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
 import { postAmazon } from '@/lib/amazon/client'
@@ -101,6 +102,23 @@ export function MarketingApiBoard({
     // callback y este a la pantalla. Con una pestaña aparte, el resultado
     // aparecería en la ventana equivocada.
     window.location.href = res.data.url
+  }
+
+  /** El ENLACE PARA EL CLIENTE: lo abre él (programa de agencias), vale 7 días y al terminar ve una página de «listo». Se copia para pegarlo en un correo o WhatsApp */
+  async function enlaceParaCliente(cliente: ClienteAds, region: string) {
+    setTrabajando(cliente.id)
+    const res = await postAmazon<{ url: string }>('/api/ads/conectar', { clienteId: cliente.id, region, paraCliente: true })
+    setTrabajando(null)
+    if (!res.ok) {
+      toast.error(res.error)
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(res.data.url)
+      toast.success('Enlace copiado: pásaselo al cliente. Vale 7 días y una sola vez.', { duration: 8000 })
+    } catch {
+      window.prompt('Copia el enlace y pásaselo al cliente (vale 7 días y una sola vez):', res.data.url)
+    }
   }
 
   /**
@@ -245,6 +263,10 @@ export function MarketingApiBoard({
                         <button type="button" onClick={() => conectar(c, r.id)} disabled={ocupado} className={`${BOTON.base} ${BOTON.secundario} shrink-0`}>
                           {ocupado ? <Loader2 className="h-3 w-3 animate-spin" /> : <ExternalLink className="h-3 w-3" />}
                           {conn ? 'Reconectar' : 'Conectar'}
+                        </button>
+                        <button type="button" onClick={() => enlaceParaCliente(c, r.id)} disabled={ocupado} title="Copia un enlace para que el cliente dé acceso él mismo (vale 7 días)" className={`${BOTON.base} ${BOTON.secundario} shrink-0`}>
+                          <Link2 className="h-3 w-3" />
+                          Enlace para el cliente
                         </button>
                       </div>
                     )

@@ -30,6 +30,10 @@ import { ENDPOINTS, SCOPE_ADS, credenciales, urlDeVuelta, type RegionAds } from 
 
 /** Cuánto vale un `state`. Diez minutos es de sobra para autorizar y volver */
 const STATE_VIVE_MS = 10 * 60_000
+/** El enlace que se le pasa al CLIENTE para que autorice él (programa de agencias): 7 días, y al volver ve una página de «listo» en vez del ERP */
+const STATE_CLIENTE_VIVE_MS = 7 * 24 * 3_600_000
+/** Un state que vive más que esto es de un enlace para el cliente */
+const UMBRAL_CLIENTE_MS = 2 * 3_600_000
 
 /**
  * Margen con el que se considera caducado un access token.
@@ -74,6 +78,8 @@ export async function urlDeAutorizacion(params: {
   clienteId: string
   region: RegionAds
   userId: string | null
+  /** Enlace para que lo abra el cliente (7 días) en vez de quien pulsa el botón (10 min) */
+  paraCliente?: boolean
 }): Promise<string> {
   const cred = credenciales()
   if (!cred) throw new AdsError('Faltan las credenciales de Amazon Ads en el servidor.')
@@ -86,7 +92,7 @@ export async function urlDeAutorizacion(params: {
     client_id: params.clienteId,
     region: params.region,
     created_by: params.userId,
-    expires_at: new Date(Date.now() + STATE_VIVE_MS).toISOString(),
+    expires_at: new Date(Date.now() + (params.paraCliente ? STATE_CLIENTE_VIVE_MS : STATE_VIVE_MS)).toISOString(),
   })
   if (error) throw error
 
@@ -102,6 +108,14 @@ export async function urlDeAutorizacion(params: {
 /* ------------------------------------------------------------------ */
 /* Paso 2: comprobar la vuelta                                         */
 /* ------------------------------------------------------------------ */
+
+/** ¿Este state es de un enlace para el cliente? (sin consumirlo; para saber adónde mandar el navegador, también si algo falla) */
+export async function esEnlaceDeCliente(state: string): Promise<boolean> {
+  if (!state) return false
+  const { data } = await createServiceClient().from('ads_oauth_states').select('created_at, expires_at').eq('state', state).maybeSingle()
+  if (!data) return false
+  return Date.parse(data.expires_at as string) - Date.parse(data.created_at as string) > UMBRAL_CLIENTE_MS
+}
 
 export interface EstadoOauth {
   clienteId: string

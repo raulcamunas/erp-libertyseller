@@ -109,6 +109,8 @@ export async function middleware(request: NextRequest) {
                        pathname.startsWith('/informe/') ||
                        // El tráfico y la conversión de un cliente (migración 322): el token de la dirección Y una clave (cookie firmada) abren SOLO ese panel
                        pathname.startsWith('/trafico/') ||
+                       // La página de «listo» que ve el CLIENTE tras dar acceso a su publicidad desde su enlace: no enseña nada de nadie
+                       pathname === '/ads-conectado' ||
                        // El auditor de stock para el cliente (migración 323): mismo enlace con clave, solo LEE lo que el auditor guardó
                        pathname.startsWith('/stock/') ||
                        // El formulario donde un EMPLEADO envía sus datos de pago (migración 320): el token es la credencial, sirve UNA vez y solo para enviar

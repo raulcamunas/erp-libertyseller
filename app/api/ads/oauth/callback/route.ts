@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { urlDeVuelta } from '@/lib/ads/config'
-import { AdsError, canjearCodigo, consumirEstado } from '@/lib/ads/oauth'
+import { AdsError, canjearCodigo, consumirEstado, esEnlaceDeCliente } from '@/lib/ads/oauth'
 import { guardarConexion, traerPerfiles } from '@/lib/ads/datos'
 
 /**
@@ -52,8 +52,9 @@ const PANTALLA = '/dashboard/marketing-api'
  * además está VALIDADA POR AMAZON: si no coincidiera con la registrada, no se
  * habría llegado hasta aquí.
  */
-function volver(_request: NextRequest, params: Record<string, string>): NextResponse {
-  const url = new URL(PANTALLA, new URL(urlDeVuelta()).origin)
+function volver(_request: NextRequest, params: Record<string, string>, cliente = false): NextResponse {
+  // El cliente que autorizó desde su enlace no tiene usuario en el ERP: ve una página propia de «listo» (o del error)
+  const url = new URL(cliente ? '/ads-conectado' : PANTALLA, new URL(urlDeVuelta()).origin)
   for (const [clave, valor] of Object.entries(params)) url.searchParams.set(clave, valor)
   return NextResponse.redirect(url)
 }
@@ -64,17 +65,19 @@ export async function GET(request: NextRequest) {
   // Amazon avisa aquí cuando el usuario le da a «Cancelar». No es un fallo
   // nuestro y no tiene que salir como tal.
   const errorAmazon = sp.get('error')
+  const delCliente = await esEnlaceDeCliente(sp.get('state') ?? '').catch(() => false)
   if (errorAmazon) {
     return volver(request, {
       ads_error:
         errorAmazon === 'access_denied'
           ? 'La autorización se ha cancelado en Amazon. No se ha conectado nada.'
           : `Amazon ha devuelto un error (${errorAmazon}): ${sp.get('error_description') ?? 'sin detalle'}`,
-    })
+    }, delCliente)
   }
 
   const codigo = sp.get('code') ?? ''
   const state = sp.get('state') ?? ''
+  const cliente = delCliente
 
   try {
     if (!codigo) throw new AdsError('La vuelta de Amazon no trae el código de autorización.')
@@ -106,12 +109,12 @@ export async function GET(request: NextRequest) {
         `Cuenta de Amazon Ads conectada.${perfiles > 0 ? ` Se han encontrado ${perfiles} ${perfiles === 1 ? 'perfil' : 'perfiles'} de anunciante.` : ''}` +
         avisoPerfiles,
       cliente: estado.clienteId,
-    })
+    }, cliente)
   } catch (error) {
-    if (error instanceof AdsError) return volver(request, { ads_error: error.message })
+    if (error instanceof AdsError) return volver(request, { ads_error: error.message }, cliente)
     console.error('Error en el callback de Amazon Ads:', error)
     return volver(request, {
       ads_error: 'No se ha podido completar la conexión con Amazon Ads. Vuelve a intentarlo.',
-    })
+    }, cliente)
   }
 }

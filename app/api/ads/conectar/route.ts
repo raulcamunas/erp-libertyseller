@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as {
       clienteId?: string
       region?: string
+      paraCliente?: boolean
     }
 
     if (!body.clienteId || !UUID.test(body.clienteId)) {
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
       clienteId: body.clienteId,
       region,
       userId: session.userId,
+      paraCliente: body.paraCliente === true,
     })
 
     return NextResponse.json({ url })
