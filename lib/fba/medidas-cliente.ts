@@ -206,6 +206,13 @@ export function cajaDeducida(cantidades: number[], cajaEncaje?: number | null): 
 /* Mercado de una remesa nueva                                         */
 /* ------------------------------------------------------------------ */
 
+/** Los mercados de Amazon en Europa (incluidos Reino Unido, Turquía, Oriente Medio, que van por el mismo extremo de la API) */
+const MERCADOS_EUROPEOS = new Set(['A1RKKUPIHCS9HS', 'APJ6JRA9NG5V4', 'A13V1IB3VIYZZH', 'A1PA6795UKMFR9', 'A1F83G8C2ARO7P', 'A1805IZSGTT6HS', 'A2NODRKZP88ZB9', 'A1C3SOZRARQ6R3', 'AMEN7PMS3EDWL', 'A28R8C7NBKEWEA', 'A33AVAJ2PDY3EV'])
+export const esMercadoEuropeo = (m: string | null | undefined) => !!m && MERCADOS_EUROPEOS.has(m.trim())
+
+/** Un envío de Europa se da de alta en España (ver mercadoDeRemesa). Fuera de Europa, el que venga */
+export const mercadoDeAltaDelEnvio = (m: string) => (esMercadoEuropeo(m) ? MERCADO_POR_REGION.eu : m)
+
 export const MERCADO_POR_REGION: Record<'eu' | 'na' | 'fe', string> = {
   eu: 'A1RKKUPIHCS9HS', // España
   na: 'ATVPDKIKX0DER', // Estados Unidos
@@ -218,6 +225,10 @@ export const MERCADO_POR_REGION: Record<'eu' | 'na' | 'fe', string> = {
  */
 export function mercadoDeRemesa(ultimaEnviada: string | null, region: 'eu' | 'na' | 'fe' | null): string {
   const u = typeof ultimaEnviada === 'string' ? ultimaEnviada.trim() : ''
+  // EUROPA = ESPAÑA. Los clientes de Europa envían desde España, y el envío se da de alta en Amazon España aunque la mercancía
+  // acabe en otro país. Antes heredaba el país del último envío y una importación que los trajo como «Italia» contagiaba a
+  // todos los nuevos (ShoesF, Creative Toys, Yo By Yolanda, Lenobotics; 20 nov 2026)
+  if (region === 'eu' || (!region && esMercadoEuropeo(u))) return MERCADO_POR_REGION.eu
   if (u) return u
   return MERCADO_POR_REGION[region ?? 'eu'] ?? MERCADO_POR_REGION.eu
 }

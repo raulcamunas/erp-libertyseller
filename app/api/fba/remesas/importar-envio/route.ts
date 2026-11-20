@@ -4,6 +4,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { requireFbaAccess } from '@/lib/fba/acceso'
 import { estadoDeEnvios } from '@/lib/fba/inbound'
 import { crearRemesaDeEnvio, lineasConNombre } from '@/lib/fba/importar-envio'
+import { esMercadoEuropeo, MERCADO_POR_REGION } from '@/lib/fba/medidas-cliente'
 import { mercadoDeEnvio, mercadosQueVendeLaCuenta, participaEn, type ConexionParaMercado } from '@/lib/fba/mercados'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -88,7 +89,9 @@ export async function POST(request: NextRequest) {
         fbaPorMercado.set(l.marketplace_id, (fbaPorMercado.get(l.marketplace_id) ?? 0) + 1)
       }
     }
-    const elegido = mercadoDeEnvio({ pedido: mercadoPedido, conexion: datosConexion, fbaPorMercado })
+    const hallado = mercadoDeEnvio({ pedido: mercadoPedido, conexion: datosConexion, fbaPorMercado })
+    // Un envío de Europa se da de alta en España (ver mercadoDeRemesa): así se importaron 50 envíos como de Italia
+    const elegido = esMercadoEuropeo(hallado.id) ? { ...hallado, id: MERCADO_POR_REGION.eu, nombre: 'España' } : hallado
     const mercado = elegido.id
     if (!participaEn(datosConexion, mercado)) {
       return fail(

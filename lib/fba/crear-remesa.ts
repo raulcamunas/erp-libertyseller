@@ -1,3 +1,4 @@
+import { mercadoDeAltaDelEnvio } from './medidas-cliente'
 import { limpiarAnalisis, type AnalisisIa } from './analisis-ia'
 import { puedeEditar, type SesionFba } from './acceso'
 import type { createServiceClient } from '@/lib/supabase/service'
@@ -77,8 +78,10 @@ const mal = (error: string): ResultadoValidacionRemesa => ({ ok: false, estado: 
 export function validarRemesaNueva(cuerpo: unknown, clienteId: string): ResultadoValidacionRemesa {
   const body = (typeof cuerpo === 'object' && cuerpo !== null ? cuerpo : {}) as Record<string, unknown>
 
-  const marketplaceId = textoLimpio(body.marketplaceId, 20)
-  if (!marketplaceId) return mal('Falta el mercado de la remesa')
+  const pedido = textoLimpio(body.marketplaceId, 20)
+  if (!pedido) return mal('Falta el mercado de la remesa')
+  // Un envío de Europa se da de alta en España, se pida el que se pida (ver mercadoDeRemesa)
+  const marketplaceId = mercadoDeAltaDelEnvio(pedido)
 
   const fechaEnvio = textoLimpio(body.fechaEnvio, 10)
   if (!fechaEnvio || !/^\d{4}-\d{2}-\d{2}$/.test(fechaEnvio)) {
