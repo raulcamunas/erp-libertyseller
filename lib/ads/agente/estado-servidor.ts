@@ -492,7 +492,7 @@ export async function saltarEnsayo(perfilId: string, userId: string): Promise<vo
   await caducarSubidasPendientes(perfilId, 'se salta el ensayo: las subidas pendientes se vuelven a proponer con los datos de ahora')
   const { data, error } = await createServiceClient()
     .from('ads_agente')
-    .update({ estado: 'activo', activo_desde: ahoraIso(ahora), rampa_desde: ahoraIso(ahora), ensayo_hasta: ahoraIso(ahora), updated_at: ahoraIso(ahora) })
+    .update({ estado: 'activo', activo_desde: ahoraIso(ahora), rampa_desde: null, ensayo_hasta: ahoraIso(ahora), updated_at: ahoraIso(ahora) })
     .eq('perfil_id', perfilId)
     .eq('estado', 'ensayo')
     .select('perfil_id')
@@ -513,7 +513,7 @@ export async function pasarAActivo(perfilId: string, ahora: number): Promise<voi
   await caducarSubidasPendientes(perfilId, 'termina el ensayo: las subidas pendientes se vuelven a proponer con los datos de ahora')
   const { data, error } = await createServiceClient()
     .from('ads_agente')
-    .update({ estado: 'activo', activo_desde: ahoraIso(ahora), rampa_desde: ahoraIso(ahora), updated_at: ahoraIso(ahora) })
+    .update({ estado: 'activo', activo_desde: ahoraIso(ahora), rampa_desde: null, updated_at: ahoraIso(ahora) })
     .eq('perfil_id', perfilId)
     .eq('estado', 'ensayo')
     .select('perfil_id')
@@ -539,9 +539,10 @@ export async function reanudarAgente(perfilId: string, userId: string, ignorar: 
   const { data, error } = await createServiceClient()
     .from('ads_agente')
     .update({
-      estado: volverAlEnsayo ? 'ensayo' : 'activo',
-      rampa_desde: volverAlEnsayo ? null : ahoraIso(ahora - DIA_MS),
-      ...(volverAlEnsayo ? { ensayo_hasta: ensayoAlReanudar(ahora) } : {}),
+      // Sin ensayo ni rampa (20 nov 2026, Raúl): reanudar es activo desde ya
+      estado: 'activo',
+      rampa_desde: null,
+      ...(volverAlEnsayo ? { activo_desde: ahoraIso(ahora), ensayo_hasta: ahoraIso(ahora) } : {}),
       freno_motivo: null,
       freno_detalle: null,
       ignorar_freno_motivo: ignorar,

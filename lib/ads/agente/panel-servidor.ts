@@ -421,7 +421,9 @@ export async function panelDelAgente(cuenta: CuentaParaSincronizar, esAdmin: boo
   const fecha = local.fecha
   const manuales = config?.eventosManuales ?? []
   const evento = eventoEn(fecha, contexto.pais, manuales)
-  const veda = enVedaDeActivacion(fecha, contexto.pais, manuales)
+  // Sin veda de temporada (20 nov 2026, Raúl)
+  const veda = null as ReturnType<typeof enVedaDeActivacion>
+  void manuales
 
   const [diasHoy, horas, escrituraReal, hechosHoy, conErrores, cambios, eventos, retenidas, veredictos, coste, informe, validacion] = await Promise.all([
     diasDeUso(cuenta.id, fecha, fecha),

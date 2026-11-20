@@ -269,7 +269,7 @@ export function decidirPropuesta(
     const t = extra.termino ?? { etiqueta: null, pedidosHistoricos: 0, validacionOk: false }
     // Fallar cerrado: sin saber si el término ha vendido, no se negativiza (espera a la próxima pasada; si no se puede en 30 h, para una persona)
     if (t.pedidosHistoricos == null) {
-      if (horas > AGENTE.IA_HORAS_ESPERA) return { accion: 'retener', motivo: 'No he podido comprobar si el término ha vendido: lo decide una persona.' }
+      if (horas > AGENTE.IA_HORAS_ESPERA) return { accion: 'descartar', motivo: 'No he podido comprobar si el término ha vendido: no lo negativizo.' }
       return { accion: 'esperar', motivo: 'No he podido comprobar si el término ha vendido: espero a la próxima pasada' }
     }
     const d = decisionDeTermino(t.etiqueta, horas, { pedidosHistoricos: t.pedidosHistoricos, validacionOk: t.validacionOk })
@@ -277,10 +277,8 @@ export function decidirPropuesta(
     if (d === 'esperar') return { accion: 'esperar', motivo: 'Término sin etiqueta segura de la IA todavía' }
     if (d === 'descartar') return { accion: 'descartar', motivo: `${dice ?? 'La IA dice: relevante'}. Alguien que busca eso compraría el producto: no lo negativizo.` }
     if (d === 'retener') {
-      if (t.pedidosHistoricos > 0) return { accion: 'retener', motivo: `Ha vendido (${t.pedidosHistoricos} pedidos en 90 días): lo decide una persona.${dice ? ` ${dice}.` : ''}` }
-      if (dice && !t.validacionOk) return { accion: 'retener', motivo: `${dice}. Revísala para enseñar al agente.` }
-      if (dice) return { accion: 'retener', motivo: `${dice}. No es seguro: lo decide una persona.` }
-      return { accion: 'retener', motivo: `Sin etiqueta de la IA en ${AGENTE.IA_HORAS_ESPERA} h: lo decide una persona.` }
+      // Sin personas de por medio (20 nov 2026, Raúl): lo que ha vendido no se negativiza; lo demás, sí
+      if (t.pedidosHistoricos > 0) return { accion: 'descartar', motivo: `Ha vendido (${t.pedidosHistoricos} pedidos en 90 días): no lo negativizo.${dice ? ` ${dice}.` : ''}` }
     }
     // aplicar: negativa en exacta, aprobada por la IA
     iaAprueba = true
@@ -323,7 +321,7 @@ export function decidirPropuesta(
   // ---- Fallar cerrado: una puja o un presupuesto sin valor actual o nuevo se saltaría los guardarraíles (±25 %, puja máxima, techo, 7 días) y la comprobación de que
   //      Amazon sigue igual (valorSigueIgual(null, x) da true): no se aplica ----
   if ((tipo === 'puja' || tipo === 'presupuesto') && (!finito(valorActual) || !finito(valorNuevo))) {
-    return { accion: 'retener', motivo: `Sin ${!finito(valorActual) ? 'valor actual' : 'valor nuevo'} de ${tipo === 'puja' ? 'la puja' : 'el presupuesto'}: no puedo comprobar los guardarraíles. Lo decide una persona.` }
+    return { accion: 'descartar', motivo: `Sin ${!finito(valorActual) ? 'valor actual' : 'valor nuevo'} de ${tipo === 'puja' ? 'la puja' : 'el presupuesto'}: no se puede aplicar.` }
   }
 
   // ---- 6. Subidas: postura, ritmo, defensivo, marca, techo, evento; la rampa solo hace esperar ----
@@ -346,7 +344,7 @@ export function decidirPropuesta(
     if (c.techoNulo) pasajeras.push('no hay techo de gasto del mes')
     if (c.eventoPosterior) pasajeras.push(`los datos tocan ${c.eventoPosterior}`)
     if (clase === 'presupuesto_subir' && c.cuentaPequena) pasajeras.push(`la cuenta es pequeña (menos de ${AGENTE.CUENTA_PEQUENA_GASTO30} de gasto en 30 días)`)
-    if (dePersona.length > 0) return { accion: 'retener', motivo: `No subo: ${[...dePersona, ...pasajeras].join('; ')}.` }
+    if (dePersona.length > 0) return { accion: 'descartar', motivo: `No subo: ${[...dePersona, ...pasajeras].join('; ')}.` }
     if (pasajeras.length > 0) return { accion: 'caducar', motivo: `No subo: ${pasajeras.join('; ')}. Si deja de pasar, se volverá a proponer con los datos de ese momento.` }
     if (c.gastoDesconocido) return { accion: 'esperar', motivo: 'No sé cuánto se gasta hoy (falla la lectura del uso de presupuesto): no subo hasta que vuelva' }
     if (c.rampa.soloBajadas) return { accion: 'esperar', motivo: 'Rampa: hoy solo negativas y bajadas' }
@@ -360,7 +358,7 @@ export function decidirPropuesta(
         ? pujaMaxima({ precio: producto?.precio ?? null, cvrPct: finito(p.metricas?.cvrPct) ? (p.metricas.cvrPct as number) : null, acosObjetivoPct: producto?.acosObjetivoPct ?? 0, topeFijo: c.topePuja })
         : null
     const l = limitarPuja(valorActual, valorNuevo, pujaMax)
-    if (l.descartar) return { accion: 'retener', motivo: `Guardarraíl: con el ±${Math.round(AGENTE.PUJA_CAMBIO_MAX * 100)} %${pujaMax != null ? ` y la puja máxima (${euros(pujaMax)})` : ''} el cambio ya no merece la pena.` }
+    if (l.descartar) return { accion: 'descartar', motivo: `Guardarraíl: con el ±${Math.round(AGENTE.PUJA_CAMBIO_MAX * 100)} %${pujaMax != null ? ` y la puja máxima (${euros(pujaMax)})` : ''} el cambio ya no merece la pena.` }
     if (l.recortada) {
       valorNuevo = l.valor
       cambiaValor = true
@@ -373,7 +371,7 @@ export function decidirPropuesta(
   if (clase === 'promover') {
     const pujaMax = pujaMaxima({ precio: producto?.precio ?? null, cvrPct: finito(p.metricas?.cvrPct) ? (p.metricas.cvrPct as number) : null, acosObjetivoPct: producto?.acosObjetivoPct ?? 0, topeFijo: c.topePuja })
     const partida = pujaDePromover(p.metricas as { clics?: unknown; gasto?: unknown })
-    if (!finito(pujaMax) || !(pujaMax > 0) || partida == null) return { accion: 'retener', motivo: 'Promover: no puedo calcular la puja de partida o la puja máxima. Lo decide una persona.' }
+    if (!finito(pujaMax) || !(pujaMax > 0) || partida == null) return { accion: 'descartar', motivo: 'Promover: no puedo calcular la puja de partida o la puja máxima.' }
     pujaDePromoverMax = pujaMax
     if (partida > pujaMax) notas.push(`Guardarraíl: la puja de partida (CPC ${euros(partida)}) se queda en la puja máxima ${euros(pujaMax)}`)
   }
