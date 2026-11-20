@@ -23,7 +23,7 @@ import { configDeFila, filasDeUso, leerContextoDelAgente, nombreDeCuenta } from 
 import { medirEfectos, veredictosRecientes } from './efectos-servidor'
 import { actualizarAgente, frenarAgente, leerConfigDelAgente, paradaGeneral, pasarAActivo, reservarPaso, soltarCuenta, tomarCuenta } from './estado-servidor'
 import { anotarEvento, avisar } from './eventos-servidor'
-import { claseDeCambio, sinSubidasDePresupuesto } from './guardarrailes-calculo'
+import { claseDeCambio, FRENOS_AUTOMATICOS, sinSubidasDePresupuesto } from './guardarrailes-calculo'
 import { recalcularObjetivos } from './objetivos-servidor'
 import { diaDeRampa, ensayoTerminado, horaEnMadrid, lunesLocal, motorFueraDeModoAgente, pasoCabe, siguientePaso } from './pasos-calculo'
 import { prepararResumen } from './resumen-servidor'
@@ -353,7 +353,7 @@ async function pasoVigilar(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
       activado = true
       const h = await hechos()
       const texto = textoDeEnsayoFin({ nombreCuenta: d.nombre, hechos: h, veda: null })
-      await anotarEvento(perfilId, 'ensayo_fin', 'Termina el ensayo: el agente pasa a activo (rampa de 7 días)', texto.cuerpo, { hechos: h })
+      await anotarEvento(perfilId, 'ensayo_fin', 'Termina el ensayo: el agente pasa a activo', texto.cuerpo, { hechos: h })
       await avisar(perfilId, 'ensayo-fin', madrid, texto)
     } else if (veda && config.ensayoHasta && Date.parse(config.ensayoHasta) <= ahora) {
       // El ensayo ha terminado, pero hay veda: sigue ensayando y se avisa UNA vez por veda
@@ -584,7 +584,8 @@ async function pasoResumen(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
   const veda = config.estado === 'ensayo' ? enVedaDeActivacion(local.fecha, d.pais, config.eventosManuales) : null
   const rampaLocal = config.rampaDesde ? horaLocal(Date.parse(config.rampaDesde), d.zona).fecha : null
   const dia = config.estado === 'activo' ? diaDeRampa(rampaLocal, local.fecha) : null
-  const rampa = dia != null && dia < DIAS_DE_RAMPA ? { dia: dia + 1, de: DIAS_DE_RAMPA } : null
+  // Sin frenos automáticos no hay rampa (topesDelDia no la aplica): el resumen no la menciona aunque quede un rampa_desde viejo
+  const rampa = FRENOS_AUTOMATICOS && dia != null && dia < DIAS_DE_RAMPA ? { dia: dia + 1, de: DIAS_DE_RAMPA } : null
   const r = await prepararResumen(cuenta, config, ahora, { contexto, veredictos, veda, rampa })
   await avisar(cuenta.id, 'resumen', r.fecha, { titulo: r.titulo, cuerpo: r.cuerpo }, { avisar: false })
   return { hizoAlgo: true }

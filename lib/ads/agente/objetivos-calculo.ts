@@ -23,6 +23,8 @@ const redondear1 = (n: number) => redondear(n, 1)
 const acotar = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
 const positivo = (n: number | null | undefined): n is number => n != null && Number.isFinite(n) && n > 0
 const DIA_MS = 86_400_000
+/** Días de un mes medio (365 ÷ 12): para pasar una media diaria a un techo mensual provisional */
+const DIAS_DEL_MES_MEDIO = 30.4
 
 /* =============================================================================================================================================================
  * 3.1 · ACoS OBJETIVO AUTOMÁTICO (candidato) y su ciclo de vida
@@ -177,6 +179,10 @@ export function revisarObjetivo(
  *     de temporada (`ventanaConEvento`): en la revisión sube como mucho +25 % sobre el techo anterior; baja libre (nunca por debajo del gasto de 30 d).
  *     Sin `mes` del congelado o sin `mesActual`, no se revisa.
  *   · Sin gasto real (gasto 30 d < 1) y sin techo congelado → null: en la cuenta no sube nada.
+ *   · CON DATOS INCOMPLETOS (`datosIncompletos` = el motivo: la cuenta no tiene aún 30 días de historia, o las ventas totales no se han podido leer / están viejas y la ficha
+ *     tiene TACoS objetivo) NO se congela nada: congelar un mes un techo sacado de 3 días de gasto (35 €) dejaba la cuenta en «recorte» todo el mes. Con un techo congelado
+ *     previo, se conserva tal cual (ni se revisa ni se baja). Sin él, un techo PROVISIONAL que se recalcula cada día: max(gasto 30 d, media diaria desde el primer día con
+ *     datos × 30,4), y se congela el día que los datos estén completos.
  * `cambia` = el techo nuevo es distinto del congelado (para avisar solo cuando cambia).
  */
 export function techoAutomatico(e: {
@@ -187,6 +193,10 @@ export function techoAutomatico(e: {
   tacosObjetivoPct: number | null
   mesActual?: string | null
   ventanaConEvento?: boolean
+  /** null/ausente = datos completos; si no, el motivo (para el detalle). Ver arriba */
+  datosIncompletos?: string | null
+  /** Días desde el primer día con datos hasta el último cerrado (ambos incluidos): la base de la media diaria del techo provisional */
+  diasDeHistoria?: number | null
 }): { techo: number | null; automatico: boolean; congelar: boolean; cambia: boolean; detalle: string } {
   if (positivo(e.presupuestoMensual)) {
     return { techo: e.presupuestoMensual, automatico: false, congelar: false, cambia: false, detalle: 'Presupuesto mensual de la ficha (solo Sponsored Products).' }
@@ -201,6 +211,21 @@ export function techoAutomatico(e: {
     return { techo: null, automatico: true, congelar: false, cambia: false, detalle: 'Sin gasto real en 30 días: sin techo, el agente no sube nada en la cuenta.' }
   }
   const es = (n: number) => redondear(n).toLocaleString('es-ES')
+  if (e.datosIncompletos) {
+    // Datos incompletos: nunca se congela (ni se revisa) con ellos
+    if (previo != null) {
+      return { techo: previo, automatico: true, congelar: false, cambia: false, detalle: `Techo automático congelado (${es(previo)}): no se revisa con datos incompletos (${e.datosIncompletos}); se revisará cuando estén completos.` }
+    }
+    const dias = positivo(e.diasDeHistoria) ? Math.min(Math.floor(e.diasDeHistoria), 30) : 30
+    const provisional = redondear(Math.max(e.gasto30, (e.gasto30 / Math.max(1, dias)) * DIAS_DEL_MES_MEDIO))
+    return {
+      techo: provisional,
+      automatico: true,
+      congelar: false,
+      cambia: false,
+      detalle: `Techo provisional, sin congelar (${e.datosIncompletos}): media diaria ${es(e.gasto30 / Math.max(1, dias))} × ${DIAS_DEL_MES_MEDIO.toLocaleString('es-ES')} días = ${es(provisional)}. Se congela cuando los datos estén completos.`,
+    }
+  }
   const porTacos = positivo(e.tacosObjetivoPct) && positivo(e.ventasTotales30) ? (e.tacosObjetivoPct / 100) * e.ventasTotales30 : null
   const tope = e.gasto30 * AGENTE.TECHO_AUTO_CRECER_X
   let techo = porTacos != null ? Math.max(e.gasto30, Math.min(porTacos, tope)) : e.gasto30
@@ -213,16 +238,49 @@ export function techoAutomatico(e: {
           ? `TACoS objetivo ${e.tacosObjetivoPct!.toLocaleString('es-ES')} % × ventas totales proyectadas ${es(e.ventasTotales30!)} = ${es(techo)} (el TACoS va bien: deja crecer sobre el gasto de 30 d, ${es(e.gasto30)}).`
           : `Gasto de 30 días ${es(e.gasto30)} + 25 % = ${es(techo)} (el TACoS objetivo daría ${es(porTacos)}: se crece como mucho un 25 % al mes).`
   if (previo != null) {
-    // Revisión mensual: sube como mucho +25 % sobre el techo anterior; baja libre (sin bajar del gasto de 30 d, que ya está en el cálculo)
+    // Revisión mensual: sube como mucho +25 % sobre el techo anterior; baja libre. NUNCA por debajo del gasto real de una ventana completa: un techo minúsculo congelado
+    // con datos a medias (antes del arreglo) se repara solo al cambiar de mes en vez de arrastrar la cuenta a «recorte» otro mes más
     const maximo = previo * AGENTE.TECHO_AUTO_CRECER_X
     if (techo > maximo) {
-      techo = maximo
-      detalle = `${detalle} Revisión mensual: sube como mucho un 25 % sobre el techo anterior (${es(previo)}).`
+      techo = Math.max(e.gasto30, maximo)
+      detalle =
+        techo > maximo
+          ? `${detalle} Revisión mensual: el techo anterior (${es(previo)}) se quedaba por debajo del gasto real de 30 días; se pone en el gasto.`
+          : `${detalle} Revisión mensual: sube como mucho un 25 % sobre el techo anterior (${es(previo)}).`
     } else detalle = `${detalle} Revisión mensual (antes ${es(previo)}).`
   }
   techo = redondear(techo)
   if (!(techo > 0)) return { techo: null, automatico: true, congelar: false, cambia: false, detalle: 'El techo calculado sale en cero: sin techo, el agente no sube nada en la cuenta.' }
   return { techo, automatico: true, congelar: true, cambia: previo == null || Math.abs(techo - previo) >= 0.01, detalle }
+}
+
+/** Ventas totales más viejas que esto no valen para CONGELAR un techo (se leen cada ~20 h; 72 h = tres lecturas fallidas seguidas) */
+export const VENTAS_PARA_TECHO_MAX_H = 72
+
+/**
+ * ¿Faltan datos para congelar el techo automático? Devuelve el motivo (para el detalle) o null si están completos:
+ *   · Historia: el primer día con datos de rendimiento tiene que ser ≤ el primer día de la ventana de 30 días. Se mira el PRIMER día y no cuántos días tienen gasto,
+ *     porque Amazon omite los días sin impresiones (una cuenta con huecos no es una cuenta nueva).
+ *   · Ventas totales (solo si cuentan: la ficha tiene TACoS objetivo y hay cuenta de vendedor): sin fallo al leerlas, con ventana de 30 días y leídas hace ≤ 72 h.
+ *     Sin ellas el techo sale del gasto a secas y se congelaría un mes sin saber el TACoS.
+ */
+export function motivoDeTechoIncompleto(e: {
+  primerDia: string | null
+  inicioVentana: string
+  ventasCuentan: boolean
+  ventasFallo: boolean
+  ventasTotales30: number | null
+  ventasLeidoAt: string | null
+  ahora: number
+}): string | null {
+  if (!e.primerDia || e.primerDia > e.inicioVentana) return `la cuenta aún no tiene 30 días de datos${e.primerDia ? ` (desde el ${e.primerDia})` : ''}`
+  if (e.ventasCuentan) {
+    if (e.ventasFallo) return 'no se han podido leer las ventas totales'
+    if (e.ventasTotales30 == null) return 'aún no hay ventas totales de 30 días'
+    const t = e.ventasLeidoAt ? Date.parse(e.ventasLeidoAt) : NaN
+    if (!Number.isFinite(t) || e.ahora - t > VENTAS_PARA_TECHO_MAX_H * 3_600_000) return `las ventas totales tienen más de ${VENTAS_PARA_TECHO_MAX_H} h`
+  }
+  return null
 }
 
 /** El techo de ESTE mes: × 1,3 en un mes con evento de temporada SOLO si un admin marcó `pico_eventos`; si no, el techo tal cual */

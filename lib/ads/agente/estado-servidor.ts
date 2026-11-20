@@ -1,7 +1,7 @@
 /**
  * AMAZON ADS · EL AGENTE PPC: ESTADO, INTERRUPTOR, RESERVAS Y HECHOS DEL DÍA. SOLO SERVIDOR.
  *
- *   ESTADO       `ads_agente` (una fila por cuenta): apagado → ensayo (3 días, no escribe) → activo (rampa de 7 días) ⇄ frenado. Lo enciende, apaga,
+ *   ESTADO       `ads_agente` (una fila por cuenta): apagado → activo ⇄ frenado (sin ensayo ni rampa desde el 20 nov 2026; «ensayo» solo queda en filas viejas). Lo enciende, apaga,
  *                reanuda y configura un administrador; lo frena el propio agente (o una persona). Encender pone `ads_motor_config.modo = 'agente'`
  *                DIRECTAMENTE (no pasa por motor.ts) con la misma comprobación que guardarModo: la ficha de cuenta tiene que estar firmada.
  *   INTERRUPTOR  `ads_agente_interruptor` (una fila) o la variable de entorno ADS_AGENTE_PARADO=1: con él, el agente no da ningún paso en ninguna cuenta.
@@ -361,14 +361,14 @@ async function exigirQueSePuedeSaltarElEnsayo(pais: string, zona: string, manual
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * Enciende el agente en la cuenta: ficha firmada (la firma si se pide), modo del motor 'agente', estado 'ensayo' (3 días) o 'activo' (si se salta
- * el ensayo: exige una escritura real previa en alguna cuenta y estar fuera de la veda). Guarda los datos de partida (suma de presupuestos, ACoS 7 d)
- * y el techo: el automático se CONGELA y solo se revisa una vez al mes, como mucho +25 % (si ya había uno automático, se queda).
+ * Enciende el agente en la cuenta: ficha firmada (la firma si se pide), modo del motor 'agente' y estado 'activo' desde ya (sin ensayo ni rampa).
+ * Guarda los datos de partida (suma de presupuestos, ACoS 7 d) y el techo: el automático se CONGELA si los datos están completos y solo se revisa una vez al mes,
+ * como mucho +25 % (si ya había uno automático, se queda); con datos incompletos queda provisional (sin guardar) hasta que se pueda congelar.
  */
 export async function encenderAgente(
   perfilId: string,
   userId: string,
-  opciones: { saltarEnsayo: boolean; firmarFicha: boolean; datos: { sumaPresupuestos: number | null; acos7: number | null; techo: { techo: number | null; automatico: boolean; detalle: string } } },
+  opciones: { saltarEnsayo: boolean; firmarFicha: boolean; datos: { sumaPresupuestos: number | null; acos7: number | null; techo: { techo: number | null; automatico: boolean; congelar?: boolean; detalle: string } } },
 ): Promise<ConfigDelAgente> {
   const ahora = Date.now()
   const previo = await leerConfigDelAgente(perfilId)
@@ -381,13 +381,17 @@ export async function encenderAgente(
   // Lo que SUBE y quedó pendiente del modo anterior se creó sin los frenos del agente (subidaPermitida, R1): se caduca ANTES de encender (si falla, no se enciende)
   const caducadas = await caducarSubidasPendientes(perfilId, 'se enciende el agente: las subidas pendientes del modo anterior no pasaron sus frenos')
 
-  // El techo: uno automático ya congelado se queda; si no, el de los datos de encendido (congelado si es automático)
+  // El techo: uno automático ya congelado se queda; si no, el de los datos de encendido. El automático se congela SOLO si el cálculo lo dice (datos completos): uno
+  // provisional (cuenta con menos de 30 días de datos, ventas totales sin leer) no se guarda y se recalcula cada día hasta que se pueda congelar
   const t = opciones.datos.techo
   const seQuedaElTecho = !!previo && previo.techoAutomatico && previo.techoMensual != null && t.automatico
-  const congelaAhora = !seQuedaElTecho && t.automatico
+  const congelaAhora = !seQuedaElTecho && t.automatico && t.congelar === true && t.techo != null
+  const provisional = !seQuedaElTecho && t.automatico && !congelaAhora && t.techo != null
   const techo = seQuedaElTecho
     ? { techo_mensual: previo!.techoMensual, techo_automatico: true, techo_congelado_at: previo!.techoCongeladoAt }
-    : { techo_mensual: t.techo, techo_automatico: t.automatico, techo_congelado_at: t.automatico && t.techo != null ? ahoraIso(ahora) : null }
+    : t.automatico
+      ? { techo_mensual: congelaAhora ? t.techo : null, techo_automatico: true, techo_congelado_at: congelaAhora ? ahoraIso(ahora) : null }
+      : { techo_mensual: t.techo, techo_automatico: false, techo_congelado_at: null }
 
   const salta = true
   const fila = {
@@ -426,7 +430,7 @@ export async function encenderAgente(
     throw e
   }
 
-  const comoArranca = salta ? 'sin ensayo (activo desde ya, con rampa de 7 días)' : `en ensayo ${AGENTE.DIAS_DE_ENSAYO} días (no escribe en Amazon)`
+  const comoArranca = salta ? 'sin ensayo ni rampa (activo desde ya)' : `en ensayo ${AGENTE.DIAS_DE_ENSAYO} días (no escribe en Amazon)`
   await anotarModo(perfilId, modoAnterior, 'agente', `Un administrador enciende el agente PPC ${comoArranca}${firmada ? ' · firma la ficha de cuenta' : ''}`, userId)
   await anotarEvento(perfilId, 'encendido', `Agente encendido ${comoArranca}`, firmada ? 'Se ha firmado la ficha de cuenta al encender.' : null, {
     por: userId,
@@ -440,7 +444,10 @@ export async function encenderAgente(
   })
   if (salta) await anotarEvento(perfilId, 'ensayo_saltado', 'Se salta el ensayo', 'Lo ha decidido un administrador al encender.', { por: userId })
 
-  if (congelaAhora) {
+  if (provisional) {
+    // Una sola vez, al encender: el provisional se recalcula a diario sin anotar nada hasta que se congele (pasoObjetivos lo anota entonces)
+    await anotarEvento(perfilId, 'techo_auto', 'Techo mensual provisional (sin congelar)', t.detalle || null, { techo: t.techo, provisional: true })
+  } else if (!seQuedaElTecho && t.automatico) {
     await anotarEvento(perfilId, 'techo_auto', t.techo == null ? 'Sin techo de gasto: nada sube' : 'Techo mensual automático congelado', t.detalle || null, { techo: t.techo })
     await avisar(perfilId, 'techo-auto', horaEnMadrid(ahora).fecha, textoDeTechoAuto({ nombreCuenta: cuenta.nombreCuenta, techo: t.techo, detalle: t.detalle, moneda: cuenta.moneda }))
   }
@@ -452,7 +459,8 @@ export async function apagarAgente(perfilId: string, userId: string, modoNuevo: 
   // Primero el estado: es lo que para el bucle del agente
   const { error } = await createServiceClient()
     .from('ads_agente')
-    .update({ estado: 'apagado', pensar_ya: false, updated_at: ahoraIso() })
+    // El motivo de un freno anterior no sigue en una cuenta apagada (se veía «apagado» con «acos_cuenta»); frenado_at queda como historia
+    .update({ estado: 'apagado', pensar_ya: false, freno_motivo: null, freno_detalle: null, updated_at: ahoraIso() })
     .eq('perfil_id', perfilId)
   if (error && !faltaLa315(error)) lanzar(error, 'No se ha podido apagar el agente')
 
@@ -481,7 +489,7 @@ async function sacarEnsayadasDeLaCuarentena(perfilId: string): Promise<void> {
   }
 }
 
-/** En ensayo → activo ya (rampa desde hoy). Exige una escritura real previa en alguna cuenta y estar fuera de la veda */
+/** En ensayo → activo ya, sin rampa (solo para filas viejas que sigan en ensayo; sin veda de temporada desde el 20 nov 2026) */
 export async function saltarEnsayo(perfilId: string, userId: string): Promise<void> {
   const config = await configObligatoria(perfilId)
   if (config.estado !== 'ensayo') throw new Error('El agente no está en ensayo.')
@@ -499,11 +507,11 @@ export async function saltarEnsayo(perfilId: string, userId: string): Promise<vo
   if (error) lanzar(error, 'No se ha podido saltar el ensayo')
   if (!data || data.length === 0) throw new Error('El agente ya no está en ensayo.')
   await sacarEnsayadasDeLaCuarentena(perfilId)
-  await anotarEvento(perfilId, 'ensayo_saltado', 'Se salta el ensayo: activo desde ya (rampa de 7 días)', null, { por: userId })
+  await anotarEvento(perfilId, 'ensayo_saltado', 'Se salta el ensayo: activo desde ya', null, { por: userId })
 }
 
 /**
- * Fin del ensayo: ensayo → activo, con activo_desde = rampa_desde = ahora. Solo si sigue en ensayo (dos pasadas no lo hacen dos veces).
+ * Fin del ensayo (filas viejas que sigan en ensayo): ensayo → activo, con activo_desde = ahora y sin rampa (rampa_desde = null). Solo si sigue en ensayo (dos pasadas no lo hacen dos veces).
  * El evento «ensayo_fin» y el aviso (con lo que habría hecho) los pone quien lo llama, que tiene las cuentas.
  * Igual que `saltarEnsayo`: ANTES de pasar, las subidas pendientes (calculadas con datos del ensayo, de hasta 3 días) se caducan; si siguen haciendo falta, el motor
  * las vuelve a proponer con los datos de ahora. Si caducar falla, lanza y NO pasa a activo (el vigilar cuenta como fallido y el siguiente lo reintenta): lo prudente
@@ -522,9 +530,8 @@ export async function pasarAActivo(perfilId: string, ahora: number): Promise<voi
 }
 
 /**
- * Reanuda un agente frenado: modo 'agente' y rampa al día 2 (rampa_desde = ahora − 1 día). Si se pide, ignora ese motivo de freno 24 h.
- * Si se frenó en el ENSAYO (nunca llegó a activo), vuelve al ensayo COMPLETO (`ensayoAlReanudar`: ensayo_hasta = ahora + 3 días): reanudar no es una forma de saltárselo,
- * y sin tocar ensayo_hasta el siguiente vigilar lo pasaría a activo en cuanto el freno hubiera durado más que lo que quedaba de ensayo.
+ * Reanuda un agente frenado: modo 'agente' y activo desde ya, sin rampa ni ensayo (20 nov 2026, Raúl; si nunca llegó a activo, activo_desde = ahora). Si se pide,
+ * ignora ese motivo de freno 24 h. `frenado_at` se conserva como historia del último freno (no se limpia).
  * Comprobar que ningún motivo sigue (frenosActuales + decisionDeReanudar → 409) es cosa de la API, antes de llamar aquí.
  */
 export async function reanudarAgente(perfilId: string, userId: string, ignorar: MotivoDeFreno | null): Promise<void> {
@@ -585,7 +592,7 @@ export async function reanudarAgente(perfilId: string, userId: string, ignorar: 
     if (eVuelta) console.error(`Agente PPC: no se ha podido devolver a «frenado» tras fallar el modo del motor al reanudar (${perfilId}):`, eVuelta.message)
     throw e
   }
-  const comoSigue = volverAlEnsayo ? 'vuelve al ensayo' : 'activo, con la rampa en el día 2'
+  const comoSigue = 'activo desde ya'
   const ignora = ignorar ? ` · ignora «${TEXTO_DE_MOTIVO[ignorar]}» ${AGENTE.FRENO_IGNORAR_HORAS} h` : ''
   await anotarModo(perfilId, anterior, 'agente', `Un administrador reanuda el agente PPC (${comoSigue})${ignora}`, userId)
   await anotarEvento(

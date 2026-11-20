@@ -21,7 +21,7 @@ import { leerContextoDelAgente, nombreDeCuenta } from './contexto-servidor'
 import { resumenDeVeredictos } from './efectos-calculo'
 import { veredictosRecientes } from './efectos-servidor'
 import { hayEscrituraRealEnAlgunaCuenta, hechosDeHoy, leerConfigDelAgente, paradaGeneral } from './estado-servidor'
-import { claseDeCambio, clasificarErrorDeAmazon, topesDelDia } from './guardarrailes-calculo'
+import { claseDeCambio, clasificarErrorDeAmazon, FRENOS_AUTOMATICOS, topesDelDia } from './guardarrailes-calculo'
 import { diaDeRampa, textoDeEstado } from './pasos-calculo'
 import { enVedaDeActivacion, eventoEn } from './temporada-calculo'
 import {
@@ -473,7 +473,8 @@ export async function panelDelAgente(cuenta: CuentaParaSincronizar, esAdmin: boo
     config,
     estadoTexto: textoDeEstado(config, ahora, zona, veda),
     puedeSaltarEnsayo: escrituraReal && !veda,
-    rampa: rampaDelPanel(config?.estado ?? null, rampaDesdeLocal, fecha, hoyTopes),
+    // Sin frenos automáticos no hay rampa (topesDelDia no la aplica): el panel no enseña una que no existe aunque quede un rampa_desde viejo
+    rampa: FRENOS_AUTOMATICOS ? rampaDelPanel(config?.estado ?? null, rampaDesdeLocal, fecha, hoyTopes) : null,
     evento,
     veda,
     // Sin límites por cuenta pequeña (20 nov 2026, Raúl)

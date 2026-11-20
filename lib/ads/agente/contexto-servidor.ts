@@ -24,9 +24,10 @@ import { nombreDePais } from '../paises'
 import { asinDeCampana } from '../productos-agrupar'
 import { partesDeNombre } from '../reglas'
 import type { CuentaParaSincronizar } from '../sincronizar'
+import { SIN_VENDEDOR } from '../tacos'
 import { ventasTotales, type VentaDeAsin } from '../ventas-totales'
 import { topesValidos } from './guardarrailes-calculo'
-import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, objetivoBase, techoAutomatico, techoDelMes } from './objetivos-calculo'
+import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, motivoDeTechoIncompleto, objetivoBase, techoAutomatico, techoDelMes } from './objetivos-calculo'
 import { coberturaDias, stockDeAsin, stockEfectivo } from './stock-calculo'
 import { eventoEn, eventosManualesValidos, hayEventoEnElMes, ventanaTocaEvento } from './temporada-calculo'
 import {
@@ -357,22 +358,29 @@ export interface VentasTotalesDeCuenta {
   leidoAt: string | null
   /** Hay alguna venta total guardada */
   hay: boolean
+  /** El error de la sincronización de ventas (SIN_VENDEDOR si la cuenta no tiene cuenta de vendedor) */
+  error: string | null
+  /** La lectura ha fallado (la base, o la sincronización con error y sin ventana de 30 días): vacías no quiere decir «cero ventas». No vale para congelar el techo */
+  fallo: boolean
 }
 
 /** Las tres ventanas de ventas totales por ASIN (7, 14 y 30 días hasta ayer). Sin datos, vacías */
 export async function ventasTotalesDeCuenta(perfilId: string): Promise<VentasTotalesDeCuenta> {
   const leer = async (dias: number) => {
     try {
-      return await ventasTotales(perfilId, dias)
+      return { ...(await ventasTotales(perfilId, dias)), roto: false }
     } catch (err) {
       console.error(`[agente] ventas totales de ${dias} días de ${perfilId}:`, err)
-      return { porAsin: {} as Record<string, VentaDeAsin>, leidoAt: null, error: null }
+      return { porAsin: {} as Record<string, VentaDeAsin>, leidoAt: null, error: null, roto: true }
     }
   }
   const [a, b, c] = await Promise.all([leer(7), leer(14), leer(30)])
   const mayus = (r: Record<string, VentaDeAsin>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.toUpperCase(), v]))
   const v30 = mayus(c.porAsin)
-  return { v7: mayus(a.porAsin), v14: mayus(b.porAsin), v30, leidoAt: c.leidoAt ?? b.leidoAt ?? a.leidoAt, hay: Object.keys(v30).length > 0 || Object.keys(a.porAsin).length > 0 }
+  const error = c.error ?? b.error ?? a.error
+  // Sin cuenta de vendedor no es un fallo: no habrá ventas nunca (el techo sale del gasto, como siempre)
+  const fallo = a.roto || b.roto || c.roto || (error != null && error !== SIN_VENDEDOR && Object.keys(v30).length === 0)
+  return { v7: mayus(a.porAsin), v14: mayus(b.porAsin), v30, leidoAt: c.leidoAt ?? b.leidoAt ?? a.leidoAt, hay: Object.keys(v30).length > 0 || Object.keys(a.porAsin).length > 0, error, fallo }
 }
 
 /** PURO. Σ de las ventas (o unidades) de una ventana; null si la ventana está vacía */
@@ -631,6 +639,18 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
   const cuenta30 = sumarDias(rendimiento, desplazar(hasta, -29), hasta)
 
   const ventasTotales30 = sumaDeVentas(ventas.v30)
+  // ¿Datos completos para CONGELAR el techo? (cuenta con 30 días de historia y, si hay TACoS objetivo, ventas totales leídas y recientes). Si no, techo provisional
+  let primerDia: string | null = null
+  for (const f of rendimiento) if (f.fecha <= hasta && (primerDia == null || f.fecha < primerDia)) primerDia = f.fecha
+  const datosIncompletos = motivoDeTechoIncompleto({
+    primerDia,
+    inicioVentana: desplazar(hasta, -29),
+    ventasCuentan: ficha.tacosObjetivoPct != null && ficha.tacosObjetivoPct > 0 && ventas.error !== SIN_VENDEDOR,
+    ventasFallo: ventas.fallo,
+    ventasTotales30,
+    ventasLeidoAt: ventas.leidoAt,
+    ahora,
+  })
   const manuales = config?.eventosManuales ?? []
   // El techo automático congelado se revisa una vez al mes (día local del marketplace), nunca con 30 días que toquen un evento de temporada
   const congeladoMs = config?.techoCongeladoAt ? Date.parse(config.techoCongeladoAt) : NaN
@@ -645,6 +665,8 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
     tacosObjetivoPct: ficha.tacosObjetivoPct,
     mesActual: local.mes,
     ventanaConEvento: ventanaTocaEvento(desplazar(hasta, -29), hasta, perfil.pais, manuales) != null,
+    datosIncompletos,
+    diasDeHistoria: primerDia ? diasEntre(primerDia, hasta) + 1 : null,
   })
   const techoMes = techoDelMes(techo.techo, hayEventoEnElMes(local.mes, perfil.pais, manuales), config?.picoEventos === true)
   const evento = eventoEn(local.fecha, perfil.pais, manuales)
@@ -846,7 +868,7 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
 export async function datosParaEncender(
   cuenta: CuentaParaSincronizar,
   ahora: number,
-): Promise<{ sumaPresupuestos: number | null; acos7: number | null; techo: { techo: number | null; automatico: boolean; detalle: string } }> {
+): Promise<{ sumaPresupuestos: number | null; acos7: number | null; techo: { techo: number | null; automatico: boolean; congelar: boolean; detalle: string } }> {
   let config: ConfigDelAgente | null = null
   try {
     config = await leerConfigPropia(cuenta.id)
@@ -873,5 +895,5 @@ export async function datosParaEncender(
     }
   }
 
-  return { sumaPresupuestos, acos7: acosDe(c7.gasto, c7.ventas), techo: { techo: l.techo.techo, automatico: l.techo.automatico, detalle: l.techo.detalle } }
+  return { sumaPresupuestos, acos7: acosDe(c7.gasto, c7.ventas), techo: { techo: l.techo.techo, automatico: l.techo.automatico, congelar: l.techo.congelar, detalle: l.techo.detalle } }
 }

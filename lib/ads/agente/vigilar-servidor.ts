@@ -48,7 +48,7 @@ import {
   type ProductoDelAgente,
 } from './contexto-servidor'
 import { subidasVetadasDeCuenta } from './ajustes-servidor'
-import { clasificarErrorDeAmazon, esRara, evaluarFrenos, faltaEnSumas, ventasParaFreno, presupuestoUtil, sinSubidasDePresupuesto, topesDelDia } from './guardarrailes-calculo'
+import { clasificarErrorDeAmazon, esRara, evaluarFrenos, faltaEnSumas, FRENOS_AUTOMATICOS, ventasParaFreno, presupuestoUtil, sinSubidasDePresupuesto, topesDelDia } from './guardarrailes-calculo'
 import { combinarAjustes } from './objetivos-calculo'
 import { diaDeRampa } from './pasos-calculo'
 import { presionDelDia, recortePorRitmo, reglasDePresupuesto, ritmoDelMes } from './ritmo-calculo'
@@ -719,7 +719,8 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       sinSubidas: hoyTopes.soloBajadas || Boolean(usoError),
       sinPresupuestoSubir: hoyTopes.sinPresupuestoSubir,
       techoNulo: l.techoMes == null,
-      cuentaPequena: l.cuentaPequena,
+      // La «cuenta pequeña» es un freno de negocio: con los frenos automáticos apagados no impide subir presupuestos (topesDelDia ya la ignora igual)
+      cuentaPequena: FRENOS_AUTOMATICOS && l.cuentaPequena,
       usoDisponible: reglasConUso,
       huecoDeSuma,
     })

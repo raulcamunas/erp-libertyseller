@@ -1,7 +1,7 @@
 import { posturaPorReglas, presionDelDia, recortePorRitmo, reglasDePresupuesto, ritmoDelMes } from './ritmo-calculo'
 import { AGENTE, type CampanaParaRitmo, type EstadoDelMes } from './tipos'
 import { limitarPresupuestoAhora, moverSumas, type SumasDePresupuesto } from './aplicar-servidor'
-import { faltaEnSumas } from './guardarrailes-calculo'
+import { faltaEnSumas, FRENOS_AUTOMATICOS } from './guardarrailes-calculo'
 import { techoAutomatico } from './objetivos-calculo'
 
 let fallos = 0
@@ -204,6 +204,30 @@ console.log('\n=== techo automático: con campañas que agotan y rinden, R1 tien
   // El caso de la revisión: el techo VIEJO (gasto 30 d × 1,0 y la suma útil ≤ techo ÷ 30,4) retenía siempre la subida de A
   const viejo = puntaAPunta([a, b], 1050 / (AGENTE.HOLGURA_SUMA_PRESUPUESTOS * AGENTE.PRESUPUESTO_UTIL_X), dos)
   ok('… con el techo viejo (tope útil 34,5) no había subida posible', !viejo.sube, j(viejo.r))
+}
+
+console.log('\n=== cuenta pequeña con los frenos automáticos apagados ===')
+{
+  // vigilar-servidor pasa `FRENOS_AUTOMATICOS && l.cuentaPequena`: con los frenos apagados, una campaña agotada y rentable de una cuenta pequeña sube
+  const r = reglasDePresupuesto([camp('a')], C({ cuentaPequena: FRENOS_AUTOMATICOS && true }))
+  ok('R1 propone la subida', r.propuestas.some((p) => p.regla === 'R1' && p.clase === 'presupuesto_subir'), j(r))
+}
+
+console.log('\n=== techo provisional (cuenta con pocos días de datos): no mete la cuenta en «recorte» ===')
+{
+  // Cuenta de ~1.000 €/mes que solo tiene 3 días de datos (105 €): antes el techo se congelaba en 105 y el mes iba en «recorte»
+  const t = techoAutomatico({ presupuestoMensual: null, congelado: null, gasto30: 105, ventasTotales30: null, tacosObjetivoPct: 10, datosIncompletos: 'la cuenta aún no tiene 30 días de datos', diasDeHistoria: 3 })
+  ok('techo provisional sin congelar (35 al día × 30,4 = 1.064)', t.techo === 1064 && !t.congelar, j(t))
+  const m = ritmoDelMes({
+    gastoMesHastaAyer: 105, techoMes: t.techo, dia: 10, diasDelMes: 30, media7: 35, ritmoAnterior: 'normal', ritmoAnteriorEsDeEsteMes: true, diasDesdeCambio: null,
+    acos30Cuenta: null, acosObjetivoMedio: null, tacos30: null, tacosObjetivoPct: 10, ventasTotalesCrecen: null, evento: null,
+  })
+  ok('… y el ritmo no es «recorte»', m.ritmo !== 'recorte', j(m))
+  const viejo = ritmoDelMes({
+    gastoMesHastaAyer: 105, techoMes: 105, dia: 10, diasDelMes: 30, media7: 35, ritmoAnterior: 'normal', ritmoAnteriorEsDeEsteMes: true, diasDesdeCambio: null,
+    acos30Cuenta: null, acosObjetivoMedio: null, tacos30: null, tacosObjetivoPct: 10, ventasTotalesCrecen: null, evento: null,
+  })
+  ok('(con el techo congelado en 105 de antes, sí lo era)', viejo.ritmo === 'recorte', j(viejo))
 }
 
 console.log('\n=== una subida pendiente no frena una bajada ===')
