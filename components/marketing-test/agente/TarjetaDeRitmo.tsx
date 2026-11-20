@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Gauge, TriangleAlert } from 'lucide-react'
 import { BarraDeProgreso, FilaDeKpis, Insignia, Kpi, TablaAdaptable, Tarjeta, type Columna } from '@/components/ui-ls'
 import type { TonoEstado } from '@/lib/estilo/denso'
 import { AGENTE, type PanelDelAgente, type RitmoDelMes } from '@/lib/ads/agente/tipos'
+import { leerUsoError } from '@/lib/ads/agente/uso-calculo'
 import { dinero } from '../formato'
 import { Aviso, pct } from './TarjetaDeEstado'
 
@@ -89,8 +90,8 @@ export function TarjetaDeRitmo({ panel, moneda }: { panel: PanelDelAgente; moned
       {!usoDisponible && (
         <div className="mb-3">
           <Aviso tono="ambar" icono={TriangleAlert} titulo="Amazon no da el uso de presupuesto de esta cuenta ahora mismo">
-            <p>Se sabe qué campañas se han quedado sin presupuesto (por su estado), pero no a qué hora ni cuánto llevan; mientras, el agente no sube ni baja presupuestos solo. Se vuelve a intentar cada {AGENTE.USO_REINTENTO_HORAS} h.</p>
-            {usoError && <p className="text-[var(--ls-t4)]">Último error: {usoError}</p>}
+            <p>Se sabe qué campañas se han quedado sin presupuesto (por su estado), pero no a qué hora ni cuánto llevan; mientras, el agente no sube ni baja presupuestos solo. En cada vigilar se prueba un lote y se vuelve a leer todo como mucho cada {AGENTE.USO_REINTENTO_HORAS} h.</p>
+            {usoError && <p className="text-[var(--ls-t4)]">Último error: {leerUsoError(usoError, null)?.mensaje ?? usoError}</p>}
           </Aviso>
         </div>
       )}

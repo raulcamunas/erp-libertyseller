@@ -3,7 +3,10 @@
  *
  * - `leerUsoDePresupuesto`: `POST /sp/campaigns/budget/usage` (lotes de 100, SECUENCIALES, FUERA de conRastro: es una lectura) → una fila por campaña y día LOCAL en `ads_presupuesto_dia`
  *   (fusionada con la anterior: uso último y máximo, gasto estimado, primer minuto agotada) y una fila por hora en `ads_gasto_hora` (la curva del día). Un 429 para la pasada (no se reintenta);
- *   un 207 sin ningún acierto es un ERROR. Si la API falla (o se salta mientras dura el reintento de 6 h), «agotada» sale de `servingStatus = CAMPAIGN_OUT_OF_BUDGET` (fuente 'estado', sin minuto).
+ *   un 207 sin ningún acierto es un ERROR. El error dice si es PASAJERO (429, 5xx, red, tiempo agotado: vigilar solo lo da por error tras varios seguidos) o no.
+ *   Si la API falla (o, tras un error, solo se prueba un lote), «agotada» sale de `servingStatus = CAMPAIGN_OUT_OF_BUDGET` (fuente 'estado', sin minuto).
+ *   La fila guarda el presupuesto BASE de la campaña (el de /sp/campaigns/list, el que lee y escribe el motor); el `budget` de la API de uso lleva las reglas de
+ *   presupuesto aplicadas y solo sirve para el gasto estimado (si se guardara, R1 calcularía sobre él y el motor marcaría obsoleta la subida).
  * - `leerAjustesDeUbicacion`: el mayor % de ajuste por ubicación de cada campaña (una subida de puja con > 100 % es «rara»).
  * - `leerPortfolios`: qué portfolios tienen tope de presupuesto (una campaña en uno así no sube por R1: se avisa).
  *
@@ -15,7 +18,7 @@ import { llamarAds } from '../datos'
 import { AdsError } from '../oauth'
 import { todasLasFilas } from '../paginar'
 import type { CuentaParaSincronizar } from '../sincronizar'
-import { filasDeUso, lanzar, numero } from './contexto-servidor'
+import { desplazar, filasDeUso, lanzar, numero } from './contexto-servidor'
 import type { DiaDeUso, HoraDeCuenta } from './tipos'
 import { fusionarDiaDeUso, horaDeCuenta, horaLocal, leerRespuestaDeUso, lotesDeCampanas, RUTA_USO, TIPO_USO } from './uso-calculo'
 
@@ -24,18 +27,31 @@ const TIPO_PORTFOLIO = 'application/vnd.spPortfolio.v3+json'
 const AGOTADA_POR_ESTADO = 'CAMPAIGN_OUT_OF_BUDGET'
 const LOTE_UPSERT = 500
 
-/** PURO. Una campaña de `campanasDe` + la lectura de uso (si la hay) → la lectura que se fusiona con la fila del día. Sin lectura de la API, «agotada» por el estado de servicio */
+/**
+ * PURO. Una campaña de `campanasDe` + la lectura de uso (si la hay) → la lectura que se fusiona con la fila del día. Sin lectura de la API, «agotada» por el estado de servicio.
+ * `presupuesto` es el BASE de la campaña (`c.presupuesto`, el que el motor relee al aplicar); `presupuestoEfectivo`, el de la API de uso (con las reglas de presupuesto de
+ * Amazon aplicadas: Black Friday, temporada…), solo para el gasto estimado. Sin el base, el de la API.
+ */
 export function lecturaDeCampana(
   c: { campaignId: string; presupuesto: number | null; servicio: string | null; estado: string | null },
   uso: { usoPct: number | null; presupuesto: number | null; actualizadoAt: string | null } | undefined,
-): { campaignId: string; usoPct: number | null; presupuesto: number | null; actualizadoAt: string | null; porEstado: boolean; estadoCampana: string | null } {
+): { campaignId: string; usoPct: number | null; presupuesto: number | null; presupuestoEfectivo: number | null; actualizadoAt: string | null; porEstado: boolean; estadoCampana: string | null } {
   if (uso) {
-    return { campaignId: c.campaignId, usoPct: uso.usoPct, presupuesto: uso.presupuesto ?? c.presupuesto, actualizadoAt: uso.actualizadoAt, porEstado: false, estadoCampana: c.estado }
+    return {
+      campaignId: c.campaignId,
+      usoPct: uso.usoPct,
+      presupuesto: c.presupuesto ?? uso.presupuesto,
+      presupuestoEfectivo: uso.presupuesto ?? c.presupuesto,
+      actualizadoAt: uso.actualizadoAt,
+      porEstado: false,
+      estadoCampana: c.estado,
+    }
   }
   return {
     campaignId: c.campaignId,
     usoPct: null,
     presupuesto: c.presupuesto,
+    presupuestoEfectivo: null,
     actualizadoAt: null,
     porEstado: (c.servicio ?? '').toUpperCase() === AGOTADA_POR_ESTADO,
     estadoCampana: c.estado,
@@ -58,30 +74,54 @@ const filaDeDia = (perfilId: string, d: DiaDeUso) => ({
   leido_at: d.leidoAt,
 })
 
+const RE_RED = /tiempo|timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|network|socket|abort/i
+
+/**
+ * PURO. ¿Es PASAJERO un fallo de la API de uso? Sí: 429, 5xx, red caída o tiempo agotado (AbortError/TimeoutError). No: 401/403 y los demás 4xx (lo que Amazon
+ * no admite se repetiría igual), y un error sin código que no es de red (credenciales, conexión revocada). El 207 en que todo falla se clasifica fuera (persistente).
+ */
+export function falloDeUsoEsPasajero(err: unknown): boolean {
+  if (err instanceof AdsError) {
+    if (err.estado != null) return err.estado === 429 || err.estado >= 500
+    return !err.esDeAutorizacion && RE_RED.test(err.message)
+  }
+  if (err instanceof Error) return err.name === 'AbortError' || err.name === 'TimeoutError' || RE_RED.test(err.message)
+  return false
+}
+
 /**
  * Lee el uso de presupuesto de hoy de las campañas ACTIVAS que se le pasan y lo guarda (upsert) en `ads_presupuesto_dia` y `ads_gasto_hora`. Devuelve TODAS las filas de hoy de la cuenta (también las
- * de campañas leídas antes y pausadas después: su gasto de hoy cuenta) y el error de la API si lo hubo. `opciones.saltarApi`: no llama a la API (reintento a las 6 h tras un error) y deduce lo
- * agotado del estado. NO va dentro de conRastro: es una lectura.
+ * de campañas leídas antes y pausadas después: su gasto de hoy cuenta), el error de la API si lo hubo, si ese error es PASAJERO (`transitorio`: todos los fallos
+ * fueron 429/5xx/red) y las campañas con una regla de presupuesto activa (`conRegla`: id → presupuesto efectivo, distinto del base). `opciones.soloPrueba`: tras
+ * un error, solo se lee el PRIMER lote (una llamada de prueba: si va bien, el error se borra) y lo demás se deduce del estado. NO va dentro de conRastro: es una lectura.
+ * Las campañas que ya no están activas y ayer acabaron ACTIVAS también tienen fila hoy (con su estado, sin uso): así la lectura de hoy no parece «a medias»
+ * (lecturaDeHoyCompleta) el día después de pausar una campaña.
  */
 export async function leerUsoDePresupuesto(
   cuenta: CuentaParaSincronizar,
   campanas: ReadonlyArray<{ campaignId: string; presupuesto: number | null; servicio: string | null; estado: string | null }>,
   zona: string,
   ahora: number,
-  opciones: { saltarApi?: boolean } = {},
-): Promise<{ dias: DiaDeUso[]; error: string | null }> {
+  opciones: { soloPrueba?: boolean } = {},
+): Promise<{ dias: DiaDeUso[]; error: string | null; transitorio: boolean; conRegla: Map<string, number> }> {
   const fecha = horaLocal(ahora, zona).fecha
-  const previas = await filasDeUso(cuenta.id, fecha, fecha)
+  const ayer = desplazar(fecha, -1)
+  const deDosDias = await filasDeUso(cuenta.id, ayer, fecha)
+  const previas = deDosDias.filter((d) => d.fechaLocal === fecha)
   const previaDe = new Map(previas.map((d) => [d.campaignId, d]))
+  const activaAyer = new Set(deDosDias.filter((d) => d.fechaLocal === ayer && (d.estadoCampana ?? 'ENABLED').toUpperCase() === 'ENABLED').map((d) => d.campaignId))
 
   const activas = campanas.filter((c) => (c.estado ?? '').toUpperCase() === 'ENABLED')
   const usos = new Map<string, { usoPct: number | null; presupuesto: number | null; actualizadoAt: string | null }>()
   let error: string | null = null
+  let transitorio = false
 
-  if (!opciones.saltarApi && activas.length > 0) {
+  if (activas.length > 0) {
     const errores: string[] = []
+    let todosPasajeros = true
     let aciertos = 0
-    for (const lote of lotesDeCampanas(activas.map((c) => c.campaignId))) {
+    const lotes = lotesDeCampanas(activas.map((c) => c.campaignId))
+    for (const lote of opciones.soloPrueba ? lotes.slice(0, 1) : lotes) {
       try {
         const crudo = await llamarAds<unknown>(cuenta.conexionId, RUTA_USO, {
           perfilId: cuenta.profileId,
@@ -94,9 +134,12 @@ export async function leerUsoDePresupuesto(
         aciertos += r.usos.length
         if (r.todoError) {
           const e = r.errores[0]
+          // Un 207 en que todo falla no es de red: se repetiría igual (persistente)
+          todosPasajeros = false
           errores.push(`la API de uso no ha dado ninguna lectura (${e?.codigo ?? 'error'}${e?.detalle ? `: ${e.detalle.slice(0, 160)}` : ''})`)
         }
       } catch (err) {
+        if (!falloDeUsoEsPasajero(err)) todosPasajeros = false
         if (err instanceof AdsError && err.estado === 429) {
           errores.push('Amazon ha pedido esperar (429): no se reintenta en esta pasada')
           break
@@ -107,17 +150,23 @@ export async function leerUsoDePresupuesto(
       }
     }
     // Un lote que falla con otros que leen bien es un hueco, no un error de la API
-    if (errores.length && aciertos === 0) error = `Uso de presupuesto: ${errores.join(' · ')}`
-    else if (errores.length) console.error(`[agente] uso de presupuesto de ${cuenta.id} incompleto:`, errores.join(' · '))
+    if (errores.length && aciertos === 0) {
+      error = `Uso de presupuesto: ${errores.join(' · ')}`
+      transitorio = todosPasajeros
+    } else if (errores.length) console.error(`[agente] uso de presupuesto de ${cuenta.id} incompleto:`, errores.join(' · '))
   }
 
-  // Fusión: las activas (con o sin lectura de la API) y las que ya tenían fila hoy (su gasto cuenta aunque se hayan pausado)
+  // Fusión: las activas (con o sin lectura de la API), las que ya tenían fila hoy (su gasto cuenta aunque se hayan pausado) y las que ayer acabaron activas
   const nuevas: DiaDeUso[] = []
   const tocadas = new Set<string>()
+  const conRegla = new Map<string, number>()
   for (const c of campanas) {
     const esActiva = (c.estado ?? '').toUpperCase() === 'ENABLED'
-    if (!esActiva && !previaDe.has(c.campaignId)) continue
-    nuevas.push(fusionarDiaDeUso(previaDe.get(c.campaignId) ?? null, lecturaDeCampana(c, usos.get(c.campaignId)), ahora, zona))
+    if (!esActiva && !previaDe.has(c.campaignId) && !activaAyer.has(c.campaignId)) continue
+    const lectura = lecturaDeCampana(c, usos.get(c.campaignId))
+    // Regla de presupuesto de Amazon activa: el efectivo de hoy no es el base (se apunta en las métricas de las propuestas de presupuesto)
+    if (lectura.presupuestoEfectivo != null && lectura.presupuesto != null && Math.abs(lectura.presupuestoEfectivo - lectura.presupuesto) > 0.004) conRegla.set(c.campaignId, lectura.presupuestoEfectivo)
+    nuevas.push(fusionarDiaDeUso(previaDe.get(c.campaignId) ?? null, lectura, ahora, zona))
     tocadas.add(c.campaignId)
   }
   const dias = [...nuevas, ...previas.filter((d) => !tocadas.has(d.campaignId))]
@@ -137,7 +186,7 @@ export async function leerUsoDePresupuesto(
     if (e) lanzar(e)
   }
 
-  return { dias, error }
+  return { dias, error, transitorio, conRegla }
 }
 
 /** Las filas de `ads_presupuesto_dia` entre dos fechas locales (ambas incluidas) */
@@ -216,7 +265,7 @@ export function portfolioTopado(p: Record<string, unknown>): { topado: boolean; 
 
 /**
  * Los portfolios de la cuenta y si tienen tope de presupuesto (`POST /portfolios/list`, v3). Clave: portfolioId. Las reglas de presupuesto de cada campaña no se miran aquí (serían una llamada por
- * campaña): Amazon ya las aplica al `budget` que devuelve la API de uso.
+ * campaña): Amazon ya las aplica al `budget` que devuelve la API de uso (el efectivo, `conRegla` de leerUsoDePresupuesto).
  */
 export async function leerPortfolios(cuenta: CuentaParaSincronizar): Promise<Map<string, { topado: boolean; porque: string | null }>> {
   const salida = new Map<string, { topado: boolean; porque: string | null }>()

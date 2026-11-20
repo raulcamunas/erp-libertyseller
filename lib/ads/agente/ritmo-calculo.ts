@@ -88,6 +88,8 @@ interface Donante {
   tomado: number
   /** A qué campañas (nombre, texto) */
   para: string[]
+  /** Los campaignId de las R1 que financia (van a las métricas, `financia`: aplicar no baja el donante si su subida no va a llegar) */
+  paraIds: string[]
 }
 
 /** ¿Bloqueada para BAJAR su presupuesto? Una subida pendiente (retenida o en espera) no lo impide: la bajada gana */
@@ -183,7 +185,7 @@ export function reglasDePresupuesto(
     if (enEventoOPrevio(c.evento) && agota(k)) continue
     const nuevo = Math.max(AGENTE.PRESUPUESTO_MINIMO, redondear1(pisoPorGasto(k)))
     if (nuevo > k.presupuesto * (1 - AGENTE.BAJADA_MINIMA)) continue
-    r4.set(k.campaignId, { c: k, r4Nuevo: nuevo, capacidad: redondear2(k.presupuesto - nuevo), tomado: 0, para: [] })
+    r4.set(k.campaignId, { c: k, r4Nuevo: nuevo, capacidad: redondear2(k.presupuesto - nuevo), tomado: 0, para: [], paraIds: [] })
   }
 
   // 3) Donantes sin R4: usan < 60 % de media en 14 d, con datos, que no se agotan ni están bloqueadas
@@ -195,7 +197,7 @@ export function reglasDePresupuesto(
     const piso = Math.max(AGENTE.PRESUPUESTO_MINIMO, techo2(pisoPorGasto(k)))
     const capacidad = redondear2(k.presupuesto - piso)
     if (capacidad < AGENTE.PRESUPUESTO_MINIMO) continue
-    otrosDonantes.push({ c: k, r4Nuevo: null, capacidad, tomado: 0, para: [] })
+    otrosDonantes.push({ c: k, r4Nuevo: null, capacidad, tomado: 0, para: [], paraIds: [] })
   }
   otrosDonantes.sort((a, b) => usoMedio14(a.c) - usoMedio14(b.c))
   // Las R4 primero (se bajan de todos modos), luego las demás de menos a más uso
@@ -266,6 +268,7 @@ export function reglasDePresupuesto(
     for (const t of tomas) {
       t.d.tomado = redondear2(t.d.tomado + t.cuanto)
       t.d.para.push(`${importe(t.cuanto)} a «${k.nombre}» (${textoAgotada(k)} con ACoS ${pct(redondear1(cand.muestra.acos))})`)
+      if (!t.d.paraIds.includes(k.campaignId)) t.d.paraIds.push(k.campaignId)
       if (!ordenDeUso.includes(t.d)) ordenDeUso.push(t.d)
     }
     const nuevo = redondear2(k.presupuesto + subidaPosible)
@@ -298,7 +301,17 @@ export function reglasDePresupuesto(
           ? `Presupuesto sobredimensionado: «${k.nombre}» usa el ${uso} % de media en 14 días (gasta ${importe(k.mediaGasto14)} al día y como mucho ${importe(k.maxGasto14)}). ` +
             `Presupuesto ${importe(k.presupuesto)} → ${importe(nuevo)}; de lo que libera, muevo ${d.para.join('; ')}.`
           : `Muevo ${importe(d.tomado)} de «${k.nombre}» (usa el ${uso} % de media en 14 días): ${d.para.join('; ')}. Presupuesto ${importe(k.presupuesto)} → ${importe(nuevo)}.`,
-      metricas: { clics: k.clics14, gasto: redondear2(k.gasto14), pedidos: k.pedidos14, ventas: redondear2(k.ventas14), acosPct: acosDe(k.gasto14, k.ventas14) === null ? null : redondear1(acosDe(k.gasto14, k.ventas14)!), usoPct: uso },
+      metricas: {
+        clics: k.clics14,
+        gasto: redondear2(k.gasto14),
+        pedidos: k.pedidos14,
+        ventas: redondear2(k.ventas14),
+        acosPct: acosDe(k.gasto14, k.ventas14) === null ? null : redondear1(acosDe(k.gasto14, k.ventas14)!),
+        usoPct: uso,
+        // El vínculo con las subidas que financia: un donante SIN R4 propia solo se baja si su R1 se va a aplicar (aplicar-servidor, donanteSinSubida)
+        financia: [...d.paraIds],
+        r4Propio: d.r4Nuevo !== null,
+      },
     }
   })
   const bajadasR4: PropuestaDeRitmo[] = []

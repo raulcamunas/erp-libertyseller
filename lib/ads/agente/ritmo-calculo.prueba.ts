@@ -125,6 +125,9 @@ console.log('\n=== R1 financiada (mover dinero de campañas que no usan su presu
   // Una R4 también financia: se marca «donante» y baja a su valor de R4
   const r4 = reglasDePresupuesto([camp('a'), floja('f')], C({ huecoDeSuma: hueco }))
   ok('una R4 que financia sale como «donante» primero, bajando a su valor de R4 (15,4)', r4.propuestas[0]?.regla === 'donante' && r4.propuestas[0].presupuestoNuevo === 15.4 && r4.propuestas.length === 2, j(r4.propuestas))
+  // A28: el donante lleva el vínculo con la R1 que financia (aplicar no lo baja si su subida no va a llegar)
+  ok('el donante sin R4 guarda a quién financia (financia: [a], r4Propio: false)', JSON.stringify(r.propuestas[0]?.metricas.financia) === '["a"]' && r.propuestas[0]?.metricas.r4Propio === false, j(r.propuestas[0]?.metricas))
+  ok('… y una R4 que financia lo marca como R4 propia (se baja de todos modos)', r4.propuestas[0]?.metricas.r4Propio === true && JSON.stringify(r4.propuestas[0]?.metricas.financia) === '["a"]', j(r4.propuestas[0]?.metricas))
 
   // Dos subidas no usan el mismo hueco (hay sitio para 5 en total)
   const sitio = 5

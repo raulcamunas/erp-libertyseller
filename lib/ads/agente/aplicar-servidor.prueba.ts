@@ -21,7 +21,12 @@ import {
   lecturaDeHoyCompleta,
   type SumasDePresupuesto,
   vigilarReciente,
+  destinoDeSubidaQueNoCabe,
+  donantePuedeBajar,
+  guardaDeEscritura,
+  r1QueFinancia,
 } from './aplicar-servidor'
+import { datosViejos } from './guardarrailes-calculo'
 import { cvrComoFraccion, cvrDeMetricas } from './efectos-servidor'
 import { muestraMinima } from './efectos-calculo'
 import { clavesEnCuarentena, textoDeReintento } from '../motor-calculo'
@@ -186,6 +191,20 @@ console.log('\n=== presupuestos ===')
   ok('lectura de hoy completa (2 de 2 de ayer)', lecturaDeHoyCompleta([fila('a', '2026-12-09'), fila('b', '2026-12-09'), fila('a', '2026-12-10'), fila('b', '2026-12-10')], '2026-12-10'))
   ok('sin filas de hoy (tras la medianoche) → incompleta', !lecturaDeHoyCompleta([fila('a', '2026-12-09'), fila('b', '2026-12-09')], '2026-12-10'))
   ok('menos campañas hoy que ayer → incompleta', !lecturaDeHoyCompleta([fila('a', '2026-12-09'), fila('b', '2026-12-09'), fila('a', '2026-12-10')], '2026-12-10'))
+  // A7: el día después de pausar una campaña la lectura de hoy no puede quedarse «a medias» todo el día
+  const conEstado = (campaignId: string, fechaLocal: string, estadoCampana: string) => ({ ...fila(campaignId, fechaLocal), estadoCampana }) as unknown as Parameters<typeof lecturaDeHoyCompleta>[0][number]
+  ok(
+    'ayer {a activa, b pausada} y hoy {a} → completa (la pausada no escribe fila hoy)',
+    lecturaDeHoyCompleta([conEstado('a', '2026-12-09', 'ENABLED'), conEstado('b', '2026-12-09', 'PAUSED'), conEstado('a', '2026-12-10', 'ENABLED')], '2026-12-10'),
+  )
+  ok(
+    'ayer {a, b activas} y hoy {a} → incompleta',
+    !lecturaDeHoyCompleta([conEstado('a', '2026-12-09', 'ENABLED'), conEstado('b', '2026-12-09', 'ENABLED'), conEstado('a', '2026-12-10', 'ENABLED')], '2026-12-10'),
+  )
+  ok(
+    'ayer {a, b activas} y hoy {a activa, b pausada} → completa',
+    lecturaDeHoyCompleta([conEstado('a', '2026-12-09', 'ENABLED'), conEstado('b', '2026-12-09', 'ENABLED'), conEstado('a', '2026-12-10', 'ENABLED'), conEstado('b', '2026-12-10', 'PAUSED')], '2026-12-10'),
+  )
 }
 
 console.log('\n=== fallar cerrado sin valores, y sin el gasto de hoy ===')
@@ -198,8 +217,9 @@ console.log('\n=== fallar cerrado sin valores, y sin el gasto de hoy ===')
   const f = decidirPropuesta(prop({ tipo: 'pausar', valorActual: null, valorNuevo: null, metricas: { clics: 60, gasto: 100, pedidos: 0, ventas: 0 }, iaDecision: 'aplicar' }), CUENTA, PROD, { ...SIN, pujaLeida: 0.8 })
   ok('la forma reducida de una pausa guarda la puja leída como valor actual (0,80)', esAplicar(f) && f.tipoNuevo === 'puja' && f.valorActualNuevo === 0.8, JSON.stringify(f))
   const sinGasto = { ...CUENTA, gastoDesconocido: true }
-  ok('sin el gasto de hoy (falla la API de uso) una subida de puja ESPERA', decidirPropuesta(prop(), sinGasto, PROD, SIN).accion === 'esperar')
-  ok('… y una subida de presupuesto también', decidirPropuesta(pres(), sinGasto, PROD, SIN).accion === 'esperar')
+  // A2: no sube, pero tampoco se queda pendiente bloqueando la segmentación: se caduca y se vuelve a proponer con datos frescos
+  ok('sin el gasto de hoy (falla la API de uso) una subida de puja se CADUCA', decidirPropuesta(prop(), sinGasto, PROD, SIN).accion === 'caducar')
+  ok('… y una subida de presupuesto también', decidirPropuesta(pres(), sinGasto, PROD, SIN).accion === 'caducar')
   ok('… pero una bajada se aplica', decidirPropuesta(prop({ valorNuevo: 0.9 }), sinGasto, PROD, SIN).accion === 'aplicar')
 }
 
@@ -353,6 +373,39 @@ console.log('\n=== reactivar una campaña pausada por stock: cabe en la suma de 
   ok('recorte de un mes pasado (sin recalcular) → no', !mesEnRecorte({ ritmo: 'recorte', ritmoFecha: '2026-11-28', ritmoMesAnterior: null }, local))
   ok('mes anterior en recorte, día 2 → en recorte', mesEnRecorte({ ritmo: 'normal', ritmoFecha: '2026-12-02', ritmoMesAnterior: 'recorte' }, { mes: '2026-12', dia: 2 }))
   ok('normal → no', !mesEnRecorte({ ritmo: 'normal', ritmoFecha: '2026-12-08', ritmoMesAnterior: 'normal' }, local))
+}
+
+console.log('\n=== subida de presupuesto que no cabe, donantes y guardas técnicas (A27, A28, A15) ===')
+{
+  ok('una R1 que no cabe en la suma → caducar (no retenida para siempre)', destinoDeSubidaQueNoCabe(null) === 'caducar')
+  ok('… salvo si viene de un reintento por transporte → retener', destinoDeSubidaQueNoCabe(textoDeReintento('Amazon Ads ha contestado 503 a /sp/campaigns', 24)) === 'retener')
+
+  ok('donante sin R4: a quién financia', JSON.stringify(r1QueFinancia({ regla: 'donante', financia: ['a', 'b'], r4Propio: false })) === '["a","b"]')
+  ok('una R4 que financia se baja igual (null)', r1QueFinancia({ regla: 'donante', financia: ['a'], r4Propio: true }) === null)
+  ok('un donante de antes del vínculo se baja igual (null)', r1QueFinancia({ regla: 'donante' }) === null)
+  ok('una R4 suelta no es donante (null)', r1QueFinancia({ regla: 'R4' }) === null)
+
+  const conHueco = { r1EnPlanes: new Set(['a']), quedaTopeSubir: true, haySumas: true, intentosQuedan: 8 }
+  ok('con hueco se baja el donante (y luego su R1)', 'ok' in donantePuedeBajar(['a'], conHueco))
+  ok('con 7 intentos ya usados (queda 1) el donante no se baja', 'no' in donantePuedeBajar(['a'], { ...conHueco, intentosQuedan: 1 }))
+  ok('con su R1 fuera de lo que se aplica, no se baja', 'no' in donantePuedeBajar(['a'], { ...conHueco, r1EnPlanes: new Set(['otra']) }))
+  ok('sin tope de subidas de presupuesto hoy, no se baja', 'no' in donantePuedeBajar(['a'], { ...conHueco, quedaTopeSubir: false }))
+  ok('sin sumas de hoy, no se baja', 'no' in donantePuedeBajar(['a'], { ...conHueco, haySumas: false }))
+
+  const frescos = { horasDesdeRendimiento: 10, horasDesdeTerminos: 20, horasRetrasoObjetivosDiario: 24, horasDesdeStock: 30 }
+  ok('datos frescos → nada viejo', datosViejos(frescos).viejos.length === 0 && !datosViejos(frescos).rendimientoOTerminos)
+  ok('rendimiento de hace 37 h → viejo (no escribe)', datosViejos({ ...frescos, horasDesdeRendimiento: 37 }).rendimientoOTerminos)
+  ok('términos de hace 37 h → viejo', datosViejos({ ...frescos, horasDesdeTerminos: 37 }).rendimientoOTerminos)
+  ok('stock de hace 49 h → se apunta, pero no para la escritura (eso es A19)', datosViejos({ ...frescos, horasDesdeStock: 49 }).viejos.length === 1 && !datosViejos({ ...frescos, horasDesdeStock: 49 }).rendimientoOTerminos)
+  ok('stock de hace 47 h → no es viejo', datosViejos({ ...frescos, horasDesdeStock: 47 }).viejos.length === 0)
+  ok('sin saber (null) → no cuenta', !datosViejos({ horasDesdeRendimiento: null, horasDesdeTerminos: null, horasRetrasoObjetivosDiario: null, horasDesdeStock: null }).rendimientoOTerminos)
+
+  ok('con datos viejos aplicar no escribe nada', 'no' in guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos({ ...frescos, horasDesdeRendimiento: 50 }) }))
+  const sinAuth = guardaDeEscritura({ conexion: 'revocada', datosViejos: null })
+  ok('con la conexión revocada no escribe (sin_autorizacion)', 'no' in sinAuth && sinAuth.no === 'sin_autorizacion')
+  ok('con la conexión en error tampoco', 'no' in guardaDeEscritura({ conexion: 'error', datosViejos: null }))
+  ok('conexión activa y datos frescos → escribe', 'ok' in guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos(frescos) }))
+  ok('sin poder leer la conexión ni la frescura → no para', 'ok' in guardaDeEscritura({ conexion: null, datosViejos: null }))
 }
 
 if (fallos) {

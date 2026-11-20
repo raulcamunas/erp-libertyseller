@@ -440,6 +440,27 @@ export function evaluarFrenos(e: EntradaDeFreno): Array<{ motivo: MotivoDeFreno;
 export const FRENOS_AUTOMATICOS = false
 
 /**
+ * PURO. ¿Qué datos están viejos? Rendimiento o términos > 36 h, objetivos diarios > 36 h de retraso, stock > 48 h (null = no se sabe: no cuenta).
+ * Fuera de los frenos: con FRENOS_AUTOMATICOS apagado el agente ya no se frena por esto, pero escribir pujas y presupuestos con métricas de hace días
+ * es un fallo TÉCNICO (la sincronización se ha parado), no una decisión de negocio. Con `rendimientoOTerminos` el agente no escribe (aplicar, deshacer
+ * de efectos y R1–R4 de vigilar) hasta que vuelvan; no cambia el estado ni frena la cuenta.
+ */
+export function datosViejos(e: Pick<EntradaDeFreno, 'horasDesdeRendimiento' | 'horasDesdeTerminos' | 'horasRetrasoObjetivosDiario' | 'horasDesdeStock'>): {
+  viejos: string[]
+  rendimientoOTerminos: boolean
+} {
+  const viejos: string[] = []
+  const h = AGENTE.FRENO_DATOS_HORAS
+  const rendimiento = e.horasDesdeRendimiento !== null && e.horasDesdeRendimiento > h
+  const terminos = e.horasDesdeTerminos !== null && e.horasDesdeTerminos > h
+  if (rendimiento) viejos.push(`rendimiento sin sincronizar hace ${num(e.horasDesdeRendimiento as number, 0)} h`)
+  if (terminos) viejos.push(`términos de búsqueda sin sincronizar hace ${num(e.horasDesdeTerminos as number, 0)} h`)
+  if (e.horasRetrasoObjetivosDiario !== null && e.horasRetrasoObjetivosDiario > h) viejos.push(`datos por segmentación con ${num(e.horasRetrasoObjetivosDiario, 0)} h de retraso`)
+  if (e.horasDesdeStock !== null && e.horasDesdeStock > AGENTE.FRENO_STOCK_HORAS) viejos.push(`stock sin actualizar hace ${num(e.horasDesdeStock, 0)} h`)
+  return { viejos, rendimientoOTerminos: rendimiento || terminos }
+}
+
+/**
  * PURO. Las ventas del freno «ventas_caidas». Las ventas TOTALES solo existen como ventanas de 7 y 30 días que acaban ayer (ads_ventas_asin), no día a día:
  * media diaria de los 7 últimos días cerrados frente a la de los 23 anteriores. Se llama por lo que es (no «3 días»); el umbral es más alto para compensar.
  */
@@ -579,12 +600,7 @@ function candidatosDeFreno(e: EntradaDeFreno): Array<{ motivo: MotivoDeFreno; de
 
   // 4. Datos viejos
   {
-    const viejos: string[] = []
-    const h = AGENTE.FRENO_DATOS_HORAS
-    if (e.horasDesdeRendimiento !== null && e.horasDesdeRendimiento > h) viejos.push(`rendimiento sin sincronizar hace ${num(e.horasDesdeRendimiento, 0)} h`)
-    if (e.horasDesdeTerminos !== null && e.horasDesdeTerminos > h) viejos.push(`términos de búsqueda sin sincronizar hace ${num(e.horasDesdeTerminos, 0)} h`)
-    if (e.horasRetrasoObjetivosDiario !== null && e.horasRetrasoObjetivosDiario > h) viejos.push(`datos por segmentación con ${num(e.horasRetrasoObjetivosDiario, 0)} h de retraso`)
-    if (e.horasDesdeStock !== null && e.horasDesdeStock > AGENTE.FRENO_STOCK_HORAS) viejos.push(`stock sin actualizar hace ${num(e.horasDesdeStock, 0)} h`)
+    const { viejos } = datosViejos(e)
     // El uso de presupuesto con error NO frena (spec §6.4.4): solo desactiva las subidas y R1–R4 (vigilar, usoDisponible / sinSubidas) y se avisa una vez
     if (viejos.length) candidatos.push({ motivo: 'datos_viejos', detalle: `Datos viejos: ${viejos.join(' · ')}.` })
   }

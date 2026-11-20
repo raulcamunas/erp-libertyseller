@@ -3,6 +3,11 @@
  *   npx tsx lib/ads/agente/agente-cron.prueba.ts
  */
 import { camposDeVigilarFallido, cambiosDistintosDelEnsayo, horaDeMinuto, seguirTrasPasoFallido, vigilarHizoAlgo } from './agente-cron'
+import { AdsError } from '../oauth'
+import { AGENTE } from './tipos'
+import { falloDeUsoEsPasajero, lecturaDeCampana } from './uso-servidor'
+import { fusionarDiaDeUso } from './uso-calculo'
+import { propuestaBloqueaPresupuesto, saltarApiDeUso, siguienteUsoError, textoDeUsoPasajero, usoDisponible, usoErrorBloquea } from './vigilar-servidor'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -53,6 +58,86 @@ console.log('\n=== vigilar fallido: cierra el paso ===')
   ok('fallos raros cuentan desde 0', camposDeVigilarFallido(Number.NaN).vigilar_fallos === 1)
   ok('tras un vigilar fallido no se da otro paso (ni aplicar)', seguirTrasPasoFallido('vigilar') === false)
   ok('tras otro paso fallido se sigue', seguirTrasPasoFallido('cerebro') === true)
+}
+
+console.log('\n=== vigilar fallido: reintento pronto (A15) ===')
+{
+  const T = Date.parse('2026-11-20T10:00:00Z')
+  // reservarPaso deja pasar el vigilar cuando vigilar_at < ahora − 30 min: el reintento llega a los (30 − (ahora − sello)) min
+  const reintentoEn = (fallosAntes: number) => {
+    const c = camposDeVigilarFallido(fallosAntes, T)
+    return AGENTE.MIN_ENTRE_VIGILAR - (T - Date.parse(c.vigilar_at as string)) / 60_000
+  }
+  ok('1.er fallo → reintento a los 5 min', reintentoEn(0) === 5, String(reintentoEn(0)))
+  ok('2.º → 10 min', reintentoEn(1) === 10, String(reintentoEn(1)))
+  ok('3.º → 20 min', reintentoEn(2) === 20, String(reintentoEn(2)))
+  ok('4.º y siguientes → 30 min (lo normal)', reintentoEn(3) === 30 && reintentoEn(9) === 30, `${reintentoEn(3)} ${reintentoEn(9)}`)
+  ok('sigue anulando el vigilar bueno', camposDeVigilarFallido(0, T).vigilar_ok_at === null)
+}
+
+console.log('\n=== API de uso: fallos pasajeros y persistentes (A2) ===')
+{
+  const T = Date.parse('2026-11-20T10:00:00Z')
+  const hace = (min: number) => new Date(T - min * 60_000).toISOString()
+  ok('AdsError 429 → pasajero', falloDeUsoEsPasajero(new AdsError('Amazon Ads ha contestado 429 a /sp/campaigns/budget/usage: x', { estado: 429 })))
+  ok('AdsError 503 → pasajero', falloDeUsoEsPasajero(new AdsError('Amazon Ads ha contestado 503 a …', { estado: 503 })))
+  const abort = new Error('This operation was aborted')
+  abort.name = 'AbortError'
+  ok('AbortError (tiempo agotado) → pasajero', falloDeUsoEsPasajero(abort))
+  ok('fetch failed (red) → pasajero', falloDeUsoEsPasajero(new TypeError('fetch failed')))
+  ok('AdsError 403 → persistente', !falloDeUsoEsPasajero(new AdsError('Amazon Ads ha contestado 403 a …', { estado: 403, esDeAutorizacion: true })))
+  ok('AdsError 400 → persistente', !falloDeUsoEsPasajero(new AdsError('Amazon Ads ha contestado 400 a …', { estado: 400 })))
+  ok('conexión revocada (sin código) → persistente', !falloDeUsoEsPasajero(new AdsError('Este cliente ha revocado la autorización de Amazon Ads.', { esDeAutorizacion: true })))
+
+  const pasajero = (n: number, minutos: number) => textoDeUsoPasajero(n, hace(minutos), 'Uso de presupuesto: Amazon ha pedido esperar (429)')
+  ok('un error pasajero de hace 10 min → se reintenta entero (no se salta)', !saltarApiDeUso(pasajero(1, 10), hace(10), T))
+  ok('2 fallos, el último hace 40 min → retroceso de 1 h (prueba)', saltarApiDeUso(pasajero(2, 40), hace(70), T))
+  ok('… a la hora, entero', !saltarApiDeUso(pasajero(2, 60), hace(90), T))
+  ok('el retroceso se mide desde el ÚLTIMO intento, no desde el primero (6 fallos, último hace 5 h, primero hace 10 h → aún espera)', saltarApiDeUso(pasajero(6, 300), hace(600), T))
+  ok('… y nunca pasa de 6 h', !saltarApiDeUso(pasajero(9, 360), hace(900), T))
+  ok('un error de autorización de hace 10 min → se salta (6 h)', saltarApiDeUso('Uso de presupuesto: Amazon Ads ha contestado 403 a …', hace(10), T))
+
+  ok('1 y 2 fallos pasajeros no cuentan como «no sé cuánto se gasta»', !usoErrorBloquea(pasajero(1, 0)) && !usoErrorBloquea(pasajero(2, 0)))
+  ok('al 3.º, sí', usoErrorBloquea(pasajero(3, 0)))
+  ok('uno persistente, desde el primero', usoErrorBloquea('Uso de presupuesto: la API de uso no ha dado ninguna lectura (INVALID_ARGUMENT)'))
+  ok('un texto de antes de la marca con 429 → pasajero ya caído (bloquea)', usoErrorBloquea('Uso de presupuesto: Amazon ha pedido esperar (429): no se reintenta en esta pasada'))
+  ok('pasajero que aún no cuenta → R1–R4 siguen aunque el primer fallo sea de hace 13 h', usoDisponible(pasajero(2, 0), hace(13 * 60), T))
+  ok('persistente de hace 13 h → sin R1–R4', !usoDisponible('Uso de presupuesto: 403', hace(13 * 60), T))
+
+  const iso = new Date(T).toISOString()
+  const s1 = siguienteUsoError({ usoError: null, usoErrorAt: null }, { error: 'Uso de presupuesto: 429', transitorio: true, seLlamo: true }, iso)
+  ok('1.er 429 → se apunta como pasajero 1, sin aviso', /^\[pasajero 1 · /.test(s1.usoError ?? '') && !s1.nuevo && s1.usoErrorAt === iso, JSON.stringify(s1))
+  const s2 = siguienteUsoError({ usoError: s1.usoError, usoErrorAt: s1.usoErrorAt }, { error: 'Uso de presupuesto: 503', transitorio: true, seLlamo: true }, hace(-30))
+  const s3 = siguienteUsoError({ usoError: s2.usoError, usoErrorAt: s2.usoErrorAt }, { error: 'Uso de presupuesto: 503', transitorio: true, seLlamo: true }, hace(-90))
+  ok('al 3.º seguido pasa a contar (aviso una vez) y conserva la hora del PRIMER fallo', s3.nuevo && usoErrorBloquea(s3.usoError) && s3.usoErrorAt === iso, JSON.stringify(s3))
+  const ok1 = siguienteUsoError({ usoError: s2.usoError, usoErrorAt: s2.usoErrorAt }, { error: null, transitorio: false, seLlamo: true }, hace(-60))
+  ok('una lectura buena (o el lote de prueba) lo borra', ok1.usoError === null && ok1.usoErrorAt === null && ok1.cambia)
+  const p403 = siguienteUsoError({ usoError: null, usoErrorAt: null }, { error: 'Uso de presupuesto: 403', transitorio: false, seLlamo: true }, iso)
+  ok('un 403 cuenta desde el primero (aviso)', p403.nuevo && p403.usoError === 'Uso de presupuesto: 403')
+}
+
+console.log('\n=== presupuesto base y regla de presupuesto de Amazon (A6) ===')
+{
+  const c = { campaignId: 'c1', presupuesto: 50, servicio: 'CAMPAIGN_STATUS_ENABLED', estado: 'ENABLED' }
+  const l = lecturaDeCampana(c, { usoPct: 40, presupuesto: 75, actualizadoAt: null })
+  ok('con una regla activa (API de uso 75, base 50): presupuesto = 50 (el base)', l.presupuesto === 50 && l.presupuestoEfectivo === 75, JSON.stringify(l))
+  const d = fusionarDiaDeUso(null, l, Date.parse('2026-11-20T10:00:00Z'), 'Europe/Madrid')
+  ok('… la fila guarda 50 y el gasto estimado sale del efectivo (40 % de 75 = 30)', d.presupuesto === 50 && d.gastoEstimado === 30, JSON.stringify(d))
+  ok('sin base conocido, el de la API', lecturaDeCampana({ ...c, presupuesto: null }, { usoPct: 40, presupuesto: 75, actualizadoAt: null }).presupuesto === 75)
+  ok('sin lectura de la API, el base y sin efectivo', lecturaDeCampana(c, undefined).presupuesto === 50 && lecturaDeCampana(c, undefined).presupuestoEfectivo === null)
+}
+
+console.log('\n=== cuarentena de presupuestos (A6, A27) ===')
+{
+  const inicio = Date.parse('2026-11-20T00:00:00+01:00')
+  const sube = { valorActual: 20, valorNuevo: 24 }
+  ok('una obsoleta del agente no bloquea (no se escribió nada en Amazon)', !propuestaBloqueaPresupuesto({ estado: 'obsoleta', origen: 'agente', ...sube }, inicio))
+  ok('una obsoleta de una persona sí', propuestaBloqueaPresupuesto({ estado: 'obsoleta', origen: 'motor', ...sube }, inicio))
+  ok('una caducada no bloquea', !propuestaBloqueaPresupuesto({ estado: 'caducada', origen: 'agente', ...sube }, inicio))
+  ok('una R1 pendiente de AYER no bloquea (aplicar la caduca)', !propuestaBloqueaPresupuesto({ estado: 'pendiente', origen: 'agente', creadaAt: '2026-11-19T15:00:00Z', ...sube }, inicio))
+  ok('una R1 pendiente de hoy sí', propuestaBloqueaPresupuesto({ estado: 'pendiente', origen: 'agente', creadaAt: '2026-11-20T09:00:00Z', ...sube }, inicio))
+  ok('una bajada pendiente de ayer sí (no caduca por el día)', propuestaBloqueaPresupuesto({ estado: 'pendiente', origen: 'agente', creadaAt: '2026-11-19T15:00:00Z', valorActual: 20, valorNuevo: 15 }, inicio))
+  ok('una aplicada sí', propuestaBloqueaPresupuesto({ estado: 'aplicada', origen: 'agente', ...sube }, inicio))
 }
 
 if (fallos) {
