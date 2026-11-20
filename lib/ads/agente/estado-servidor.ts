@@ -376,7 +376,7 @@ export async function encenderAgente(
     throw new Error(previo.estado === 'frenado' ? 'El agente de esta cuenta está frenado: usa «Reanudar».' : 'El agente de esta cuenta ya está encendido.')
   }
   const cuenta = await datosDeCuenta(perfilId)
-  if (opciones.saltarEnsayo) await exigirQueSePuedeSaltarElEnsayo(cuenta.pais, cuenta.zona, previo?.eventosManuales ?? [], ahora)
+  // Sin ensayo ni veda de temporada: se enciende activo siempre (20 nov 2026, Raúl)
   const firmada = await exigirFichaFirmada(perfilId, userId, opciones.firmarFicha)
   // Lo que SUBE y quedó pendiente del modo anterior se creó sin los frenos del agente (subidaPermitida, R1): se caduca ANTES de encender (si falla, no se enciende)
   const caducadas = await caducarSubidasPendientes(perfilId, 'se enciende el agente: las subidas pendientes del modo anterior no pasaron sus frenos')
@@ -389,7 +389,7 @@ export async function encenderAgente(
     ? { techo_mensual: previo!.techoMensual, techo_automatico: true, techo_congelado_at: previo!.techoCongeladoAt }
     : { techo_mensual: t.techo, techo_automatico: t.automatico, techo_congelado_at: t.automatico && t.techo != null ? ahoraIso(ahora) : null }
 
-  const salta = opciones.saltarEnsayo
+  const salta = true
   const fila = {
     perfil_id: perfilId,
     estado: salta ? 'activo' : 'ensayo',
@@ -397,7 +397,7 @@ export async function encenderAgente(
     encendido_por: userId,
     ensayo_hasta: finDeEnsayo(ahora, salta),
     activo_desde: salta ? ahoraIso(ahora) : null,
-    rampa_desde: salta ? ahoraIso(ahora) : null,
+    rampa_desde: null,
     frenado_at: null,
     freno_motivo: null,
     freno_detalle: null,
@@ -487,7 +487,7 @@ export async function saltarEnsayo(perfilId: string, userId: string): Promise<vo
   if (config.estado !== 'ensayo') throw new Error('El agente no está en ensayo.')
   const cuenta = await datosDeCuenta(perfilId)
   const ahora = Date.now()
-  await exigirQueSePuedeSaltarElEnsayo(cuenta.pais, cuenta.zona, config.eventosManuales, ahora)
+  void cuenta // sin veda de temporada (20 nov 2026, Raúl)
   // Antes de pasar a activo: las subidas pendientes (de antes de encender o con datos del ensayo) se caducan; si siguen haciendo falta, se vuelven a proponer
   await caducarSubidasPendientes(perfilId, 'se salta el ensayo: las subidas pendientes se vuelven a proponer con los datos de ahora')
   const { data, error } = await createServiceClient()
@@ -611,6 +611,11 @@ const HECHO_DE_FRENO: Record<MotivoDeFreno, HechoDeAviso> = {
  * o apagado no hace nada (ni avisa dos veces). `deshechas`: cuántas subidas ha deshecho ya quien frena (va en el aviso).
  */
 export async function frenarAgente(perfilId: string, motivo: MotivoDeFreno, detalle: string, nombreCuenta: string, deshechas: number, deshacer?: { noDeshechas: number; quedan: number }): Promise<void> {
+  // Solo frena un administrador a mano (Raúl, 20 nov 2026: «que no frene nunca, ni sistema de seguridad ni ensayos»). Lo demás se apunta y sigue
+  if (motivo !== 'manual') {
+    console.warn(`[agente] ${perfilId}: no se frena (${motivo}): ${detalle.slice(0, 200)}`)
+    return
+  }
   const ahora = Date.now()
   const texto = (detalle ?? '').trim().slice(0, 2000)
   const { data, error } = await createServiceClient()

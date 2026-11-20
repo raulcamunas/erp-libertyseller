@@ -112,6 +112,27 @@ export async function generarEtiquetasDeRemesa(remesaId: string, formato: string
     }
   }
 
+  // Sin nombre en el país del envío (un envío a Francia de referencias que solo tienen ficha en España): el nombre de la misma referencia en
+  // otro país de la cuenta, primero el de España. El FNSKU es el mismo en toda Europa; el producto, también
+  if (remesa.connection_id) {
+    const sinNombre = filas.map((l) => l.sku).filter((sku) => !catalogo.get(sku)?.title?.trim())
+    for (let i = 0; i < sinNombre.length; i += 200) {
+      const { data: otros } = await service
+        .from('amazon_listings')
+        .select('sku, title, marketplace_id')
+        .eq('connection_id', remesa.connection_id)
+        .in('sku', sinNombre.slice(i, i + 200))
+        .not('title', 'is', null)
+      const ESPANA = 'A1RKKUPIHCS9HS'
+      const orden = (m: string) => (m === ESPANA ? 0 : 1)
+      for (const o of ((otros ?? []) as Array<{ sku: string; title: string; marketplace_id: string }>).sort((a, b) => orden(a.marketplace_id) - orden(b.marketplace_id))) {
+        const previo = catalogo.get(o.sku)
+        if (previo?.title?.trim() || !o.title.trim()) continue
+        catalogo.set(o.sku, { fnsku: previo?.fnsku ?? null, title: o.title, asin: previo?.asin ?? null })
+      }
+    }
+  }
+
   const etiquetas: EtiquetaProducto[] = filas.map((l) => {
     const delEspejo = catalogo.get(l.sku)
     // El título de Amazon manda: quien pega y quien recibe en el almacén ven el mismo texto que Seller Central

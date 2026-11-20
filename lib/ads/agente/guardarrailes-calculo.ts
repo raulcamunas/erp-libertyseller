@@ -110,7 +110,8 @@ export function topesDelDia(
   let soloBajadas = false
   let sinPresupuestoSubir = false
 
-  if (!e.enEnsayo) {
+  // Sin rampa ni recortes por errores o por cuenta pequeña: solo cuentan los topes configurados (ver FRENOS_AUTOMATICOS)
+  if (FRENOS_AUTOMATICOS && !e.enEnsayo) {
     if (e.diaRampa !== null && finito(e.diaRampa)) {
       const dia = Math.max(0, Math.floor(e.diaRampa))
       let tramo = RAMPA[0]
@@ -128,7 +129,7 @@ export function topesDelDia(
     r[c] = base === 0 || factor >= 1 ? base : Math.max(1, Math.ceil(Math.round(base * factor * 1e6) / 1e6))
   }
   if (soloBajadas) for (const c of CLASES_QUE_SUBEN) r[c] = 0
-  if (e.cuentaPequena) {
+  if (FRENOS_AUTOMATICOS && e.cuentaPequena) {
     r.puja_subir = Math.min(r.puja_subir, AGENTE.CUENTA_PEQUENA_TOPE_SUBIR)
     r.presupuesto_subir = 0
     sinPresupuestoSubir = true
@@ -269,6 +270,7 @@ export function esRara(
   p: { tipo: string; termino: string; esAsin: boolean; valorActual: number | null; valorNuevo: number | null; metricas: { gasto: number; pedidos: number }; campaignId: string },
   ctx: { gastoProducto30: number; stock: number | null; coberturaDias: number | null; campanasConUbicacionAlta: readonly string[] },
 ): { rara: boolean; porque: string | null } {
+  if (!FRENOS_AUTOMATICOS) return { rara: false, porque: null }
   const porque: string[] = []
   const tieneValores = finito(p.valorActual) && finito(p.valorNuevo)
   const sube = tieneValores && p.valorNuevo! > p.valorActual!
@@ -429,8 +431,13 @@ export function evaluarFreno(e: EntradaDeFreno): { motivo: MotivoDeFreno; detall
  * Al reanudar hay que mirarlos todos: ignorar uno no puede dejar pasar otro que también se cumple.
  */
 export function evaluarFrenos(e: EntradaDeFreno): Array<{ motivo: MotivoDeFreno; detalle: string }> {
+  // SIN FRENOS AUTOMÁTICOS (Raúl, 20 nov 2026: «que no frene nunca, ni sistema de seguridad ni ensayos»). Ni gasto, ni ACoS, ni errores, ni datos viejos, ni ventas caídas
+  if (!FRENOS_AUTOMATICOS) return []
   return candidatosDeFreno(e).filter((c) => !motivoIgnorado(e, c.motivo))
 }
+
+/** Los frenos automáticos del agente. Apagados el 20 nov 2026 por Raúl: el agente optimiza siempre */
+export const FRENOS_AUTOMATICOS = false
 
 /**
  * PURO. Las ventas del freno «ventas_caidas». Las ventas TOTALES solo existen como ventanas de 7 y 30 días que acaban ayer (ads_ventas_asin), no día a día:

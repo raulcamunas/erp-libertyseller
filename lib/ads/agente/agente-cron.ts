@@ -334,7 +334,8 @@ async function pasoVigilar(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
 
   // (a) fin del ensayo (con la veda de temporada)
   if (estado === 'ensayo') {
-    const veda = enVedaDeActivacion(r.fechaLocal, d.pais, config.eventosManuales)
+    // Sin veda de temporada: el ensayo que quede pasa a activo en cuanto termina (20 nov 2026, Raúl)
+    const veda = null as ReturnType<typeof enVedaDeActivacion>
     const hechos = async () => {
       const desde = config.encendidoAt ?? new Date(ahora - AGENTE.DIAS_DE_ENSAYO * 86_400_000).toISOString()
       const { data } = await createServiceClient()

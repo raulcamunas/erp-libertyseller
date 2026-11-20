@@ -19,6 +19,9 @@ import type { TipoDeEvento } from './tipos'
 /** Los hechos que además llegan a la campana y al móvil (tabla de avisos de la especificación, §7) */
 const HECHOS_A_LA_CAMPANA: ReadonlySet<HechoDeAviso> = new Set<HechoDeAviso>(['freno', 'stock', 'stock-fallo', 'agotada-top', 'errores', 'ventas-caidas', 'primera-escritura', 'deshacer-fallo'])
 
+/** Los avisos del agente PPC en #notificaciones-erp. Apagados el 20 nov 2026 por Raúl */
+const AVISOS_DEL_AGENTE_EN_EL_CHAT = false
+
 const TITULO_MAX = 300
 const DETALLE_MAX = 4000
 
@@ -32,6 +35,8 @@ export async function avisar(
   texto: { titulo: string; cuerpo: string },
   opciones?: { id?: string; avisar?: boolean },
 ): Promise<void> {
+  // APAGADO (Raúl, 20 nov 2026: «que no salgan notificaciones ahí»). Lo que pasa sigue en la línea de tiempo del agente (anotarEvento).
+  if (!AVISOS_DEL_AGENTE_EN_EL_CHAT) return
   try {
     await publicarEnElChat({
       clave: claveDeAviso(perfilId, hecho, fecha, opciones?.id),
