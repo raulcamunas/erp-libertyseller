@@ -15,6 +15,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError } from '@/lib/amazon/errors'
 import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
+import { enTrozos, leerTodo } from './paginar'
 import { cambiosEntreFotos, completarConAnterior, fotoDeItemCatalogo, hashDeFoto, ofertasDeRespuesta, type CambioRival, type CampoRival, type FotoRival, type RankRival } from './rivales'
 
 export interface Rival {
@@ -74,10 +75,14 @@ export async function rivalesDe(c: Cuenta): Promise<{ rivales: Rival[]; cambios:
   const ids = filas.map((f) => String(f.id))
   const fotos = new Map<string, Array<FotoRival & { fecha: string }>>()
   const desde = new Date(Date.now() - 31 * 86_400_000).toISOString().slice(0, 10)
-  for (let i = 0; i < ids.length; i += 100) {
-    const { data: fs, error: e } = await service.from('seo_competidores_fotos').select(COLUMNAS_FOTO).in('competidor_id', ids.slice(i, i + 100)).gte('fecha', desde).order('fecha', { ascending: true }).limit(5000)
-    if (e) throw e
-    for (const f of (fs ?? []) as Array<Record<string, unknown>>) {
+  // Lotes de 30 rivales (31 días × 30 = ~930 fotos) leídos ENTEROS y con orden único: antes se pedían 100 con .limit(5000), Supabase cortaba en 1000 y se quedaba con las más viejas, así que
+  // la última foto y la serie salían atrasadas
+  for (const lote of enTrozos(ids, 30)) {
+    const fs = await leerTodo<Record<string, unknown>>(
+      (a, b) => service.from('seo_competidores_fotos').select(COLUMNAS_FOTO).in('competidor_id', lote).gte('fecha', desde).order('fecha', { ascending: true }).order('competidor_id', { ascending: true }).range(a, b),
+      { etiqueta: 'fotos de rivales' }
+    )
+    for (const f of fs) {
       const k = String(f.competidor_id)
       const lista = fotos.get(k) ?? []
       lista.push(fotoDeFila(f))
