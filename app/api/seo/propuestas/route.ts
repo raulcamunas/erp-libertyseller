@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
-import { aplicarPropuesta, descartarPropuesta, proponerFicha, propuestasDe } from '@/lib/seo/propuesta-servidor'
+import { aplicarPropuesta, descartarPropuesta, proponerFicha, propuestasParaVer } from '@/lib/seo/propuesta-servidor'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
 
 /**
@@ -9,7 +9,8 @@ import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
  *
  *   GET  ?cuenta=&asin=                          → las últimas propuestas
  *   POST {cuenta, asin, accion: 'proponer'}      → la IA escribe una propuesta y se guarda PENDIENTE. No toca Amazon
- *   POST {cuenta, id, accion: 'aplicar'}         → ESCRIBE EN LA FICHA DEL CLIENTE (valida antes en Amazon). Solo desde el botón «Aplicar en Amazon», con confirmación
+ *   POST {cuenta, id, accion: 'aplicar', aceptarAvisos?} → ESCRIBE EN LA FICHA DEL CLIENTE (valida antes en Amazon). Solo desde el botón «Aplicar en Amazon», con confirmación; si la
+ *                                                  propuesta tiene avisos rojos, solo con la segunda confirmación (aceptarAvisos). Si la ficha cambió desde que se pidió, no se manda y se descarta
  *   POST {cuenta, id, accion: 'descartar'}
  */
 export const dynamic = 'force-dynamic'
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     if (a instanceof NextResponse) return a
     const asin = (request.nextUrl.searchParams.get('asin') ?? '').trim().toUpperCase()
     if (!/^[A-Z0-9]{10}$/.test(asin)) return fail(400, 'Falta el ASIN.')
-    return NextResponse.json({ propuestas: await propuestasDe(a.connectionId, a.marketplaceId, asin) })
+    return NextResponse.json({ propuestas: await propuestasParaVer({ connectionId: a.connectionId, marketplaceId: a.marketplaceId }, asin) })
   } catch (error) {
     if (isMissingSchema(error)) return NextResponse.json({ propuestas: [], sinMigracion: true })
     return errorDeRutaSeo(error, 'SEO: leer las propuestas')
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json().catch(() => ({}))) as { cuenta?: unknown; asin?: unknown; id?: unknown; accion?: unknown }
+    const body = (await request.json().catch(() => ({}))) as { cuenta?: unknown; asin?: unknown; id?: unknown; accion?: unknown; aceptarAvisos?: unknown }
     const a = await abrirCuentaSeo(body.cuenta)
     if (a instanceof NextResponse) return a
     const c = { connectionId: a.connectionId, marketplaceId: a.marketplaceId, clientId: a.clientId }
@@ -49,8 +50,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
     if (body.accion === 'aplicar') {
-      const r = await aplicarPropuesta(c, id, a.sesion.userId)
-      if (!r.ok) return NextResponse.json({ error: r.motivo, issues: r.issues }, { status: 409 })
+      const r = await aplicarPropuesta(c, id, a.sesion.userId, { aceptarAvisos: body.aceptarAvisos === true })
+      if (!r.ok) return NextResponse.json({ error: r.motivo, issues: r.issues, fichaCambiada: r.fichaCambiada ?? null, avisosRojos: r.avisosRojos ?? null }, { status: 409 })
       return NextResponse.json(r)
     }
     return fail(400, 'Acción desconocida.')
