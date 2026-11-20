@@ -31,6 +31,8 @@ import { cvrComoFraccion, cvrDeMetricas } from './efectos-servidor'
 import { muestraMinima } from './efectos-calculo'
 import { clavesEnCuarentena, textoDeReintento } from '../motor-calculo'
 import { FRENOS_AUTOMATICOS } from './guardarrailes-calculo'
+import { yaNoExiste } from '../escritura'
+import { AGENTE } from './tipos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -419,6 +421,42 @@ console.log('\n=== subida de presupuesto que no cabe, donantes y guardas técnic
   ok('con la conexión en error tampoco', 'no' in guardaDeEscritura({ conexion: 'error', datosViejos: null }))
   ok('conexión activa y datos frescos → escribe', 'ok' in guardaDeEscritura({ conexion: 'activa', datosViejos: datosViejos(frescos) }))
   ok('sin poder leer la conexión ni la frescura → no para', 'ok' in guardaDeEscritura({ conexion: null, datosViejos: null }))
+}
+
+console.log('\n=== A9: el fallo principal manda (lo de « (OJO:» es el borrado de compensación) ===')
+{
+  const m = 'Amazon no ha creado el elemento (campaignNegativeKeywords): INVALID_ARGUMENT (OJO: no se ha podido deshacer lo creado a medias: Amazon Ads ha contestado 429 a /sp/keywords/delete)'
+  const d = datosDelError(m)
+  ok('el 429 del borrado no cuenta: es un 207 de validación', d.httpStatus === 207, JSON.stringify(d))
+  ok('así no da «reintentar» a ciegas (no es transporte)', tipoDeFallo(m) !== 'transporte', tipoDeFallo(m))
+  ok('un 429 principal sigue siendo transporte', tipoDeFallo('Amazon Ads ha contestado 429 a /sp/keywords: x') === 'transporte')
+  ok('A30: un borrado de algo que ya no existe cuenta como hecho', yaNoExiste('entityNotFoundError: ENTITY_NOT_FOUND') && !yaNoExiste('INVALID_ARGUMENT'))
+}
+
+console.log('\n=== A20: negativas pendientes con los términos de ahora ===')
+{
+  const neg = (x: Partial<PropuestaParaDecidir> = {}) => prop({ tipo: 'negativizar', termino: 'fedora', objetivoTipo: null, valorActual: null, valorNuevo: null, metricas: { clics: 30, gasto: 20, pedidos: 0, ventas: 0 }, ...x })
+  const con = (negativa: { ventas: { pedidos: number; ventas: number } | null; promoverPendiente: boolean }) => decidirPropuesta(neg(), CUENTA, PROD, { ...SIN, negativa })
+  ok('el término ahora vende → caducar', con({ ventas: { pedidos: 1, ventas: 30 }, promoverPendiente: false }).accion === 'caducar')
+  ok('solo ventas (sin pedidos) → caducar', con({ ventas: { pedidos: 0, ventas: 12 }, promoverPendiente: false }).accion === 'caducar')
+  ok('hay un promover del mismo par pendiente → caducar', con({ ventas: { pedidos: 0, ventas: 0 }, promoverPendiente: true }).accion === 'caducar')
+  ok('sin fila de ahora (o la lectura falla) → esperar', con({ ventas: null, promoverPendiente: false }).accion === 'esperar')
+  ok('sigue sin vender → aplicar', con({ ventas: { pedidos: 0, ventas: 0 }, promoverPendiente: false }).accion === 'aplicar')
+  ok('sin el dato (undefined) no se mira', decidirPropuesta(neg(), CUENTA, PROD, SIN).accion === 'aplicar')
+}
+
+console.log('\n=== A11: las cosechas sin destino no gastan las plazas de la pasada ===')
+{
+  const promoverSinDestino = (i: number) =>
+    prop({ id: `pr${i}`, tipo: 'promover', termino: `jamon ${i}`, haciaCampaignId: null, objetivoTipo: null, valorActual: null, valorNuevo: null, metricas: { clics: 40, gasto: 500 + i, pedidos: 5, ventas: 900, cvrPct: 10 } })
+  const r1 = prop({ id: 'r1', tipo: 'presupuesto', termino: 'B0TEST0001 | SKU1 | JAMON | MANUAL AMPLIA', objetivoTipo: null, valorActual: 20, valorNuevo: 24, metricas: { clics: 0, gasto: 0, pedidos: 0, ventas: 0, regla: 'R1' }, origen: 'agente' })
+  const todas = [...Array.from({ length: 8 }, (_, i) => promoverSinDestino(i)), r1]
+  const decisiones = todas.map((p) => ({ p, d: decidirPropuesta(p, CUENTA, PROD, SIN) }))
+  ok('un promover sin campaña de destino espera (no se caduca)', decisiones[0].d.accion === 'esperar', JSON.stringify(decisiones[0].d))
+  const planes = decisiones.filter((x): x is { p: PropuestaParaDecidir; d: Extract<DecisionDelAgente, { accion: 'aplicar' }> } => x.d.accion === 'aplicar')
+  const enLaPasada = ordenarParaAplicar(planes.map((x) => ({ ...x, orden: x.d.orden, gasto: x.d.gasto }))).slice(0, AGENTE.MAX_APLICAR_POR_PASADA)
+  ok('la R1 entra en la pasada y los intentos solo cuentan la R1', enLaPasada.length === 1 && enLaPasada[0].p.id === 'r1', JSON.stringify(enLaPasada.map((x) => x.p.id)))
+  ok('un promover CON destino sí se aplica', decidirPropuesta(promoverSinDestino(9), CUENTA, PROD, SIN).accion === 'esperar' && decidirPropuesta({ ...promoverSinDestino(9), haciaCampaignId: 'dest' }, CUENTA, PROD, SIN).accion === 'aplicar')
 }
 
 if (fallos) {

@@ -403,8 +403,14 @@ export function esFalloDeAutorizacionDelErp(mensaje: string | null | undefined):
   return typeof mensaje === 'string' && RE_AUTORIZACION_ERP.test(mensaje)
 }
 
-/** PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …»; los de Login with Amazon: «… ha contestado 503 al renovar el token») */
-export function datosDelError(mensaje: string): { httpStatus: number | null; codigo: string | null } {
+/**
+ * PURO. El código HTTP y el código de Amazon de un error (los mensajes de llamarAds: «Amazon Ads ha contestado 429 a …»; los de un 207: «Amazon no ha creado el elemento …»;
+ * los de Login with Amazon: «… ha contestado 503 al renovar el token»).
+ * Solo se mira el fallo PRINCIPAL, lo de antes de « (OJO:»: lo de después es el borrado de compensación que también falló, y su 429 no dice nada del fallo que importa.
+ */
+export function datosDelError(mensajeEntero: string): { httpStatus: number | null; codigo: string | null } {
+  const corte = mensajeEntero.indexOf(' (OJO:')
+  const mensaje = corte >= 0 ? mensajeEntero.slice(0, corte) : mensajeEntero
   const m = /contestado\s+(\d{3})\b/i.exec(mensaje)
   let httpStatus = m ? Number(m[1]) : null
   if (httpStatus == null && /Amazon no ha creado el elemento/i.test(mensaje)) httpStatus = 207

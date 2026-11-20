@@ -306,6 +306,205 @@ export function confirmaPausaDeReintento(error: string | null, estadoAhora: stri
 }
 
 /**
+ * PURO. El `error` con que se LIBERA una propuesta cuando falla la relectura de Amazon. Si venía de un reintento por transporte, se conserva el prefijo y el valor
+ * intentado: si no, confirmaReintento ya no la reconocería y un cambio que SÍ llegó a Amazon acabaría «obsoleta», fuera de topes, efecto y deshacer.
+ */
+export function errorAlLiberar(errorPrevio: string | null | undefined, detalle: string): string {
+  return (esReintentoDeTransporte(errorPrevio) ? textoDeReintento(detalle, valorIntentadoDelReintento(errorPrevio)) : detalle).slice(0, 500)
+}
+
+/**
+ * PURO. Pausar una keyword o una segmentación por producto con el estado releído en Amazon: si es un reintento y ya está pausada, la pausa llegó (confirmar);
+ * si no está activa (pausada a mano, archivada, no existe), obsoleta sin escribir; si está activa, se pausa.
+ */
+export function decidirPausaDeSegmentacion(estadoAhora: string | null, error: string | null): 'aplicar' | 'obsoleta' | 'confirmar' {
+  if (confirmaPausaDeReintento(error, estadoAhora)) return 'confirmar'
+  return estadoAhora === 'ENABLED' ? 'aplicar' : 'obsoleta'
+}
+
+/**
+ * PURO. Deshacer la pausa de una segmentación (reactivarla): solo si sigue PAUSED y si lo que el motor pausó estaba activo. Las propuestas antiguas, sin
+ * `estadoAnterior`, cuentan como activas (el motor solo las pausaba así).
+ */
+export function puedeReactivarPausa(estadoAhora: string | null, estadoAnterior: unknown): boolean {
+  if (estadoAhora !== 'PAUSED') return false
+  return estadoAnterior == null || estadoAnterior === 'ENABLED'
+}
+
+/* ------------------------------------------------------------------ */
+/* Cosechas: creado a medias, conciliación y deshacer                  */
+/* ------------------------------------------------------------------ */
+
+/** Lo que una cosecha o una negativa ha dejado en Amazon (los ids) y en qué punto se quedó */
+export interface CreadoDeCosecha {
+  keywordId?: string
+  targetId?: string
+  negativaId?: string
+  negativaProductoId?: string
+  /** Quedó algo creado a medias (o no se sabe si se creó): al reanudar se CONCILIA con Amazon antes de crear nada */
+  incompleta?: boolean
+  /** La keyword o segmentación está creada y falta (o no se sabe si está) la negativa en origen */
+  negativaPendiente?: boolean
+  /** Al deshacer: los ids que ya se han borrado (un reintento se los salta) */
+  borrados?: string[]
+}
+
+const CAMPOS_DE_ID = ['negativaId', 'negativaProductoId', 'keywordId', 'targetId'] as const
+
+/** PURO. El `aplicada` guardado → lo creado (solo los campos conocidos y bien formados) */
+export function leerCreado(aplicada: unknown): CreadoDeCosecha {
+  const a = aplicada && typeof aplicada === 'object' ? (aplicada as Record<string, unknown>) : {}
+  const c: CreadoDeCosecha = {}
+  for (const k of CAMPOS_DE_ID) if (typeof a[k] === 'string' && a[k] !== '') c[k] = a[k] as string
+  if (a.incompleta === true) c.incompleta = true
+  if (a.negativaPendiente === true) c.negativaPendiente = true
+  if (Array.isArray(a.borrados)) c.borrados = a.borrados.filter((x): x is string => typeof x === 'string')
+  return c
+}
+
+/** PURO. ¿Hay que REANUDAR la cosecha (conciliar con Amazon en vez de crear a ciegas)? */
+export function hayQueReanudar(c: CreadoDeCosecha): boolean {
+  return Boolean(c.incompleta || c.negativaPendiente)
+}
+
+/**
+ * PURO. La clase de un fallo al ESCRIBIR en Amazon, para decidir si se compensa (se borra lo creado) o se concilia. Transporte = Amazon no ha dicho que no
+ * (red, tiempo agotado, 429, 5xx, «throttled» dentro de un 207): lo pedido puede haber llegado. Autorización = 401/403. Lo demás, validación (Amazon dijo que no).
+ */
+export function claseDeFalloAlEscribir(estado: number | null | undefined, mensaje: string): 'transporte' | 'autorizacion' | 'validacion' {
+  if (estado === 401 || estado === 403) return 'autorizacion'
+  if (estado === 429 || (estado != null && estado >= 500)) return 'transporte'
+  if (/throttl|tiempo agotado|timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|network|socket|abort/i.test(mensaje)) return 'transporte'
+  return 'validacion'
+}
+
+/** PURO. ¿Es un DUPLICATE de Amazon («ya existe»)? */
+export function esDuplicado(mensaje: string): boolean {
+  return /duplicate|already_?exists/i.test(mensaje)
+}
+
+/**
+ * PURO. Una cosecha (o negativa) que falla a mitad: ¿se CONCILIA (se mira en Amazon qué hay, sin borrar nada) o se COMPENSA (se borra lo creado)?
+ *   - La negativa falla por transporte (red, 5xx, 429, tiempo) o con DUPLICATE: puede estar puesta → conciliar. Borrar la exacta dejaría el término
+ *     negativizado en el origen y sin exacta: el mejor término dejaría de vender.
+ *   - La creación de la keyword o segmentación falla por transporte: puede estar creada → conciliar (al reanudar se busca antes de crearla otra vez).
+ *   - Un error de validación cierto (o de autorización): no se ha creado lo que fallaba → compensar lo de antes.
+ */
+export function decidirCompensacion(e: { paso: 'crear' | 'negativa'; tipoDeFallo: 'transporte' | 'autorizacion' | 'validacion'; duplicado: boolean }): 'conciliar' | 'compensar' {
+  if (e.tipoDeFallo === 'transporte') return 'conciliar'
+  if (e.paso === 'negativa' && e.duplicado) return 'conciliar'
+  return 'compensar'
+}
+
+/**
+ * PURO. Deshacer una cosecha: qué se borra y en qué orden. PRIMERO la negativa en origen y DESPUÉS la keyword o segmentación: si falla a mitad, el término
+ * queda en las dos campañas (como antes de cosechar) y no negativizado en el origen y sin exacta. Se saltan los ids que ya se borraron en un intento anterior.
+ */
+export function ordenDeBorrado(c: CreadoDeCosecha): Array<{ campo: (typeof CAMPOS_DE_ID)[number]; id: string }> {
+  const hechos = new Set(c.borrados ?? [])
+  const salida: Array<{ campo: (typeof CAMPOS_DE_ID)[number]; id: string }> = []
+  for (const campo of CAMPOS_DE_ID) {
+    const id = c[campo]
+    if (id && !hechos.has(id)) salida.push({ campo, id })
+  }
+  return salida
+}
+
+/* ------------------------------------------------------------------ */
+/* Reservas colgadas («aplicando» de un proceso que murió a mitad)     */
+/* ------------------------------------------------------------------ */
+
+export type RutaDeReservaColgada =
+  /** Era un DESHACER (la propuesta ya estaba aplicada): vuelve a «aplicada» */
+  | { a: 'aplicada'; error: string }
+  /** Del agente: vuelve a pendiente como un reintento; la pasada siguiente relee Amazon (o concilia la cosecha) antes de escribir */
+  | { a: 'pendiente'; error: string; conciliar: boolean }
+  /** De una persona: «error» para que lo revise (probablemente aplicada) */
+  | { a: 'error'; error: string }
+  /** Todavía no lleva bastante: no se toca */
+  | { a: 'nada' }
+
+/**
+ * PURO. Qué hacer con una propuesta que lleva más de `minutos` en reserva («aplicando»/«aprobada»): el proceso que la reclamó murió entre la llamada a Amazon y
+ * guardar el resultado (cada despliegue reinicia el contenedor). El cambio puede estar en Amazon sin efecto, sin deshacer y sin contar en los topes.
+ */
+export function rutaDeReservaColgada(
+  f: { tipo: string; origen: string | null; aplicada: unknown; valorNuevo: number | null; resueltaAt: string | null },
+  ahora: number,
+  minutos: number,
+): RutaDeReservaColgada {
+  const t = f.resueltaAt ? Date.parse(f.resueltaAt) : NaN
+  // Sin fecha de reserva no se sabe cuánto lleva: se trata como colgada (nadie la reclama sin poner resuelta_at)
+  if (Number.isFinite(t) && ahora - t < minutos * 60_000) return { a: 'nada' }
+  const creado = leerCreado(f.aplicada)
+  const esDeshacer = f.aplicada != null && typeof f.aplicada === 'object' && !hayQueReanudar(creado) && (f.aplicada as Record<string, unknown>).ensayo !== true
+  if (esDeshacer) return { a: 'aplicada', error: 'Deshacer interrumpido (el proceso se cortó a mitad): revisa en Amazon si se llegó a deshacer.' }
+  if (f.origen !== 'agente') return { a: 'error', error: 'Reserva abandonada (el proceso se cortó a mitad): probablemente aplicada en Amazon, revísala antes de volver a aplicarla.' }
+  const cosecha = f.tipo === 'promover' || f.tipo === 'negativizar'
+  const valor = f.tipo === 'puja' || f.tipo === 'presupuesto' ? f.valorNuevo : null
+  return { a: 'pendiente', error: textoDeReintento('reserva abandonada (el proceso se cortó a mitad; puede estar aplicada en Amazon)', valor), conciliar: cosecha }
+}
+
+/* ------------------------------------------------------------------ */
+/* Generar: destino activo, negativas que ya no tocan, lecturas topadas */
+/* ------------------------------------------------------------------ */
+
+/**
+ * PURO. La campaña a la que se cosecha un término: la ESTABILIDAD del producto y, si no la tiene ACTIVA, la DOMINIO. Una campaña PAUSADA nunca es destino: la
+ * keyword se crearía sin tráfico mientras la negativa en el origen activo le quita el suyo (el término no saldría en ninguna). Sin ninguna activa, null.
+ */
+export function elegirDestino(porAsinYRol: ReadonlyMap<string, DestinoDeCampana & { activa: boolean }>, asin: string, rol: Rol): DestinoDeCampana | null {
+  const opciones: Rol[] = rol === 'MANUAL EXACTA / ESTABILIDAD' ? ['MANUAL EXACTA / ESTABILIDAD', 'MANUAL EXACTA / DOMINIO'] : [rol]
+  for (const r of opciones) {
+    const d = porAsinYRol.get(`${asin}|${r}`)
+    if (d && d.activa) return { campaignId: d.campaignId, nombre: d.nombre, adGroupId: null, rol: r }
+  }
+  return null
+}
+
+/**
+ * PURO. Las negativas PENDIENTES que ya no tocan con los términos de ahora: el término ha empezado a vender en esa campaña (la regla de negativizar exige
+ * cero pedidos y cero ventas), o hay una cosecha (promover) del mismo término en la misma campaña, que ya pone su propia negativa en origen.
+ */
+export function negativasACaducar(
+  pendientes: ReadonlyArray<{ id: string; campaign_id: string; termino: string }>,
+  terminos: readonly FilaDeTermino[],
+  promover: ReadonlyArray<{ campaignId: string; termino: string }>,
+): Array<{ id: string; motivo: string }> {
+  const k = (c: string, t: string) => `${c}|${t.trim().toLowerCase()}`
+  const venta = new Map<string, { compras: number; ventas: number }>()
+  for (const t of terminos) {
+    const x = venta.get(k(t.campaignId, t.termino)) ?? { compras: 0, ventas: 0 }
+    x.compras += Number(t.compras) || 0
+    x.ventas += Number(t.ventas) || 0
+    venta.set(k(t.campaignId, t.termino), x)
+  }
+  const cosechas = new Set(promover.map((p) => k(p.campaignId, p.termino)))
+  const salida: Array<{ id: string; motivo: string }> = []
+  for (const n of pendientes) {
+    const v = venta.get(k(n.campaign_id, n.termino))
+    if (v && (v.compras > 0 || v.ventas > 0)) salida.push({ id: n.id, motivo: `el término ya vende en esta campaña (${v.compras} pedidos): no se negativiza` })
+    else if (cosechas.has(k(n.campaign_id, n.termino))) salida.push({ id: n.id, motivo: 'hay una cosecha del mismo término en esta campaña, que ya pone su negativa en origen' })
+  }
+  return salida
+}
+
+/**
+ * Lee por páginas de 1.000 hasta `tope` filas. Si llega al tope LANZA en vez de devolver un conjunto a medias: una lectura cortada parece completa y
+ * esconde justo lo que falta (con orden ascendente, los días recientes: cosechas duplicadas).
+ */
+export async function leerHastaElTope<T>(pedir: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null; error: unknown }>, tope: number): Promise<T[]> {
+  const salida: T[] = []
+  for (let i = 0; ; i += 1000) {
+    if (i >= tope) throw new Error(`La lectura llega al tope de ${tope} filas: no se usa a medias.`)
+    const { data, error } = await pedir(i, i + 999)
+    if (error) throw error
+    salida.push(...(data ?? []))
+    if (!data || data.length < 1000) return salida
+  }
+}
+
+/**
  * PURO. Qué hacer con una propuesta del agente cuya ESCRITURA ha fallado por transporte:
  *   - 429: Amazon la ha rechazado sin aplicarla → pendiente (se reintenta en la pasada siguiente).
  *   - puja, presupuesto, pausas: pendiente; la pasada siguiente RELEE Amazon antes de escribir y, si ya está el valor, la confirma (confirmaReintento).

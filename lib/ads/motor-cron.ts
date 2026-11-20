@@ -128,7 +128,10 @@ export async function pasoDelMotor(cuenta: CuentaParaSincronizar, modo?: ModoDel
   let nuevas = 0
   let generado = false
   if (await hayQueGenerar(cuenta.id, t.accion)) {
-    nuevas = (await generarPropuestas(cuenta)).nuevas
+    const g = await generarPropuestas(cuenta)
+    nuevas = g.nuevas
+    // Lo que la generación no ha podido hacer (p. ej. cosechar sin la lista entera de segmentaciones de los destinos) queda en el registro de la pasada
+    for (const a of g.avisos ?? []) errores.push(`generar: ${a.slice(0, 160)}`)
     generado = true
     // En modo agente, los ajustes del agente (una vez al día, con la generación). Si fallan, hoy no hay pujas: sin ellos subirían sin sus frenos
     let ajustes: AjustesDelAgenteParaPujas | undefined

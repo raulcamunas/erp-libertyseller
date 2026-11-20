@@ -1,3 +1,21 @@
+import {
+  claseDeFalloAlEscribir,
+  decidirCompensacion,
+  decidirPausaDeSegmentacion,
+  elegirDestino,
+  errorAlLiberar,
+  esDuplicado,
+  esReintentoDeTransporte,
+  hayQueReanudar,
+  leerCreado,
+  leerHastaElTope,
+  negativasACaducar,
+  ordenDeBorrado,
+  puedeReactivarPausa,
+  rutaDeReservaColgada,
+  textoDeReintento,
+  valorIntentadoDelReintento,
+} from './motor-calculo'
 import { RECOMPROBAR_COLUMNA_MS, hayQueComprobarColumna, resultadoDeComprobarColumna, clavesEnCuarentena, decidirEnsayo, decidirSiSePuedeAplicar, inicioDelDiaEnEspana, motivoDeObsoleta, motorTieneTrabajo, pasoHizoAlgo, planificarPropuestas, proximoPasoDelMotor, pujaDePromover, sumarPorCampana, tocaGenerar, valorSigueIgual, type EntradaDeAplicar } from './motor-calculo'
 import { esEscritura } from './rastro'
 import { ETIQUETA_ORIGEN, quienSinPersona } from './log-calculo'
@@ -243,5 +261,138 @@ console.log('\n=== caché de «¿está la 315?» ===')
   ok('tope inválido → null', pujaDePromover({ clics: 10, gasto: 5 }, 0) === null)
 }
 
-console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)
-process.exit(fallos === 0 ? 0 : 1)
+console.log('\n=== A29: la marca de reintento sobrevive a un fallo de lectura ===')
+{
+  const previo = textoDeReintento('Amazon Ads ha contestado 503 a /sp/keywords', 1.15)
+  const tras = errorAlLiberar(previo, 'No se ha podido leer el valor actual en Amazon: Amazon Ads ha contestado 429')
+  ok('sigue siendo un reintento', esReintentoDeTransporte(tras), tras)
+  ok('conserva el valor intentado', valorIntentadoDelReintento(tras) === 1.15, tras)
+  ok('lleva el detalle nuevo', /No se ha podido leer/.test(tras))
+  ok('dos fallos seguidos: sigue reconociéndose', valorIntentadoDelReintento(errorAlLiberar(tras, 'otra vez')) === 1.15)
+  ok('sin reintento previo: el detalle tal cual', errorAlLiberar(null, 'No se ha podido leer') === 'No se ha podido leer')
+  ok('presupuesto sin valor: sigue siendo reintento', esReintentoDeTransporte(errorAlLiberar(textoDeReintento('x', null), 'y')))
+}
+
+console.log('\n=== A31: pausar y deshacer la pausa de una segmentación con el estado leído ===')
+{
+  ok('activa → se pausa', decidirPausaDeSegmentacion('ENABLED', null) === 'aplicar')
+  ok('ya pausada (a mano) → obsoleta', decidirPausaDeSegmentacion('PAUSED', null) === 'obsoleta')
+  ok('archivada → obsoleta', decidirPausaDeSegmentacion('ARCHIVED', null) === 'obsoleta')
+  ok('no existe → obsoleta', decidirPausaDeSegmentacion(null, null) === 'obsoleta')
+  ok('reintento y ya pausada → confirmar (la pausa llegó)', decidirPausaDeSegmentacion('PAUSED', textoDeReintento('503', null)) === 'confirmar')
+  ok('reintento y activa → se pausa', decidirPausaDeSegmentacion('ENABLED', textoDeReintento('503', null)) === 'aplicar')
+  ok('deshacer: pausada y estaba activa → reactivar', puedeReactivarPausa('PAUSED', 'ENABLED'))
+  ok('deshacer: propuesta antigua sin estadoAnterior → reactivar', puedeReactivarPausa('PAUSED', undefined))
+  ok('deshacer: alguien la reactivó → no', !puedeReactivarPausa('ENABLED', 'ENABLED'))
+  ok('deshacer: archivada → no', !puedeReactivarPausa('ARCHIVED', 'ENABLED'))
+  ok('deshacer: ya estaba pausada cuando se «pausó» → no', !puedeReactivarPausa('PAUSED', 'PAUSED'))
+}
+
+console.log('\n=== A9: cosecha a medias, ¿conciliar o compensar? ===')
+{
+  ok('negativa por transporte (429, 5xx, red) → conciliar (no se borra la exacta)', decidirCompensacion({ paso: 'negativa', tipoDeFallo: 'transporte', duplicado: false }) === 'conciliar')
+  ok('negativa con DUPLICATE → conciliar', decidirCompensacion({ paso: 'negativa', tipoDeFallo: 'validacion', duplicado: true }) === 'conciliar')
+  ok('negativa con validación cierta → compensar (se borra la exacta)', decidirCompensacion({ paso: 'negativa', tipoDeFallo: 'validacion', duplicado: false }) === 'compensar')
+  ok('crear la keyword por transporte → conciliar (puede estar creada)', decidirCompensacion({ paso: 'crear', tipoDeFallo: 'transporte', duplicado: false }) === 'conciliar')
+  ok('crear la keyword por validación → compensar', decidirCompensacion({ paso: 'crear', tipoDeFallo: 'validacion', duplicado: false }) === 'compensar')
+  ok('autorización → compensar', decidirCompensacion({ paso: 'negativa', tipoDeFallo: 'autorizacion', duplicado: false }) === 'compensar')
+  ok('429 es transporte', claseDeFalloAlEscribir(429, 'Amazon Ads ha contestado 429') === 'transporte')
+  ok('503 es transporte', claseDeFalloAlEscribir(503, 'x') === 'transporte')
+  ok('207 con throttled es transporte', claseDeFalloAlEscribir(207, 'Amazon no ha creado el elemento: throttledError') === 'transporte')
+  ok('fetch failed es transporte', claseDeFalloAlEscribir(null, 'fetch failed') === 'transporte')
+  ok('207 con un error de validación es validación', claseDeFalloAlEscribir(207, 'Amazon no ha creado el elemento: INVALID_ARGUMENT') === 'validacion')
+  ok('401 es autorización', claseDeFalloAlEscribir(401, 'x') === 'autorizacion')
+  ok('DUPLICATE reconocido', esDuplicado('duplicateValueError: DUPLICATE_VALUE') && esDuplicado('ALREADY_EXISTS') && !esDuplicado('INVALID_ARGUMENT'))
+  const c = leerCreado({ keywordId: 'K1', negativaPendiente: true, basura: 3 })
+  ok('lo guardado a medias se lee y pide reanudar', c.keywordId === 'K1' && hayQueReanudar(c) && !('basura' in c))
+  ok('una cosecha aplicada normal no pide reanudar', !hayQueReanudar(leerCreado({ keywordId: 'K1', negativaId: 'N1' })))
+}
+
+console.log('\n=== A30: deshacer una cosecha, idempotente ===')
+{
+  const orden = ordenDeBorrado({ keywordId: 'K1', negativaId: 'N1' }).map((x) => x.id)
+  ok('primero la negativa en origen, después la keyword', orden.join() === 'N1,K1', orden.join())
+  ok('ASIN: negativa por producto antes que la segmentación', ordenDeBorrado({ targetId: 'T1', negativaProductoId: 'NP1' }).map((x) => x.id).join() === 'NP1,T1')
+  ok('se salta lo ya borrado en un intento anterior', ordenDeBorrado({ keywordId: 'K1', negativaId: 'N1', borrados: ['N1'] }).map((x) => x.id).join() === 'K1')
+  ok('todo borrado → nada que hacer', ordenDeBorrado({ keywordId: 'K1', negativaId: 'N1', borrados: ['N1', 'K1'] }).length === 0)
+}
+
+console.log('\n=== A8: reservas colgadas ===')
+{
+  const AHORA = Date.parse('2026-12-10T12:00:00Z')
+  const hace = (min: number) => new Date(AHORA - min * 60_000).toISOString()
+  const f = (x: Partial<Parameters<typeof rutaDeReservaColgada>[0]>) => rutaDeReservaColgada({ tipo: 'puja', origen: 'agente', aplicada: null, valorNuevo: 1.15, resueltaAt: hace(30), ...x }, AHORA, 15)
+  ok('una reserva de hace menos de 15 min no se toca', f({ resueltaAt: hace(5) }).a === 'nada')
+  ok('con aplicada (era un deshacer) → vuelve a aplicada', f({ aplicada: { valorAnterior: 1 } }).a === 'aplicada')
+  const puja = f({})
+  ok('puja del agente → pendiente con prefijo de reintento y el valor intentado', puja.a === 'pendiente' && esReintentoDeTransporte(puja.error) && valorIntentadoDelReintento(puja.error) === 1.15, JSON.stringify(puja))
+  const pres = f({ tipo: 'presupuesto', valorNuevo: 24 })
+  ok('presupuesto del agente → pendiente con 24 intentado', pres.a === 'pendiente' && valorIntentadoDelReintento(pres.error) === 24)
+  const pausa = f({ tipo: 'pausar-campana', valorNuevo: null })
+  ok('pausa de campaña del agente → pendiente (confirmaPausaDeReintento la reconoce)', pausa.a === 'pendiente' && esReintentoDeTransporte(pausa.error) && !pausa.conciliar)
+  const cos = f({ tipo: 'promover', valorNuevo: null })
+  ok('promover del agente → pendiente con conciliación', cos.a === 'pendiente' && cos.conciliar)
+  ok('promover a medias (incompleta) NO se toma por un deshacer', f({ tipo: 'promover', aplicada: { keywordId: 'K1', incompleta: true } }).a === 'pendiente')
+  ok('una ensayada vuelta a pendiente NO se toma por un deshacer', f({ aplicada: { ensayo: true } }).a === 'pendiente')
+  ok('de una persona → error para revisar', f({ origen: 'motor' }).a === 'error')
+}
+
+console.log('\n=== A10: la cosecha nunca va a una campaña pausada ===')
+{
+  const m = new Map([
+    ['B0AAAAAAA1|MANUAL EXACTA / ESTABILIDAD', { campaignId: 'est', nombre: 'EST', adGroupId: null, activa: false }],
+    ['B0AAAAAAA1|MANUAL EXACTA / DOMINIO', { campaignId: 'dom', nombre: 'DOM', adGroupId: null, activa: true }],
+  ])
+  ok('ESTABILIDAD pausada y DOMINIO activa → DOMINIO', elegirDestino(m, 'B0AAAAAAA1', 'MANUAL EXACTA / ESTABILIDAD')?.campaignId === 'dom')
+  const m2 = new Map([['B0AAAAAAA1|MANUAL EXACTA / ESTABILIDAD', { campaignId: 'est', nombre: 'EST', adGroupId: null, activa: false }]])
+  ok('ninguna activa → null', elegirDestino(m2, 'B0AAAAAAA1', 'MANUAL EXACTA / ESTABILIDAD') === null)
+  const m3 = new Map([['B0AAAAAAA1|MANUAL EXACTA / ESTABILIDAD', { campaignId: 'est', nombre: 'EST', adGroupId: null, activa: true }]])
+  ok('ESTABILIDAD activa → ESTABILIDAD', elegirDestino(m3, 'B0AAAAAAA1', 'MANUAL EXACTA / ESTABILIDAD')?.campaignId === 'est')
+  // Un promover sin destino se guarda sin campaña, y los candados no lo dejan aplicar: nunca sale solo la negativa en origen
+  const r = planificarPropuestas({ ...base, objetivos: new Map([['B0AAAAAAA1', OBJ]]), terminos: [t({ termino: 'jamon iberico', clics: 30, gasto: 10, ventas: 100, compras: 5 })] })
+  const pr = r.nuevas.find((n) => n.tipo === 'promover')
+  ok('promover sin destino: sin campaña ni grupo', !!pr && pr.haciaCampaignId === null && pr.haciaAdGroupId === null, JSON.stringify(r.nuevas))
+  ok('y no hay negativa suelta del mismo término', !r.nuevas.some((n) => n.tipo === 'negativizar' && n.termino === 'jamon iberico'))
+  const e: EntradaDeAplicar = { modo: 'agente', automatica: true, origen: 'agente', tipo: 'promover', estado: 'pendiente', fichaFirmada: true, campaignNombre: nom('B0AAAAAAA1', 'AUTO RADAR'), haciaRol: 'MANUAL EXACTA / ESTABILIDAD', haciaCampaignId: null, haciaAdGroupId: null, aplicadasHoy: 0, topeDiario: 99 }
+  ok('los candados no dejan aplicarlo', !decidirSiSePuedeAplicar(e).ok)
+}
+
+console.log('\n=== A20: negativas pendientes que ya no tocan ===')
+{
+  const pend = [
+    { id: 'n1', campaign_id: 'c1', termino: 'fedora' },
+    { id: 'n2', campaign_id: 'c1', termino: 'jamon iberico' },
+    { id: 'n3', campaign_id: 'c1', termino: 'sombrero' },
+    { id: 'n4', campaign_id: 'c2', termino: 'fedora' },
+  ]
+  const terms = [t({ termino: 'fedora', compras: 1, ventas: 30 }), t({ termino: 'sombrero', compras: 0, ventas: 0 })]
+  const r = negativasACaducar(pend, terms, [{ campaignId: 'c1', termino: 'Jamon Iberico ' }])
+  ok('el término ya vende → se caduca', r.some((x) => x.id === 'n1' && /vende/.test(x.motivo)))
+  ok('hay una cosecha del mismo término y campaña → se caduca', r.some((x) => x.id === 'n2' && /cosecha/.test(x.motivo)))
+  ok('sin ventas ni cosecha → sigue', !r.some((x) => x.id === 'n3'))
+  ok('otra campaña no cuenta', !r.some((x) => x.id === 'n4'))
+}
+
+console.log('\n=== A23: una lectura topada lanza en vez de devolver la mitad ===')
+void (async () => {
+  const llena = (n: number) => async () => ({ data: Array.from({ length: n }, (_, i) => i), error: null })
+  let lanzo = false
+  try {
+    await leerHastaElTope(llena(1000), 3000)
+  } catch {
+    lanzo = true
+  }
+  ok('llega al tope → lanza', lanzo)
+  const corta = await leerHastaElTope(async (a) => ({ data: a < 2000 ? Array.from({ length: 1000 }, (_, i) => a + i) : [1, 2], error: null }), 60_000)
+  ok('por debajo del tope → todas las filas', corta.length === 2002)
+  let lanzoError = false
+  try {
+    await leerHastaElTope(async () => ({ data: null, error: { message: 'x' } }), 5000)
+  } catch {
+    lanzoError = true
+  }
+  ok('un error de la base se lanza', lanzoError)
+
+  console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)
+  process.exit(fallos === 0 ? 0 : 1)
+})()
