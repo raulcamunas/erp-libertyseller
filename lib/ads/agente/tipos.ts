@@ -581,6 +581,8 @@ export interface ProductoDelContexto {
   tendenciaVentasTotalesPct: number | null
   stock: number | null
   stockActualizadoAt: string | null
+  /** El stock es de hace ≥ LISTING_FRESCO_HORAS (o sin fecha): para subir cuenta como desconocido. Sin el dato, fresco */
+  stockViejo?: boolean
   coberturaDias: number | null
   postura: Postura
   fuentePostura: FuenteDePostura | null
@@ -601,6 +603,8 @@ export interface ContextoDelAgente {
   mes: EstadoDelMes
   evento: { nombre: string; fase: FaseDeEvento } | null
   cuentaPequena: boolean
+  /** false = la lectura del stock ha FALLADO (no es «stock desconocido»): no se tocan las posturas puestas por stock. Sin el dato, leído */
+  stockLeido?: boolean
   cuenta: {
     gasto7: number; ventas7: number; acos7Pct: number | null; hasta7: string
     acos30Pct: number | null; tacos30Pct: number | null; ventasAds30: number; ventasTotales30: number | null

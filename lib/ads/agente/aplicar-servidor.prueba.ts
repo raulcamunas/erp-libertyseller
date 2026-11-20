@@ -472,6 +472,34 @@ console.log('\n=== A18: pujas y pausas del motor con métricas de otra generaci�
   ok('una del agente con 40 h no caduca por esta regla', !(delAgente.accion === 'caducar' && /otra generación/.test(delAgente.motivo)), JSON.stringify(delAgente))
 }
 
+console.log('\n=== REVISAR sin etiqueta de la IA: no se negativiza a ciegas ===')
+{
+  const rev = (x: Partial<PropuestaParaDecidir> = {}) => prop({ tipo: 'negativizar', termino: 'soporte jamonero', valorActual: null, valorNuevo: null, motivo: 'REVISAR: no comparte ninguna palabra', metricas: { clics: 8, gasto: 4, pedidos: 0, ventas: 0, revisar: true }, ...x })
+  const V = { pedidosHistoricos: 0, validacionOk: true }
+  const a = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V } })
+  ok('sin etiqueta y > 30 h → caducar (antes: aplicar «aprobada por la IA»)', a.accion === 'caducar' && /Sin etiqueta de la IA/.test(a.motivo), JSON.stringify(a))
+  ok('sin etiqueta y < 30 h → esperar', decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V } }).accion === 'esperar')
+  const b = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V, etiquetaError: true } })
+  ok('falla la LECTURA de la etiqueta y > 30 h → esperar (no caduca ni aplica)', b.accion === 'esperar' && /leer la etiqueta/.test(b.motivo), JSON.stringify(b))
+  const c = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.9 }, ...V } })
+  ok('otro producto 0,9 → aplicar con iaAprueba', esAplicar(c) && c.iaAprueba && c.concordanciaExacta, JSON.stringify(c))
+  const d = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, pedidosHistoricos: 3, validacionOk: true } })
+  ok('sin etiqueta pero ha vendido → se sigue descartando', d.accion === 'descartar' && /Ha vendido/.test(d.motivo), JSON.stringify(d))
+}
+
+console.log('\n=== stock sin leer o viejo: las subidas esperan; lo demás sigue ===')
+{
+  const sinLeer = { ...CUENTA, stockSinLeer: true }
+  const a = decidirPropuesta(prop(), sinLeer, { ...PROD, stock: null, coberturaDias: null }, SIN)
+  ok('falla la lectura del stock → la subida de puja ESPERA', a.accion === 'esperar' && /leer el stock/.test(a.motivo), JSON.stringify(a))
+  ok('… y la de presupuesto también', decidirPropuesta(prop({ tipo: 'presupuesto', valorActual: 20, valorNuevo: 24, metricas: { clics: 0, gasto: 5, pedidos: 0, ventas: 0, regla: 'R1' } }), sinLeer, { ...PROD, stock: null }, SIN).accion === 'esperar')
+  ok('… pero una bajada se aplica', decidirPropuesta(prop({ valorNuevo: 0.9 }), sinLeer, { ...PROD, stock: null }, SIN).accion === 'aplicar')
+  const b = decidirPropuesta(prop(), CUENTA, { ...PROD, stockViejo: true }, SIN)
+  ok('stock viejo → la subida espera', b.accion === 'esperar' && /stock se leyó/.test(b.motivo), JSON.stringify(b))
+  ok('stock viejo → una bajada se aplica', decidirPropuesta(prop({ valorNuevo: 0.9 }), CUENTA, { ...PROD, stockViejo: true }, SIN).accion === 'aplicar')
+  ok('postura «recortar» guardada con el stock sin leer → la subida se caduca igual', decidirPropuesta(prop(), sinLeer, { ...PROD, postura: 'recortar', stock: null }, SIN).accion === 'caducar')
+}
+
 if (fallos) {
   console.log(`\n${fallos} FALLO(S)`)
   process.exit(1)

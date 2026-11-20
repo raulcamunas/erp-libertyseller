@@ -46,6 +46,8 @@ import {
   limpiarTermino,
   limpiarTextoIa,
   posturaFinal,
+  acotarPorStockViejo,
+  conservarPosturaPorStock,
   validarSalidaDelCerebro,
 } from './cerebro-calculo'
 import { posturaPorReglas } from './ritmo-calculo'
@@ -216,11 +218,14 @@ export function resultadosParaLaIa(veredictos: ReadonlyArray<{ clase: ClaseDeCam
  * equilibrio, lanzamiento). Sin IA → `ia = null` para todos (fuente «reglas» salvo que un tope la cambie).
  */
 export function posturasDeLosProductos(
-  contexto: Pick<ContextoDelAgente, 'productos' | 'mes' | 'tacosObjetivoPct' | 'muestraMinimaClics'>,
+  contexto: Pick<ContextoDelAgente, 'productos' | 'mes' | 'tacosObjetivoPct' | 'muestraMinimaClics' | 'stockLeido'>,
   ia: ReadonlyMap<string, { postura: Postura; motivo: string }> | null,
 ): Array<{ asin: string; nombre: string; postura: Postura; fuente: FuenteDePostura; motivo: string }> {
   const ritmo = contexto.mes.ritmo
-  return contexto.productos.map((p) => {
+  const stockLeido = contexto.stockLeido !== false
+  // Las posturas puestas por el stock que no se pueden revisar con este dato del stock (lectura fallida, o «recortar» con un stock viejo) se quedan como están:
+  // fuera de la lista, no se recalculan ni se guardan (conservarPosturaPorStock)
+  return contexto.productos.filter((p) => !conservarPosturaPorStock(p, stockLeido)).map((p) => {
     const tieneEquilibrio = finito(p.equilibrioPct) && p.equilibrioPct > 0
     const esMarca = !!(p.marca && p.marca.trim())
     const reglas = posturaPorReglas(
@@ -257,7 +262,8 @@ export function posturasDeLosProductos(
       tieneEquilibrio,
       fase: p.fase,
     })
-    return { asin: p.asin, nombre: p.nombre, postura: f.postura, fuente: f.fuente, motivo: limpiarTextoIa(f.motivo, 300) }
+    const g = acotarPorStockViejo(f, p.stockViejo === true)
+    return { asin: p.asin, nombre: p.nombre, postura: g.postura, fuente: g.fuente, motivo: limpiarTextoIa(g.motivo, 300) }
   })
 }
 
@@ -641,26 +647,28 @@ export async function costeIaDelMes(perfilId: string, ahora: number): Promise<{ 
   }
 }
 
-/** La etiqueta vigente de un término (no caducada y del mismo título si se pasa su hash). null si no hay, caducó, cambió el título o falta la 315 */
+/** La etiqueta vigente de un término (no caducada y del mismo título si se pasa su hash). null si no hay, caducó, cambió el título o falta la 315; LANZA si falla la base */
 export async function etiquetaVigente(perfilId: string, asin: string, termino: string, tituloHash: string | null, ahora: number): Promise<{ etiqueta: EtiquetaDeTermino; confianza: number } | null> {
   const clave = claveDeTermino(termino)
   if (!asin || !clave) return null
-  try {
-    const { data, error } = await createServiceClient()
-      .from('ads_terminos_ia')
-      .select('etiqueta, confianza, titulo_hash, caduca_at')
-      .eq('perfil_id', perfilId)
-      .eq('asin', asin.toUpperCase())
-      .eq('termino', clave)
-      .maybeSingle()
-    if (error || !data) return null
-    const f = data as { etiqueta: string; confianza: unknown; titulo_hash: string | null; caduca_at: string | null }
-    if (!etiquetaSigueValiendo(f, tituloHash, ahora)) return null
-    if (!ETIQUETAS.includes(f.etiqueta as EtiquetaDeTermino)) return null
-    return { etiqueta: f.etiqueta as EtiquetaDeTermino, confianza: Math.min(1, Math.max(0, numero(f.confianza))) }
-  } catch {
-    return null
+  // Un ERROR de la base lanza (no es «no hay etiqueta»): quien decide espera en vez de tomarlo por un término que la IA no ha mirado. Sin fila, caducada o con otro
+  // título → null. Sin la tabla (migración sin lanzar) → null, como antes
+  const { data, error } = await createServiceClient()
+    .from('ads_terminos_ia')
+    .select('etiqueta, confianza, titulo_hash, caduca_at')
+    .eq('perfil_id', perfilId)
+    .eq('asin', asin.toUpperCase())
+    .eq('termino', clave)
+    .maybeSingle()
+  if (error) {
+    if (isMissingSchema(error)) return null
+    throw new Error(`No se ha podido leer la etiqueta de la IA: ${error.message}`)
   }
+  if (!data) return null
+  const f = data as { etiqueta: string; confianza: unknown; titulo_hash: string | null; caduca_at: string | null }
+  if (!etiquetaSigueValiendo(f, tituloHash, ahora)) return null
+  if (!ETIQUETAS.includes(f.etiqueta as EtiquetaDeTermino)) return null
+  return { etiqueta: f.etiqueta as EtiquetaDeTermino, confianza: Math.min(1, Math.max(0, numero(f.confianza))) }
 }
 
 /**

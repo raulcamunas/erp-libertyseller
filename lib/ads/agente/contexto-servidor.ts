@@ -30,7 +30,7 @@ import { leerUmbrales } from '../umbrales-cuenta'
 import { UMBRALES_DE_PARTIDA } from '../umbrales'
 import { topesValidos } from './guardarrailes-calculo'
 import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, motivoDeTechoIncompleto, objetivoBase, techoAutomatico, techoDelMes } from './objetivos-calculo'
-import { coberturaDias, stockDeAsin, stockEfectivo } from './stock-calculo'
+import { coberturaDias, stockDeAsin, stockEfectivo, stockEsViejo } from './stock-calculo'
 import { eventoEn, eventosManualesValidos, hayEventoEnElMes, ventanaTocaEvento } from './temporada-calculo'
 import {
   AGENTE,
@@ -419,19 +419,36 @@ export function tendenciaSemanal(v7: number | null, v14: number | null): number 
  * El stock de cada ASIN en el marketplace de la cuenta: Σ de todos sus SKU de `amazon_listings` (FBA → «Disponible», que ya incluye lo que está en transferencia entre centros; no FBA → quantity),
  * de las conexiones de vendedor ACTIVAS del mismo cliente. En los países EFN (FR, DE, IT, NL, BE, SE, PL) un 0 o un hueco se cubre con el de España. Sin cuenta de vendedor, vacío.
  */
-export async function stockPorAsin(perfilId: string): Promise<Map<string, { stock: number | null; actualizadoAt: string | null; fuente: string }>> {
+export async function stockPorAsin(perfilId: string): Promise<Map<string, StockDeAsin>> {
+  return (await leerStockPorAsin(perfilId)).porAsin
+}
+
+export type StockDeAsin = { stock: number | null; actualizadoAt: string | null; fuente: string }
+
+/**
+ * Lo mismo que `stockPorAsin`, diciendo si se ha podido LEER: `ok: false` si falla cualquiera de las tres consultas (perfil, conexiones de vendedor o listados), con el
+ * Map vacío. Una lectura fallida NO es «stock desconocido»: quien decide con el stock (posturas del cerebro, subidas al aplicar) tiene que saberlo para no rebajar un
+ * «recortar» por stock a «mantener» ni dejar pasar subidas en productos sin cobertura por un fallo de la base. Sin cuenta de vendedor sí es `ok: true` (vacío de verdad).
+ */
+export async function leerStockPorAsin(perfilId: string): Promise<{ ok: boolean; error: string | null; porAsin: Map<string, StockDeAsin> }> {
   const service = createServiceClient()
-  const salida = new Map<string, { stock: number | null; actualizadoAt: string | null; fuente: string }>()
-  const { data: perfil } = await service.from('ads_profiles').select('pais, ads_connections(client_id)').eq('id', perfilId).maybeSingle()
+  const salida = new Map<string, StockDeAsin>()
+  const fallo = (que: string, e: { message?: string } | null | undefined) => {
+    console.error(`[agente] stock: ${que}:`, e?.message ?? e)
+    return { ok: false, error: `${que}: ${e?.message ?? 'error desconocido'}`, porAsin: new Map<string, StockDeAsin>() }
+  }
+  const { data: perfil, error: ePerfil } = await service.from('ads_profiles').select('pais, ads_connections(client_id)').eq('id', perfilId).maybeSingle()
+  if (ePerfil) return fallo('perfil de Ads', ePerfil)
   const p = perfil as { pais: string | null; ads_connections: { client_id: string | null } | Array<{ client_id: string | null }> | null } | null
   const con = Array.isArray(p?.ads_connections) ? p?.ads_connections[0] : p?.ads_connections
   const pais = String(p?.pais ?? '').toUpperCase()
   const mkLocal = pais ? marketplaceDePais(pais) : null
-  if (!con?.client_id || !mkLocal) return salida
+  if (!con?.client_id || !mkLocal) return { ok: true, error: null, porAsin: salida }
   const mkEspana = marketplaceDePais('ES')
-  const { data: conexiones } = await service.from('amazon_connections').select('id').eq('client_id', con.client_id).eq('is_active', true)
+  const { data: conexiones, error: eConexiones } = await service.from('amazon_connections').select('id').eq('client_id', con.client_id).eq('is_active', true)
+  if (eConexiones) return fallo('conexiones de vendedor', eConexiones)
   const ids = ((conexiones ?? []) as Array<{ id: string }>).map((c) => c.id)
-  if (ids.length === 0) return salida
+  if (ids.length === 0) return { ok: true, error: null, porAsin: salida }
   const mks = Array.from(new Set([mkLocal, ...(mkEspana && mkEspana !== mkLocal ? [mkEspana] : [])]))
   const r = await todasLasFilas<Record<string, unknown>>((a, b) =>
     service
@@ -442,10 +459,7 @@ export async function stockPorAsin(perfilId: string): Promise<Map<string, { stoc
       .order('sku')
       .range(a, b) as unknown as PromiseLike<{ data: Record<string, unknown>[] | null; error: { code?: string; message?: string } | null }>,
   50_000)
-  if (r.error) {
-    console.error('[agente] stock de amazon_listings:', r.error)
-    return salida
-  }
+  if (r.error) return fallo('amazon_listings', r.error)
   const fila = (x: Record<string, unknown>) => ({
     asin: (x.asin as string | null) ?? null,
     isFba: typeof x.is_fba === 'boolean' ? x.is_fba : null,
@@ -462,7 +476,7 @@ export async function stockPorAsin(perfilId: string): Promise<Map<string, { stoc
     if (!locales.has(asin) && e.fuente.startsWith('sin dato')) continue
     salida.set(asin, e)
   }
-  return salida
+  return { ok: true, error: null, porAsin: salida }
 }
 
 /* =============================================================================================================================================================
@@ -776,7 +790,12 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
   const l = await leerCuenta(cuenta.id, config, ahora, 90)
   const { perfil, local, rendimiento, hasta, hastaVentas, productos, ventas, ficha } = l
   const manuales = config?.eventosManuales ?? []
-  const [uso, stock] = await Promise.all([filasDeUso(cuenta.id, desplazar(local.fecha, -40), local.fecha), stockPorAsin(cuenta.id)])
+  const [uso, lecturaDeStock] = await Promise.all([
+    filasDeUso(cuenta.id, desplazar(local.fecha, -40), local.fecha),
+    // Un fallo (también si lanza) es «no se ha podido leer», no «stock desconocido»: posturasDeLosProductos no toca entonces las posturas por stock
+    leerStockPorAsin(cuenta.id).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e), porAsin: new Map<string, StockDeAsin>() })),
+  ])
+  const stock = lecturaDeStock.porAsin
 
   // Las ventanas de ACoS acaban en «hastaVentas» (ventas ya atribuidas); las de solo gasto, en «hasta»
   const desde7 = desplazar(hastaVentas, -6)
@@ -839,6 +858,7 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
         tendenciaVentasTotalesPct: tendenciaSemanal(vt7, vt14),
         stock: stockN,
         stockActualizadoAt: st?.actualizadoAt ?? null,
+        stockViejo: stockN != null && stockEsViejo(st?.actualizadoAt ?? null, ahora),
         coberturaDias: coberturaDias(stockN, ventas.v14[p.asin]?.unidades ?? null),
         postura: p.postura,
         fuentePostura: p.fuentePostura,
@@ -873,6 +893,7 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
     mes,
     evento: l.evento,
     cuentaPequena: l.cuentaPequena,
+    stockLeido: lecturaDeStock.ok,
     cuenta: {
       gasto7: c7.gasto,
       ventas7: c7.ventas,
