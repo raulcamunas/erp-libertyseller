@@ -25,6 +25,7 @@ import {
 import { cvrComoFraccion, cvrDeMetricas } from './efectos-servidor'
 import { muestraMinima } from './efectos-calculo'
 import { clavesEnCuarentena, textoDeReintento } from '../motor-calculo'
+import { FRENOS_AUTOMATICOS } from './guardarrailes-calculo'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -152,6 +153,8 @@ console.log('\n=== presupuestos ===')
   ok('subida de presupuesto sin restricciones → aplicar', decidirPropuesta(pres(), CUENTA, PROD, SIN).accion === 'aplicar')
   ok('en días 2–3 de la rampa la subida de presupuesto espera', decidirPropuesta(pres(), { ...CUENTA, rampa: { soloBajadas: false, sinPresupuestoSubir: true } }, PROD, SIN).accion === 'esperar')
   ok('cuenta pequeña → caducar la subida de presupuesto', decidirPropuesta(pres(), { ...CUENTA, cuentaPequena: true }, PROD, SIN).accion === 'caducar')
+  // Con los frenos automáticos apagados, aplicar-servidor pasa `FRENOS_AUTOMATICOS && l.cuentaPequena`: una cuenta de menos de 300 € al mes sí puede subir presupuestos
+  ok('cuenta pequeña con los frenos apagados (el llamante pasa false) → la subida de presupuesto no se caduca', decidirPropuesta(pres(), { ...CUENTA, cuentaPequena: FRENOS_AUTOMATICOS && true }, PROD, SIN).accion !== 'caducar')
   const donante = decidirPropuesta(pres({ valorNuevo: 15, metricas: { clics: 0, gasto: 5, pedidos: 0, ventas: 0, regla: 'donante' } }), CUENTA, PROD, SIN)
   const r4 = decidirPropuesta(pres({ id: 'p2', valorNuevo: 15, metricas: { clics: 0, gasto: 50, pedidos: 0, ventas: 0, regla: 'R4' } }), CUENTA, PROD, SIN)
   ok('la bajada de un donante va antes que otra bajada', esAplicar(donante) && esAplicar(r4) && donante.orden < r4.orden)

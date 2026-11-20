@@ -5,6 +5,7 @@ import {
   esCampanaDeMarca,
   esTextoDeMarca,
   faseDeProducto,
+  motivoDeTechoIncompleto,
   objetivoBase,
   pujaMaxima,
   revisarObjetivo,
@@ -118,6 +119,34 @@ console.log('\n=== techo mensual ===')
   ok('techo del mes con evento y pico_eventos → × 1,3', techoDelMes(1000, true, true) === 1300)
   ok('… con evento sin pico_eventos → igual', techoDelMes(1000, true, false) === 1000)
   ok('… sin techo → null', techoDelMes(null, true, true) === null)
+}
+
+console.log('\n=== techo con datos incompletos (no se congela) y revisión que no baja del gasto real ===')
+{
+  const T = (x: Partial<Parameters<typeof techoAutomatico>[0]>) => techoAutomatico({ presupuestoMensual: null, congelado: null, gasto30: 1230, ventasTotales30: 20000, tacosObjetivoPct: 10, ...x })
+  const nueva = T({ gasto30: 35, ventasTotales30: null, datosIncompletos: 'la cuenta aún no tiene 30 días de datos', diasDeHistoria: 3 })
+  ok('(a) 3 días de historia con 35 €: no se congela y el techo no es nulo (≥ 35)', !nueva.congelar && nueva.techo != null && nueva.techo >= 35, JSON.stringify(nueva))
+  ok('(a) … provisional = media diaria × 30,4 (35 ÷ 3 × 30,4 = 354,67)', nueva.techo === 354.67, JSON.stringify(nueva))
+  const dudosas = T({ congelado: { techo: 800, automatico: true, mes: '2026-11' }, mesActual: '2026-12', datosIncompletos: 'no se han podido leer las ventas totales' })
+  ok('(b) ventas dudosas con un techo del mes pasado: no se revisa ni se congela, se queda el previo', !dudosas.congelar && dudosas.techo === 800 && !dudosas.cambia, JSON.stringify(dudosas))
+  const reparado = T({ congelado: { techo: 35, automatico: true, mes: '2026-11' }, gasto30: 1050, ventasTotales30: null, mesActual: '2026-12' })
+  ok('(c) revisión con un techo minúsculo (35) y 1.050 de gasto real en una ventana completa → ≥ 1.050', reparado.techo != null && reparado.techo >= 1050 && reparado.congelar && reparado.cambia, JSON.stringify(reparado))
+  const completo = T({ datosIncompletos: null, diasDeHistoria: 90 })
+  ok('(d) ventana completa con ventas: idéntico a sin los campos nuevos', JSON.stringify(completo) === JSON.stringify(T({})), JSON.stringify(completo))
+  ok('(d) … revisión normal sin cambios: +25 % como mucho (1.000 → 1.250)', T({ congelado: { techo: 1000, automatico: true, mes: '2026-11' }, gasto30: 1000, mesActual: '2026-12' }).techo === 1250)
+  ok('sin gasto real y datos incompletos → null (sigue sin techo)', T({ gasto30: 0.5, datosIncompletos: 'x', diasDeHistoria: 2 }).techo === null)
+
+  const ahora = Date.parse('2026-12-10T12:00:00Z')
+  const M = (x: Partial<Parameters<typeof motivoDeTechoIncompleto>[0]>) =>
+    motivoDeTechoIncompleto({ primerDia: '2026-09-01', inicioVentana: '2026-11-10', ventasCuentan: true, ventasFallo: false, ventasTotales30: 5000, ventasLeidoAt: '2026-12-10T02:00:00Z', ahora, ...x })
+  ok('datos completos → null', M({}) === null)
+  ok('primer día dentro de la ventana → incompleto', M({ primerDia: '2026-12-06' }) != null)
+  ok('primer día justo el inicio de la ventana → completo', M({ primerDia: '2026-11-10' }) === null)
+  ok('sin rendimiento → incompleto', M({ primerDia: null }) != null)
+  ok('ventas que fallan → incompleto', M({ ventasFallo: true }) != null)
+  ok('sin ventas de 30 días → incompleto', M({ ventasTotales30: null }) != null)
+  ok('ventas de hace más de 72 h → incompleto', M({ ventasLeidoAt: '2026-12-06T12:00:00Z' }) != null)
+  ok('sin TACoS objetivo (o sin cuenta de vendedor) las ventas no cuentan', M({ ventasCuentan: false, ventasFallo: true, ventasTotales30: null }) === null)
 }
 
 console.log('\n=== objetivo medio de la cuenta ===')

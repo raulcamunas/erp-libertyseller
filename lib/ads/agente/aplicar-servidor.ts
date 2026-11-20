@@ -4,13 +4,14 @@
  * Cada 10 minutos (si hay pendientes libres) el agente recorre las propuestas pendientes SIN retener y decide, una a una:
  *   1. Solo con el motor en modo «agente», el agente en ensayo o activo y sin parada general.
  *   2. Pendientes con consulta PROPIA (`pendientesLibres`, 300, más gasto primero).
- *   3. Topes del día con la rampa (`topesDelDia`): día 1 solo bajadas al 25 %, días 2–3 al 50 % sin subir presupuestos, 4–6 al 75 %, desde el 7.º completos.
+ *   3. Topes del día (`topesDelDia`): con los frenos automáticos apagados (FRENOS_AUTOMATICOS) solo cuentan los topes configurados; la rampa (día 1 solo bajadas,
+ *      días 2–3 sin subir presupuestos…) y la «cuenta pequeña» solo actúan si se vuelven a encender.
  *   4. Términos REVISAR: la etiqueta vigente de la IA (`etiquetaVigente`) decide (`decisionDeTermino`): un término que ha vendido o una IA sin validar → para una persona;
  *      «otro producto» / «intención mala» seguros → negativa SIEMPRE en exacta; «relevante» seguro → se descarta.
  *   5. RARAS (`esRara`): la IA dice «aplicar» → en FORMA REDUCIDA (`formaReducida`), y se mide a los 3 días; «retener» → para una persona; sin decisión, se espera 30 h.
- *   6. Subidas (puja, presupuesto, promover): por un motivo PASAJERO (postura «recortar», sin stock, ritmo «recorte», techo nulo, 7 días tras un evento, cuenta
- *      pequeña) se CADUCAN (se vuelven a proponer cuando el motivo pase); por producto solo defensivo o marca, se retienen para una persona.
- *      Las que solo frena la RAMPA esperan (mañana la rampa puede dejarlas). Una pausa por stock con el stock de vuelta o de hace > 12 h se caduca.
+ *   6. Subidas (puja, presupuesto, promover): por un motivo PASAJERO (postura «recortar», sin stock, ritmo «recorte», techo nulo, 7 días tras un evento; cuenta
+ *      pequeña solo con FRENOS_AUTOMATICOS) se CADUCAN (se vuelven a proponer cuando el motivo pase); por producto solo defensivo o marca, se retienen para una persona.
+ *      Las que solo frenaría la RAMPA esperan (sin rampa desde el 20 nov 2026: no pasa). Una pausa por stock con el stock de vuelta o de hace > 12 h se caduca.
  *   7. Guardarraíles: puja ±25 % y puja máxima (`limitarPuja`); subida de presupuesto contra el techo y la suma de hace 7 días (`limitarSubidaDePresupuesto`).
  *   8. Orden (`ordenDeAplicar`): pausar campaña, negativas, pausas, bajadas de puja, bajadas de presupuesto (donantes primero), subidas de puja, promover, subidas de presupuesto.
  *      Como mucho 8 por pasada y nunca a menos de 15 s del final de la pasada.
@@ -59,6 +60,7 @@ import {
   presupuestoUtil,
   quedaTope,
   topesDelDia,
+  FRENOS_AUTOMATICOS,
 } from './guardarrailes-calculo'
 import { esCampanaDeMarca, esTextoDeMarca, pujaMaxima } from './objetivos-calculo'
 import { diaDeRampa, horaEnMadrid } from './pasos-calculo'
@@ -758,7 +760,8 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   const cuentaDecide: CuentaParaDecidir = {
     ahora,
     rampa: { soloBajadas: hoyTopes.soloBajadas, sinPresupuestoSubir: hoyTopes.sinPresupuestoSubir && !l.cuentaPequena },
-    cuentaPequena: l.cuentaPequena,
+    // La «cuenta pequeña» es un freno de negocio: con los frenos automáticos apagados no impide subir presupuestos (topesDelDia ya la ignora igual)
+    cuentaPequena: FRENOS_AUTOMATICOS && l.cuentaPequena,
     ritmoRecorte: ritmoDeEsteMes === 'recorte',
     techoNulo: l.techoMes == null,
     eventoPosterior: l.evento?.fase === 'posterior' ? l.evento.nombre : null,
