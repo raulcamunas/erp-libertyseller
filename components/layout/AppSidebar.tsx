@@ -481,7 +481,10 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   useEffect(() => {
     const abrir = () => setIsMobileOpen(true)
     const alPulsar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsMobileOpen(false)
+      if (e.key === 'Escape') {
+        volverAlCerrar.current = true
+        setIsMobileOpen(false)
+      }
     }
     window.addEventListener(EVENTO_ABRIR_MENU, abrir)
     window.addEventListener('keydown', alPulsar)
@@ -489,6 +492,35 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       window.removeEventListener(EVENTO_ABRIR_MENU, abrir)
       window.removeEventListener('keydown', alPulsar)
     }
+  }, [])
+
+  // «Atrás» del teléfono (Android, o el gesto) con la hoja «Más» abierta: la cierra, como en una aplicación, en vez de salir de la pantalla. Al abrirla en el móvil se
+  // apunta una entrada en el historial (con el estado de Next intacto). Si se cierra a mano (tocar fuera, el asa, deslizar, Escape, «Más» otra vez) se vuelve atrás para
+  // quitarla; si se cierra porque se va a otra pantalla (un enlace del menú o una pestaña), NO: un `back()` ahí podría deshacer la navegación que está empezando
+  const hojaEnHistorial = useRef(false)
+  const volverAlCerrar = useRef(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia('(max-width: 1023.98px)').matches) return
+    if (isMobileOpen && !hojaEnHistorial.current) {
+      window.history.pushState({ ...(window.history.state ?? {}), hojaMas: true }, '')
+      hojaEnHistorial.current = true
+    } else if (!isMobileOpen && hojaEnHistorial.current) {
+      hojaEnHistorial.current = false
+      const aMano = volverAlCerrar.current
+      volverAlCerrar.current = false
+      const estado = window.history.state as { hojaMas?: boolean } | null
+      if (aMano && estado?.hojaMas) window.history.back()
+      else if (estado?.hojaMas) window.history.replaceState({ ...estado, hojaMas: false }, '')
+    }
+  }, [isMobileOpen])
+  useEffect(() => {
+    const alVolver = () => {
+      if (!hojaEnHistorial.current) return
+      hojaEnHistorial.current = false
+      setIsMobileOpen(false)
+    }
+    window.addEventListener('popstate', alVolver)
+    return () => window.removeEventListener('popstate', alVolver)
   }, [])
 
   // En una pantalla estrecha la barra es un cajón y no se pliega: si se estrecha la ventana con la barra plegada, se despliega
@@ -538,7 +570,13 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   }
 
   const toggleMobile = () => {
+    if (isMobileOpen) volverAlCerrar.current = true
     setIsMobileOpen(!isMobileOpen)
+  }
+  /** Cerrar la hoja a mano (no por navegar): quita también su entrada del historial */
+  const cerrarHoja = () => {
+    volverAlCerrar.current = true
+    setIsMobileOpen(false)
   }
 
   // La hoja «Más» se cierra también arrastrándola hacia abajo desde su asa o su cabecera
@@ -568,7 +606,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     if (!a || !el) return
     el.style.transition = ''
     el.style.translate = ''
-    if (a.dy > 80) setIsMobileOpen(false)
+    if (a.dy > 80) cerrarHoja()
   }
 
   const cerrarSesion = async () => {
@@ -611,7 +649,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
         onTouchCancel={alSoltarArrastre}
       >
         {/* El asa de la hoja «Más» (solo en el móvil): se toca o se arrastra hacia abajo para cerrarla */}
-        <button ref={asaRef} type="button" className="lat-asa" onClick={() => setIsMobileOpen(false)} aria-label="Cerrar el menú" tabIndex={isMobileOpen ? 0 : -1}>
+        <button ref={asaRef} type="button" className="lat-asa" onClick={cerrarHoja} aria-label="Cerrar el menú" tabIndex={isMobileOpen ? 0 : -1}>
           <span aria-hidden />
         </button>
         {/* El fondo: una luz que se mueve despacio arriba y un hilo de luz que baja por el borde */}
