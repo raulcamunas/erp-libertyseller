@@ -27,7 +27,7 @@ const GRAVEDAD: Record<Gravedad, { texto: string; color: string; Icono: typeof C
 const DIAS_REVISADA = 7
 const clave = (cuentaId: string) => `seo-revisadas:${cuentaId}`
 
-function leerRevisadas(cuentaId: string): Record<string, number> {
+export function leerRevisadas(cuentaId: string): Record<string, number> {
   try {
     const crudo = JSON.parse(window.localStorage.getItem(clave(cuentaId)) ?? '{}') as Record<string, number>
     const vigentes = Object.entries(crudo).filter(([, t]) => Date.now() - t < DIAS_REVISADA * 86_400_000)

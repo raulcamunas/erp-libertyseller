@@ -197,7 +197,7 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
             {activa === 'hoy' ? (
               <PestanaSeoHoy cuentaId={cuentaId} datos={datos} irA={(t, a) => irA(t, a)} historial={historial} verBusqueda={verBusqueda} />
             ) : activa === 'productos' ? (
-              <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} />
+              <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} historial={historial} verBusqueda={verBusqueda} verHoy={() => irA('hoy')} />
             ) : activa === 'busquedas' ? (
               <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} recargar={recargar} consulta={consultaAbierta} setConsulta={setConsultaAbierta} />
             ) : activa === 'competencia' ? (

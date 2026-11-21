@@ -9,18 +9,69 @@ import { entero, porcentaje } from '@/components/marketing-test/formato'
 import { llamar } from '@/components/marketing-test/llamar'
 import { Vacio } from '@/components/plataforma/comun'
 import { resumenDeProducto } from '@/lib/seo/resumen'
-import { consultasDe, decisionesDe, diagnosticoDe, estiloDeVeredicto, fichaDe, nombreDe, serieDe } from './comun'
+import { consultasDe, decisionesDe, diagnosticoDe, estiloDeVeredicto, fichaDe, nombreDe, serieDe, useEsOrdenador } from './comun'
 import { revisarFicha } from '@/lib/seo/norma'
 import { RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
 import type { PuntoDeEvolucion } from '@/lib/seo/datos'
 import type { DatosSeo } from './useCuentaSeo'
+import { movimientosDe, type Movimientos } from '@/lib/seo/movimientos'
+import { tareasDeLaCuenta, type Tarea } from '@/lib/seo/tareas'
+import type { ConsultaHistorica } from '@/lib/seo/datos'
+import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
+import { FichaDelProducto } from './FichaDelProducto'
+import { leerRevisadas } from './PestanaSeoHoy'
 
 /**
  * LOS PRODUCTOS SEGUIDOS de la cuenta y país, cada uno con su resumen: en cuántas búsquedas aparece, cuánto volumen arrastran, qué parte de las compras y de las impresiones se lleva y cuántas de sus
  * búsquedas principales están enteras en la ficha. Desde aquí se añaden (del catálogo o los mismos que en Marketing Test) y se quitan.
  */
-export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, verFicha }: { cuentaId: string; datos: DatosSeo; recargar: () => void; verBusquedas: (asin: string) => void; verFicha: (asin: string) => void }) {
+export function PestanaSeoProductos({
+  cuentaId,
+  datos,
+  recargar,
+  verBusquedas,
+  verFicha,
+  historial,
+  verBusqueda,
+  verHoy,
+}: {
+  cuentaId: string
+  datos: DatosSeo
+  recargar: () => void
+  verBusquedas: (asin: string) => void
+  verFicha: (asin: string) => void
+  historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; cargando: boolean }
+  verBusqueda?: (asin: string, consulta: string) => void
+  verHoy?: () => void
+}) {
   const [anadiendo, setAnadiendo] = useState(false)
+  // El producto abierto en su «Resumen» (en la misma pestaña, con «← Todos los productos»)
+  const [abierto, setAbierto] = useState<string | null>(null)
+  const esOrdenador = useEsOrdenador()
+
+  // Movimientos de la semana y tareas pendientes de cada producto (las «Revisadas» de Qué hacer hoy no cuentan)
+  const movimientos = useMemo(() => {
+    const m = new Map<string, Movimientos>()
+    if (!historial || historial.filas.length === 0) return m
+    for (const p of datos.productos) m.set(p.asin, movimientosDe(historial.filas, p.asin, datos.precios?.[p.asin] ?? null))
+    return m
+  }, [historial, datos.productos, datos.precios])
+  const [revisadas, setRevisadas] = useState<Record<string, number>>({})
+  useEffect(() => setRevisadas(leerRevisadas(cuentaId)), [cuentaId])
+  const tareas = useMemo(
+    () =>
+      tareasDeLaCuenta(
+        { hoy: new Date().toISOString().slice(0, 10), lectura: datos.lectura, productos: datos.productos, fichas: datos.fichas, consultas: datos.consultas, evolucion: datos.evolucion, precios: datos.precios, cambios: datos.cambios },
+        { movimientos }
+      ).filter((t) => !revisadas[t.id]),
+    [datos, movimientos, revisadas]
+  )
+  // Gasto PPC de las 4 últimas semanas por producto (null sin Marketing Test)
+  const gasto4 = (asin: string): number | null => {
+    if (!historial?.gastoSemanal) return null
+    const delAsin = historial.gastoSemanal.filter((g) => g.asin === asin).sort((a, b) => b.desde.localeCompare(a.desde)).slice(0, 4)
+    return delAsin.reduce((s, g) => s + g.gasto, 0)
+  }
   const [ocupado, setOcupado] = useState(false)
 
   async function importar() {
@@ -46,6 +97,24 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
     }
   }
 
+  if (abierto && datos.productos.some((p) => p.asin === abierto)) {
+    return (
+      <FichaDelProducto
+        datos={datos}
+        asin={abierto}
+        historial={historial?.filas ?? []}
+        gastoSemanal={historial?.gastoSemanal ?? null}
+        movimientos={movimientos.get(abierto) ?? null}
+        tareas={tareas.filter((t) => t.asin === abierto)}
+        volver={() => setAbierto(null)}
+        verBusquedas={verBusquedas}
+        verBusqueda={verBusqueda ?? ((a) => verBusquedas(a))}
+        verFicha={verFicha}
+        verHoy={verHoy ?? (() => undefined)}
+      />
+    )
+  }
+
   return (
     <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
       <div className="flex flex-wrap items-center gap-2">
@@ -64,6 +133,8 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
         <Vacio icono={<Search />} titulo="Todavía no sigues ningún producto en este país">
           Añádelos del catálogo de la cuenta o tráete los mismos que trabajas en Marketing Test. En cuanto haya alguno, el ERP lee su ficha y pide a Amazon las búsquedas donde aparece.
         </Vacio>
+      ) : esOrdenador ? (
+        <TablaDeProductos datos={datos} abrir={setAbierto} quitar={quitar} movimientos={movimientos} tareas={tareas} gasto4={gasto4} conGasto={!!historial?.gastoSemanal} />
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
           {datos.productos.map((p) => {
@@ -79,7 +150,9 @@ export function PestanaSeoProductos({ cuentaId, datos, recargar, verBusquedas, v
               <article key={p.id} className={`${CAJA.base} flex flex-col transition-colors hover:border-[var(--ls-linea2)]`}>
                 <div className="flex items-start gap-3 px-4 pb-3 pt-4">
                   <div className="min-w-0 flex-1">
-                    <h3 className="line-clamp-2 text-[14px] font-semibold leading-[1.35] text-[var(--ls-t1)]" title={nombre}>{nombre}</h3>
+                    <button type="button" onClick={() => setAbierto(p.asin)} className="text-left">
+                      <h3 className="line-clamp-2 text-[14px] font-semibold leading-[1.35] text-[var(--ls-t1)]" title={nombre}>{nombre}</h3>
+                    </button>
                     <div className="mt-[6px] flex flex-wrap items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
                       <span className="rounded-[5px] bg-[var(--ls-sup2)] px-[6px] py-[1px] font-mono text-[11px] text-[var(--ls-t3)]">{p.asin}</span>
                       {p.sku && <span className="truncate">{p.sku}</span>}
@@ -260,5 +333,115 @@ function SelectorDelCatalogo({ cuentaId, cerrar, hecho }: { cuentaId: string; ce
         )}
       </div>
     </section>
+  )
+}
+
+/** En el ordenador, una tabla: una fila por producto con lo esencial; al pulsarla se abre su resumen */
+function TablaDeProductos({
+  datos,
+  abrir,
+  quitar,
+  movimientos,
+  tareas,
+  gasto4,
+  conGasto,
+}: {
+  datos: DatosSeo
+  abrir: (asin: string) => void
+  quitar: (id: string, nombre: string) => void
+  movimientos: ReadonlyMap<string, Movimientos>
+  tareas: readonly Tarea[]
+  gasto4: (asin: string) => number | null
+  conGasto: boolean
+}) {
+  const sinBa = new Set(datos.lectura.asinsSinBa ?? [])
+  const th = 'px-3 py-2 text-left text-[11px] font-medium text-[var(--ls-t4)]'
+  const td = 'border-t border-[var(--ls-linea)] px-3 py-[9px] align-middle'
+  return (
+    <div className={`${CAJA.base} overflow-x-auto`}>
+      <table className="w-full min-w-[920px] text-[12.5px]">
+        <thead>
+          <tr>
+            <th className={`${th} pl-4`}>Producto</th>
+            <th className={th}>Cuota de compras</th>
+            <th className={th}>Embudo</th>
+            <th className={th}>Ficha</th>
+            <th className={`${th} text-right`}>Tareas</th>
+            <th className={th}>Esta semana</th>
+            {conGasto && <th className={`${th} text-right`}>PPC 4 sem.</th>}
+            <th className={th} />
+          </tr>
+        </thead>
+        <tbody>
+          {datos.productos.map((p) => {
+            const ficha = fichaDe(datos, p.asin)
+            const nombre = nombreDe(p, ficha)
+            const mes = consultasDe(datos, p.asin, 'MONTH')
+            const consultas = mes.length > 0 ? mes : consultasDe(datos, p.asin, 'WEEK')
+            const r = resumenDeProducto(consultas, ficha, datos.precios?.[p.asin] ?? null, decisionesDe(datos))
+            const v = consultas.length > 0 ? diagnosticoDe(datos, p.asin).producto.veredicto : null
+            const norma = ficha ? revisarFicha(ficha).incidencias : []
+            const graves = norma.filter((i) => i.gravedad === 'grave').length
+            const serie = serieDe(datos, p.asin, 'WEEK').map((x) => x.cuotaCompras).filter((x): x is number => x != null)
+            const mov = movimientos.get(p.asin)
+            const nTareas = tareas.filter((t) => t.asin === p.asin).length
+            const graveTarea = tareas.some((t) => t.asin === p.asin && t.gravedad === 'grave')
+            const g = gasto4(p.asin)
+            return (
+              <tr key={p.id} className="cursor-pointer hover:[&>td]:bg-[var(--ls-sup2)]" onClick={(ev) => { if (!(ev.target as HTMLElement).closest('button')) abrir(p.asin) }}>
+                <td className={`${td} pl-4`}>
+                  <div className="max-w-[300px] truncate font-medium text-[var(--ls-t1)]" title={nombre}>{nombre}</div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-[var(--ls-t4)]">
+                    <span className="font-mono">{p.asin}</span>
+                    {sinBa.has(p.asin) && <span className="rounded-[4px] bg-[var(--ls-sup2)] px-1 text-[10.5px] text-[var(--ls-t3)]" title="Amazon no da datos de Brand Analytics de este producto">Sin Brand Analytics</span>}
+                  </div>
+                </td>
+                <td className={td}>
+                  <div className="flex items-center gap-2">
+                    <span className="w-[52px] tabular-nums text-[var(--ls-t1)]">{porcentaje(r.cuotaCompras)}</span>
+                    <div className="w-[80px]"><Chispa valores={serie} color={COLOR_ESTADO.verde} /></div>
+                  </div>
+                </td>
+                <td className={td}>
+                  {v ? (
+                    <span className="rounded-[5px] px-[6px] py-[1px] text-[11.5px] font-semibold" style={{ color: estiloDeVeredicto(v).color, background: `color-mix(in srgb, ${estiloDeVeredicto(v).color} 13%, transparent)` }} title={v.motivo}>
+                      {estiloDeVeredicto(v).texto}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--ls-t4)]">—</span>
+                  )}
+                </td>
+                <td className={td} title={norma.map((i) => i.texto).join('\n')}>
+                  {!ficha ? (
+                    <span className="text-[var(--ls-t4)]">sin leer</span>
+                  ) : (
+                    <span style={{ color: graves > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.verde }}>{graves > 0 ? `${graves} grave${graves === 1 ? '' : 's'}` : 'OK'}</span>
+                  )}
+                </td>
+                <td className={`${td} text-right tabular-nums`} style={{ color: graveTarea ? COLOR_ESTADO.rojo : nTareas > 0 ? 'var(--ls-t1)' : 'var(--ls-t4)' }}>
+                  {nTareas}
+                </td>
+                <td className={`${td} tabular-nums`}>
+                  {mov && mov.semanasLeidas >= 5 ? (
+                    <span className="text-[11.5px]">
+                      <span style={{ color: COLOR_ESTADO.verde }}>▲{mov.suben.length}</span> <span style={{ color: COLOR_ESTADO.rojo }}>▼{mov.bajan.length}</span>
+                      {mov.caidaGeneral && <span className="ml-1 font-semibold" style={{ color: COLOR_ESTADO.rojo }}>caída</span>}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--ls-t4)]">—</span>
+                  )}
+                </td>
+                {conGasto && <td className={`${td} text-right tabular-nums text-[var(--ls-t2)]`}>{g == null ? '—' : entero(Math.round(g))}</td>}
+                <td className={`${td} text-right`}>
+                  <button type="button" onClick={() => quitar(p.id, nombre)} className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--ls-t4)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" title="Dejar de seguir">
+                    <Trash2 className="h-[14px] w-[14px]" />
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
