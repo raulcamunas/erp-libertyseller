@@ -161,11 +161,23 @@ async function pendientesPorCuenta(ids: readonly string[]): Promise<Map<string, 
   const libres = (id: string) => db.from('ads_propuestas').select('id').eq('perfil_id', id).eq('estado', 'pendiente').is('retenida_at', null)
   const filas = await Promise.all(
     ids.map(async (id) => {
-      const [hay, revisar] = await Promise.all([
+      const [hayLibres, revisar, apartadas] = await Promise.all([
         libres(id).limit(1),
         // El mismo criterio que `esRevisar`: la marca en las métricas o el motivo «REVISAR: …»
         libres(id).eq('tipo', 'negativizar').or('metricas->>revisar.eq.true,motivo.ilike."REVISAR:*"').limit(1),
+        // Negativas apartadas «para una persona» antes de B1 (RETENIDA_ANTIGUA_DE_LA_IA): una cuenta que SOLO tiene esas también necesita su paso «aplicar», que es
+        // quien las libera. Sin esto, Italia y Opinas ES se quedaban con sus apartadas para siempre (no tenían ninguna libre y aplicar no llegaba a correr)
+        db
+          .from('ads_propuestas')
+          .select('id')
+          .eq('perfil_id', id)
+          .eq('estado', 'pendiente')
+          .eq('tipo', 'negativizar')
+          .not('retenida_at', 'is', null)
+          .or('retenida_motivo.ilike."La IA dice:*Revísala*",retenida_motivo.ilike."Sin etiqueta de la IA en*",retenida_motivo.ilike."Ha vendido*lo decide una persona*"')
+          .limit(1),
       ])
+      const hay = { data: [...(hayLibres.data ?? []), ...(apartadas.data ?? [])], error: hayLibres.error ?? apartadas.error }
       for (const r of [hay, revisar]) {
         if (r.error) {
           if (faltaLa315(r.error)) throw new Error(FALTA_MIGRACION_315)
