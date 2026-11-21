@@ -491,6 +491,19 @@ export interface DatosPalets {
 
 export const LIMITES_PALET = { maxCantidad: 100, maxLadoCm: 250, maxAltoCm: 183, maxPesoKg: 680 }
 
+/**
+ * PURO (A4.7). ¿Cuadra el peso declarado de los palés con el de las cajas? El total de los palés no puede ser menor que el 95 % de lo que pesan las cajas
+ * ni pasar de las cajas + 40 kg de tara por palé. Si no cuadra, la frase dice cuánto debería pesar cada uno (las cajas repartidas + ~25 kg de tara).
+ */
+export function cuadraPesoPalets(p: Pick<DatosPalets, 'cantidad' | 'pesoKg'>, pesoCajasKg: number): { ok: true } | { ok: false; texto: string } {
+  if (!(pesoCajasKg > 0) || !(p.cantidad > 0)) return { ok: true }
+  const total = p.cantidad * p.pesoKg
+  if (total >= pesoCajasKg * 0.95 && total <= pesoCajasKg + 40 * p.cantidad) return { ok: true }
+  const es = (n: number) => Math.round(n).toLocaleString('es-ES')
+  const min = pesoCajasKg / p.cantidad
+  return { ok: false, texto: `Las cajas pesan ${es(pesoCajasKg)} kg; con ${p.cantidad} palé${p.cantidad === 1 ? '' : 's'} son unos ${es(min)}-${es(min + 40)} kg cada uno y has puesto ${es(p.pesoKg)}. Corrígelo o marca «He comprobado el peso»` }
+}
+
 /** PURA. Valida lo que se escribe en la pantalla antes de pedirle nada a Amazon */
 export function validarPalets(p: Partial<DatosPalets> | null | undefined): { ok: true; palets: DatosPalets } | { ok: false; error: string } {
   if (!p) return { ok: false, error: 'Faltan los datos del palé' }

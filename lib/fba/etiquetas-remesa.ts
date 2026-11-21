@@ -138,7 +138,12 @@ export async function generarEtiquetasDeRemesa(remesaId: string, formato: string
     // El título de Amazon manda: quien pega y quien recibe en el almacén ven el mismo texto que Seller Central
     // Nunca el SKU como título: ya va en su propia línea, y repetido no dice qué producto es
     const titulo = delEspejo?.title?.trim() || [l.nombre, l.variante].filter(Boolean).join(' · ') || ''
-    return { fnsku: l.fnsku ?? delEspejo?.fnsku ?? '', titulo, sku: l.sku, asin: delEspejo?.asin ?? null, unidades: l.unidades }
+    // A3.6: si la línea guarda el ASIN en lugar del FNSKU (pasa con envíos importados), manda el FNSKU real del espejo o de Amazon. Una etiqueta con el ASIN
+    // solo vale si la cuenta etiqueta por fabricante; con el FNSKU real no se equivoca nunca
+    const deLinea = l.fnsku?.trim() || null
+    const lineaEsAsin = !!deLinea && !!delEspejo?.asin && deLinea.toUpperCase() === delEspejo.asin.trim().toUpperCase()
+    const fnsku = deLinea && !lineaEsAsin ? deLinea : (delEspejo?.fnsku ?? deLinea ?? '')
+    return { fnsku, titulo, sku: l.sku, asin: delEspejo?.asin ?? null, unidades: l.unidades }
   })
 
   const { pdf, etiquetas: impresas, paginas, descartadas, avisos } = hojaDeEtiquetas(etiquetas, formato)

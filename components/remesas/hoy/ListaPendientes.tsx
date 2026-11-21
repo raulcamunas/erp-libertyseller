@@ -7,7 +7,7 @@ import {
   ArrowRight, Building2, CheckCircle2, ChevronDown, Clock, ListChecks, MessageSquare, MoreHorizontal, PackagePlus, Search, Truck, UserPlus,
   type LucideIcon,
 } from 'lucide-react'
-import { Boton, EstadoVacio, Esqueleto, Insignia, Tarjeta } from '@/components/ui-ls'
+import { Boton, Confirmacion, EstadoVacio, Esqueleto, Insignia, Tarjeta } from '@/components/ui-ls'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { EnvioPropuestoGuardado, TareaPendiente } from '@/lib/fba/plan-tipos'
 import type { CallbacksRemesas, SeccionCliente, SesionRemesas } from '../comun/tipos-ui'
@@ -80,6 +80,7 @@ const GRAVEDAD_TEXTO: Record<TareaPendiente['gravedad'], string> = { alta: 'Grav
 export function ListaPendientes({ datos, sesion, callbacks, visibles = 6, className }: ListaPendientesProps) {
   const { pendientes, envios, cargando, error, migracion316, aviso, recargar, cambiar, convertir, ocupado } = datos
   const [todas, setTodas] = useState(false)
+  const [convirtiendo, setConvirtiendo] = useState<{ envio: EnvioPropuestoGuardado; t: TareaPendiente } | null>(null)
   const porId = useMemo(() => new Map(envios.map((e) => [e.id, e])), [envios])
   const n = cuentaPorGravedad(pendientes)
   const mostradas = todas ? pendientes : pendientes.slice(0, visibles)
@@ -102,7 +103,7 @@ export function ListaPendientes({ datos, sesion, callbacks, visibles = 6, classN
     toast.error(r.conflicto ? 'Alguien lo ha cambiado antes que tú: ya ves lo de ahora. Vuelve a probar si sigue haciendo falta.' : r.error ?? 'No se ha podido hacer')
   }
 
-  const ejecutar = async (accion: Secundaria, t: TareaPendiente, envio: EnvioPropuestoGuardado | null) => {
+  const ejecutar = async (accion: Secundaria | 'convertir-confirmado', t: TareaPendiente, envio: EnvioPropuestoGuardado | null) => {
     switch (accion) {
       case 'hablado':
         if (envio) avisarDe(await cambiar(envio, { estado: 'hablado' }), `${t.clienteNombre}: marcado como hablado`)
@@ -114,6 +115,12 @@ export function ListaPendientes({ datos, sesion, callbacks, visibles = 6, classN
         if (envio) avisarDe(await cambiar(envio, { responsableId: sesion.usuarioId }), `Te has quedado el envío de ${t.clienteNombre}`)
         return
       case 'convertir': {
+        // A2.2: la misma confirmación que en el Plan y en el panel del envío (antes en Hoy se convertía de un toque)
+        if (!envio) return
+        setConvirtiendo({ envio, t })
+        return
+      }
+      case 'convertir-confirmado': {
         if (!envio) return
         const r = await convertir(envio)
         if (r.ok) {
@@ -220,6 +227,25 @@ export function ListaPendientes({ datos, sesion, callbacks, visibles = 6, classN
           )}
         </>
       )}
+      <Confirmacion
+        abierto={convirtiendo !== null}
+        onCambio={(a) => !a && setConvirtiendo(null)}
+        palabra={null}
+        tono="normal"
+        titulo={convirtiendo ? `¿Convertir en remesa el envío de ${convirtiendo.t.clienteNombre}?` : '¿Convertir en remesa?'}
+        descripcion={
+          convirtiendo
+            ? `Se crea una remesa en borrador con ${convirtiendo.envio.unidades.toLocaleString('es-ES')} ud (${convirtiendo.envio.lineasAceptadas ? 'lo hablado' : 'el plan de hoy'}) y te llevo a ella. Después sigue el flujo de siempre: enlace al cliente, etiquetas, cajas y envío.`
+            : undefined
+        }
+        textoConfirmar="Crear la remesa"
+        onConfirmar={async () => {
+          if (!convirtiendo) return
+          const c = convirtiendo
+          setConvirtiendo(null)
+          await ejecutar('convertir-confirmado', c.t, c.envio)
+        }}
+      />
     </Tarjeta>
   )
 }

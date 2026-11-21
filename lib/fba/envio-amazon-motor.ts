@@ -11,6 +11,7 @@ import {
   cancelabilidad,
   cotizacionVigente,
   emparejarCajasDeEnvios,
+  cuadraPesoPalets,
   embalajeAutomatico,
   esPasoEnvio,
   fechaDeRecogida,
@@ -81,7 +82,7 @@ export interface DatosDelEnvio {
   /** Envío por palés (LTL). Sin esto, paquetería */
   palets?: DatosPalets | null
   /** Seguimiento del envío de palés con transporte propio (BOL) */
-  seguimientoLtl?: { bol: string; fletes: string[]; at: string } | null
+  seguimientoLtl?: { bol: string; fletes: string[]; at: string; estado?: 'ok' | 'pendiente'; operationId?: string | null } | null
   opcionesTransporte?: OpcionTransporte[]
   sinAsociado?: string[]
   /** Envíos cuya ventana de entrega falta por confirmar (solo transporte propio) */
@@ -692,7 +693,10 @@ async function trasExito(ctx: Ctx, paso: PasoEnvio): Promise<void> {
       if (!sid) return lanzarConfirmarTransporte(ctx)
       const v = api.primeraVentana(await api.listarVentanas(ctx.creds, plan(ctx), sid))
       if (!v) {
-        await guardar(ctx, { envio_error: `Amazon no ha dado ninguna ventana de entrega válida para ${sid}` })
+        // A4.4: se apunta como FALLO del paso: así «Reintentar» vuelve a generar las ventanas (con la operación en «ok», reintentar solo releía la lista)
+        const texto = `Amazon no ha dado ninguna ventana de entrega válida para ${sid}: pulsa «Reintentar» para pedir otras`
+        await ctx.service.from('fba_inbound_operaciones').insert({ remesa_id: ctx.fila.id, paso: 'ventana_generar', operacion: OPERACION_DEL_PASO.ventana_generar ?? 'ventana_generar', estado: 'fallo', problemas: [{ code: null, message: texto, details: null, severity: 'ERROR' }], actor: ctx.actor, user_id: ctx.userId, terminada_at: new Date().toISOString() })
+        await guardar(ctx, { envio_error: texto })
         return
       }
       const elegida = { shipmentId: sid, deliveryWindowOptionId: v.deliveryWindowOptionId, desde: v.desde, hasta: v.hasta }
@@ -887,7 +891,7 @@ export interface ParametrosDeAccion {
   contacto?: { nombre?: string; telefono?: string; email?: string }
   /** La palabra escrita para confirmar (CANCELAR en una cancelación grave) */
   palabra?: string
-  palets?: { cantidad?: number; largoCm?: number; anchoCm?: number; altoCm?: number; pesoKg?: number; apilable?: boolean }
+  palets?: { cantidad?: number; largoCm?: number; anchoCm?: number; altoCm?: number; pesoKg?: number; apilable?: boolean; confirmarPeso?: boolean }
   bol?: string
   fletes?: string[]
 }
@@ -997,6 +1001,12 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
         const v = validarPalets(p.palets)
         if (!v.ok) throw new FalloDelEnvio(v.error, 400)
         if ((f.envio_datos?.envios ?? []).length > 1) throw new FalloDelEnvio('El reparto de Amazon tiene más de un envío: los palés con varios destinos se hacen en Seller Central', 400)
+        // A4.7: el peso de los palés tiene que cuadrar con el de las cajas (un error aquí encarece o bloquea la recogida), salvo que se confirme a mano
+        if (p.palets.confirmarPeso !== true) {
+          const pesoCajas = (await cajasDeRemesa(f.id, service)).pesoTotalKg
+          const c = cuadraPesoPalets(v.palets, pesoCajas)
+          if (!c.ok) throw new FalloDelEnvio(c.texto, 400)
+        }
         palets = v.palets
       }
       if (!(await moverPaso(ctx, ['transporte_datos', 'transporte_elegir', 'transporte_cliente', 'transporte_listo'], { envio_paso: 'transporte_generar', envio_datos: { ...(f.envio_datos ?? {}), recogida, palets } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
@@ -1050,8 +1060,22 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       if (!bol) throw new FalloDelEnvio('Falta el número de conocimiento de embarque (BOL)', 400)
       if (!/^[A-Za-z0-9._/ -]{3,60}$/.test(bol)) throw new FalloDelEnvio('El BOL solo puede llevar letras, números y - . / (de 3 a 60 caracteres)', 400)
       const fletes = (p.fletes ?? []).map((x) => x.trim()).filter(Boolean).slice(0, 10)
-      await api.guardarSeguimientoLtl(creds, f.inbound_plan_id, envio.shipmentId, bol, fletes)
-      await guardar(ctx, { envio_datos: { ...d, seguimientoLtl: { bol, fletes, at: new Date().toISOString() } } })
+      const op = await api.guardarSeguimientoLtl(creds, f.inbound_plan_id, envio.shipmentId, bol, fletes)
+      // A4.5: solo cuenta como guardado si Amazon lo ACEPTA. Se pregunta por la operación unas pocas veces; si la rechaza, no se guarda y se dice por qué;
+      // si sigue procesándose, queda «pendiente» (la pantalla lo dice) y se puede volver a guardar
+      let estadoBol: 'ok' | 'pendiente' = 'pendiente'
+      const operationId = op?.operationId ?? null
+      if (operationId) {
+        for (let i = 0; i < 5; i++) {
+          await new Promise((r) => setTimeout(r, 1500))
+          const res = await api.estadoDeOperacion(creds, operationId).catch(() => null)
+          if (!res || res.estado === 'en_curso') continue
+          if (res.estado === 'fallo') throw new FalloDelEnvio(`Amazon ha rechazado el seguimiento: ${res.texto}`, 400)
+          estadoBol = 'ok'
+          break
+        }
+      } else estadoBol = 'ok'
+      await guardar(ctx, { envio_datos: { ...d, seguimientoLtl: { bol, fletes, at: new Date().toISOString(), estado: estadoBol, operationId } } })
       await apuntar('seguimiento_palets', { bol, envio: envio.confirmacion })
       return
     }
@@ -1061,6 +1085,16 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       if (errSuelto) throw errSuelto
       if (!((suelto as unknown[] | null) ?? []).length) throw new FalloDelEnvio('Alguien ya lo está reintentando. Recarga.')
       ctx.fila.envio_error = null
+      // A4.4: las ventanas de entrega caducan. Reintentar en sus pasos las vuelve a GENERAR (generar no confirma nada) y olvida la elegida, que puede
+      // estar caducada; salvo que la confirmación ya esté hecha en Amazon, que entonces se sigue
+      if (paso === 'ventana_generar' || paso === 'ventana_confirmar') {
+        if (paso === 'ventana_confirmar' && (await yaAplicadoEnAmazon(ctx, paso))) {
+          await service.from('fba_inbound_operaciones').insert({ remesa_id: remesaId, paso, operacion: OPERACION_DEL_PASO[paso] ?? paso, estado: 'ok', peticion: { comprobado: true }, actor: ctx.actor, user_id: ctx.userId, terminada_at: new Date().toISOString() })
+          return trasExito(ctx, paso)
+        }
+        await guardar(ctx, { envio_datos: { ...(ctx.fila.envio_datos ?? {}), ventanaElegida: null } })
+        return lanzarVentana(ctx)
+      }
       /**
        * Si la operación de Amazon de este paso acabó BIEN y lo que falló fue lo de después (leer opciones, leer
        * los envíos…), se repite solo lo de después. Relanzar un confirmPlacementOption ya hecho daría error o,

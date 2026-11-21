@@ -56,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       const nume = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v.replace(',', '.'))) ? Number(v.replace(',', '.')) : undefined)
       const pal = body.palets && typeof body.palets === 'object' ? (body.palets as Record<string, unknown>) : null
       const parametros: ParametrosDeAccion = {
-        palets: pal ? { cantidad: nume(pal.cantidad), largoCm: nume(pal.largoCm), anchoCm: nume(pal.anchoCm), altoCm: nume(pal.altoCm), pesoKg: nume(pal.pesoKg), apilable: pal.apilable === true } : undefined,
+        palets: pal ? { cantidad: nume(pal.cantidad), largoCm: nume(pal.largoCm), anchoCm: nume(pal.anchoCm), altoCm: nume(pal.altoCm), pesoKg: nume(pal.pesoKg), apilable: pal.apilable === true, confirmarPeso: pal.confirmarPeso === true } : undefined,
         bol: texto(body.bol, 60),
         fletes: Array.isArray(body.fletes) ? body.fletes.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 40)).slice(0, 10) : undefined,
         packingOptionId: texto(body.packingOptionId),

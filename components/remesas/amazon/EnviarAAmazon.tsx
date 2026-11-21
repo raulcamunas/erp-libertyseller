@@ -613,12 +613,12 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
   const [contacto, setContacto] = useState({ nombre: e.recogida?.contacto?.nombre ?? e.direccion?.nombre ?? '', telefono: e.recogida?.contacto?.telefono ?? e.direccion?.telefono ?? '', email: e.recogida?.contacto?.email ?? e.direccion?.email ?? '' })
   const [confirmar, setConfirmar] = useState(false)
   const [tipo, setTipo] = useState<'paquete' | 'palet'>(e.palets ? 'palet' : 'paquete')
-  const [pal, setPal] = useState({ cantidad: String(e.palets?.cantidad ?? 1), largo: String(e.palets?.largoCm ?? 120), ancho: String(e.palets?.anchoCm ?? 80), alto: e.palets ? String(e.palets.altoCm) : '', peso: e.palets ? String(e.palets.pesoKg) : '', apilable: e.palets?.apilable ?? false })
+  const [pal, setPal] = useState({ cantidad: String(e.palets?.cantidad ?? 1), largo: String(e.palets?.largoCm ?? 120), ancho: String(e.palets?.anchoCm ?? 80), alto: e.palets ? String(e.palets.altoCm) : '', peso: e.palets ? String(e.palets.pesoKg) : '', apilable: e.palets?.apilable ?? false, confirmarPeso: false })
   const cuerpoCotizar = {
     accion: 'generar_transporte',
     dia,
     contacto,
-    ...(tipo === 'palet' ? { palets: { cantidad: pal.cantidad, largoCm: pal.largo, anchoCm: pal.ancho, altoCm: pal.alto, pesoKg: pal.peso, apilable: pal.apilable } } : {}),
+    ...(tipo === 'palet' ? { palets: { cantidad: pal.cantidad, largoCm: pal.largo, anchoCm: pal.ancho, altoCm: pal.alto, pesoKg: pal.peso, apilable: pal.apilable, confirmarPeso: pal.confirmarPeso } } : {}),
   }
   const queda = cuantoQueda(e.transporteCaduca, ahora)
   const confirmado = !!e.transporteConfirmadoAt
@@ -683,6 +683,10 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
               <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--ls-t2)]">
                 <input type="checkbox" checked={pal.apilable} onChange={(v) => setPal({ ...pal, apilable: v.target.checked })} />
                 Se puede apilar otro palé encima
+              </label>
+              <label className="flex items-center gap-2 text-[12.5px] text-[var(--ls-t2)]" title="Solo si el peso que has puesto es el real aunque no cuadre con lo que pesan las cajas (p. ej. palés de madera pesados)">
+                <input type="checkbox" checked={pal.confirmarPeso} onChange={(v) => setPal({ ...pal, confirmarPeso: v.target.checked })} />
+                He comprobado el peso
               </label>
             </div>
           )}
@@ -901,6 +905,9 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
 
   async function pedirPalet() {
     setPidiendoPalet(true)
+    // A4.9: la pestaña se abre en el mismo clic (después del fetch el navegador la bloquea); si no llega a usarse, se cierra
+    const ventana = window.open('', '_blank')
+    let usada = false
     try {
       const res = await fetch(`/api/fba/remesas/${remesaId}/amazon/etiquetas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hoja, tipo: 'palet' }) })
       const j = (await res.json().catch(() => null)) as { enlaces?: typeof enlacesPalet; error?: string } | null
@@ -910,8 +917,13 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
       }
       setEnlacesPalet(j?.enlaces ?? [])
       const primera = j?.enlaces?.find((x) => x.url)
-      if (primera?.url) window.open(primera.url, '_blank', 'noopener')
+      if (primera?.url && ventana && !ventana.closed) {
+        ventana.location.href = primera.url
+        usada = true
+      }
     } finally {
+      // Si no se ha llegado a usar (error, sin enlace), se cierra. No se lee su dirección: tras ir a Amazon es de otro dominio y daría error
+      if (!usada) ventana?.close()
       setPidiendoPalet(false)
     }
   }
@@ -925,7 +937,7 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
         toast.error(j?.error ?? 'No se ha podido guardar el seguimiento')
         return
       }
-      toast.success('Seguimiento guardado en Amazon')
+      toast.success('Seguimiento mandado a Amazon')
       onEnviada()
     } finally {
       setGuardandoBol(false)
@@ -938,6 +950,8 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
 
   async function pedir() {
     setPidiendo(true)
+    const ventana = window.open('', '_blank')
+    let usada = false
     try {
       const res = await fetch(`/api/fba/remesas/${remesaId}/amazon/etiquetas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hoja }) })
       const j = (await res.json().catch(() => null)) as { enlaces?: typeof enlaces; error?: string } | null
@@ -947,8 +961,13 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
       }
       setEnlaces(j?.enlaces ?? [])
       const primera = j?.enlaces?.find((x) => x.url)
-      if (primera?.url) window.open(primera.url, '_blank', 'noopener')
+      if (primera?.url && ventana && !ventana.closed) {
+        ventana.location.href = primera.url
+        usada = true
+      }
     } finally {
+      // Si no se ha llegado a usar (error, sin enlace), se cierra. No se lee su dirección: tras ir a Amazon es de otro dominio y daría error
+      if (!usada) ventana?.close()
       setPidiendo(false)
     }
   }
@@ -966,7 +985,9 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
       if (!r1.ok) throw new Error(((await r1.json().catch(() => null)) as { error?: string } | null)?.error ?? 'No se ha podido guardar el nº FBA')
       const r2 = await fetch(`/api/fba/remesas/${remesaId}/estado`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hasta: 'enviada', desde: 'lista' }) })
       if (!r2.ok) throw new Error(((await r2.json().catch(() => null)) as { error?: string } | null)?.error ?? 'No se ha podido marcar como enviada')
-      toast.success(`Marcada como enviada (${ref})`)
+      // A4.9: con varios FBA (Amazon lo repartió en varios centros) se dice: el seguimiento los sigue todos
+      const fbas = e.envios.map((x) => x.confirmacion).filter((x): x is string => !!x)
+      toast.success(fbas.length > 1 ? `Marcada como enviada: la remesa lleva ${fbas.length} envíos FBA (${fbas.join(', ')}) y se siguen todos` : `Marcada como enviada (${ref})`)
       onEnviada()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se ha podido marcar como enviada')
@@ -1061,7 +1082,7 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
                 </Boton>
               </div>
               <p className="text-[12px] text-[var(--ls-t3)]">
-                {e.seguimientoLtl ? `Guardado ${fechaHora(e.seguimientoLtl.at)}: ${e.seguimientoLtl.bol}. ` : ''}Si el transportista no te da un número propio, déjalo en blanco y se usa el nº de envío FBA.
+                {e.seguimientoLtl ? `${e.seguimientoLtl.estado === 'pendiente' ? 'Amazon lo está procesando' : 'Guardado en Amazon'} ${fechaHora(e.seguimientoLtl.at)}: ${e.seguimientoLtl.bol}. ` : ''}Si el transportista no te da un número propio, déjalo en blanco y se usa el nº de envío FBA.
               </p>
               <div className="rounded-[10px] border border-[var(--ls-linea)] p-3 text-[12.5px] leading-[1.6] text-[var(--ls-t2)]">
                 <p className="mb-1 font-semibold text-[var(--ls-t1)]">Qué darle al transportista</p>

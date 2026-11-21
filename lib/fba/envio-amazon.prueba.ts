@@ -10,6 +10,7 @@ import {
   cuantoQueda,
   emparejarCajas,
   emparejarCajasDeEnvios,
+  cuadraPesoPalets,
   embalajeAutomatico,
   faseDelPaso,
   fechaDeRecogida,
@@ -259,6 +260,11 @@ const falta = emparejarCajasDeEnvios([cajaErp(1)], [{ shipmentId: 'X', cajas: [c
 ok('una caja de Amazon sin pareja se avisa', falta.sinPareja.map((x) => x.boxId), ['X2'])
 const sobra = emparejarCajasDeEnvios([cajaErp(1), { numero: 2, pesoKg: 3, contenido: [{ sku: 'B', unidades: 1 }] }], [{ shipmentId: 'X', cajas: [cajaAm('X1')] }])
 ok('una caja del ERP sin etiqueta se avisa', sobra.sobran, [2])
+
+ok('A4.7: 3 palés de 200 kg con cajas de 560 kg cuadran', cuadraPesoPalets({ cantidad: 3, pesoKg: 200 }, 560).ok, true)
+ok('A4.7: 1 palé de 560 kg con cajas de 560 kg cuadra', cuadraPesoPalets({ cantidad: 1, pesoKg: 560 }, 560).ok, true)
+ok('A4.7: 3 palés de 560 kg (el total de las cajas en cada uno) no cuadran', cuadraPesoPalets({ cantidad: 3, pesoKg: 560 }, 560).ok, false)
+ok('A4.7: sin peso de cajas no se comprueba', cuadraPesoPalets({ cantidad: 2, pesoKg: 10 }, 0).ok, true)
 
 /* ---- Palés (LTL) ---- */
 const v1 = validarPalets({ cantidad: 1, largoCm: 120, anchoCm: 80, altoCm: 97, pesoKg: 46.5, apilable: false })

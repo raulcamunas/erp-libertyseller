@@ -1166,7 +1166,7 @@ export async function convertirEnRemesa(
   id: string,
   hoy: string,
   vista?: { version?: number | null; huella?: string | null },
-): Promise<{ remesaId: string; yaExistia: boolean; analisisGuardado: boolean }> {
+): Promise<{ remesaId: string; yaExistia: boolean; analisisGuardado: boolean; compartidas?: string[] }> {
   const fila = await leerFilaEnvio(service, id)
   if (!fila || !puedeEditar(sesion as SesionFba, fila.client_id)) throw new ErrorDeEnvio('Ese envío propuesto ya no existe', 404)
   if (fila.remesa_id) return { remesaId: fila.remesa_id, yaExistia: true, analisisGuardado: false }
@@ -1308,7 +1308,24 @@ export async function convertirEnRemesa(
     ),
   ])
   invalidarCaches(fila.client_id)
-  return { remesaId: remesa.id, yaExistia: false, analisisGuardado: remesa.analisisGuardado }
+  // A2.3: aviso (no bloqueo) si otra propuesta abierta del cliente ya lleva alguna de estas referencias: «SKU-A ya va en la propuesta del 18 nov: 40 ud»
+  const compartidas: string[] = []
+  try {
+    const skus = new Set(propuestas.map((l) => l.sku))
+    const { data: abiertas } = await service.from('fba_remesas').select('id, nombre, fecha_envio').eq('client_id', fila.client_id).in('estado', ['borrador', 'aprobada']).neq('id', remesa.id)
+    const lista = (abiertas ?? []) as Array<{ id: string; nombre: string | null; fecha_envio: string | null }>
+    if (lista.length > 0) {
+      const { data: lineas } = await service.from('fba_remesa_lineas').select('remesa_id, sku, unidades').in('remesa_id', lista.map((r) => r.id)).gt('unidades', 0)
+      for (const l of (lineas ?? []) as Array<{ remesa_id: string; sku: string; unidades: number }>) {
+        if (!skus.has(l.sku)) continue
+        const r = lista.find((x) => x.id === l.remesa_id)
+        compartidas.push(`${l.sku} ya va en ${r?.nombre ?? `la propuesta del ${r?.fecha_envio ?? '¿?'}`}: ${l.unidades} ud`)
+      }
+    }
+  } catch {
+    /* solo es un aviso */
+  }
+  return { remesaId: remesa.id, yaExistia: false, analisisGuardado: remesa.analisisGuardado, ...(compartidas.length ? { compartidas: compartidas.slice(0, 10) } : {}) }
 }
 
 /* =============================================================================================

@@ -100,9 +100,13 @@ export function ImprimirEtiquetas({ remesa, destacado, agencia }: { remesa: Reme
 
   async function imprimir() {
     setImprimiendo(true)
+    // A3.5: la pestaña se abre EN EL MISMO CLIC (si se abre después del fetch, Safari y Chrome la bloquean por ventana emergente y no salía nada)
+    const ventana = window.open('', '_blank')
+    if (ventana) ventana.document.write('<p style="font-family:sans-serif;padding:24px">Generando etiquetas…</p>')
     try {
       const res = await fetch(`/api/fba/remesas/${remesa.id}/etiquetas?formato=${formato}`)
       if (!res.ok) {
+        ventana?.close()
         const p = (await res.json().catch(() => null)) as { error?: string } | null
         toast.error(p?.error ?? 'No se han podido generar las etiquetas')
         return
@@ -113,18 +117,32 @@ export function ImprimirEtiquetas({ remesa, destacado, agencia }: { remesa: Reme
 
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
-      window.open(url, '_blank')
+      let como = 'abiertas en otra pestaña'
+      if (ventana && !ventana.closed) ventana.location.href = url
+      else {
+        // Sin pestaña (bloqueada o cerrada): se descarga el PDF
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `etiquetas-${remesa.id.slice(0, 8)}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        como = 'descargadas'
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
 
       if (descartadas > 0) {
         const motivos = decodeURIComponent(res.headers.get('X-Motivos') ?? '')
         toast.warning(`${impresas} etiquetas en ${paginas} páginas, pero ${descartadas} sin imprimir`, { description: motivos.slice(0, 200), duration: 10_000 })
       } else {
-        toast.success(`${impresas} etiquetas en ${paginas} página${paginas === '1' ? '' : 's'}`)
+        toast.success(`${impresas} etiquetas en ${paginas} página${paginas === '1' ? '' : 's'}, ${como}`)
       }
       // Impresas, pero con el ASIN en el código: se dice para que se mire si esa referencia necesita pegatina
       const avisos = decodeURIComponent(res.headers.get('X-Avisos') ?? '')
       if (avisos) toast.info('Hay etiquetas con el ASIN en el código', { description: avisos.slice(0, 300), duration: 12_000 })
+    } catch {
+      ventana?.close()
+      toast.error('No se han podido generar las etiquetas (sin conexión)')
     } finally {
       setImprimiendo(false)
     }

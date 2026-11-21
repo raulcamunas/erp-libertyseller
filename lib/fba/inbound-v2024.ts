@@ -203,12 +203,20 @@ export async function listarOpcionesEmbalaje(creds: AmazonCredentials, planId: s
 
 /** Qué SKU van en un grupo de embalaje. Con esto se comprueba que ninguna caja mezcla grupos */
 export async function articulosDelGrupo(creds: AmazonCredentials, planId: string, grupoId: string): Promise<Array<{ msku: string; unidades: number }>> {
-  const { data } = await spApiRequest<{ items?: Array<Record<string, unknown>> }>(creds, 'listPackingGroupItems', {
-    method: 'GET',
-    path: `${RUTA}/inboundPlans/${enc(planId)}/packingGroups/${enc(grupoId)}/items`,
-    query: { pageSize: 100 },
-  })
-  return (data.items ?? []).map((i) => ({ msku: String(i.msku ?? ''), unidades: Number(i.quantity) || 0 }))
+  // A4.6: todas las páginas (antes solo la primera: un grupo con más de 100 SKU dejaba fuera los demás y sus cajas acababan en «conflicto»)
+  const out: Array<{ msku: string; unidades: number }> = []
+  let token: string | undefined
+  for (let i = 0; i < 20; i++) {
+    const { data } = await spApiRequest<{ items?: Array<Record<string, unknown>>; pagination?: { nextToken?: string } }>(creds, 'listPackingGroupItems', {
+      method: 'GET',
+      path: `${RUTA}/inboundPlans/${enc(planId)}/packingGroups/${enc(grupoId)}/items`,
+      query: { pageSize: 100, paginationToken: token },
+    })
+    out.push(...(data.items ?? []).map((x) => ({ msku: String(x.msku ?? ''), unidades: Number(x.quantity) || 0 })))
+    token = data.pagination?.nextToken
+    if (!token) break
+  }
+  return out
 }
 
 /** El mapa SKU → grupo de una opción de embalaje entera */

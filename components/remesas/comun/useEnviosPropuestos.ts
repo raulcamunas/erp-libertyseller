@@ -6,6 +6,7 @@ import type { AjusteIa, EnvioPropuestoGuardado, EstadoEnvioPropuesto, MotivoDesc
 import { leerRespuesta } from './errores'
 import { invalidarRemesas, useAgencia } from './useAgencia'
 import { huellaLineas } from '@/lib/fba/envios-propuestos'
+import { toast } from 'sonner'
 
 /**
  * LOS ENVÍOS PROPUESTOS DESDE LA PANTALLA (spec remesas-pro §4, §9, D20 y D23). Solo agencia: el cliente externo recibe 403.
@@ -73,9 +74,13 @@ export async function convertirEnvioPropuesto(envio: Pick<EnvioPropuestoGuardado
   } catch {
     return { ok: false, error: SIN_RED, estado: 0, conflicto: false }
   }
-  const r = await leerRespuesta<{ remesaId: string; yaExistia?: boolean; analisisGuardado?: boolean }>(res, 'No se ha podido convertir el envío en remesa')
+  const r = await leerRespuesta<{ remesaId: string; yaExistia?: boolean; analisisGuardado?: boolean; compartidas?: string[] }>(res, 'No se ha podido convertir el envío en remesa')
   invalidarRemesas(envio.clienteId)
-  if (r.ok) return { ok: true, remesaId: r.datos.remesaId, yaExistia: r.datos.yaExistia === true, analisisGuardado: r.datos.analisisGuardado !== false }
+  if (r.ok) {
+    // A2.3: si otra propuesta abierta ya lleva alguna de estas referencias, se avisa (no se bloquea)
+    if (r.datos.compartidas?.length) toast.info('Ojo: hay referencias que ya van en otra propuesta abierta', { description: r.datos.compartidas.join(' · ').slice(0, 400), duration: 12_000 })
+    return { ok: true, remesaId: r.datos.remesaId, yaExistia: r.datos.yaExistia === true, analisisGuardado: r.datos.analisisGuardado !== false }
+  }
   return { ok: false, error: r.error, estado: r.estado, conflicto: r.datos?.conflicto === true }
 }
 

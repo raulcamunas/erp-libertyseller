@@ -388,6 +388,25 @@ export function EditorCajas({
                       </li>
                     )
                   })}
+                  {/* A3.4: lo que hay en la caja y ya NO va en el envío (se quitó de la propuesta): en rojo y con «Quitar» */}
+                  {caja.contenido
+                    .filter((x) => !declaradas.has(x.sku))
+                    .map((x) => (
+                      <li key={`fuera-${x.sku}`} className="flex items-center gap-3 py-[6px] text-[12.5px]" style={{ color: 'var(--ls-e-rojo)' }}>
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="font-medium">{x.sku}</span> · {x.unidades} ud · no está en el envío
+                        </span>
+                        {puedeEditar && (
+                          <button
+                            type="button"
+                            onClick={() => tocar((p) => p.map((c) => (c.numero !== caja.numero ? c : { ...c, contenido: c.contenido.filter((y) => y.sku !== x.sku) })))}
+                            className="shrink-0 rounded-[8px] px-2 py-1 font-medium hover:bg-[var(--ls-sup2)] [@media(pointer:coarse)]:min-h-[36px]"
+                          >
+                            Quitar
+                          </button>
+                        )}
+                      </li>
+                    ))}
                 </ul>
               </motion.div>
             )

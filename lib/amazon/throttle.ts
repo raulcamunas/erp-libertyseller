@@ -65,6 +65,7 @@ export type AmazonOperation =
   // ---------- Las del seguimiento de envíos a FBA ----------
   | 'getInboundShipments'
   | 'getInboundShipmentItems'
+  | 'getShipmentItems'
   // ---------- Las de crear el envío (Fulfillment Inbound 2024-03-20) ----------
   | 'createInboundPlan'
   | 'generatePackingOptions'
@@ -220,6 +221,8 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    */
   getInboundShipments: { rate: 2, burst: 2 },
   getInboundShipmentItems: { rate: 2, burst: 2 },
+  // Las páginas siguientes de las líneas de un envío (QueryType NEXT_TOKEN): mismo cupo que getInboundShipmentItems
+  getShipmentItems: { rate: 2, burst: 2 },
 
   /**
    * Fulfillment Inbound 2024-03-20. Los cupos son los que publica el propio

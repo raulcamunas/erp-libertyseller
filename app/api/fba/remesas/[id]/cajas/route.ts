@@ -82,6 +82,18 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     // contenido de dos cajas. Aquí solo se llega en «Encajando», antes de que Amazon tenga las cajas
     const limpias = [...limpieza.cajas].sort((a, b) => a.numero - b.numero).map((c, i) => ({ ...c, numero: i + 1 }))
 
+    // A3.3: guardar SIN versión cuando la remesa ya tiene cajas guardadas (y la 309 está) es una pantalla que no llegó a leerlas: pisaría lo guardado
+    if (version === null) {
+      const service = createServiceClient()
+      const [{ data: rv, error: errV }, { count }] = await Promise.all([
+        service.from('fba_remesas').select('cajas_version').eq('id', params.id).maybeSingle(),
+        service.from('fba_cajas').select('id', { count: 'exact', head: true }).eq('remesa_id', params.id),
+      ])
+      if (!errV && (rv as { cajas_version?: number | null } | null)?.cajas_version != null && (count ?? 0) > 0) {
+        return NextResponse.json({ error: 'Esta remesa ya tiene cajas guardadas que esta pantalla no había leído. Recarga para verlas antes de guardar.', conflicto: true }, { status: 409 })
+      }
+    }
+
     try {
       await guardarCajas(params.id, limpias, undefined, version)
     } catch (error) {

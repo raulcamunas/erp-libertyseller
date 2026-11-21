@@ -182,11 +182,28 @@ export async function lineasDeEnvio(
   let vueltas = 0
 
   do {
-    const { data } = await spApiRequest<RespuestaItems>(creds, 'getInboundShipmentItems', {
-      method: 'GET',
-      path: `/fba/inbound/v0/shipments/${encodeURIComponent(shipmentId)}/items`,
-      query: { MarketplaceId: marketplaceId, NextToken: nextToken },
-    })
+    // A5.3: la primera página por el envío; las siguientes, con su NextToken en getShipmentItems (QueryType NEXT_TOKEN), que es el que SÍ lo admite.
+    // Antes se repetía la primera página y un envío con más referencias de las que caben en una página salía incompleto
+    let data: RespuestaItems
+    if (!nextToken) {
+      ;({ data } = await spApiRequest<RespuestaItems>(creds, 'getInboundShipmentItems', {
+        method: 'GET',
+        path: `/fba/inbound/v0/shipments/${encodeURIComponent(shipmentId)}/items`,
+        query: { MarketplaceId: marketplaceId },
+      }))
+    } else {
+      try {
+        ;({ data } = await spApiRequest<RespuestaItems>(creds, 'getShipmentItems', {
+          method: 'GET',
+          path: '/fba/inbound/v0/shipmentItems',
+          query: { MarketplaceId: marketplaceId, QueryType: 'NEXT_TOKEN', NextToken: nextToken },
+        }))
+      } catch (e) {
+        // Si Amazon no acepta el token, se devuelve lo leído (mejor incompleto que nada) y se avisa en el registro
+        console.error(`[fba] página siguiente de ${shipmentId} no leída:`, e instanceof Error ? e.message : e)
+        break
+      }
+    }
 
     const nuevas = agregarPagina(
       porSku,
@@ -206,6 +223,7 @@ export async function lineasDeEnvio(
     // unidades salía con 1.980. Se corta aquí.
     if (nuevas === 0) break
   } while (nextToken && vueltas < 20)
+  if (nextToken && vueltas >= 20) console.error(`[fba] ${shipmentId}: cortado a 20 páginas con más por leer`)
 
   return [...porSku.values()]
 }
