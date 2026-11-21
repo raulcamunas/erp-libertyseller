@@ -19,7 +19,7 @@ import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { bloqueosDeEdicion, camposPisadosDesdeValidar, CAMPOS_FICHA, decidirEdicion, NOMBRE_DE_CAMPO, explicacionDeNoAplicada, highlightsDeAtributos, MINUTOS_ANTES_DE_VERIFICAR, planDePatch, verificarEdicion, atributoDeHighlights, type CampoFicha, type ComparacionDeCampo, type EstadoVerificado, type TextosFicha } from './edicion'
 import { fichaDeItem, type FichaLeida } from './ficha-servidor'
-import { cambiosDesdeLaPropuesta, IDIOMA_DE_MARKETPLACE, motivoFichaCambiada, type CampoComparado } from './propuesta'
+import { cambiosDesdeLaPropuesta, motivoFichaCambiada, type CampoComparado } from './propuesta'
 import { DIAS_ENTRE_CAMBIOS, ventanaDeCambio } from './tareas'
 import { cambiosAplicados } from './datos'
 
