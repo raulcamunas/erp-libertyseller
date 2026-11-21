@@ -180,6 +180,9 @@ export interface SkuInventario {
    * Central que el ERP no conoce, y esas unidades también están de camino.
    */
   entrante: number
+  /** Las dos partes de `entrante` por separado (A6.2): lo que el ERP sabe que está de camino y lo que dice Amazon (null = no leído) */
+  entranteErp?: number
+  entranteAmazon?: number | null
   /**
    * En la red de Amazon y no vendible ahora. Con el desglose de Amazon leído (`reservadas` no es
    * null) son SOLO las dañadas o defectuosas («No apto»). Sin él, es el total − vendible − lo de
@@ -622,6 +625,8 @@ export function calcularInventario(entrada: EntradaInventario): InventarioClient
       dentro: Math.max(vendibles, Math.max(0, enAmazon - (listing && typeof listing.entranteAmazon === 'number' ? listing.entranteAmazon : enviosDelSku))),
       vendibles,
       entrante: enviosDelSku,
+      entranteErp: entrante.get(sku) ?? 0,
+      entranteAmazon: listing && typeof listing.entranteAmazon === 'number' ? listing.entranteAmazon : null,
       noDisponibles,
       reservadas: desgloseLeido ? (listing?.reservadas ?? 0) : null,
       vendidas: vend,

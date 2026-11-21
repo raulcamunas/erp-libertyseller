@@ -71,7 +71,8 @@ console.log('\n=== libro atrasado: el periodo acaba en lo leído ===')
   const v = ventasFba([venta('A', '2026-11-06', 1)], new Map(), HOY, 30, '2025-01-01', { leidoHasta: '2026-11-06' })
   ok('hasta el 6 nov y 30 días desde el 8 oct', v.hasta === '2026-11-06' && v.desde === '2026-10-08', `${v.desde}..${v.hasta}`)
   const al = ventasFba([], new Map(), HOY, 30, '2025-01-01', { leidoHasta: '2026-11-20' })
-  ok('un leidoHasta posterior a hoy no alarga el periodo', al.hasta === HOY)
+  // A6.3: leído hasta hoy (o después) → el periodo acaba AYER, el último día completo
+  ok('un leidoHasta de hoy o posterior acaba en ayer (hoy va a medias)', al.hasta === '2026-11-14')
 }
 
 console.log('\n=== top 20 con serie de 30 días ===')

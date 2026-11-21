@@ -6,6 +6,7 @@ import { leerTodo } from './paginar'
 import { faltaLaTabla } from './planificacion'
 import type { FilaStock, Moneda, VentasFba } from './plan-tipos'
 import { sumarDias, ventasFba, type DiasVentas, type MovimientoVenta } from './ventas-fba'
+import { ultimoDiaCompleto } from './ventas-fba'
 
 /**
  * LAS VENTAS FBA DE UN CLIENTE — SOLO SERVIDOR, SOLO LECTURA.
@@ -268,7 +269,8 @@ export async function calcularVentasDeCliente(service: Servicio, clienteId: stri
   }
 
   // Los mismos límites que calcula ventasFba: el periodo acaba en el último día leído si el libro va atrasado
-  const hasta = lectura.leidoHasta < hoy ? lectura.leidoHasta : hoy
+  // A6.3: el último día COMPLETO (hoy va a medias aunque esté leído)
+  const hasta = ultimoDiaCompleto(lectura.leidoHasta, hoy)
   const desde = sumarDias(hasta, -(dias - 1))
   const antDesde = sumarDias(desde, -dias)
   // La chispa de cada referencia del top son 30 días: con 7 días el periodo anterior no llega tan atrás

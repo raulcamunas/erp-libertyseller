@@ -630,7 +630,9 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
   const series = new Map<string, SerieSku>()
   const estad = new Map<string, EstadisticasSku>()
   const perfiles = new Map<string, { perfil: number[]; pico: number }>()
-  const fechaSerie = leidoHasta ?? hoy
+  // A6.3: el día de la lectura, si es HOY, va a medias (la pasada lee a primera hora): el ritmo se calcula hasta AYER. El stock no se descuadra:
+  // serieDiaria estima lo vendido desde el último día leído (el «atraso»). Antes, 2 ventas de 9 horas contaban como un día entero y r14 bajaba hasta un 7 %
+  const fechaSerie = leidoHasta && leidoHasta >= hoy ? sumarDias(hoy, -1) : (leidoHasta ?? hoy)
   // Días sin stock del año (para que el perfil no lea «no vendió» donde no había qué vender) y si el SKU tiene el año entero
   const sinStockAno = new Map<string, Set<string>>()
   const anoCompleto = new Set<string>()
@@ -871,7 +873,12 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
   const conRotura = lineas.filter(cuentaParaRotura)
   const fuera: Partial<Record<MotivoFuera, number>> = {}
   for (const l of lineas) if (l.fuera) fuera[l.fuera] = (fuera[l.fuera] ?? 0) + 1
-  const coberturas = lineas.filter((l) => l.coberturaDias !== null && l.ritmo.confianza !== 'sin_datos').map((l) => l.coberturaDias as number)
+  // A6.4: la mediana solo con las referencias que cuentan para el plan (no descatalogadas, agotadas de hace tiempo ni tallas sin ventas) y CON lo que viene,
+  // como dice su ayuda. Antes ShoesF daba 0 días porque 169 de 211 valores eran 0
+  const coberturas = lineas
+    .filter((l) => cuentaParaRotura(l) && (l.ritmo.base ?? 0) > 0)
+    .map((l) => l.coberturaConLoQueViene ?? l.coberturaDias)
+    .filter((x): x is number => x !== null && Number.isFinite(x))
   const resumen: ResumenPlan = {
     referencias: lineas.length,
     conPropuesta: enEnvio.size,

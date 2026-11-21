@@ -111,7 +111,8 @@ export function ventasFba(
   const nombres = opciones.nombres ?? new Map<string, string | null>()
   const nTop = opciones.top ?? TOP_REFERENCIAS
 
-  const hasta = opciones.leidoHasta && opciones.leidoHasta.slice(0, 10) < hoy ? opciones.leidoHasta.slice(0, 10) : hoy
+  // A6.3: el periodo acaba en el último día COMPLETO: el día de hoy va a medias aunque ya esté leído
+  const hasta = opciones.leidoHasta ? ultimoDiaCompleto(opciones.leidoHasta.slice(0, 10), hoy) : hoy
   const desde = sumarDias(hasta, -(dias - 1))
   const antHasta = sumarDias(desde, -1)
   const antDesde = sumarDias(desde, -dias)
@@ -235,4 +236,10 @@ export function ventasFba(
     top,
     salidasPorAlmacen,
   }
+}
+
+/** PURO. El último día con las ventas completas: el día leído, pero nunca hoy (va a medias). Sin lectura, ayer */
+export function ultimoDiaCompleto(leidoHasta: string | null, hoy: string): string {
+  const ayer = sumarDias(hoy, -1)
+  return leidoHasta && leidoHasta < ayer ? leidoHasta : ayer
 }

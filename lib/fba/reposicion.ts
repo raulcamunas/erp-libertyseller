@@ -1,5 +1,6 @@
 import { diasEntreInv, type EnvioInventario, type InventarioCliente, type SkuInventario } from './inventario'
 import type { AjustesReposicion, PlazoEtapas } from './plan-tipos'
+import { ESTADOS_CON_ENVIO_EN_AMAZON } from './llegadas'
 
 /**
  * QUÉ MANDAR A AMAZON: EL CÁLCULO BASE Y CÓMO SE JUNTA CON LA OPINIÓN DE LA IA.
@@ -164,6 +165,8 @@ export interface ComprometidoQueCuenta {
   remesas: number
   /** Lo que NO se resta por estar en borradores parados */
   parado: { unidades: number; remesas: number }
+  /** Unidades de remesas en «Encajando» o «Lista», que pueden estar ya creadas en Amazon y salir también en su entrante (A6.2) */
+  vivoPorSku: Map<string, number>
 }
 
 /**
@@ -172,6 +175,7 @@ export interface ComprometidoQueCuenta {
  */
 export function comprometidoQueCuenta(porSku: ReadonlyMap<string, readonly ComprometidoRemesa[]>, excluirRemesa: string | null = null): ComprometidoQueCuenta {
   const cuenta = new Map<string, number>()
+  const vivo = new Map<string, number>()
   const remesas = new Set<string>()
   const paradas = new Set<string>()
   let unidades = 0
@@ -187,11 +191,12 @@ export function comprometidoQueCuenta(porSku: ReadonlyMap<string, readonly Compr
         continue
       }
       cuenta.set(sku, (cuenta.get(sku) ?? 0) + u)
+      if (ESTADOS_CON_ENVIO_EN_AMAZON.has(c.estado)) vivo.set(sku, (vivo.get(sku) ?? 0) + u)
       remesas.add(c.remesaId)
       unidades += u
     }
   }
-  return { porSku: cuenta, unidades, remesas: remesas.size, parado: { unidades: paradoUd, remesas: paradas.size } }
+  return { porSku: cuenta, unidades, remesas: remesas.size, parado: { unidades: paradoUd, remesas: paradas.size }, vivoPorSku: vivo }
 }
 
 /**
@@ -271,10 +276,16 @@ export interface BaseSku {
 /** Más de lo que sale de la cuenta, hasta aquí: un tope para que nada se dispare */
 const MARGEN_DE_TOPE = 1.6
 
-export function calcularBase(s: SkuInventario, p: ParametrosReposicion, comprometidoSku = 0): BaseSku {
+export function calcularBase(s: SkuInventario, p: ParametrosReposicion, comprometidoSku = 0, vivoSku = 0): BaseSku {
   const ritmo = s.ritmoPlan
   const comprometido = Number.isFinite(comprometidoSku) && comprometidoSku > 0 ? Math.round(comprometidoSku) : 0
-  const disponible = s.vendibles + s.entrante + comprometido
+  // A6.2: una remesa en «Lista» o «Encajando» ya creada en Amazon sale en su entrante Y en lo comprometido. Se quita del entrante de Amazon lo que ya
+  // cuenta como comprometido (nunca del ERP: eso sí está de camino de verdad). Antes una remesa lista de 100 contaba 200
+  const vivo = Number.isFinite(vivoSku) && vivoSku > 0 ? vivoSku : 0
+  const entrante = s.entranteErp !== undefined && s.entranteAmazon !== undefined
+    ? Math.max(s.entranteErp, Math.max(0, (s.entranteAmazon ?? s.entranteErp) - vivo))
+    : s.entrante
+  const disponible = s.vendibles + entrante + comprometido
   const enLlegada = Math.max(0, disponible - ritmo * p.plazoDias)
   const meta = ritmo * (p.coberturaObjetivo + p.margenDias)
   const bruto = ritmo > 0 ? Math.max(0, Math.ceil(meta - enLlegada)) : 0
@@ -284,7 +295,7 @@ export function calcularBase(s: SkuInventario, p: ParametrosReposicion, comprome
 
   let urgencia: Urgencia = 'baja'
   if (ritmo > 0) {
-    if (s.vendibles <= 0 && s.entrante === 0 && comprometido === 0) urgencia = 'critica'
+    if (s.vendibles <= 0 && entrante === 0 && comprometido === 0) urgencia = 'critica'
     else if (s.cobertura !== null && s.cobertura <= p.plazoDias) urgencia = 'alta'
     else if (s.cobertura !== null && s.cobertura <= p.plazoDias + p.coberturaObjetivo) urgencia = 'normal'
   }
@@ -333,13 +344,13 @@ export interface SeleccionIa {
  * `comprometido`: unidades por referencia en remesas sin enviar que cuentan (`comprometidoQueCuenta`). Una referencia agotada o
  * urgente cuya necesidad ya cubre una remesa abierta deja de ser candidata: pedirla otra vez sería mandarla dos veces.
  */
-export function seleccionarCandidatas(inv: InventarioCliente, p: ParametrosReposicion, comprometido: ReadonlyMap<string, number> = new Map()): SeleccionIa {
+export function seleccionarCandidatas(inv: InventarioCliente, p: ParametrosReposicion, comprometido: ReadonlyMap<string, number> = new Map(), vivo: ReadonlyMap<string, number> = new Map()): SeleccionIa {
   const todas: CandidataRepo[] = []
   let sinNecesidad = 0
   let cubiertasPorComprometido = 0
   for (const sku of inv.skus) {
     const yaPedido = comprometido.get(sku.sku) ?? 0
-    const base = calcularBase(sku, p, yaPedido)
+    const base = calcularBase(sku, p, yaPedido, vivo.get(sku.sku) ?? 0)
     const pideSinComprometido = base.unidades > 0 || (sku.ritmoPlan > 0 && ESTADOS_QUE_PIDEN_ENVIO.has(sku.estado))
     const pide = base.unidades > 0 || (sku.ritmoPlan > 0 && ESTADOS_QUE_PIDEN_ENVIO.has(sku.estado) && yaPedido === 0)
     if (pide) todas.push({ sku, base })

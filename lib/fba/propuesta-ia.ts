@@ -25,6 +25,7 @@ import {
   type ParametrosReposicion,
   type PlazoDeEnvios,
 } from './reposicion'
+import { ritmoParaLotes } from './ventas-servidor'
 
 /**
  * UNA PROPUESTA DE REPOSICIÓN, DE PUNTA A PUNTA.
@@ -104,10 +105,25 @@ export async function generarPropuestaIa(entrada: {
   const service = createServiceClient()
   const { clienteId, clienteNombre, parametros, hoy } = entrada
 
-  const inventario = await inventarioDeCliente(clienteId, { hoy })
-  if (!inventario.conectado) {
+  const inventarioBruto = await inventarioDeCliente(clienteId, { hoy })
+  if (!inventarioBruto.conectado) {
     throw new ErrorDePropuesta('Este cliente no tiene la cuenta de Amazon conectada: sin ella no hay inventario ni ventas con las que proponer nada.', 409)
   }
+
+  // A6.1: el ritmo del PLANIFICADOR (el mismo que el plan y Reposición), no el del inventario, que divide las ventas también por los días agotados: un SKU
+  // agotado quedaba con ritmo 0 y fuera de las candidatas (Creative Toys: el plan pedía 78 ud y la IA ni lo miraba). Sin pasada reciente, el de siempre
+  const ritmoPlan = await ritmoParaLotes(service, clienteId, hoy, async () => inventarioBruto.skus).catch(() => null)
+  const inventario =
+    ritmoPlan && ritmoPlan.origen === 'plan'
+      ? {
+          ...inventarioBruto,
+          skus: inventarioBruto.skus.map((k) => {
+            const r = ritmoPlan.ritmo.get(k.sku)
+            if (r == null || !(r > 0)) return k
+            return { ...k, ritmoPlan: r, cobertura: Math.round((k.vendibles / r) * 10) / 10 }
+          }),
+        }
+      : inventarioBruto
   if (inventario.libro === 'sin_leer') {
     throw new ErrorDePropuesta(
       'Todavía no se ha leído el libro mayor de Amazon de este cliente: sin las ventas no se puede calcular qué reponer. Se lee solo una vez al día; si acaba de conectarse, espera a la siguiente lectura.',
@@ -124,7 +140,7 @@ export async function generarPropuestaIa(entrada: {
   ])
   const plazo = plazoDeEnvios(envios)
   const comprometido = comprometidoQueCuenta(porSkuComprometido)
-  const seleccion = seleccionarCandidatas(inventario, parametros, comprometido.porSku)
+  const seleccion = seleccionarCandidatas(inventario, parametros, comprometido.porSku, comprometido.vivoPorSku)
 
   /* ---------- lo que sabe de las referencias el catálogo propio del cliente (ShoesF, o cualquiera con filas: D40) ---------- */
   const extras = new Map<string, ExtraCatalogo>()

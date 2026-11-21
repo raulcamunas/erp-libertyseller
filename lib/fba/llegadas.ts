@@ -48,7 +48,7 @@ export const UMBRALES_LLEGADAS = {
  * espera a crear el envío en Amazon.
  */
 /** Remesas sin salir que ya pueden tener el envío creado en Amazon (su entrante aparece como `inboundWorking`) */
-const ESTADOS_CON_ENVIO_EN_AMAZON = new Set(['encajando', 'lista'])
+export const ESTADOS_CON_ENVIO_EN_AMAZON = new Set(['encajando', 'lista'])
 
 export const PREPARACION_RESTANTE: Record<string, number> = {
   borrador: 1,

@@ -327,5 +327,14 @@ console.log('\n=== los parámetros de partida salen del cliente (spec §3) ===')
   ok('un tope 0 sigue siendo «sin tope»', normalizarParametros({ topeUnidades: 0 }, { ...c, topeUnidades: 500 }).topeUnidades === null)
 }
 
+{
+  // A6.2: una remesa «lista» de 100 ya creada en Amazon (entranteAmazon 100) no cuenta dos veces
+  const conAmazon = calcularBase(sku({ sku: 'V', vendibles: 10, entrante: 100, entranteErp: 0, entranteAmazon: 100 }), P, 100, 100)
+  const sinAmazon = calcularBase(sku({ sku: 'V', vendibles: 10, entrante: 0, entranteErp: 0, entranteAmazon: 0 }), P, 100, 100)
+  ok('A6.2: lista de 100 con entranteAmazon 100 = sin él', conAmazon.enLlegada === sinAmazon.enLlegada)
+  const erpDeCamino = calcularBase(sku({ sku: 'W', vendibles: 10, entrante: 50, entranteErp: 50, entranteAmazon: 0 }), P, 100, 100)
+  ok('A6.2: lo que el ERP sabe de camino no se resta', erpDeCamino.enLlegada > sinAmazon.enLlegada)
+}
+
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)
