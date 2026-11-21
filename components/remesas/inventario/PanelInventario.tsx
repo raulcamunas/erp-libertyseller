@@ -979,6 +979,7 @@ function Contenido({
         plazo={planAgencia ? { hastaLaVenta: planAgencia.plazo.hastaLaVenta, margen: planAgencia.plazo.margen } : null}
         esAgencia={esAgencia}
         onCerrar={() => setAbierta(null)}
+        onVerEnReponer={callbacks?.onIrA ? (sku) => callbacks.onIrA?.('cliente', 'reposicion', { cliente: cliente.id, sku }) : undefined}
       />
     </div>
   )

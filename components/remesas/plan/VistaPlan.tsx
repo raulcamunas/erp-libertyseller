@@ -199,7 +199,12 @@ export function VistaPlan({ sesion, callbacks, clientes = [], clienteId = null, 
     escribirFiltroEnUrl(filtro, !clienteId)
   }, [filtro, clienteId])
 
-  const clienteFijo = clienteId
+  // C6: el Plan es la agenda de TODOS los clientes; entrar con un cliente («Ver en el plan» desde Reponer) solo pone el filtro de cliente (se puede quitar).
+  // El modo «cliente fijo» con su banda y «Recalcular» repetía lo que ya está en Cliente → Reponer
+  const clienteFijo: string | null = null
+  useEffect(() => {
+    if (clienteId) setFiltro((f) => ({ ...f, clienteId }))
+  }, [clienteId])
   const datos = useEnviosPropuestos(sesion.esAgencia ? { clienteId: clienteFijo, estado: estadoParaApi(filtro.estado) } : null)
   const plan = usePlan(sesion.esAgencia ? clienteFijo : null)
 

@@ -201,7 +201,8 @@ function TarjetaRemesa({ t, indice, verComo, latido, onClick }: { t: TarjetaDeTa
           <p className="mt-0.5 line-clamp-2 text-[13.5px] font-medium leading-snug text-[var(--ls-t1)]">{t.nombre ?? 'Propuesta sin nombre'}</p>
         </div>
         <Insignia tono={mia ? 'naranja' : 'gris'} tamano="sm" vivo={mia && latido} title={verComo === 'agencia' ? t.turno.paraAgencia : t.turno.paraCliente}>
-          {t.quien === 'agencia' ? 'Agencia' : 'Cliente'}
+          {/* C7: el mismo texto que la tarjeta de la lista de propuestas */}
+          {mia ? 'Te toca' : verComo === 'agencia' ? 'Espera al cliente' : 'Espera a Liberty Seller'}
         </Insignia>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--ls-t3)]">

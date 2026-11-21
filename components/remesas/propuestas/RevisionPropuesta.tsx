@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, ClipboardCheck, MessageSquare, RotateCcw, Send, Sparkles, Undo2 } from 'lucide-react'
+import { ClipboardCheck, MessageSquare, RotateCcw, Send, Sparkles, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Boton, Confirmacion, Insignia, Tarjeta } from '@/components/ui-ls'
 import type { RemesaDePanel } from '@/lib/fba/datos'
@@ -55,27 +55,6 @@ export function RevisionPropuesta({ remesa, puedeEditar, clienteId }: { remesa: 
 
   const pendiente = punto === 'pendiente_revision'
   const visibles = verIguales ? ordenadas : ordenadas.filter((l) => diferenciaDe(l).tipo !== 'igual' || l.comentario)
-
-  async function aprobar() {
-    setTrabajando('aprobar')
-    try {
-      const res = await fetch(`/api/fba/remesas/${remesa.id}/estado`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hasta: 'aprobada', desde: 'borrador', ...(remesa.propuesta ? { version: remesa.propuesta.lineasVersion } : {}) }),
-      })
-      const r = (await res.json().catch(() => null)) as { error?: string; motivos?: string[] } | null
-      if (!res.ok) {
-        toast.error(r?.motivos?.join('\n') ?? r?.error ?? 'No se ha podido aprobar')
-        return
-      }
-      toast.success('Propuesta aprobada: el cliente ya puede descargar las etiquetas desde su enlace.')
-      router.refresh()
-      invalidarRemesas(clienteId ?? null)
-    } finally {
-      setTrabajando(null)
-    }
-  }
 
   async function accion(que: 'devolver' | 'enviar') {
     setTrabajando(que)
@@ -178,11 +157,7 @@ export function RevisionPropuesta({ remesa, puedeEditar, clienteId }: { remesa: 
 
       {puedeEditar && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          {pendiente && (
-            <Boton variante="primario" icono={CheckCircle2} cargando={trabajando === 'aprobar'} disabled={trabajando !== null || resumen.unidadesCliente === 0} onClick={() => void aprobar()}>
-              Aprobar lo que pide el cliente
-            </Boton>
-          )}
+          {/* Aprobar se hace desde la barra de abajo (un solo botón de aprobar en la pantalla); aquí quedan devolverla y volver a mandarla */}
           {pendiente && (
             <Boton variante="secundario" icono={Undo2} cargando={trabajando === 'devolver'} disabled={trabajando !== null} onClick={() => void accion('devolver')}>
               Devolvérsela

@@ -1,9 +1,12 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { ClipboardList, Plus, Search, Sparkles } from 'lucide-react'
+import { CalendarClock, ClipboardList, Plus, Search, Sparkles } from 'lucide-react'
 import { Boton, EstadoVacio, Insignia } from '@/components/ui-ls'
-import { CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
+import { CAMPO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
+import { semaforoDelPlazo, textoDelPlazo, type Semaforo } from '@/lib/fba/tablero-propuestas'
+
+const TONO_PLAZO: Record<Semaforo, TonoEstado> = { vencido: 'rojo', cerca: 'ambar', ok: 'verde', sin_fecha: 'gris' }
 import type { RemesaDePanel } from '@/lib/fba/datos'
 import type { Actor } from '@/lib/fba/flujo'
 import { diasEntre, FASES_PROPUESTA, leToca, turnoDe, type FasePropuesta } from '@/lib/fba/vista'
@@ -195,6 +198,8 @@ function TarjetaPropuesta({ remesa, activa, verComo, conPlan, hoy, onClick }: { 
   const dias = remesa.actualizadaAt ? Math.max(0, diasEntre(remesa.actualizadaAt, hoy)) : null
   const parada = dias !== null && dias >= 7
   const explica = verComo === 'agencia' ? turno.paraAgencia : turno.paraCliente
+  // C7: el mismo semáforo del plazo que el tablero (vencido / cerca / a tiempo), mientras no se ha enviado
+  const plazo = remesa.estado === 'enviada' || remesa.estado === 'cerrada' ? null : semaforoDelPlazo(remesa.fechaEnvio, hoy)
 
   return (
     <button
@@ -235,6 +240,11 @@ function TarjetaPropuesta({ remesa, activa, verComo, conPlan, hoy, onClick }: { 
         ) : (
           <Insignia tono="gris" variante="contorno" tamano="sm" title={explica}>
             {verComo === 'agencia' ? 'Espera al cliente' : 'Espera a Liberty Seller'}
+          </Insignia>
+        )}
+        {plazo && plazo.semaforo !== 'sin_fecha' && (
+          <Insignia tono={TONO_PLAZO[plazo.semaforo]} tamano="sm" icono={CalendarClock}>
+            {textoDelPlazo(plazo.dias)}
           </Insignia>
         )}
         {dias !== null && (

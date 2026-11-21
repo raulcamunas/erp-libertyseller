@@ -85,6 +85,15 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
   const hoy = plan?.hoy ?? diaEnEspana()
 
   const [skuAbierto, setSkuAbierto] = useState<string | null>(null)
+  // C8: llegar con ?sku= (desde la ficha de Stock) abre esa referencia en la tabla del plan
+  useEffect(() => {
+    try {
+      const sku = new URLSearchParams(window.location.search).get('sku')
+      if (sku) setSkuAbierto(sku)
+    } catch {
+      /* sin URL: nada */
+    }
+  }, [cliente.id])
   const [ajustesAbiertos, setAjustesAbiertos] = useState(false)
   const [confirmando, setConfirmando] = useState(false)
   const [revisando, setRevisando] = useState(false)

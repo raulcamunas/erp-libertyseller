@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Calendar, Check, CheckCircle2, ChevronDown, ClipboardList, History, Pencil, StickyNote, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Calendar, Check, ChevronDown, ClipboardList, History, Pencil, StickyNote, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Boton, Confirmacion, Insignia, Pestanas, Tarjeta } from '@/components/ui-ls'
-import { CAMPO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
+import { Boton, Confirmacion, Insignia, Pestanas, } from '@/components/ui-ls'
+import { CAMPO } from '@/lib/estilo/denso'
 import type { CajasDeRemesa } from '@/lib/fba/cajas'
 import type { RemesaDePanel } from '@/lib/fba/datos'
-import { ESTADOS, puedeImprimirEtiquetas } from '@/lib/fba/flujo'
+import { puedeImprimirEtiquetas } from '@/lib/fba/flujo'
 import { diasEntre, leToca, turnoDe } from '@/lib/fba/vista'
 import type { ClienteRemesas, SesionRemesas } from '../comun/tipos-ui'
 import { invalidarRemesas } from '../comun/useAgencia'
@@ -51,13 +51,6 @@ import { TarjetaAnalisisIa } from './TarjetaAnalisisIa'
  * vuelve con «← Volver»; nada de esto va en una hoja modal (D38), que rompería los desplegables del editor.
  */
 
-const TONO_FASE: Record<(typeof ESTADOS)[keyof typeof ESTADOS]['tono'], TonoEstado> = {
-  borrador: 'gris',
-  espera: 'ambar',
-  trabajo: 'azul',
-  camino: 'cian',
-  hecho: 'verde',
-}
 
 export function EspacioPropuesta({
   remesa,
@@ -95,6 +88,14 @@ export function EspacioPropuesta({
   const [modoEnvio, setModoEnvio] = useState<{ modo: 'manual' | 'api'; enMarcha: boolean } | null>(null)
   const alModo = useCallback((modo: 'manual' | 'api', enMarcha: boolean) => setModoEnvio({ modo, enMarcha }), [])
   const porApi = modoEnvio?.modo === 'api'
+  // A1.9: mientras llegan las cajas guardadas se enseña un esqueleto; si en 8 s no han llegado, se monta el editor igual (no se queda cargando para siempre)
+  const [esperaCajasAgotada, setEsperaCajasAgotada] = useState(false)
+  useEffect(() => {
+    setEsperaCajasAgotada(false)
+    if (cajas !== null) return
+    const t = window.setTimeout(() => setEsperaCajasAgotada(true), 8000)
+    return () => window.clearTimeout(t)
+  }, [cajas, remesa.id])
   // «Enviar a Amazon» desde el ERP: solo administradores, y desde que se encaja (en «Lista» se manda)
   const conEnvioAmazon = esAdmin && (remesa.estado === 'encajando' || remesa.estado === 'lista')
   const pestanaVista = pestana
@@ -153,7 +154,6 @@ export function EspacioPropuesta({
 
   const creada = remesa.creadaAt ? diasEntre(remesa.creadaAt, hoy) : null
   const unidades = remesa.lineas.reduce((s, l) => s + l.enviadas, 0)
-  const fase = ESTADOS[remesa.estado]
   const delPlan = esDelPlan(remesa)
   const idPanel = `panel-propuesta-${remesa.id}`
 
@@ -188,9 +188,7 @@ export function EspacioPropuesta({
             )}
 
             <div className="mt-2 flex flex-wrap items-center gap-[6px]">
-              <Insignia tono={TONO_FASE[fase.tono]} title={fase.pista}>
-                {fase.texto}
-              </Insignia>
+              {/* La fase la dice la barra de fases de debajo: aquí solo el turno */}
               {mio ? (
                 <Insignia tono="naranja" vivo title={actor === 'agencia' ? turno.paraAgencia : turno.paraCliente}>
                   Te toca a ti
@@ -212,7 +210,6 @@ export function EspacioPropuesta({
               )}
             </div>
 
-            <p className="mt-2 text-[12.5px] leading-[1.5] text-[var(--ls-t3)]">{actor === 'agencia' ? turno.paraAgencia : turno.paraCliente}</p>
 
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-[6px] text-[12.5px] text-[var(--ls-t3)]">
               <span className="inline-flex items-center gap-[6px]" title="Fecha prevista de envío">
@@ -320,11 +317,6 @@ export function EspacioPropuesta({
 
           {remesa.estado === 'aprobada' && (
             <>
-              <Tarjeta icono={CheckCircle2} acento={COLOR_ESTADO.verde} titulo="El cliente ha dado el OK" subtitulo="Para cambiar qué se manda hay que reabrirla">
-                <p className="text-[13px] leading-[1.55] text-[var(--ls-t2)]">
-                  Aprobada{remesa.aprobadaAt ? ` el ${fecha(remesa.aprobadaAt)}` : ''}. Ahora toca etiquetar la mercancía y, cuando esté, empezar a encajarla.
-                </p>
-              </Tarjeta>
               <ImprimirEtiquetas remesa={remesa} destacado agencia={sesion.esAgencia} />
               {actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="aprobada" />}
               <ResumenLineas remesa={remesa} abierto />
@@ -336,7 +328,12 @@ export function EspacioPropuesta({
               {/* El cliente no tiene por qué entrar al ERP para encajar: se le manda un enlace. Solo para quien puede editar:
                   el enlace es una credencial de escritura sobre estas cajas */}
               {puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="encajando" />}
+              {/* A1.9: el editor no se monta antes de que lleguen las cajas guardadas (si no, lo que se teclea entretanto pisa la versión de la base) */}
+              {cajas === null && !esperaCajasAgotada ? (
+                <div className="h-[180px] animate-pulse rounded-[14px] bg-[var(--ls-sup2)]" aria-label="Leyendo las cajas…" />
+              ) : (
               <EditorCajas
+                key={`${remesa.id}:${cajas ? 'cargadas' : 'sin-cajas'}`}
                 remesaId={remesa.id}
                 clienteId={cliente.id}
                 lineas={remesa.lineas}
@@ -351,6 +348,7 @@ export function EspacioPropuesta({
                 puedeEditar={puedeEditar}
                 version={cajas?.version ?? null}
               />
+              )}
               {puedeImprimirEtiquetas(remesa.estado) && <ImprimirEtiquetas remesa={remesa} agencia={sesion.esAgencia} />}
               {/* «Qué se manda» ya no se repite aquí: el cuadre del editor de cajas dice lo mismo, referencia a referencia */}
               {conEnvioAmazon && <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} onModo={alModo} />}

@@ -57,6 +57,8 @@ export interface FichaSkuProps {
   plazo?: { hastaLaVenta: number; margen: number } | null
   esAgencia: boolean
   onCerrar: () => void
+  /** C8: abre esta referencia en Cliente → Reponer (su ficha del plan, con cuándo y cuánto enviar). Solo agencia */
+  onVerEnReponer?: (sku: string) => void
 }
 
 export function FichaSku({ fila, ...resto }: FichaSkuProps) {
@@ -81,7 +83,18 @@ export function FichaSku({ fila, ...resto }: FichaSkuProps) {
       icono={Package}
       acento="remesas"
       ancho={600}
-      acciones={f ? <InsigniaEstadoStock estado={f.estado} /> : undefined}
+      acciones={
+        f ? (
+          <span className="flex items-center gap-2">
+            {resto.esAgencia && resto.onVerEnReponer && (
+              <button type="button" onClick={() => resto.onVerEnReponer?.(f.sku.sku)} className="text-[12px] font-medium text-[var(--ls-acc)] hover:underline">
+                Cuándo reponer ›
+              </button>
+            )}
+            <InsigniaEstadoStock estado={f.estado} />
+          </span>
+        ) : undefined
+      }
     >
       {f && <Contenido fila={f} {...resto} />}
     </PanelLateral>

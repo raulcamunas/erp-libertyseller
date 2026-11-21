@@ -87,7 +87,8 @@ export function BarraAcciones({
 
   const permiso = principal
     ? puedeAvanzar(remesa.estado, principal.hasta, actor, {
-        lineas: remesa.lineas.length,
+        // Las líneas a 0 son las que el cliente quitó: no cuentan como referencia (igual que el servidor)
+        lineas: remesa.lineas.filter((l) => l.enviadas > 0).length,
         cuadre: cajas?.cuadre,
         cajas: cajas?.estado,
         // El número se pide en el diálogo, justo al pulsar: aquí no puede bloquear
@@ -207,7 +208,7 @@ export function BarraAcciones({
           title={permiso?.puede ? principal.consecuencia : permiso?.motivos.map((m) => m.texto).join('. ')}
           onClick={() => pulsar(principal)}
         >
-          {principal.boton}
+          {principal.hasta === 'aprobada' && remesa.propuesta?.aceptoAt ? 'Aprobar lo que pide el cliente' : principal.boton}
         </Boton>
       )}
     </div>
