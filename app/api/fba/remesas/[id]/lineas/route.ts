@@ -95,6 +95,19 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return fail(400, 'Falta la lista de referencias')
     }
 
+    // A1.3: tras el «Acepto» del cliente las cantidades no se cambian sin volver a mandarle la propuesta (si no, quedaría dicho que aceptó algo que no
+    // vio). Sin la 309 la columna no existe y no hay nada que mirar
+    // A1.1: las líneas que el cliente puso a 0 desde su enlace (las que tienen unidades_propuestas) se pueden guardar a 0: son «esta no», no un error
+    const propuestasAntes = new Set<string>()
+    {
+      const { data: ac, error: errAc } = await service.from('fba_remesas').select('cliente_acepto_at').eq('id', params.id).maybeSingle()
+      if (!errAc && (ac as { cliente_acepto_at?: string | null } | null)?.cliente_acepto_at) {
+        return fail(409, 'El cliente ya ha aceptado esta propuesta. Apruébala, devuélvesela o vuelve a mandarla para cambiar las cantidades.')
+      }
+      const { data: antes, error: errAntes } = await service.from('fba_remesa_lineas').select('sku, unidades_propuestas').eq('remesa_id', params.id)
+      if (!errAntes) for (const l of (antes ?? []) as Array<{ sku: string; unidades_propuestas: number | null }>) if (l.unidades_propuestas != null) propuestasAntes.add(l.sku)
+    }
+
     // ---------- Validación ----------
     const limpias: Array<Record<string, unknown>> = []
     const vistos = new Set<string>()
@@ -125,7 +138,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       vistos.add(sku)
 
       const unidades = Number(bruta.unidades)
-      if (!Number.isInteger(unidades) || unidades < 1) {
+      const ceroDelCliente = unidades === 0 && propuestasAntes.has(sku)
+      if (!Number.isInteger(unidades) || (unidades < 1 && !ceroDelCliente)) {
         return fail(
           400,
           `«${sku}» lleva ${bruta.unidades} unidades. Tiene que ser un número entero de 1 en ` +
@@ -145,7 +159,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       })
     }
 
-    if (limpias.length === 0) {
+    if (limpias.length === 0 || limpias.every((l) => l.unidades === 0)) {
       return fail(
         400,
         'Un envío sin ninguna referencia no se puede guardar. Si lo que quieres es descartarlo, ' +

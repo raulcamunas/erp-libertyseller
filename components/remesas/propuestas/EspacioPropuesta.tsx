@@ -309,7 +309,8 @@ export function EspacioPropuesta({
               clienteId={cliente.id}
               clienteNombre={cliente.nombre}
               esAdmin={esAdmin}
-              puedeEditar={puedeEditar}
+              // A1.3: tras el «Acepto» del cliente no se tocan cantidades (el servidor también lo impide): se aprueba, se devuelve o se vuelve a mandar
+              puedeEditar={puedeEditar && !remesa.propuesta?.aceptoAt}
               conCatalogo={cliente.tieneCatalogo}
               remesaId={remesa.id}
               lineas={remesa.lineas}

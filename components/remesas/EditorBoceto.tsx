@@ -139,7 +139,9 @@ export function EditorBoceto({
   }, [elegidos, inicial])
 
   const totalUnidades = elegidos.reduce((s, e) => s + (e.unidades || 0), 0)
-  const sinUnidades = elegidos.filter((e) => !Number.isInteger(e.unidades) || e.unidades < 1)
+  // A1.1: las que el cliente puso a 0 desde su enlace («esta no») se pueden guardar a 0: no cuentan como «sin unidades». Se pueden volver a subir
+  const ceroDelCliente = useMemo(() => new Set(inicial.filter((e) => e.unidades === 0).map((e) => e.sku)), [inicial])
+  const sinUnidades = elegidos.filter((e) => !Number.isInteger(e.unidades) || (e.unidades < 1 && !(e.unidades === 0 && ceroDelCliente.has(e.sku))))
   const aMedias = modo === 'desplegables' ? estado.sinTerminar : 0
 
   async function guardar() {

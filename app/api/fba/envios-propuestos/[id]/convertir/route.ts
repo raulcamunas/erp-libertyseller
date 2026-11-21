@@ -23,13 +23,16 @@ import { createServiceClient } from '@/lib/supabase/service'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     if (!UUID.test(params.id)) return fail(400, 'Ese envío propuesto no existe')
     const sesion = await sesionDeAgencia('editar')
     if (sesion instanceof NextResponse) return sesion
 
-    const r = await convertirEnRemesa(createServiceClient(), sesion, params.id, diaEnEspana())
+    // La versión y la huella de las líneas que se ven (A2.1); sin ellas (pantallas viejas) se convierte como siempre
+    const cuerpo = (await request.json().catch(() => null)) as { version?: unknown; huella?: unknown } | null
+    const vista = cuerpo ? { version: typeof cuerpo.version === 'number' ? cuerpo.version : null, huella: typeof cuerpo.huella === 'string' ? cuerpo.huella : null } : undefined
+    const r = await convertirEnRemesa(createServiceClient(), sesion, params.id, diaEnEspana(), vista)
     return NextResponse.json(r)
   } catch (error) {
     return respuestaDeErrorDeEnvio(error) ?? errorResponse(error, 'No se ha podido convertir el envío en remesa')

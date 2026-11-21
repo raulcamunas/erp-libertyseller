@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { AjusteIa, EnvioPropuestoGuardado, EstadoEnvioPropuesto, MotivoDescarte, TareaPendiente } from '@/lib/fba/plan-tipos'
 import { leerRespuesta } from './errores'
 import { invalidarRemesas, useAgencia } from './useAgencia'
+import { huellaLineas } from '@/lib/fba/envios-propuestos'
 
 /**
  * LOS ENVÍOS PROPUESTOS DESDE LA PANTALLA (spec remesas-pro §4, §9, D20 y D23). Solo agencia: el cliente externo recibe 403.
@@ -62,10 +63,13 @@ export async function cambiarEnvioPropuesto(envio: EnvioRef, cambio: CambioEnvio
   return { ok: false, error: r.error, estado: r.estado, conflicto: otro }
 }
 
-export async function convertirEnvioPropuesto(envio: Pick<EnvioPropuestoGuardado, 'id' | 'clienteId'>): Promise<ResultadoConvertir> {
+export async function convertirEnvioPropuesto(envio: Pick<EnvioPropuestoGuardado, 'id' | 'clienteId'> & Partial<Pick<EnvioPropuestoGuardado, 'version' | 'lineas' | 'lineasAceptadas'>>): Promise<ResultadoConvertir> {
   let res: Response
   try {
-    res = await fetch(`/api/fba/envios-propuestos/${envio.id}/convertir`, { method: 'POST' })
+    // A2.1: la versión y la huella de las líneas que se están viendo: si el plan se recalculó entre medias, el servidor no convierte a ciegas
+    const lineas = envio.lineasAceptadas ?? envio.lineas
+    const cuerpo = typeof envio.version === 'number' && lineas ? { version: envio.version, huella: huellaLineas(lineas) } : {}
+    res = await fetch(`/api/fba/envios-propuestos/${envio.id}/convertir`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) })
   } catch {
     return { ok: false, error: SIN_RED, estado: 0, conflicto: false }
   }
@@ -113,7 +117,7 @@ export function useEnviosPropuestos(filtro: { clienteId?: string | null; estado?
   )
 
   const convertir = useCallback(
-    async (envio: Pick<EnvioPropuestoGuardado, 'id' | 'clienteId'>) => {
+    async (envio: Pick<EnvioPropuestoGuardado, 'id' | 'clienteId'> & Partial<Pick<EnvioPropuestoGuardado, 'version' | 'lineas' | 'lineasAceptadas'>>) => {
       setOcupado(envio.id)
       try {
         const x = await convertirEnvioPropuesto(envio)

@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     if (!UUID.test(params.id)) return fail(400, 'Esa remesa no existe')
 
-    const body = (await request.json().catch(() => ({}))) as { hasta?: unknown; desde?: unknown }
+    const body = (await request.json().catch(() => ({}))) as { hasta?: unknown; desde?: unknown; version?: unknown }
     const hasta = typeof body.hasta === 'string' ? (body.hasta as EstadoRemesa) : null
     // El paso desde el que lo ve quien pulsa. Si ya no es el de la base, alguien lo movió entre medias
     const desdeVisto = typeof body.desde === 'string' ? (body.desde as EstadoRemesa) : null
@@ -208,14 +208,26 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     // El cambio SOLO se aplica si la remesa SIGUE en el paso leído: dos personas que pulsan a la vez ya no
     // aplican dos transiciones calculadas sobre el mismo punto de partida
-    const { data: movida, error } = await service
-      .from('fba_remesas')
-      .update(cambios)
-      .eq('id', params.id)
-      .eq('estado', remesa.estado)
-      .select('id')
+    // A1.2: al APROBAR, si quien pulsa vio una versión de las líneas, solo se aprueba esa: si el cliente cambió la propuesta desde su enlace mientras la
+    // mirabas, no se aprueban cambios que nadie ha visto. Atómico frente al guardado del cliente (que sube lineas_version). Sin la 309, sin el filtro
+    const versionVista = typeof body.version === 'number' && Number.isFinite(body.version) ? body.version : null
+    const mover = (conVersion: boolean) => {
+      let q = service.from('fba_remesas').update(cambios).eq('id', params.id).eq('estado', remesa.estado)
+      if (conVersion) q = q.eq('lineas_version', versionVista as number)
+      return q.select('id')
+    }
+    const conVersion = hasta === 'aprobada' && versionVista != null
+    let { data: movida, error } = await mover(conVersion)
+    if (error && conVersion && error.code === '42703') ({ data: movida, error } = await mover(false))
     if (error) throw error
     if (((movida as unknown[] | null) ?? []).length === 0) {
+      if (conVersion) {
+        const { data: ahora } = await service.from('fba_remesas').select('estado, lineas_version').eq('id', params.id).maybeSingle()
+        const a = ahora as { estado: string; lineas_version: number | null } | null
+        if (a && a.estado === remesa.estado && a.lineas_version !== versionVista) {
+          return NextResponse.json({ error: 'El cliente ha cambiado la propuesta mientras la mirabas. Recarga para ver sus cambios antes de aprobar.', conflicto: true }, { status: 409 })
+        }
+      }
       return NextResponse.json({ error: 'Alguien acaba de mover esta remesa de paso. Recarga para ver lo último.', conflicto: true }, { status: 409 })
     }
 
@@ -231,6 +243,37 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         .update({ cliente_acepto_at: null, cliente_acepto_nombre: null, cliente_acepto_ip: null })
         .eq('id', params.id)
         .then(() => undefined, () => undefined)
+      // A1.5: y la propuesta deja de estar en el enlace del cliente hasta que se le vuelva a mandar. Si no, veía la propuesta editable con la foto vieja
+      // y podía cambiar cantidades sobre una remesa que se está corrigiendo. Al copiar el enlace se manda otra vez, con lo corregido
+      await service
+        .from('fba_remesas')
+        .update({ propuesta_enviada_at: null, propuesta_enviada_por: null })
+        .eq('id', params.id)
+        .then(() => undefined, () => undefined)
+    }
+
+    // A1.8: al aprobar o al pasar a «Encajando», fuera de las cajas lo que ya no va en el envío (el cliente lo puso a 0 o se quitó la línea). Si no,
+    // ese SKU seguía en las cajas, descuadraba el encaje y podía acabar en el Excel o en las etiquetas
+    if ((remesa.estado === 'borrador' && hasta === 'aprobada') || hasta === 'encajando') {
+      try {
+        const { data: vivas } = await service.from('fba_remesa_lineas').select('sku').eq('remesa_id', params.id).gt('unidades', 0)
+        const quedan = new Set(((vivas ?? []) as Array<{ sku: string }>).map((l) => l.sku))
+        const { data: cajas } = await service.from('fba_cajas').select('id').eq('remesa_id', params.id)
+        const ids = ((cajas ?? []) as Array<{ id: string }>).map((c) => c.id)
+        if (ids.length > 0) {
+          const { data: contenido } = await service.from('fba_caja_contenido').select('id, sku, unidades').in('caja_id', ids)
+          const sobran = ((contenido ?? []) as Array<{ id: string; sku: string; unidades: number }>).filter((x) => !quedan.has(x.sku))
+          if (sobran.length > 0) {
+            await service.from('fba_caja_contenido').delete().in('id', sobran.map((x) => x.id))
+            const { data: v } = await service.from('fba_remesas').select('cajas_version').eq('id', params.id).maybeSingle()
+            const cv = (v as { cajas_version?: number } | null)?.cajas_version
+            if (typeof cv === 'number') await service.from('fba_remesas').update({ cajas_version: cv + 1 }).eq('id', params.id)
+            await registrarEnHistorial({ remesaId: params.id, actor, userId: sesion.userId, accion: 'cajas', detalle: { quitadas: sobran.map((x) => `${x.sku} ${x.unidades} ud`).slice(0, 50) } })
+          }
+        }
+      } catch (e) {
+        console.error('[fba] quitar de las cajas lo que ya no va:', e instanceof Error ? e.message : e)
+      }
     }
 
     await registrarEnHistorial({

@@ -45,6 +45,7 @@ import type {
   TareaPendiente,
 } from './plan-tipos'
 import type { createServiceClient } from '@/lib/supabase/service'
+import { huellaLineas } from './envios-propuestos'
 
 /**
  * LOS ENVÍOS PROPUESTOS EN EL SERVIDOR: LEER, CAMBIAR, CONVERTIR EN REMESA Y SEGUIR A LA REMESA.
@@ -1164,6 +1165,7 @@ export async function convertirEnRemesa(
   sesion: Pick<SesionFba, 'userId' | 'actor' | 'clientesEditables'>,
   id: string,
   hoy: string,
+  vista?: { version?: number | null; huella?: string | null },
 ): Promise<{ remesaId: string; yaExistia: boolean; analisisGuardado: boolean }> {
   const fila = await leerFilaEnvio(service, id)
   if (!fila || !puedeEditar(sesion as SesionFba, fila.client_id)) throw new ErrorDeEnvio('Ese envío propuesto ya no existe', 404)
@@ -1177,6 +1179,10 @@ export async function convertirEnRemesa(
   const lineasPlan = envio.lineasAceptadas ?? envio.lineas
   const propuestas = lineasPlan.filter((l) => l.cantidad > 0)
   if (propuestas.length === 0) throw new ErrorDeEnvio('Este envío no tiene ninguna referencia con unidades: no hay nada que convertir.', 409)
+  // A2.1: se convierte lo que la persona tenía en pantalla. Si el plan recalculó las líneas (o alguien las cambió) entre medias, no se convierte a ciegas
+  if (vista && ((typeof vista.version === 'number' && vista.version !== (fila.version ?? 0)) || (typeof vista.huella === 'string' && vista.huella !== huellaLineas(lineasPlan)))) {
+    throw new ErrorDeEnvio('Las líneas de este envío han cambiado desde que lo abriste (el plan se ha recalculado). Recarga para ver lo último antes de convertirlo.', 409, { conflicto: true, envio })
+  }
 
   /* --- 1) Reclamar la fila --- */
   const version = fila.version ?? 0

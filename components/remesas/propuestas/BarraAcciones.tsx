@@ -94,7 +94,7 @@ export function BarraAcciones({
 
   function pulsar(t: Transicion) {
     if (t.hasta === 'enviada') return onMarcarEnviada()
-    if (CONFIRMAR[claveDe(t)]) return setConfirmando(t)
+    if (confirmacionDe(t)) return setConfirmando(t)
     void mover(t.hasta)
   }
 
@@ -105,7 +105,8 @@ export function BarraAcciones({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // El paso que se está viendo: si alguien lo movió entre medias, el servidor contesta 409 y no aplica nada
-        body: JSON.stringify({ hasta, desde: remesa.estado }),
+        // Al aprobar, la versión de las líneas que se ve (A1.2): si el cliente las cambió entretanto, el servidor no aprueba lo que nadie ha visto
+        body: JSON.stringify({ hasta, desde: remesa.estado, ...(hasta === 'aprobada' && remesa.propuesta ? { version: remesa.propuesta.lineasVersion } : {}) }),
       })
       const p = (await res.json().catch(() => null)) as { error?: string; motivos?: string[]; conflicto?: boolean } | null
       if (res.status === 409 && p?.conflicto) {
@@ -136,10 +137,15 @@ export function BarraAcciones({
     }
   }
 
+  // A1.2: aprobar una propuesta que está con el cliente y a la que no ha dicho «Acepto» pide confirmación (se puede: a veces da el OK por teléfono)
+  const confirmacionDe = (t: Pick<Transicion, 'desde' | 'hasta'>) =>
+    t.desde === 'borrador' && t.hasta === 'aprobada' && remesa.propuesta?.enviadaAt && !remesa.propuesta.aceptoAt
+      ? { titulo: '¿Aprobar sin el «Acepto» del cliente?', descripcion: 'La propuesta está en el enlace del cliente y todavía no ha dicho «Acepto». Apruébala solo si te ha dado el OK por otra vía.', boton: 'Aprobar igualmente', tono: 'normal' as const }
+      : CONFIRMAR[claveDe(t)]
   const turno = turnoDe(remesa.estado, remesa.lineas.length, remesa.propuesta)
   const mensaje = actor === 'agencia' ? turno.paraAgencia : turno.paraCliente
   const motivos = permiso && !permiso.puede ? permiso.motivos : []
-  const confirmacion = confirmando ? CONFIRMAR[claveDe(confirmando)] : undefined
+  const confirmacion = confirmando ? confirmacionDe(confirmando) : undefined
 
   /** Lo que dice la barra: qué falta, o qué pasa al pulsar, o de quién es el turno */
   const texto = (movil: boolean): ReactNode => {

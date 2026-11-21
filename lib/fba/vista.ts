@@ -115,6 +115,11 @@ export function turnoDe(estado: EstadoRemesa, lineas: number, propuesta?: { envi
       if (lineas > 0 && propuesta?.enviadaAt) {
         return { quien: 'cliente', paraAgencia: 'Con el cliente: la está revisando en su enlace', paraCliente: 'Te toca revisar la propuesta y aceptarla' }
       }
+      // A1.4: montada pero SIN mandar (la 309 está y no hay envío): le toca a la agencia. Antes decía «Espera al cliente» y nadie movía nada hasta que
+      // se quedaba parada. Sin la 309 (propuesta null) sigue como antes
+      if (lineas > 0 && propuesta && !propuesta.enviadaAt) {
+        return { quien: 'agencia', paraAgencia: 'Mándale la propuesta al cliente (copia su enlace) o apruébala si te dio el OK', paraCliente: 'Liberty Seller está montando la propuesta' }
+      }
       return lineas === 0
         ? { quien: 'agencia', paraAgencia: 'Hay que montar qué se manda', paraCliente: 'Liberty Seller está montando la propuesta' }
         : { quien: 'cliente', paraAgencia: 'Esperando el OK del cliente', paraCliente: 'Te toca aprobar la propuesta' }

@@ -62,7 +62,7 @@ export function RevisionPropuesta({ remesa, puedeEditar, clienteId }: { remesa: 
       const res = await fetch(`/api/fba/remesas/${remesa.id}/estado`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hasta: 'aprobada', desde: 'borrador' }),
+        body: JSON.stringify({ hasta: 'aprobada', desde: 'borrador', ...(remesa.propuesta ? { version: remesa.propuesta.lineasVersion } : {}) }),
       })
       const r = (await res.json().catch(() => null)) as { error?: string; motivos?: string[] } | null
       if (!res.ok) {

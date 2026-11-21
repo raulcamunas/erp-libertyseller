@@ -622,3 +622,15 @@ export const reconciliarEnvios: FnReconciliarEnvios = (guardados, recientesCerra
   }
   return resultado
 }
+
+/**
+ * PURO. La huella de unas líneas (SKU:cantidad, ordenadas): para saber, al convertir un envío propuesto en remesa, que las líneas que va a usar el
+ * servidor son las que la persona tenía en pantalla (A2.1). Si el plan se ha recalculado entre medias, no coinciden y se pide recargar.
+ */
+export function huellaLineas(lineas: ReadonlyArray<{ sku: string; cantidad: number }>): string {
+  return lineas
+    .filter((l) => l.cantidad > 0)
+    .map((l) => `${l.sku}:${l.cantidad}`)
+    .sort()
+    .join('|')
+}
