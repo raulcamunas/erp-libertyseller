@@ -226,9 +226,13 @@ console.log('\n=== fallar cerrado sin valores, y sin el gasto de hoy ===')
   // Sin «raras» (20 nov 2026) no hay forma reducida: la pausa se aplica tal cual
   else ok('sin raras, la pausa aprobada se aplica como pausa (sin forma reducida)', esAplicar(f) && f.clase === 'pausar' && f.tipoNuevo === null && !f.raraAplicada, JSON.stringify(f))
   const sinGasto = { ...CUENTA, gastoDesconocido: true }
-  // A2: no sube, pero tampoco se queda pendiente bloqueando la segmentación: se caduca y se vuelve a proponer con datos frescos
-  ok('sin el gasto de hoy (falla la API de uso) una subida de puja se CADUCA', decidirPropuesta(prop(), sinGasto, PROD, SIN).accion === 'caducar')
-  ok('… y una subida de presupuesto también', decidirPropuesta(pres(), sinGasto, PROD, SIN).accion === 'caducar')
+  // B2: sin el gasto de hoy solo se frenan (caducan) las subidas de PRESUPUESTO; las de puja y las cosechas siguen con sus topes
+  const sp = decidirPropuesta(pres(), sinGasto, PROD, SIN)
+  ok('B2: sin el gasto de hoy una subida de presupuesto se CADUCA', sp.accion === 'caducar' && /cuánto se gasta hoy/.test(sp.motivo), JSON.stringify(sp))
+  const su = decidirPropuesta(prop(), sinGasto, PROD, SIN)
+  ok('B2: … pero una subida de puja se aplica', esAplicar(su) && su.clase.startsWith('puja_subir'), JSON.stringify(su))
+  const cos = decidirPropuesta(prop({ tipo: 'promover', termino: 'jamon iberico', valorActual: null, valorNuevo: null, motivo: 'Cosecha', haciaCampaignNombre: 'B0TEST0001 | SKU1 | JAMON | MANUAL EXACTA', metricas: { clics: 10, gasto: 5, pedidos: 2, ventas: 60 } }), sinGasto, PROD, SIN)
+  ok('B2: … y una cosecha (promover) también', esAplicar(cos) && cos.clase === 'promover', JSON.stringify(cos))
   ok('… pero una bajada se aplica', decidirPropuesta(prop({ valorNuevo: 0.9 }), sinGasto, PROD, SIN).accion === 'aplicar')
 }
 
@@ -260,23 +264,33 @@ console.log('\n=== guardarraíl de la puja ===')
 console.log('\n=== términos REVISAR ===')
 {
   const rev = (x: Partial<PropuestaParaDecidir> = {}) => prop({ tipo: 'negativizar', termino: 'soporte jamonero', valorActual: null, valorNuevo: null, motivo: 'REVISAR: no comparte ninguna palabra', metricas: { clics: 8, gasto: 4, pedidos: 0, ventas: 0, revisar: true }, ...x })
-  const V = { pedidosHistoricos: 0, validacionOk: true }
+  const V = { pedidosHistoricos: 0 }
   const a = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.92 }, ...V } })
   ok('otro producto seguro → aplicar en exacta, aprobada por la IA', esAplicar(a) && a.concordanciaExacta && a.iaAprueba && a.clase === 'negativizar', JSON.stringify(a))
   const b = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'relevante', confianza: 0.95 }, ...V } })
   ok('relevante seguro → descartar', b.accion === 'descartar')
-  const c = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.99 }, pedidosHistoricos: 2, validacionOk: true } })
+  const c = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.99 }, pedidosHistoricos: 2 } })
   ok('ha vendido → descartar (lo que ha vendido no se negativiza)', c.accion === 'descartar' && /Ha vendido/.test(c.motivo))
-  const d = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.92 }, pedidosHistoricos: 0, validacionOk: false } })
-  // Sin personas de por medio (20 nov 2026): con la validación de la IA sin hacer, la negativa se aplica igual (qué hacer aquí es la decisión B1, fuera)
-  ok('IA sin validar → aplicar en exacta, aprobada por la IA', esAplicar(d) && d.iaAprueba && d.concordanciaExacta, JSON.stringify(d))
+  // B1 (Raúl, 21 nov 2026): la etiqueta segura de la IA decide sin la validación humana de 50 términos
+  const d = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.92 }, pedidosHistoricos: 0 } })
+  ok('B1: otro producto seguro → aplicar en exacta, aprobada por la IA', esAplicar(d) && d.iaAprueba && d.concordanciaExacta, JSON.stringify(d))
+  const d2 = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'relevante', confianza: 0.99 }, pedidosHistoricos: 0 } })
+  ok('B1: relevante 0,99 → descartar (antes se negativizaba por la regla del 20 nov)', d2.accion === 'descartar' && /relevante/i.test(d2.motivo), JSON.stringify(d2))
+  const d3 = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'dudoso', confianza: 0.95 }, pedidosHistoricos: 0 } })
+  ok('B1: dudoso con < 30 h → esperar', d3.accion === 'esperar', JSON.stringify(d3))
+  const d4 = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'dudoso', confianza: 0.95 }, pedidosHistoricos: 0 } })
+  ok('B1: dudoso con > 30 h y sin ventas → se negativiza como hoy (regla del 20 nov)', esAplicar(d4) && d4.concordanciaExacta, JSON.stringify(d4))
+  const d5 = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'relevante', confianza: 0.5 }, pedidosHistoricos: 0 } })
+  ok('B1: relevante con poca confianza y > 30 h → como hoy (se negativiza sin ventas)', esAplicar(d5), JSON.stringify(d5))
+  const d6 = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.99 }, pedidosHistoricos: 1 } })
+  ok('B1: otro producto seguro pero ha vendido → descartar', d6.accion === 'descartar' && /Ha vendido/.test(d6.motivo), JSON.stringify(d6))
   ok('sin etiqueta y < 30 h → esperar', decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V } }).accion === 'esperar')
   // A21: sin etiqueta no se negativiza a ciegas; se caduca para que el motor lo vuelva a proponer
   ok('sin etiqueta y > 30 h → caducar', decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V } }).accion === 'caducar')
   // Falla la lectura de pedidos históricos (null): nunca se negativiza, aunque la IA esté segura
-  const e = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.99 }, pedidosHistoricos: null, validacionOk: true } })
+  const e = decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.99 }, pedidosHistoricos: null } })
   ok('sin poder comprobar si ha vendido → esperar (no aplica la negativa)', e.accion === 'esperar' && /comprobar si el término ha vendido/.test(e.motivo), JSON.stringify(e))
-  const f = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'intencion_mala', confianza: 0.99 }, pedidosHistoricos: null, validacionOk: true } })
+  const f = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'intencion_mala', confianza: 0.99 }, pedidosHistoricos: null } })
   ok('y si sigue sin poderse en 30 h → descartar', f.accion === 'descartar' && /comprobar si el término ha vendido/.test(f.motivo), JSON.stringify(f))
 }
 
@@ -512,7 +526,7 @@ console.log('\n=== A18: pujas y pausas del motor con métricas de otra generaci�
 console.log('\n=== REVISAR sin etiqueta de la IA: no se negativiza a ciegas ===')
 {
   const rev = (x: Partial<PropuestaParaDecidir> = {}) => prop({ tipo: 'negativizar', termino: 'soporte jamonero', valorActual: null, valorNuevo: null, motivo: 'REVISAR: no comparte ninguna palabra', metricas: { clics: 8, gasto: 4, pedidos: 0, ventas: 0, revisar: true }, ...x })
-  const V = { pedidosHistoricos: 0, validacionOk: true }
+  const V = { pedidosHistoricos: 0 }
   const a = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V } })
   ok('sin etiqueta y > 30 h → caducar (antes: aplicar «aprobada por la IA»)', a.accion === 'caducar' && /Sin etiqueta de la IA/.test(a.motivo), JSON.stringify(a))
   ok('sin etiqueta y < 30 h → esperar', decidirPropuesta(rev(), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, ...V } }).accion === 'esperar')
@@ -520,7 +534,7 @@ console.log('\n=== REVISAR sin etiqueta de la IA: no se negativiza a ciegas ==='
   ok('falla la LECTURA de la etiqueta y > 30 h → esperar (no caduca ni aplica)', b.accion === 'esperar' && /leer la etiqueta/.test(b.motivo), JSON.stringify(b))
   const c = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: { etiqueta: 'otro_producto', confianza: 0.9 }, ...V } })
   ok('otro producto 0,9 → aplicar con iaAprueba', esAplicar(c) && c.iaAprueba && c.concordanciaExacta, JSON.stringify(c))
-  const d = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, pedidosHistoricos: 3, validacionOk: true } })
+  const d = decidirPropuesta(rev({ creadaAt: hace(31) }), CUENTA, PROD, { ...SIN, termino: { etiqueta: null, pedidosHistoricos: 3 } })
   ok('sin etiqueta pero ha vendido → se sigue descartando', d.accion === 'descartar' && /Ha vendido/.test(d.motivo), JSON.stringify(d))
 }
 

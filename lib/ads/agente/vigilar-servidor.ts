@@ -624,7 +624,8 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
   const inicioDelRecorte = fechaLocalDe(config.ritmoCambiadoAt, perfil.zona)
   // El día en que ENTRÓ en recorte, guardado aparte (`recorte_desde`): no se pisa al salir. Sin él (filas de antes), el último cambio de ritmo si sigue en recorte
   const recorteDesde = config.recorteDesde ?? (config.ritmo === 'recorte' ? inicioDelRecorte : null)
-  // Sin saber el gasto de hoy no se generan subidas que aplicar caducaría (A2)
+  // Sin saber el gasto de hoy no se generan subidas de PRESUPUESTO que aplicar caducaría (A2, B2): esto solo alimenta las reglas de presupuesto (R1–R4); las
+  // subidas de puja y las cosechas las genera el motor con ajustesParaPujas, que no mira el uso
   const sinSubidasCuenta = ritmoDeEsteMes === 'recorte' || hoyTopes.soloBajadas || l.techoMes == null || l.evento?.fase === 'posterior' || gastoDesconocido
 
   const desde14 = desplazar(hasta, -13)

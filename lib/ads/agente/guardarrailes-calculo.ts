@@ -649,7 +649,7 @@ function candidatosDeFreno(e: EntradaDeFreno): Array<{ motivo: MotivoDeFreno; de
   // 4. Datos viejos
   {
     const { viejos } = datosViejos(e)
-    // El uso de presupuesto con error NO frena (spec §6.4.4): solo desactiva las subidas y R1–R4 (vigilar, usoDisponible / sinSubidas) y se avisa una vez
+    // El uso de presupuesto con error NO frena (spec §6.4.4): solo desactiva las subidas de PRESUPUESTO (B2) y R1–R4 (vigilar, usoDisponible / sinSubidas) y se avisa una vez
     if (viejos.length) candidatos.push({ motivo: 'datos_viejos', detalle: `Datos viejos: ${viejos.join(' · ')}.` })
   }
 
@@ -673,22 +673,23 @@ function candidatosDeFreno(e: EntradaDeFreno): Array<{ motivo: MotivoDeFreno; de
 
 /**
  * Qué hacer con un término REVISAR:
- *   · ha vendido alguna vez (30 d o 90 d) → retener (lo decide una persona);
+ *   · ha vendido alguna vez (30 d o 90 d) → retener (aplicar-servidor lo descarta: lo que ha vendido no se negativiza);
  *   · sin etiqueta → esperar hasta 30 h; luego retener;
- *   · la IA aún no está validada por las personas → retener («Revísala para enseñar al agente»);
  *   · otro_producto / intencion_mala con confianza ≥ 0,85 → aplicar (negativa exacta);
  *   · relevante ≥ 0,85 → descartar;
- *   · el resto (marca_ajena, dudoso, poca confianza) → esperar hasta 30 h; luego retener.
+ *   · el resto (marca_ajena, dudoso, poca confianza) → esperar hasta 30 h; luego retener (aplicar-servidor aplica la regla del 20 nov: sin ventas, se negativiza).
+ * B1 (Raúl, 21 nov 2026): la etiqueta SEGURA de la IA decide sin esperar a la validación humana de 50 términos. Antes `!validacionOk` iba delante de la
+ * etiqueta y, como ya no hay personas resolviendo REVISAR, la validación no llegaba nunca: todo acababa en «retener» y la regla del 20 nov negativizaba
+ * incluso lo que la IA decía «relevante» con 0,99.
  */
 export function decisionDeTermino(
   t: { etiqueta: EtiquetaDeTermino; confianza: number } | null,
   horasDesdeCreada: number,
-  c: { pedidosHistoricos: number; validacionOk: boolean },
+  c: { pedidosHistoricos: number },
 ): 'aplicar' | 'descartar' | 'retener' | 'esperar' {
   const pasada = horasDesdeCreada > AGENTE.IA_HORAS_ESPERA
   if (c.pedidosHistoricos > 0) return 'retener'
   if (!t) return pasada ? 'retener' : 'esperar'
-  if (!c.validacionOk) return 'retener'
   const segura = finito(t.confianza) && t.confianza >= AGENTE.IA_CONFIANZA - EPS
   if (segura && (t.etiqueta === 'otro_producto' || t.etiqueta === 'intencion_mala')) return 'aplicar'
   if (segura && t.etiqueta === 'relevante') return 'descartar'

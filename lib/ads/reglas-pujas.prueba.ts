@@ -45,7 +45,7 @@ console.log('\n=== bajar con pedidos ===')
   const r = proponerPujas([seg('b', 0.6, { clics: 30, gasto: 20, ventas: 40, pedidos: 2 })], P)
   ok('ACoS 50 % con 2 pedidos → baja hacia 0,40, pero como mucho un 25 % (0,60 → 0,45)', r.length === 1 && r[0].direccion === 'bajar' && r[0].pujaNueva === 0.45 && r[0].metricas.pujaObjetivo === 0.4, JSON.stringify(r))
   const c = proponerPujas([seg('c', 1, { clics: 30, gasto: 15, ventas: 40, pedidos: 2 })], P)
-  ok('ACoS 37,5 % (> 1,2× = 36 %) → hacia la puja objetivo 0,40, con el tope del 25 %: 1,00 → 0,75', c[0]?.pujaNueva === 0.75, JSON.stringify(c))
+  ok('ACoS 37,5 % (> 1,2× = 36 %) → B6: escalada por el ACoS real, 1,00 × 30 ÷ 37,5 = 0,80 (dentro del tope del 25 %)', c[0]?.pujaNueva === 0.8, JSON.stringify(c))
   ok('ACoS 33 % (dentro del margen de 1,2×) → nada', proponerPujas([seg('c2', 0.6, { clics: 30, gasto: 12, ventas: 36, pedidos: 2 })], P).length === 0)
   ok('con 1 solo pedido el ACoS es ruido → no se baja por ACoS', proponerPujas([seg('c3', 0.6, { clics: 30, gasto: 20, ventas: 20, pedidos: 1 })], P).length === 0)
 }

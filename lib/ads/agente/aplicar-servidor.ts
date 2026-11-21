@@ -6,7 +6,7 @@
  *   2. Pendientes con consulta PROPIA (`pendientesLibres`, 300, más gasto primero).
  *   3. Topes del día (`topesDelDia`): con los frenos automáticos apagados (FRENOS_AUTOMATICOS) solo cuentan los topes configurados; la rampa (día 1 solo bajadas,
  *      días 2–3 sin subir presupuestos…) y la «cuenta pequeña» solo actúan si se vuelven a encender.
- *   4. Términos REVISAR: la etiqueta vigente de la IA (`etiquetaVigente`) decide (`decisionDeTermino`): un término que ha vendido o una IA sin validar → para una persona;
+ *   4. Términos REVISAR: la etiqueta vigente de la IA (`etiquetaVigente`) decide (`decisionDeTermino`): un término que ha vendido no se negativiza; la etiqueta segura decide sin esperar a la validación humana (B1);
  *      «otro producto» / «intención mala» seguros → negativa SIEMPRE en exacta; «relevante» seguro → se descarta. SIN etiqueta a las 30 h (la IA ha fallado, tope o
  *      sin clave) no se negativiza a ciegas: se caduca y se vuelve a proponer; si falla la LECTURA de la etiqueta, se espera.
  *   5. RARAS (`esRara`): la IA dice «aplicar» → en FORMA REDUCIDA (`formaReducida`), y se mide a los 3 días; «retener» → para una persona; sin decisión, se espera 30 h.
@@ -51,7 +51,7 @@ import { esAsin, partesDeNombre } from '../reglas'
 import type { CuentaParaSincronizar } from '../sincronizar'
 import { textoDePrimeraEscritura } from './avisos-calculo'
 import { hashDeTitulo } from './cerebro-calculo'
-import { esRevisar, etiquetaVigente, queDePropuesta, validacionDeLaIa } from './cerebro-ia'
+import { esRevisar, etiquetaVigente, queDePropuesta } from './cerebro-ia'
 import { desplazar, filasDeUso, leerCuenta, leerStockPorAsin, nombreDeCuenta, sumarDias, type StockDeAsin } from './contexto-servidor'
 import { abrirEfecto, cvrDeMetricas } from './efectos-servidor'
 import { actualizarAgente, hechosDeHoy, leerConfigDelAgente, paradaGeneral } from './estado-servidor'
@@ -87,6 +87,7 @@ import {
   type Postura,
   type RitmoDelMes,
   type TipoDeErrorDeAmazon,
+  topePujaDeSerie,
 } from './tipos'
 import { horaLocal, inicioDelDiaLocal } from './uso-calculo'
 import { frescura, sumaDePresupuestos, usoErrorBloquea } from './vigilar-servidor'
@@ -167,7 +168,8 @@ export interface CuentaParaDecidir {
   eventoPosterior: string | null
   /** Puja máxima fija (ads_agente.puja_max o la de serie) */
   topePuja: number
-  /** La API de uso de presupuesto falla: no se sabe cuánto se gasta hoy, así que nada SUBE (se caduca: vigilar o el motor la vuelven a proponer con datos frescos) */
+  /** La API de uso de presupuesto falla: no se sabe cuánto se gasta hoy, así que no SUBE ningún PRESUPUESTO (se caduca: vigilar la vuelve a proponer con datos
+   *  frescos). Las subidas de puja y las cosechas siguen (B2): tienen sus propios topes y no dependen del gasto de hoy */
   gastoDesconocido?: boolean
   /** Inicio del día LOCAL de la cuenta (ms): una subida R1 («se agota HOY») creada antes es de otro día y se caduca. Sin el dato, no se mira */
   inicioDelDiaLocal?: number
@@ -191,7 +193,6 @@ export interface DatosDeTermino {
   etiqueta: { etiqueta: EtiquetaDeTermino; confianza: number } | null
   /** null = no se ha podido comprobar (falla la lectura): nunca se negativiza sin saberlo */
   pedidosHistoricos: number | null
-  validacionOk: boolean
   /** La lectura de la etiqueta ha FALLADO (la base, no «no hay etiqueta»): `etiqueta` es null pero no se sabe si la IA lo miró */
   etiquetaError?: boolean
 }
@@ -321,13 +322,13 @@ export function decidirPropuesta(
 
   // ---- 4. Términos REVISAR: decide la etiqueta de la IA ----
   if (esRevisar({ tipo: p.tipo, motivo: p.motivo, metricas: p.metricas })) {
-    const t = extra.termino ?? { etiqueta: null, pedidosHistoricos: 0, validacionOk: false }
+    const t = extra.termino ?? { etiqueta: null, pedidosHistoricos: 0 }
     // Fallar cerrado: sin saber si el término ha vendido, no se negativiza (espera a la próxima pasada; si no se puede en 30 h, para una persona)
     if (t.pedidosHistoricos == null) {
       if (horas > AGENTE.IA_HORAS_ESPERA) return { accion: 'descartar', motivo: 'No he podido comprobar si el término ha vendido: no lo negativizo.' }
       return { accion: 'esperar', motivo: 'No he podido comprobar si el término ha vendido: espero a la próxima pasada' }
     }
-    const d = decisionDeTermino(t.etiqueta, horas, { pedidosHistoricos: t.pedidosHistoricos, validacionOk: t.validacionOk })
+    const d = decisionDeTermino(t.etiqueta, horas, { pedidosHistoricos: t.pedidosHistoricos })
     const dice = t.etiqueta ? `La IA dice: ${NOMBRE_DE_ETIQUETA[t.etiqueta.etiqueta]} (${conf(t.etiqueta.confianza)})` : null
     if (d === 'esperar') return { accion: 'esperar', motivo: 'Término sin etiqueta segura de la IA todavía' }
     if (d === 'descartar') return { accion: 'descartar', motivo: `${dice ?? 'La IA dice: relevante'}. Alguien que busca eso compraría el producto: no lo negativizo.` }
@@ -406,9 +407,10 @@ export function decidirPropuesta(
     if (c.techoNulo) pasajeras.push('no hay techo de gasto del mes')
     if (c.eventoPosterior) pasajeras.push(`los datos tocan ${c.eventoPosterior}`)
     if (clase === 'presupuesto_subir' && c.cuentaPequena) pasajeras.push(`la cuenta es pequeña (menos de ${AGENTE.CUENTA_PEQUENA_GASTO30} de gasto en 30 días)`)
-    // Sin el gasto de hoy no sube (decisión del dueño), pero tampoco ESPERA: pendiente bloquearía la segmentación o la campaña y envejecería; caducada, se vuelve a
-    // proponer con datos frescos cuando la API de uso vuelva
-    if (c.gastoDesconocido) pasajeras.push('no sé cuánto se gasta hoy (falla la lectura del uso de presupuesto)')
+    // B2 (Raúl, 21 nov 2026): sin el gasto de hoy solo se frenan las subidas de PRESUPUESTO, la única que compara el gasto de hoy con el techo. Las de puja
+    // (±25 %, puja máxima, subidaPermitida) y las cosechas (puja de partida acotada) no dependen del gasto intradía y siguen. La de presupuesto tampoco ESPERA:
+    // pendiente bloquearía la campaña y envejecería; caducada, se vuelve a proponer con datos frescos cuando la API de uso vuelva
+    if (c.gastoDesconocido && clase === 'presupuesto_subir') pasajeras.push('no sé cuánto se gasta hoy (falla la lectura del uso de presupuesto)')
     if (dePersona.length > 0) return { accion: 'descartar', motivo: `No subo: ${[...dePersona, ...pasajeras].join('; ')}.` }
     if (pasajeras.length > 0) return { accion: 'caducar', motivo: `No subo: ${pasajeras.join('; ')}. Si deja de pasar, se volverá a proponer con los datos de ese momento.` }
     // Sin poder leer el stock (o con un stock de hace horas) no se sabe si el producto tiene cobertura: la red de seguridad de arriba no vería un «sin stock». Espera
@@ -1067,7 +1069,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     ritmoRecorte: ritmoDeEsteMes === 'recorte',
     techoNulo: l.techoMes == null,
     eventoPosterior: l.evento?.fase === 'posterior' ? l.evento.nombre : null,
-    topePuja: config.pujaMax ?? AGENTE.PUJA_MAX_ABSOLUTA,
+    topePuja: config.pujaMax ?? topePujaDeSerie(l.perfil.moneda),
     // Un error pasajero de la API de uso (429, 5xx) solo cuenta tras varios seguidos (usoErrorBloquea): uno suelto no para las subidas
     gastoDesconocido: usoErrorBloquea(config.usoError),
     inicioDelDiaLocal: Date.parse(inicioDelDiaLocal(local.fecha, zona)),
@@ -1113,7 +1115,6 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   const negativas = await datosDeNegativas(perfilId, pendientes.filter((p) => p.tipo === 'negativizar'))
 
   // ---- 4–7. decidir cada pendiente ----
-  let validacion: { ok: boolean } | null = null
   let planes: Array<{ p: Propuesta; d: Extract<DecisionDelAgente, { accion: 'aplicar' }> }> = []
   let rarasEsperando = 0
   // Subidas de presupuesto que siguen vivas aunque no se apliquen en esta pasada (esperan, o su decisión ha fallado): sus donantes no se caducan
@@ -1135,7 +1136,6 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     let pujaLeida: number | null = null
     try {
       if (esRevisar({ tipo: p.tipo, motivo: p.motivo, metricas: p.metricas as unknown as Record<string, unknown> })) {
-        if (!validacion) validacion = await validacionDeLaIa(perfilId)
         const asin = p.asin ? p.asin.toUpperCase() : null
         const [etiquetaLeida, pedidosHistoricos] = await Promise.all([
           // Si falla la lectura, 'error' (no null): decidirPropuesta espera en vez de tomarlo por «la IA no lo ha mirado»
@@ -1151,7 +1151,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
             return null
           }),
         ])
-        termino = { etiqueta: etiquetaLeida === 'error' ? null : etiquetaLeida, pedidosHistoricos, validacionOk: validacion.ok, etiquetaError: etiquetaLeida === 'error' }
+        termino = { etiqueta: etiquetaLeida === 'error' ? null : etiquetaLeida, pedidosHistoricos, etiquetaError: etiquetaLeida === 'error' }
       } else if (p.tipo === 'pausar' && p.iaDecision === 'aplicar' && p.valorActual == null && p.objetivoId && (p.objetivoTipo === 'keyword' || p.objetivoTipo === 'producto') && !/Forma reducida/.test(p.motivo)) {
         // Pausa rara aprobada por la IA: la forma reducida es bajar la puja un 25 %; la de ahora se lee en Amazon (solo lectura)
         try {

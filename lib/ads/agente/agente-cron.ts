@@ -554,7 +554,7 @@ async function pasoVigilar(cuenta: CuentaParaSincronizar, config: ConfigDelAgent
   if (r.usoErrorNuevo && r.usoError) {
     await avisar(perfilId, 'uso-error', madrid, {
       titulo: `No puedo leer el gasto de hoy · ${d.nombre}`.slice(0, 80),
-      cuerpo: `⚠️ **No puedo leer el uso de presupuesto de hoy** · ${d.nombre}\nAmazon contesta: «${(leerUsoError(r.usoError, null)?.mensaje ?? r.usoError).slice(0, 300)}». Pruebo un lote en cada vigilar y lo leo todo como mucho cada ${AGENTE.USO_REINTENTO_HORAS} h. Mientras no sepa cuánto se gasta hoy no subo pujas ni presupuestos (las bajadas y negativas siguen); si sigue ${AGENTE.USO_ERROR_SIN_REGLAS_HORAS} h, dejo también las reglas de presupuesto (R1–R4), pero no freno el agente.`,
+      cuerpo: `⚠️ **No puedo leer el uso de presupuesto de hoy** · ${d.nombre}\nAmazon contesta: «${(leerUsoError(r.usoError, null)?.mensaje ?? r.usoError).slice(0, 300)}». Pruebo un lote en cada vigilar y lo leo todo como mucho cada ${AGENTE.USO_REINTENTO_HORAS} h. Mientras no sepa cuánto se gasta hoy no subo presupuestos (las pujas, las cosechas, las bajadas y las negativas siguen); si sigue ${AGENTE.USO_ERROR_SIN_REGLAS_HORAS} h, dejo también las reglas de presupuesto (R1–R4), pero no freno el agente.`,
     })
   }
 

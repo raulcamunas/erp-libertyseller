@@ -97,7 +97,7 @@ import { cvrsDeCuenta, leerUmbrales } from './umbrales-cuenta'
 import { DIAS_DE_TERMINOS, leerTerminos } from './terminos'
 import type { CuentaParaSincronizar } from './sincronizar'
 import type { Rol } from './estructura'
-import { FALTA_MIGRACION_315, type FilaDePropuestaDelAgente } from './agente/tipos'
+import { FALTA_MIGRACION_315, pujaDePartidaSinClics, type FilaDePropuestaDelAgente } from './agente/tipos'
 import { clasificarSubidasPendientes } from './agente/guardarrailes-calculo'
 
 export { guardarUmbrales, leerUmbrales } from './umbrales-cuenta'
@@ -1141,7 +1141,7 @@ async function recorrerAplicar(
   const creadoAparte: { negativaPreexistente?: string } = {}
   try {
     // La puja de partida de lo cosechado: el CPC que ya pagaba (lo que ha demostrado que convierte a ese precio). El agente la limita a su puja máxima (decidirPropuesta)
-    const cpcCalculado = p.tipo === 'promover' ? pujaDePromover(p.metricas, q.pujaMaxima) : 0.2
+    const cpcCalculado = p.tipo === 'promover' ? pujaDePromover(p.metricas, q.pujaMaxima, pujaDePartidaSinClics(cuenta.moneda)) : pujaDePartidaSinClics(cuenta.moneda)
     if (cpcCalculado == null) throw new Error('No se puede calcular la puja de partida (CPC o puja máxima no válidos): no se crea nada.')
     const cpc = cpcCalculado
     if (p.tipo === 'promover' && !creado.keywordId && !creado.targetId) {

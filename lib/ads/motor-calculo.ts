@@ -250,11 +250,11 @@ export function decidirEnsayo(e: EntradaDeAplicar): { ok: true; avisos: string[]
  * La puja de partida de lo cosechado (promover): el CPC que ya pagaba (gasto ÷ clics), o 0,20 sin clics. Con `pujaMaxima` (el agente) nunca pasa de ella.
  * null si no se puede calcular (gasto o clics que no son números, o un tope inválido): quien llama no crea nada.
  */
-export function pujaDePromover(metricas: { clics?: unknown; gasto?: unknown } | null | undefined, pujaMaxima?: number | null): number | null {
+export function pujaDePromover(metricas: { clics?: unknown; gasto?: unknown } | null | undefined, pujaMaxima?: number | null, pujaSinClics = 0.2): number | null {
   const clics = Number(metricas?.clics ?? 0)
   const gasto = Number(metricas?.gasto ?? 0)
   if (!Number.isFinite(clics) || !Number.isFinite(gasto)) return null
-  const cpc = clics > 0 ? gasto / clics : 0.2
+  const cpc = clics > 0 ? gasto / clics : pujaSinClics
   if (!Number.isFinite(cpc) || !(cpc > 0)) return null
   if (pujaMaxima != null) {
     if (!Number.isFinite(pujaMaxima) || !(pujaMaxima > 0)) return null

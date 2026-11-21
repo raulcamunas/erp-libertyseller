@@ -21,7 +21,7 @@ import { topesDelDia } from './guardarrailes-calculo'
 import { subidasVetadasPorEfectos } from './efectos-calculo'
 import { combinarAjustes, pujaMaxima } from './objetivos-calculo'
 import { diaDeRampa } from './pasos-calculo'
-import { AGENTE, TOPES_DE_PARTIDA, type AjustesDelAgenteParaPujas, type Presion } from './tipos'
+import { AGENTE, TOPES_DE_PARTIDA, topePujaDeSerie, type AjustesDelAgenteParaPujas, type Presion } from './tipos'
 import { horaLocal } from './uso-calculo'
 import { leerAjustesDeUbicacion } from './uso-servidor'
 
@@ -98,7 +98,7 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
 
   // Por ASIN: objetivo base, postura y umbrales combinados (la presión por campaña la aplica motor-pujas)
   const porAsin: AjustesDelAgenteParaPujas['porAsin'] = {}
-  const topeFijo = config?.pujaMax != null && config.pujaMax > 0 ? config.pujaMax : AGENTE.PUJA_MAX_ABSOLUTA
+  const topeFijo = config?.pujaMax != null && config.pujaMax > 0 ? config.pujaMax : topePujaDeSerie(l.perfil.moneda)
   for (const p of productos) {
     if (!p.activo || p.acosObjetivoPct == null) continue
     // En recorte las posturas «crecer» pasan a «mantener»

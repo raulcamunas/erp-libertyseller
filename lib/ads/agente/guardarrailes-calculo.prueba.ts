@@ -26,7 +26,7 @@ import {
   FRENOS_AUTOMATICOS,
 } from './guardarrailes-calculo'
 import { textoDeReintento } from '../motor-calculo'
-import { TOPES_DE_PARTIDA, limitesDePuja, motivoSinPujaMaxEnMoneda, pujaParaAmazon, type EtiquetaDeTermino } from './tipos'
+import { TOPES_DE_PARTIDA, limitesDePuja, motivoSinPujaMaxEnMoneda, pujaDePartidaSinClics, pujaParaAmazon, topePujaDeSerie, type EtiquetaDeTermino } from './tipos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -440,9 +440,13 @@ console.log('\n=== freno ===')
 
 console.log('\n=== términos REVISAR ===')
 {
-  const V = { pedidosHistoricos: 0, validacionOk: true }
+  const V = { pedidosHistoricos: 0 }
   ok('término con pedidos → retener (aunque la IA diga otro producto)', decisionDeTermino({ etiqueta: 'otro_producto', confianza: 0.99 }, 1, { ...V, pedidosHistoricos: 1 }) === 'retener')
-  ok('validación sin 50 → retener', decisionDeTermino({ etiqueta: 'otro_producto', confianza: 0.92 }, 1, { ...V, validacionOk: false }) === 'retener')
+  // B1: ya no hace falta la validación humana de 50 términos; la etiqueta segura decide
+  ok('B1: relevante 0,99 sin validación humana → descartar (no se negativiza)', decisionDeTermino({ etiqueta: 'relevante', confianza: 0.99 }, 1, V) === 'descartar')
+  ok('B1: relevante 0,60 (poca confianza) con 5 h → esperar, como antes', decisionDeTermino({ etiqueta: 'relevante', confianza: 0.6 }, 5, V) === 'esperar')
+  ok('B1: relevante 0,60 con 31 h → retener (la regla del 20 nov decide)', decisionDeTermino({ etiqueta: 'relevante', confianza: 0.6 }, 31, V) === 'retener')
+  ok('B1: dudoso 0,95 con 31 h → retener', decisionDeTermino({ etiqueta: 'dudoso', confianza: 0.95 }, 31, V) === 'retener')
   ok('otro_producto 0,92 → aplicar', decisionDeTermino({ etiqueta: 'otro_producto', confianza: 0.92 }, 1, V) === 'aplicar')
   ok('intencion_mala 0,85 → aplicar', decisionDeTermino({ etiqueta: 'intencion_mala', confianza: 0.85 }, 1, V) === 'aplicar')
   ok('otro_producto 0,80 con 5 h → esperar', decisionDeTermino({ etiqueta: 'otro_producto', confianza: 0.8 }, 5, V) === 'esperar')
@@ -512,7 +516,10 @@ console.log('\n=== límites de puja por moneda (A32) ===')
   ok('limitarPuja: el suelo es el mínimo de la moneda (MXN 0,10)', limitarPuja(0.12, 0.05, null, 'MXN').valor === 0.1, J(limitarPuja(0.12, 0.05, null, 'MXN')))
   ok('limitarPuja sin moneda: el 0,02 de siempre', limitarPuja(0.025, 0.01, null).valor === 0.02)
   ok('encender en EUR sin puja máxima: se puede', motivoSinPujaMaxEnMoneda('EUR', null) === null)
-  ok('encender en MXN sin puja máxima: no', /fija la puja máxima en MXN/.test(motivoSinPujaMaxEnMoneda('MXN', null) ?? ''))
+  // B5: con cambio conocido el tope de serie se pasa a la moneda; una moneda sin cambio sigue pidiendo la puja máxima a mano
+  ok('encender en MXN sin puja máxima: se puede (B5: 3 € → 60 MXN)', motivoSinPujaMaxEnMoneda('MXN', null) === null && topePujaDeSerie('MXN') === 60)
+  ok('encender en una moneda sin cambio (XYZ) sin puja máxima: no', /fija la puja máxima en XYZ/.test(motivoSinPujaMaxEnMoneda('XYZ', null) ?? ''))
+  ok('puja de partida sin clics: 0,20 € → 2,30 SEK; sin moneda, 0,20', pujaDePartidaSinClics('SEK') === 2.3 && pujaDePartidaSinClics(null) === 0.2)
   ok('encender en SEK con puja máxima: se puede', motivoSinPujaMaxEnMoneda('SEK', 12) === null)
   ok('moneda desconocida (null): no bloquea', motivoSinPujaMaxEnMoneda(null, null) === null)
 }

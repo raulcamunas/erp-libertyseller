@@ -287,6 +287,27 @@ export function limitesDePuja(moneda: string | null | undefined): { minima: numb
   return LIMITES_DE_PUJA[moneda.trim().toUpperCase()] ?? null
 }
 
+/**
+ * B5 (Raúl, 21 nov 2026): las cifras de serie pensadas en euros (puja máxima 3, puja de partida 0,20) se pasan a la moneda de la cuenta con un cambio FIJO y
+ * aproximado (unidades por euro, nov 2026). No hace falta precisión: son topes, no precios. Una moneda que no esté aquí sigue necesitando la puja máxima a mano.
+ */
+const UNIDADES_POR_EURO: Readonly<Record<string, number>> = {
+  EUR: 1, GBP: 0.85, USD: 1.08, CAD: 1.5, MXN: 20, BRL: 6, SEK: 11.5, PLN: 4.3, SAR: 4.05, AED: 3.95, TRY: 37, AUD: 1.65, SGD: 1.45, JPY: 165, INR: 92,
+}
+
+/** PURO. Una cifra en euros pasada a la moneda de la cuenta (2 decimales). Sin moneda, la misma cifra; con una moneda sin cambio conocido, null */
+export function deEurosAMoneda(euros: number, moneda: string | null | undefined): number | null {
+  if (!moneda) return euros
+  const x = UNIDADES_POR_EURO[moneda.trim().toUpperCase()]
+  return x ? Math.round(euros * x * 100) / 100 : null
+}
+
+/** PURO. La puja máxima de serie (3 €) en la moneda de la cuenta; sin cambio conocido, la de siempre */
+export const topePujaDeSerie = (moneda: string | null | undefined): number => deEurosAMoneda(AGENTE.PUJA_MAX_ABSOLUTA, moneda) ?? AGENTE.PUJA_MAX_ABSOLUTA
+
+/** PURO. La puja de partida sin clics (0,20 €) en la moneda de la cuenta; sin cambio conocido, 0,20 */
+export const pujaDePartidaSinClics = (moneda: string | null | undefined): number => deEurosAMoneda(0.2, moneda) ?? 0.2
+
 /** Monedas en las que el tope de serie (`AGENTE.PUJA_MAX_ABSOLUTA`, pensado en euros) vale sin que una persona fije la puja máxima en su moneda */
 export const MONEDAS_CON_TOPE_DE_SERIE: ReadonlySet<string> = new Set(['EUR', 'GBP', 'USD'])
 
@@ -299,6 +320,8 @@ export function motivoSinPujaMaxEnMoneda(moneda: string | null | undefined, puja
   if (!moneda) return null
   const m = moneda.trim().toUpperCase()
   if (MONEDAS_CON_TOPE_DE_SERIE.has(m)) return null
+  // B5: con cambio conocido, el tope de serie se pasa a su moneda y no hace falta fijarlo a mano
+  if (UNIDADES_POR_EURO[m]) return null
   if (pujaMax != null && Number.isFinite(pujaMax) && pujaMax > 0) return null
   return `La cuenta está en ${m}: fija la puja máxima en ${m} en «Topes» antes de encender el agente (la de serie, ${AGENTE.PUJA_MAX_ABSOLUTA}, está pensada en euros).`
 }

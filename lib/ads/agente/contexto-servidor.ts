@@ -29,7 +29,7 @@ import { ventasTotales, type VentaDeAsin } from '../ventas-totales'
 import { leerUmbrales } from '../umbrales-cuenta'
 import { UMBRALES_DE_PARTIDA } from '../umbrales'
 import { topesValidos } from './guardarrailes-calculo'
-import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, motivoDeTechoIncompleto, objetivoBase, techoAutomatico, techoDelMes } from './objetivos-calculo'
+import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, motivoDeTechoIncompleto, objetivoBase, sumaDePresupuestosActivos, techoAutomatico, techoDeVentanaCorta, techoDelMes } from './objetivos-calculo'
 import { coberturaDias, stockDeAsin, stockEfectivo, stockEsViejo } from './stock-calculo'
 import { eventoEn, eventosManualesValidos, hayEventoEnElMes, ventanaTocaEvento } from './temporada-calculo'
 import {
@@ -682,7 +682,13 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
   const ventasTotales30 = sumaDeVentas(ventas.v30)
   // ¿Datos completos para CONGELAR el techo? (cuenta con 30 días de historia y, si hay TACoS objetivo, ventas totales leídas y recientes). Si no, techo provisional
   let primerDia: string | null = null
-  for (const f of rendimiento) if (f.fecha <= hasta && (primerDia == null || f.fecha < primerDia)) primerDia = f.fecha
+  // B4: la media del techo provisional va desde el primer día CON GASTO (una campaña que imprime sin clics no es historia de gasto)
+  let primerDiaConGasto: string | null = null
+  for (const f of rendimiento) {
+    if (f.fecha > hasta) continue
+    if (primerDia == null || f.fecha < primerDia) primerDia = f.fecha
+    if (f.gasto > 0 && (primerDiaConGasto == null || f.fecha < primerDiaConGasto)) primerDiaConGasto = f.fecha
+  }
   const datosIncompletos = motivoDeTechoIncompleto({
     primerDia,
     inicioVentana: desplazar(hasta, -29),
@@ -695,11 +701,28 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
   const manuales = config?.eventosManuales ?? []
   // El techo automático congelado se revisa una vez al mes (día local del marketplace), nunca con 30 días que toquen un evento de temporada
   const congeladoMs = config?.techoCongeladoAt ? Date.parse(config.techoCongeladoAt) : NaN
+  // B4: ¿el techo congelado salió de menos de 30 días de datos? (solo los de antes de A1). Entonces no vale como base
+  const ventanaCorta = techoDeVentanaCorta({
+    primerDia,
+    inicioLectura: desplazar(local.fecha, -dias),
+    congeladoFecha: Number.isFinite(congeladoMs) ? horaLocal(congeladoMs, perfil.zona).fecha : null,
+  })
+  // B3: sin gasto en 30 días (y sin presupuesto mensual en la ficha), el techo de arranque sale de los presupuestos activos. Solo se lee en ese caso (raro): no
+  // añade lecturas a la pasada normal. Las lecturas de uso de los últimos días (ads_presupuesto_dia); si no hay o falla, la suma al encender
+  let sumaPresupuestosActivos: number | null = null
+  if (!(cuenta30.gasto >= 1) && !(ficha.presupuestoMensual != null && ficha.presupuestoMensual > 0)) {
+    try {
+      sumaPresupuestosActivos = sumaDePresupuestosActivos(await filasDeUso(perfilId, desplazar(local.fecha, -3), local.fecha))
+    } catch (err) {
+      console.error(`[agente] presupuestos activos para el techo de arranque (${perfilId}):`, err instanceof Error ? err.message : err)
+    }
+    if (sumaPresupuestosActivos == null && config?.sumaPresupuestosInicio != null && config.sumaPresupuestosInicio > 0) sumaPresupuestosActivos = config.sumaPresupuestosInicio
+  }
   const techo = techoAutomatico({
     presupuestoMensual: ficha.presupuestoMensual,
     congelado:
       config && config.techoMensual != null
-        ? { techo: config.techoMensual, automatico: config.techoAutomatico, mes: Number.isFinite(congeladoMs) ? horaLocal(congeladoMs, perfil.zona).mes : null }
+        ? { techo: config.techoMensual, automatico: config.techoAutomatico, mes: Number.isFinite(congeladoMs) ? horaLocal(congeladoMs, perfil.zona).mes : null, ventanaCorta }
         : null,
     gasto30: cuenta30.gasto,
     ventasTotales30,
@@ -707,7 +730,8 @@ export async function leerCuenta(perfilId: string, config: ConfigDelAgente | nul
     mesActual: local.mes,
     ventanaConEvento: ventanaTocaEvento(desplazar(hasta, -29), hasta, perfil.pais, manuales) != null,
     datosIncompletos,
-    diasDeHistoria: primerDia ? diasEntre(primerDia, hasta) + 1 : null,
+    diasDeHistoria: primerDiaConGasto ? diasEntre(primerDiaConGasto, hasta) + 1 : null,
+    sumaPresupuestosActivos,
   })
   const techoMes = techoDelMes(techo.techo, hayEventoEnElMes(local.mes, perfil.pais, manuales), config?.picoEventos === true)
   const evento = eventoEn(local.fecha, perfil.pais, manuales)
