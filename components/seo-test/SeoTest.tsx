@@ -15,6 +15,7 @@ import { PestanaSeoBusquedas } from './PestanaSeoBusquedas'
 import { PestanaSeoFicha } from './PestanaSeoFicha'
 import { PestanaSeoHelium } from './PestanaSeoHelium'
 import { PestanaSeoCompetencia } from './PestanaSeoCompetencia'
+import { useHistorial } from './useHistorial'
 
 const PESTANAS = [
   { id: 'hoy', texto: 'Qué hacer hoy', icono: ListChecks },
@@ -132,6 +133,14 @@ function SelectorMovil({ clientes, cliente, cuentaId, elegir }: { clientes: Clie
 
 function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin }: { cuentaId: string; cliente: ClienteDeBarra; cuenta: ClienteDeBarra['cuentas'][number]; activa: IdPestana; irA: (t: IdPestana, asin?: string) => void; asin: string | null; setAsin: (a: string | null) => void }) {
   const { datos, error, recargar, actualizar } = useCuentaSeo(cuentaId)
+  // El historial de 5 semanas de la cuenta, cargado aparte (no frena la primera pintura): movimientos de la semana y gasto PPC
+  const historial = useHistorial(cuentaId, { semanas: 5 })
+  // La búsqueda abierta en «Búsquedas» (su ficha en el panel lateral), para abrirla desde Hoy y Productos
+  const [consultaAbierta, setConsultaAbierta] = useState<string | null>(null)
+  const verBusqueda = (a: string, consulta: string) => {
+    setConsultaAbierta(consulta)
+    irA('busquedas', a)
+  }
   const productos = datos?.productos ?? []
   const asinElegido = asin && productos.some((p) => p.asin === asin) ? asin : (productos[0]?.asin ?? null)
 
@@ -186,11 +195,11 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
           <>
             {(activa === 'hoy' || activa === 'productos') && productos.length > 0 && <KpisDeCuenta datos={datos} />}
             {activa === 'hoy' ? (
-              <PestanaSeoHoy cuentaId={cuentaId} datos={datos} irA={(t, a) => irA(t, a)} />
+              <PestanaSeoHoy cuentaId={cuentaId} datos={datos} irA={(t, a) => irA(t, a)} historial={historial} verBusqueda={verBusqueda} />
             ) : activa === 'productos' ? (
               <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} />
             ) : activa === 'busquedas' ? (
-              <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} recargar={recargar} />
+              <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} recargar={recargar} consulta={consultaAbierta} setConsulta={setConsultaAbierta} />
             ) : activa === 'competencia' ? (
               <PestanaSeoCompetencia cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
             ) : activa === 'helium' ? (

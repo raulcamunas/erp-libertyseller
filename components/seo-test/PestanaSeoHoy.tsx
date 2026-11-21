@@ -10,6 +10,10 @@ import { tareasDeLaCuenta, type Tarea } from '@/lib/seo/tareas'
 import type { Gravedad } from '@/lib/seo/norma'
 import { BotonCopiar, DeslizableEnMovil, fichaDe, IrA, nombreDe, SELECT_PEQUENO, TiraDeCifrasSeo } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
+import { movimientosDe, type Movimientos } from '@/lib/seo/movimientos'
+import type { ConsultaHistorica } from '@/lib/seo/datos'
+import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
+import { FranjaDeMovimientos } from './FranjaDeMovimientos'
 
 type Filtro = 'todas' | 'graves' | 'seo' | 'otros'
 
@@ -39,13 +43,33 @@ function leerRevisadas(cuentaId: string): Record<string, number> {
  *
  * «Revisada» la esconde una semana en ESTE navegador (no se guarda en la base: es una comodidad de cada persona). Si al volver los datos siguen diciendo lo mismo, vuelve a salir.
  */
-export function PestanaSeoHoy({ cuentaId, datos, irA }: { cuentaId: string; datos: DatosSeo; irA: (t: 'productos' | 'busquedas' | 'ficha', asin?: string) => void }) {
+export function PestanaSeoHoy({
+  cuentaId,
+  datos,
+  irA,
+  historial,
+  verBusqueda,
+}: {
+  cuentaId: string
+  datos: DatosSeo
+  irA: (t: 'productos' | 'busquedas' | 'ficha', asin?: string) => void
+  historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; cargando: boolean }
+  verBusqueda?: (asin: string, consulta: string) => void
+}) {
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [producto, setProducto] = useState<string>('todos')
   const [revisadas, setRevisadas] = useState<Record<string, number>>({})
   const [verRevisadas, setVerRevisadas] = useState(false)
 
   useEffect(() => setRevisadas(leerRevisadas(cuentaId)), [cuentaId])
+
+  // Movimientos de la semana de cada producto (5 semanas de historial): la franja de arriba y la tarea de caída general
+  const movimientos = useMemo(() => {
+    const m = new Map<string, Movimientos>()
+    if (!historial || historial.filas.length === 0) return m
+    for (const p of datos.productos) m.set(p.asin, movimientosDe(historial.filas, p.asin, datos.precios?.[p.asin] ?? null))
+    return m
+  }, [historial, datos.productos, datos.precios])
 
   const tareas = useMemo(
     () =>
@@ -58,8 +82,8 @@ export function PestanaSeoHoy({ cuentaId, datos, irA }: { cuentaId: string; dato
         evolucion: datos.evolucion,
         precios: datos.precios,
         cambios: datos.cambios,
-      }),
-    [datos]
+      }, { movimientos }),
+    [datos, movimientos]
   )
 
   const marcar = (id: string, si: boolean) =>
@@ -101,6 +125,14 @@ export function PestanaSeoHoy({ cuentaId, datos, irA }: { cuentaId: string; dato
           { etiqueta: 'Compras en juego', valor: entero(enJuego), nota: 'de todo Amazon que aún no son tuyas' },
         ]}
       />
+      {historial && !historial.cargando && verBusqueda && (
+        <FranjaDeMovimientos
+          porProducto={datos.productos.filter((p) => movimientos.has(p.asin)).map((p) => ({ asin: p.asin, mov: movimientos.get(p.asin)! }))}
+          nombreDe={(a) => { const p = datos.productos.find((x) => x.asin === a); return p ? nombreDe(p, fichaDe(datos, a)) : a }}
+          gastoSemanal={historial.gastoSemanal}
+          verBusqueda={verBusqueda}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <DeslizableEnMovil>

@@ -18,6 +18,9 @@ import { ChipAjena, consultasDe, decisionesDe, DeltaPuntos, DeslizableEnMovil, d
 import { claveDeBusqueda, esRelevante } from '@/lib/seo/embudo'
 import { useDelProducto } from './useDelProducto'
 import type { DatosSeo } from './useCuentaSeo'
+import { PanelLateral } from '@/components/ui-ls/PanelLateral'
+import { FichaDeBusqueda } from './FichaDeBusqueda'
+import { useHistorial } from './useHistorial'
 
 type Filtro = 'todas' | 'faltan' | 'seo' | 'no-seo' | 'descartadas'
 type Orden = 'volumen' | 'impacto'
@@ -38,7 +41,12 @@ export interface DatosDePublicidad {
  * «No es nuestro producto» (migración 333) guarda la búsqueda como ajena para toda la cuenta y país: deja de contar para la ficha, las tareas y la IA. «Sí es nuestro» quita el chip «¿Ajena?» de la
  * heurística. Las dos se deshacen desde la misma fila.
  */
-export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, irAProductos, recargar }: { cuentaId: string; datos: DatosSeo; moneda: string | null; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void; recargar?: () => void }) {
+export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, irAProductos, recargar, consulta: consultaFuera, setConsulta: setConsultaFuera }: { cuentaId: string; datos: DatosSeo; moneda: string | null; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void; recargar?: () => void; consulta?: string | null; setConsulta?: (c: string | null) => void }) {
+  // La búsqueda abierta en el panel lateral: la controla SeoTest (para abrirla desde Hoy y Productos) o, si no, la propia pestaña
+  const [consultaPropia, setConsultaPropia] = useState<string | null>(null)
+  const consultaAbierta = setConsultaFuera ? (consultaFuera ?? null) : consultaPropia
+  const abrirConsulta = setConsultaFuera ?? setConsultaPropia
+  const historialDelProducto = useHistorial(consultaAbierta ? cuentaId : null, { asin })
   const [periodo, setPeriodo] = useState<'MONTH' | 'WEEK'>('MONTH')
   const [filtro, setFiltro] = useState<Filtro>('todas')
   const [orden, setOrden] = useState<Orden>('impacto')
@@ -194,7 +202,7 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
 
           {/* Las tarjetas son del móvil y la tabla del ordenador. Antes se pintaban las dos y una se escondía con CSS: en el móvil, cada letra del filtro
               volvía a montar las 400 filas de la tabla escondida. Hasta saber el ancho (en el servidor) van las dos, como antes */}
-          {esOrdenador !== true && <TarjetasDeBusquedas filas={filas} decision={decision} decidir={decidir} puedeDecidir={puedeDecidir} />}
+          {esOrdenador !== true && <TarjetasDeBusquedas filas={filas} decision={decision} decidir={decidir} puedeDecidir={puedeDecidir} abrir={abrirConsulta} />}
           {esOrdenador !== false && (
           <div className={`${CAJA.base} hidden overflow-x-auto md:block`}>
             <table className={`w-full ${conCompetencia ? 'min-w-[1380px]' : 'min-w-[1140px]'} border-separate border-spacing-0 whitespace-nowrap text-[12.5px]`}>
@@ -212,7 +220,7 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
               </thead>
               <tbody>
                 {filas.map((c) => (
-                  <tr key={c.consulta} className="group hover:[&>td]:bg-[var(--ls-sup2)]">
+                  <tr key={c.consulta} className="group cursor-pointer hover:[&>td]:bg-[var(--ls-sup2)]" onClick={(ev) => { if (!(ev.target as HTMLElement).closest('button, a')) abrirConsulta(c.consulta) }}>
                     <td className="border-t border-[var(--ls-linea)] px-4 py-[8px]">
                       <div className="flex max-w-[300px] flex-wrap items-center gap-[6px] whitespace-normal">
                         <span className="font-medium text-[var(--ls-t1)]">{c.consulta}</span>
@@ -278,6 +286,27 @@ export function PestanaSeoBusquedas({ cuentaId, datos, moneda, asin, setAsin, ir
           </p>
         </>
       )}
+      <PanelLateral
+        abierto={consultaAbierta !== null}
+        onCambio={(a) => !a && abrirConsulta(null)}
+        icono={Search}
+        acento="seo"
+        titulo={consultaAbierta ?? ''}
+        descripcion="Evolución, embudo frente al mercado y lo que dice la ficha"
+        ancho={560}
+      >
+        {consultaAbierta && asin ? (
+          <FichaDeBusqueda
+            consulta={consultaAbierta}
+            asin={asin}
+            fila={todas.find((x) => x.consulta.trim().toLowerCase() === consultaAbierta.trim().toLowerCase()) ?? null}
+            historial={historialDelProducto.filas}
+            cargandoHistorial={historialDelProducto.cargando}
+            top3={top3.get(consultaAbierta.trim().toLowerCase()) ?? []}
+            sinExacta={publicidad.datos?.hayMarketingTest ? publicidad.datos.sinExacta : null}
+          />
+        ) : null}
+      </PanelLateral>
     </div>
   )
 }
@@ -454,12 +483,12 @@ function SinExacta({ publicidad }: { publicidad: DatosDePublicidad | null }) {
 }
 
 /** En el móvil la tabla de 1.100 px no cabe: una tarjeta por búsqueda con lo esencial, de 30 en 30 (no se pintan 400 de golpe) */
-function TarjetasDeBusquedas({ filas, decision, decidir, puedeDecidir }: { filas: FilaDeTabla[]; decision: (consulta: string) => 'ajena' | 'nuestra' | null; decidir: (consulta: string, d: 'ajena' | 'nuestra' | null) => void; puedeDecidir: boolean }) {
+function TarjetasDeBusquedas({ filas, decision, decidir, puedeDecidir, abrir }: { filas: FilaDeTabla[]; decision: (consulta: string) => 'ajena' | 'nuestra' | null; decidir: (consulta: string, d: 'ajena' | 'nuestra' | null) => void; puedeDecidir: boolean; abrir?: (consulta: string) => void }) {
   const [cuantas, setCuantas] = useState(30)
   return (
     <div className="flex flex-col gap-2 md:hidden">
       {filas.slice(0, cuantas).map((c) => (
-        <div key={c.consulta} className={`${CAJA.base} flex flex-col gap-2 p-3`}>
+        <div key={c.consulta} className={`${CAJA.base} flex cursor-pointer flex-col gap-2 p-3`} onClick={(ev) => { if (abrir && !(ev.target as HTMLElement).closest('button, a')) abrir(c.consulta) }}>
           <div className="flex items-start gap-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-[6px] text-[14px] font-medium leading-[1.35] text-[var(--ls-t1)]">
               {c.consulta}
