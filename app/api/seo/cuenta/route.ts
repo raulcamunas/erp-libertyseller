@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { avanzarSeo, leerEstadoSeo } from '@/lib/seo/lectura'
-import { cambiosAplicados, consultasDelAnterior, consultasGuardadas, evolucionDeCuenta, fichasGuardadas, preciosDeListings, productosSeguidos } from '@/lib/seo/datos'
+import { cambiosAplicados, consultasDelAnterior, consultasGuardadas, evolucionDeCuenta, fichasGuardadas, periodosMostrados, preciosDeListings, productosSeguidos } from '@/lib/seo/datos'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
 
 /**
@@ -9,7 +9,9 @@ import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
  *
  *   GET  ?cuenta=connectionId~marketplaceId   → estado de la lectura (y del acceso a Brand Analytics), productos seguidos, búsquedas del último mes y semana, y fichas; con la migración 299,
  *                                              también la evolución de cada producto y las búsquedas del periodo anterior (para comparar). Además, el precio de cada producto en el catálogo
- *                                              (para descartar búsquedas que compran a otro precio) y los cambios de ficha aplicados (la ventana de 30 días del SOP)
+ *                                              (para descartar búsquedas que compran a otro precio) y los cambios de ficha aplicados (la ventana de 30 días del SOP). El periodo que se enseña
+ *                                              (`lectura.periodoMostrado`) es el que la lectura dio por terminado, no el más alto de la tabla: así no sale una semana a medias.
+ *                                              `lectura.asinsSinBa`: los ASIN para los que Amazon no da Brand Analytics (migración 332; [] sin ella)
  *   POST {cuenta, accion: 'actualizar'}         → vuelve a leer ya (fichas e informe), sin esperar al proceso de fondo
  *
  * Cada GET da también UN paso de la lectura (como Marketing Test): la pantalla no depende de que el proceso de fondo haya pasado justo ahora.
@@ -24,15 +26,17 @@ export async function GET(request: NextRequest) {
     if (a instanceof NextResponse) return a
     const c = { connectionId: a.connectionId, marketplaceId: a.marketplaceId }
     await avanzarSeo(c).catch((e) => console.error('SEO: paso de lectura desde la pantalla:', e instanceof Error ? e.message : e))
+    // El periodo que se enseña se calcula una vez y vale para las búsquedas y para su anterior
+    const mostrados = await periodosMostrados(c.connectionId, c.marketplaceId)
     const [estado, productos, mes, semana, fichas, evolucion, mesAnterior, semanaAnterior] = await Promise.all([
       leerEstadoSeo(c),
       productosSeguidos(c.connectionId, c.marketplaceId),
-      consultasGuardadas(c.connectionId, c.marketplaceId, 'MONTH'),
-      consultasGuardadas(c.connectionId, c.marketplaceId, 'WEEK'),
+      consultasGuardadas(c.connectionId, c.marketplaceId, 'MONTH', mostrados.MONTH),
+      consultasGuardadas(c.connectionId, c.marketplaceId, 'WEEK', mostrados.WEEK),
       fichasGuardadas(c.connectionId, c.marketplaceId),
       evolucionDeCuenta(c.connectionId, c.marketplaceId),
-      consultasDelAnterior(c.connectionId, c.marketplaceId, 'MONTH'),
-      consultasDelAnterior(c.connectionId, c.marketplaceId, 'WEEK'),
+      consultasDelAnterior(c.connectionId, c.marketplaceId, 'MONTH', mostrados.MONTH),
+      consultasDelAnterior(c.connectionId, c.marketplaceId, 'WEEK', mostrados.WEEK),
     ])
     // Lo de apoyo no tumba la pantalla: sin precio se estima con Brand Analytics y sin cambios no hay ventana que vigilar
     const asins = productos.map((p) => p.asin)
@@ -54,6 +58,8 @@ export async function GET(request: NextRequest) {
         competenciaError: estado?.top_error ?? null,
         competenciaEnCurso: Boolean(estado?.top_report_id),
         periodosLeidos: estado?.periodos_leidos?.length ?? 0,
+        periodoMostrado: { WEEK: mostrados.WEEK, MONTH: mostrados.MONTH },
+        asinsSinBa: mostrados.asinsSinBa,
       },
       productos,
       consultas: { MONTH: mes, WEEK: semana },

@@ -8,6 +8,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { AMAZON_MARKETPLACES, mercadosDeConexion } from '@/lib/types/amazon'
 import type { EstadoSeo } from './lectura'
+import { leerTodo, enTrozos } from './paginar'
+import { elegirPeriodo, sinDuplicados } from './periodo-mostrado'
 
 export interface CuentaDeSeo {
   /** «connectionId~marketplaceId»: el identificador que viaja por la dirección y las rutas */
@@ -195,52 +197,161 @@ export interface ConsultaGuardada {
 
 const n = (v: unknown) => (v == null ? null : Number(v))
 
-/** Las búsquedas guardadas de la cuenta en el ÚLTIMO periodo leído de cada tipo (el mes y la semana más recientes) */
-export async function consultasGuardadas(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH'): Promise<ConsultaGuardada[]> {
+const COLUMNAS_CONSULTA =
+  'asin, periodo, desde, hasta, consulta, puntuacion, volumen, cuota_impresiones, cuota_clics, cuota_carritos, cuota_compras, compras_asin, compras_total, clics_asin, impresiones_asin, impresiones_total, clics_total, carritos_total, carritos_asin, precio_mediano_total, precio_mediano_asin'
+
+const consultaDeFila = (r: Record<string, unknown>): ConsultaGuardada => ({
+  asin: String(r.asin),
+  periodo: r.periodo as 'WEEK' | 'MONTH',
+  desde: String(r.desde),
+  hasta: String(r.hasta),
+  consulta: String(r.consulta),
+  puntuacion: n(r.puntuacion),
+  volumen: n(r.volumen),
+  cuotaImpresiones: n(r.cuota_impresiones),
+  cuotaClics: n(r.cuota_clics),
+  cuotaCarritos: n(r.cuota_carritos),
+  cuotaCompras: n(r.cuota_compras),
+  comprasAsin: n(r.compras_asin),
+  comprasTotal: n(r.compras_total),
+  clicsAsin: n(r.clics_asin),
+  impresionesAsin: n(r.impresiones_asin),
+  impresionesTotal: n(r.impresiones_total),
+  clicsTotal: n(r.clics_total),
+  carritosTotal: n(r.carritos_total),
+  carritosAsin: n(r.carritos_asin),
+  precioMedianoTotal: n(r.precio_mediano_total),
+  precioMedianoAsin: n(r.precio_mediano_asin),
+})
+
+/* ------------------------------------------------------------------ */
+/* Qué periodo se enseña (lib/seo/periodo-mostrado.ts)                 */
+/* ------------------------------------------------------------------ */
+
+interface EstadoDePeriodos {
+  mesOk: string | null
+  semanaOk: string | null
+  /** undefined sin la migración 299 */
+  leidos: string[] | undefined
+  /** Los ASIN que Amazon no da en Brand Analytics (migración 332). [] sin la migración */
+  asinsSinBa: string[]
+}
+
+/** Lo que la lectura ha dado por terminado. Va probando columnas de más nueva a más vieja: sin la 332 o sin la 299 sigue funcionando */
+async function estadoDePeriodos(connectionId: string, marketplaceId: string): Promise<EstadoDePeriodos> {
   const service = createServiceClient()
-  const { data: ultimo } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).order('desde', { ascending: false }).limit(1).maybeSingle()
-  const desde = (ultimo as { desde: string } | null)?.desde
-  if (!desde) return []
-  const salida: ConsultaGuardada[] = []
-  for (let i = 0; i < 20_000; i += 1000) {
-    const { data, error } = await service
-      .from('seo_consultas')
-      .select('asin, periodo, desde, hasta, consulta, puntuacion, volumen, cuota_impresiones, cuota_clics, cuota_carritos, cuota_compras, compras_asin, compras_total, clics_asin, impresiones_asin, impresiones_total, clics_total, carritos_total, carritos_asin, precio_mediano_total, precio_mediano_asin')
-      .eq('connection_id', connectionId)
-      .eq('marketplace_id', marketplaceId)
-      .eq('periodo', periodo)
-      .eq('desde', desde)
-      .order('volumen', { ascending: false, nullsFirst: false })
-      .range(i, i + 999)
-    if (error) throw error
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
-      salida.push({
-        asin: String(r.asin),
-        periodo: r.periodo as 'WEEK' | 'MONTH',
-        desde: String(r.desde),
-        hasta: String(r.hasta),
-        consulta: String(r.consulta),
-        puntuacion: n(r.puntuacion),
-        volumen: n(r.volumen),
-        cuotaImpresiones: n(r.cuota_impresiones),
-        cuotaClics: n(r.cuota_clics),
-        cuotaCarritos: n(r.cuota_carritos),
-        cuotaCompras: n(r.cuota_compras),
-        comprasAsin: n(r.compras_asin),
-        comprasTotal: n(r.compras_total),
-        clicsAsin: n(r.clics_asin),
-        impresionesAsin: n(r.impresiones_asin),
-        impresionesTotal: n(r.impresiones_total),
-        clicsTotal: n(r.clics_total),
-        carritosTotal: n(r.carritos_total),
-        carritosAsin: n(r.carritos_asin),
-        precioMedianoTotal: n(r.precio_mediano_total),
-        precioMedianoAsin: n(r.precio_mediano_asin),
-      })
+  for (const columnas of ['mes_ok, semana_ok, periodos_leidos, asins_sin_ba', 'mes_ok, semana_ok, periodos_leidos', 'mes_ok, semana_ok']) {
+    const { data, error } = await service.from('seo_lecturas').select(columnas).eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).maybeSingle()
+    if (error) {
+      if (isMissingSchema(error)) continue
+      throw error
     }
-    if (!data || data.length < 1000) break
+    const r = (data ?? {}) as { mes_ok?: string | null; semana_ok?: string | null; periodos_leidos?: string[] | null; asins_sin_ba?: string[] | null }
+    return {
+      mesOk: r.mes_ok ?? null,
+      semanaOk: r.semana_ok ?? null,
+      leidos: columnas.includes('periodos_leidos') ? (r.periodos_leidos ?? []) : undefined,
+      asinsSinBa: Array.isArray(r.asins_sin_ba) ? r.asins_sin_ba : [],
+    }
   }
-  return salida
+  return { mesOk: null, semanaOk: null, leidos: undefined, asinsSinBa: [] }
+}
+
+async function maxDesdeDe(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH'): Promise<string | null> {
+  const { data, error } = await createServiceClient().from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).order('desde', { ascending: false }).limit(1).maybeSingle()
+  if (error) throw error
+  return (data as { desde: string } | null)?.desde ?? null
+}
+
+/**
+ * El periodo que se enseña de cada tipo: el que la lectura dio por terminado, luego el último leído entero del histórico y, si no, el más alto de la tabla. Así no sale una semana a medias (con
+ * solo los productos de las primeras tandas) mientras Amazon prepara las demás.
+ */
+export async function periodosMostrados(connectionId: string, marketplaceId: string): Promise<{ WEEK: string | null; MONTH: string | null; asinsSinBa: string[] }> {
+  const [estado, maxSemana, maxMes] = await Promise.all([estadoDePeriodos(connectionId, marketplaceId), maxDesdeDe(connectionId, marketplaceId, 'WEEK'), maxDesdeDe(connectionId, marketplaceId, 'MONTH')])
+  return {
+    WEEK: elegirPeriodo({ periodo: 'WEEK', ok: estado.semanaOk, leidos: estado.leidos, maxDesde: maxSemana }),
+    MONTH: elegirPeriodo({ periodo: 'MONTH', ok: estado.mesOk, leidos: estado.leidos, maxDesde: maxMes }),
+    asinsSinBa: estado.asinsSinBa,
+  }
+}
+
+export async function periodoMostrado(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH'): Promise<string | null> {
+  return (await periodosMostrados(connectionId, marketplaceId))[periodo]
+}
+
+/**
+ * Las búsquedas guardadas de la cuenta en el periodo que se enseña de cada tipo (ver periodosMostrados). `desde` permite pasar el periodo ya calculado (la ruta de la cuenta lo calcula una vez
+ * para todo). Orden estable (volumen, asin, consulta) y sin repetidos.
+ */
+export async function consultasGuardadas(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH', desde?: string | null): Promise<ConsultaGuardada[]> {
+  const elegido = desde === undefined ? await periodoMostrado(connectionId, marketplaceId, periodo) : desde
+  if (!elegido) return []
+  const service = createServiceClient()
+  const filas = await leerTodo<Record<string, unknown>>(
+    (a, b) =>
+      service
+        .from('seo_consultas')
+        .select(COLUMNAS_CONSULTA)
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .eq('periodo', periodo)
+        .eq('desde', elegido)
+        .order('volumen', { ascending: false, nullsFirst: false })
+        .order('asin')
+        .order('consulta')
+        .range(a, b),
+    { etiqueta: `búsquedas ${periodo}` }
+  )
+  return sinDuplicados(filas.map(consultaDeFila), (c) => `${c.asin}|${c.consulta}`)
+}
+
+/** Una fila de cualquier periodo, para la evolución de cada búsqueda (el historial) */
+export type ConsultaHistorica = ConsultaGuardada
+
+const DIA = 86_400_000
+const restarDias = (fecha: string, dias: number) => new Date(Date.parse(`${fecha}T00:00:00Z`) - dias * DIA).toISOString().slice(0, 10)
+const restarMeses = (fecha: string, meses: number) => {
+  const d = new Date(`${fecha}T00:00:00Z`)
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - meses, 1)).toISOString().slice(0, 10)
+}
+
+/**
+ * Las búsquedas de todos los periodos leídos (o de las N últimas semanas / meses), para ver cómo se mueve cada una. Nunca pasa del periodo mostrado: la semana a medias no entra.
+ *   · sin `semanas` ni `meses` → todas las semanas y todos los meses;
+ *   · con uno de los dos → solo ese tipo; con los dos → los dos.
+ * Ordenado por asin, periodo, desde y consulta (va por el índice idx_seo_consultas_asin).
+ */
+export async function historialDeConsultas(connectionId: string, marketplaceId: string, opciones: { asin?: string | null; semanas?: number | null; meses?: number | null } = {}): Promise<ConsultaHistorica[]> {
+  const mostrados = await periodosMostrados(connectionId, marketplaceId)
+  const pedidos: Array<{ periodo: 'WEEK' | 'MONTH'; cuantos: number | null }> = []
+  const semanas = opciones.semanas && opciones.semanas > 0 ? Math.floor(opciones.semanas) : null
+  const meses = opciones.meses && opciones.meses > 0 ? Math.floor(opciones.meses) : null
+  if (semanas == null && meses == null) pedidos.push({ periodo: 'WEEK', cuantos: null }, { periodo: 'MONTH', cuantos: null })
+  else {
+    if (semanas != null) pedidos.push({ periodo: 'WEEK', cuantos: semanas })
+    if (meses != null) pedidos.push({ periodo: 'MONTH', cuantos: meses })
+  }
+  const service = createServiceClient()
+  const asin = opciones.asin?.trim().toUpperCase() || null
+  const salida: ConsultaHistorica[] = []
+  for (const { periodo, cuantos } of pedidos) {
+    const hasta = mostrados[periodo]
+    if (!hasta) continue
+    const desdeMinimo = cuantos == null ? null : periodo === 'WEEK' ? restarDias(hasta, 7 * (cuantos - 1)) : restarMeses(hasta, cuantos - 1)
+    const filas = await leerTodo<Record<string, unknown>>(
+      (a, b) => {
+        let q = service.from('seo_consultas').select(COLUMNAS_CONSULTA).eq('connection_id', connectionId).eq('marketplace_id', marketplaceId)
+        if (asin) q = q.eq('asin', asin)
+        q = q.eq('periodo', periodo).lte('desde', hasta)
+        if (desdeMinimo) q = q.gte('desde', desdeMinimo)
+        return q.order('asin').order('periodo').order('desde').order('consulta').range(a, b)
+      },
+      { etiqueta: `historial ${periodo}` }
+    )
+    salida.push(...filas.map(consultaDeFila))
+  }
+  return sinDuplicados(salida, (c) => `${c.asin}|${c.periodo}|${c.desde}|${c.consulta}`)
 }
 
 export interface FichaGuardada {
@@ -320,14 +431,36 @@ export interface PuntoDeEvolucion {
   cuotaImpresiones: number | null
 }
 
-/** Por producto y periodo, lo sumado de todas sus búsquedas. [] si falta la migración 299 */
+/**
+ * Por producto y periodo, lo sumado de todas sus búsquedas. [] si falta la migración 299. La función de la base devuelve una fila por ASIN y periodo de TODO lo guardado (también de productos
+ * que ya no se siguen): se filtra a los seguidos y se pagina (antes se cortaba en 1000 filas). Va ordenada por asin, periodo y desde, que es única.
+ */
 export async function evolucionDeCuenta(connectionId: string, marketplaceId: string): Promise<PuntoDeEvolucion[]> {
-  const { data, error } = await createServiceClient().rpc('seo_evolucion', { p_conexion: connectionId, p_mercado: marketplaceId })
-  if (error) {
+  const seguidos = (await productosSeguidos(connectionId, marketplaceId)).map((p) => p.asin.toUpperCase())
+  if (seguidos.length === 0) return []
+  const service = createServiceClient()
+  let filas: Array<Record<string, unknown>> = []
+  try {
+    for (const trozo of enTrozos(seguidos, 200)) {
+      filas = filas.concat(
+        await leerTodo<Record<string, unknown>>(
+          (a, b) =>
+            service
+              .rpc('seo_evolucion', { p_conexion: connectionId, p_mercado: marketplaceId })
+              .in('asin', trozo)
+              .order('asin')
+              .order('periodo')
+              .order('desde')
+              .range(a, b) as unknown as PromiseLike<{ data: Array<Record<string, unknown>> | null; error: unknown }>,
+          { etiqueta: 'evolución' }
+        )
+      )
+    }
+  } catch (error) {
     if (isMissingSchema(error)) return []
     throw error
   }
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+  return filas.map((r) => {
     const comprasTotal = Number(r.compras_total) || 0
     const impTotal = Number(r.impresiones_total) || 0
     return {
@@ -352,23 +485,36 @@ export interface ConsultaAnterior {
   cuotaImpresiones: number | null
 }
 
-/** Las búsquedas del periodo ANTERIOR al último leído (para el «vs anterior» de cada búsqueda) */
-export async function consultasDelAnterior(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH'): Promise<ConsultaAnterior[]> {
+/**
+ * Las búsquedas del periodo ANTERIOR al que se enseña (para el «vs anterior» de cada búsqueda): el mayor `desde` por debajo del mostrado, no del más alto de la tabla. `mostrado` permite pasar el
+ * periodo ya calculado.
+ */
+export async function consultasDelAnterior(connectionId: string, marketplaceId: string, periodo: 'WEEK' | 'MONTH', mostrado?: string | null): Promise<ConsultaAnterior[]> {
   const service = createServiceClient()
-  const { data: ultimos } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).order('desde', { ascending: false }).limit(1)
-  const ultimo = ((ultimos ?? []) as Array<{ desde: string }>)[0]?.desde
+  const ultimo = mostrado === undefined ? await periodoMostrado(connectionId, marketplaceId, periodo) : mostrado
   if (!ultimo) return []
-  const { data: previo } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).lt('desde', ultimo).order('desde', { ascending: false }).limit(1)
+  const { data: previo, error: e } = await service.from('seo_consultas').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).lt('desde', ultimo).order('desde', { ascending: false }).limit(1)
+  if (e) throw e
   const desde = ((previo ?? []) as Array<{ desde: string }>)[0]?.desde
   if (!desde) return []
-  const salida: ConsultaAnterior[] = []
-  for (let i = 0; i < 20_000; i += 1000) {
-    const { data, error } = await service.from('seo_consultas').select('asin, consulta, volumen, cuota_compras, cuota_impresiones').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', periodo).eq('desde', desde).range(i, i + 999)
-    if (error) throw error
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) salida.push({ asin: String(r.asin), consulta: String(r.consulta), volumen: n(r.volumen), cuotaCompras: n(r.cuota_compras), cuotaImpresiones: n(r.cuota_impresiones) })
-    if (!data || data.length < 1000) break
-  }
-  return salida
+  const filas = await leerTodo<Record<string, unknown>>(
+    (a, b) =>
+      service
+        .from('seo_consultas')
+        .select('asin, consulta, volumen, cuota_compras, cuota_impresiones')
+        .eq('connection_id', connectionId)
+        .eq('marketplace_id', marketplaceId)
+        .eq('periodo', periodo)
+        .eq('desde', desde)
+        .order('asin')
+        .order('consulta')
+        .range(a, b),
+    { etiqueta: `búsquedas anteriores ${periodo}` }
+  )
+  return sinDuplicados(
+    filas.map((r) => ({ asin: String(r.asin), consulta: String(r.consulta), volumen: n(r.volumen), cuotaCompras: n(r.cuota_compras), cuotaImpresiones: n(r.cuota_impresiones) })),
+    (c) => `${c.asin}|${c.consulta}`
+  )
 }
 
 export interface FilaCompetencia {
@@ -377,10 +523,15 @@ export interface FilaCompetencia {
   asin: string
   cuotaClics: number | null
   cuotaConversion: number | null
+  /** La semana (domingo) de la fila: con `semanas` > 1 llegan varias */
+  desde: string
 }
 
-/** Los 3 ASIN que más clics se llevan en cada una de esas búsquedas, de la última semana leída. null si falta la migración 299 */
-export async function competenciaDe(connectionId: string, marketplaceId: string, consultas: readonly string[]): Promise<{ desde: string | null; filas: FilaCompetencia[] } | null> {
+/**
+ * Los 3 ASIN que más clics se llevan en cada una de esas búsquedas, de la última semana leída (o de las `semanas` últimas). `desde` es la última; `semanas` (en la respuesta), las que han entrado,
+ * de la más vieja a la más nueva. null si falta la migración 299.
+ */
+export async function competenciaDe(connectionId: string, marketplaceId: string, consultas: readonly string[], opciones: { semanas?: number } = {}): Promise<{ desde: string | null; semanas: string[]; filas: FilaCompetencia[] } | null> {
   const service = createServiceClient()
   const { data: ultimo, error } = await service.from('seo_top_terminos').select('desde').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', 'WEEK').order('desde', { ascending: false }).limit(1)
   if (error) {
@@ -388,14 +539,23 @@ export async function competenciaDe(connectionId: string, marketplaceId: string,
     throw error
   }
   const desde = ((ultimo ?? []) as Array<{ desde: string }>)[0]?.desde ?? null
-  if (!desde || consultas.length === 0) return { desde, filas: [] }
+  if (!desde || consultas.length === 0) return { desde, semanas: desde ? [desde] : [], filas: [] }
+  const cuantas = Math.max(1, Math.floor(opciones.semanas ?? 1))
+  const primera = restarDias(desde, 7 * (cuantas - 1))
   const filas: FilaCompetencia[] = []
   // Se guardan normalizadas (minúsculas, espacios simples): se buscan igual
   const lista = [...new Set(consultas.map((q) => q.trim().toLowerCase().replace(/\s+/g, ' ')))]
-  for (let i = 0; i < lista.length; i += 150) {
-    const { data, error: e } = await service.from('seo_top_terminos').select('consulta, posicion, asin, cuota_clics, cuota_conversion').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', 'WEEK').eq('desde', desde).in('consulta', lista.slice(i, i + 150))
-    if (e) throw e
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) filas.push({ consulta: String(r.consulta), posicion: Number(r.posicion), asin: String(r.asin), cuotaClics: n(r.cuota_clics), cuotaConversion: n(r.cuota_conversion) })
+  for (const trozo of enTrozos(lista, 150)) {
+    const datos = await leerTodo<Record<string, unknown>>(
+      (a, b) => {
+        let q = service.from('seo_top_terminos').select('desde, consulta, posicion, asin, cuota_clics, cuota_conversion').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('periodo', 'WEEK')
+        q = cuantas === 1 ? q.eq('desde', desde) : q.gte('desde', primera).lte('desde', desde)
+        return q.in('consulta', trozo).order('desde').order('consulta').order('posicion').range(a, b)
+      },
+      { etiqueta: 'competencia' }
+    )
+    for (const r of datos) filas.push({ consulta: String(r.consulta), posicion: Number(r.posicion), asin: String(r.asin), cuotaClics: n(r.cuota_clics), cuotaConversion: n(r.cuota_conversion), desde: String(r.desde) })
   }
-  return { desde, filas }
+  const semanas = [...new Set(filas.map((f) => f.desde))].sort()
+  return { desde, semanas: semanas.length ? semanas : [desde], filas }
 }

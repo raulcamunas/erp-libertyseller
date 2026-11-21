@@ -18,6 +18,10 @@ export interface LecturaSeo {
   competenciaError?: string | null
   competenciaEnCurso?: boolean
   periodosLeidos?: number
+  /** El `desde` del mes y la semana que se enseñan (el que la lectura dio por terminado, no la semana a medias). null si aún no hay nada */
+  periodoMostrado?: { WEEK: string | null; MONTH: string | null }
+  /** Los ASIN para los que Amazon no da Brand Analytics (migración 332). [] sin la migración */
+  asinsSinBa?: string[]
 }
 
 export interface DatosSeo {
