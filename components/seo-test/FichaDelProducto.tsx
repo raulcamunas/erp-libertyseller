@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { CAJA } from '@/components/marketing-test/piezas'
+import { CAJA, Chispa } from '@/components/marketing-test/piezas'
 import { entero, porcentaje } from '@/components/marketing-test/formato'
 import { cestaFija } from '@/lib/seo/cesta'
 import type { ConsultaGuardada } from '@/lib/seo/datos'
@@ -14,8 +14,11 @@ import { revisarFicha } from '@/lib/seo/norma'
 import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
 import { resumenDeProducto } from '@/lib/seo/resumen'
 import type { Tarea } from '@/lib/seo/tareas'
-import { consultasDe, decisionesDe, fichaDe, nombreDe, TiraDeCifrasSeo } from './comun'
+import { consultasDe, decisionesDe, diagnosticoDe, fichaDe, nombreDe, TarjetaDeEmbudo, TiraDeCifrasSeo } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
+import type { CambioGuardado, Rival } from '@/lib/seo/rivales-servidor'
+import type { DatosDePublicidad } from './PestanaSeoBusquedas'
+import { useDelProducto } from './useDelProducto'
 
 /**
  * EL RESUMEN DE UN PRODUCTO (pestaña Productos, al pulsar su fila). Lo esencial en una pantalla; cada sección acaba en «Ver más» hacia la pestaña que ya existe:
@@ -27,6 +30,7 @@ import type { DatosSeo } from './useCuentaSeo'
  */
 
 export interface FichaDelProductoProps {
+  cuentaId: string
   datos: DatosSeo
   asin: string
   historial: readonly ConsultaGuardada[]
@@ -38,9 +42,10 @@ export interface FichaDelProductoProps {
   verBusqueda: (asin: string, consulta: string) => void
   verFicha: (asin: string) => void
   verHoy: () => void
+  verCompetencia?: (asin: string) => void
 }
 
-export function FichaDelProducto({ datos, asin, historial, gastoSemanal, movimientos, tareas, volver, verBusquedas, verBusqueda, verFicha, verHoy }: FichaDelProductoProps) {
+export function FichaDelProducto({ cuentaId, verCompetencia, datos, asin, historial, gastoSemanal, movimientos, tareas, volver, verBusquedas, verBusqueda, verFicha, verHoy }: FichaDelProductoProps) {
   const producto = datos.productos.find((p) => p.asin === asin)
   const ficha = fichaDe(datos, asin)
   const precio = datos.precios?.[asin] ?? null
@@ -48,6 +53,11 @@ export function FichaDelProducto({ datos, asin, historial, gastoSemanal, movimie
   const consultas = mes.length > 0 ? mes : consultasDe(datos, asin, 'WEEK')
   const r = resumenDeProducto(consultas, ficha, precio, decisionesDe(datos))
   const sinBa = (datos.lectura.asinsSinBa ?? []).includes(asin)
+  const publicidad = useDelProducto<DatosDePublicidad>(`/api/seo/publicidad?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}`)
+  const rivales = useDelProducto<{ rivales: Rival[]; cambios: CambioGuardado[]; sinMigracion?: boolean }>(`/api/seo/rivales?cuenta=${encodeURIComponent(cuentaId)}`)
+  const misRivales = (rivales.datos?.rivales ?? []).filter((x) => x.asinPropio === asin && x.activo)
+  const haceUnaSemana = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+  const cambiosDe = (asinRival: string) => (rivales.datos?.cambios ?? []).filter((c) => c.asinRival === asinRival && c.fecha >= haceUnaSemana).length
 
   // 2 · Cesta fija semanal + gasto PPC por semana
   const evolucion = useMemo(() => {
@@ -137,6 +147,13 @@ export function FichaDelProducto({ datos, asin, historial, gastoSemanal, movimie
             )}
           </Seccion>
 
+          {/* · El embudo del producto frente al mercado */}
+          {consultas.length > 0 && (
+            <Seccion titulo="Embudo frente al mercado" verMas={() => verBusquedas(asin)} textoVerMas="Búsquedas">
+              <TarjetaDeEmbudo d={diagnosticoDe(datos, asin)} compacta />
+            </Seccion>
+          )}
+
           {/* 3 · Búsquedas que pesan */}
           <Seccion titulo="Búsquedas que pesan" verMas={() => verBusquedas(asin)} textoVerMas="Búsquedas">
             {pesan.length === 0 ? (
@@ -183,6 +200,57 @@ export function FichaDelProducto({ datos, asin, historial, gastoSemanal, movimie
               </p>
             )}
           </div>
+        )}
+      </Seccion>
+
+      {/* · Cruce con publicidad */}
+      <Seccion titulo="Cruce con publicidad">
+        {publicidad.cargando && !publicidad.datos ? (
+          <div className="h-[48px] animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+        ) : !publicidad.datos?.hayMarketingTest ? (
+          <p className="text-[12.5px] text-[var(--ls-t3)]">Este cliente no está en Marketing Test en este país: no hay datos de publicidad con los que cruzar.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ListaCorta
+              titulo={`${entero(publicidad.datos.sinExacta.length)} búsquedas que venden sin keyword EXACTA`}
+              vacio="Todas las búsquedas que venden tienen su EXACTA."
+              items={publicidad.datos.sinExacta.slice(0, 3).map((b) => ({ clave: b.consulta, texto: b.consulta, nota: `${entero(b.comprasTotal)} compras${b.enOtraConcordancia ? ' · en amplia o frase' : ''}`, abrir: () => verBusqueda(asin, b.consulta) }))}
+            />
+            <ListaCorta
+              titulo={`${entero(publicidad.datos.vendePorPublicidad.filter((t) => t.faltan.length > 0).length)} términos que venden por PPC y no están en la ficha`}
+              vacio="Lo que vende por publicidad ya está en la ficha."
+              items={publicidad.datos.vendePorPublicidad.filter((t) => t.faltan.length > 0).slice(0, 3).map((t) => ({ clave: t.termino, texto: t.termino, nota: `${entero(t.pedidos)} pedidos · falta «${t.faltan.join(', ')}»` }))}
+            />
+          </div>
+        )}
+      </Seccion>
+
+      {/* · Rivales del producto */}
+      <Seccion titulo="Rivales" verMas={verCompetencia ? () => verCompetencia(asin) : undefined} textoVerMas="Competencia">
+        {rivales.cargando && !rivales.datos ? (
+          <div className="h-[48px] animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+        ) : misRivales.length === 0 ? (
+          <p className="text-[12.5px] text-[var(--ls-t3)]">No sigues rivales de este producto. Se añaden en «Competencia» (a mano, desde el Top 3 o desde el Cerebro).</p>
+        ) : (
+          <ul className="divide-y divide-[var(--ls-linea)]">
+            {misRivales.slice(0, 6).map((x) => {
+              const precios = x.serie.map((p) => p.precio).filter((n): n is number => n != null)
+              const bsr = x.ultima?.bsr?.[0]
+              const n = cambiosDe(x.asinRival)
+              return (
+                <li key={x.id} className="flex min-w-0 items-center gap-3 py-1.5 text-[12.5px]">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[var(--ls-t1)]">{x.nombre ?? x.asinRival}</span>
+                    <span className="font-mono text-[11px] text-[var(--ls-t4)]">{x.asinRival}</span>
+                  </span>
+                  <div className="w-[70px] shrink-0"><Chispa valores={precios} color={COLOR_ESTADO.ambar} /></div>
+                  <span className="w-[70px] shrink-0 text-right tabular-nums text-[var(--ls-t1)]">{x.ultima?.precio == null ? '—' : x.ultima.precio.toLocaleString('es-ES', { style: 'currency', currency: x.ultima.moneda || 'EUR' })}</span>
+                  <span className="w-[86px] shrink-0 text-right tabular-nums text-[var(--ls-t3)]" title={bsr ? `Puesto en ${bsr.categoria ?? 'su categoría'}` : undefined}>{bsr ? `#${entero(bsr.rank)}` : '—'}</span>
+                  <span className="w-[72px] shrink-0 text-right text-[11.5px]" style={{ color: n > 0 ? COLOR_ESTADO.ambar : 'var(--ls-t4)' }}>{n > 0 ? `${n} cambio${n === 1 ? '' : 's'} 7 d` : 'sin cambios'}</span>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </Seccion>
 
@@ -236,6 +304,33 @@ function Medida({ etiqueta, valor, maximo, unidad }: { etiqueta: string; valor: 
       <span className="tabular-nums text-[var(--ls-t2)]">
         {entero(valor)} / {entero(maximo)} {unidad}
       </span>
+    </div>
+  )
+}
+
+function ListaCorta({ titulo, vacio, items }: { titulo: string; vacio: string; items: Array<{ clave: string; texto: string; nota: string; abrir?: () => void }> }) {
+  return (
+    <div className="min-w-0">
+      <p className="mb-1 text-[12px] font-medium text-[var(--ls-t2)]">{titulo}</p>
+      {items.length === 0 ? (
+        <p className="text-[12px] text-[var(--ls-t4)]">{vacio}</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {items.map((i) => (
+            <li key={i.clave}>
+              {i.abrir ? (
+                <button type="button" onClick={i.abrir} className="w-full min-w-0 truncate text-left text-[12.5px] text-[var(--ls-t1)] hover:underline">
+                  {i.texto} <span className="text-[var(--ls-t4)]">· {i.nota}</span>
+                </button>
+              ) : (
+                <p className="truncate text-[12.5px] text-[var(--ls-t1)]">
+                  {i.texto} <span className="text-[var(--ls-t4)]">· {i.nota}</span>
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

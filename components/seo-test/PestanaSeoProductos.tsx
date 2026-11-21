@@ -34,6 +34,7 @@ export function PestanaSeoProductos({
   historial,
   verBusqueda,
   verHoy,
+  verCompetencia,
 }: {
   cuentaId: string
   datos: DatosSeo
@@ -43,6 +44,7 @@ export function PestanaSeoProductos({
   historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; cargando: boolean }
   verBusqueda?: (asin: string, consulta: string) => void
   verHoy?: () => void
+  verCompetencia?: (asin: string) => void
 }) {
   const [anadiendo, setAnadiendo] = useState(false)
   // El producto abierto en su «Resumen» (en la misma pestaña, con «← Todos los productos»)
@@ -100,6 +102,8 @@ export function PestanaSeoProductos({
   if (abierto && datos.productos.some((p) => p.asin === abierto)) {
     return (
       <FichaDelProducto
+        cuentaId={cuentaId}
+        verCompetencia={verCompetencia}
         datos={datos}
         asin={abierto}
         historial={historial?.filas ?? []}
