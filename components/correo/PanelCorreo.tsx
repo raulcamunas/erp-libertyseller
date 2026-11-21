@@ -826,7 +826,7 @@ function BuscadorDeCabecera({ valor, onCambio, sitio }: { valor: string; onCambi
 /** Cabecera pegajosa de un nivel del móvil (Resumen, Secuencias, Conectar): el hueco de la hamburguesa y «←» después */
 function CabeceraDeNivel({ titulo, icono: Icono, onAtras }: { titulo: string; icono?: typeof Mail; onAtras: () => void }) {
   return (
-    <div className="sticky top-0 z-20 flex h-14 items-center gap-1 bg-[var(--ls-fondo)] pl-14 lg:pl-0">
+    <div className="sticky top-[var(--cab-hueco,0px)] z-20 flex h-14 items-center gap-1 bg-[var(--ls-fondo)] pl-1 lg:top-0 lg:pl-0">
       <button type="button" onClick={onAtras} aria-label="Volver" className={cn('-ml-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--ls-t2)] active:bg-[var(--ls-sup3)]', FOCO)}>
         <ArrowLeft className="h-5 w-5" aria-hidden />
       </button>

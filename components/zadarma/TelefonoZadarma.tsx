@@ -97,7 +97,7 @@ export function TelefonoZadarma() {
   if (ll) {
     const viva = ll.estado !== 'terminada'
     return (
-      <div className="pointer-events-none fixed inset-x-0 top-3 z-[95] flex justify-center px-3">
+      <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--cab-hueco,0px)+12px)] z-[95] lg:top-3 flex justify-center px-3">
         <div role="status" aria-live="polite" className={`pointer-events-auto relative flex max-w-full items-center gap-3 rounded-full border px-3 py-2 shadow-[0_16px_40px_rgba(0,0,0,0.45)] ${ll.estado === 'entrante' ? 'border-[var(--ls-e-verde)] bg-[var(--ls-sup)]' : viva ? 'border-[var(--ls-linea2)] bg-[var(--ls-sup)]' : 'border-[var(--ls-linea)] bg-[var(--ls-sup2)]'}`}>
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${ll.estado === 'en_curso' ? 'bg-[var(--ls-e-verde)] text-white' : ll.estado === 'entrante' ? 'animate-pulse bg-[var(--ls-e-verde)] text-white' : viva ? 'bg-[var(--ls-sup3)] text-[var(--ls-t1)]' : 'bg-[var(--ls-sup3)] text-[var(--ls-t3)]'}`}>
             {ll.estado === 'entrante' ? <PhoneIncoming className="h-4 w-4" /> : viva ? <Phone className="h-4 w-4" /> : <PhoneOff className="h-4 w-4" />}

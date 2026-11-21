@@ -513,7 +513,7 @@ function BarraDeSeleccionMovil({ visible, texto, choca, onPedir, onQuitar }: { v
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 90, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 420, damping: 36 }}
-            className="fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-40 flex items-center gap-2 rounded-[16px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-2 pl-4 shadow-[var(--ls-sombra-3)] lg:hidden"
+            className="fixed inset-x-3 bottom-[max(calc(12px+env(safe-area-inset-bottom)),calc(var(--barra-hueco,0px)+12px))] z-40 flex items-center gap-2 rounded-[16px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] p-2 pl-4 shadow-[var(--ls-sombra-3)] lg:hidden"
           >
             <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-medium', choca ? 'text-[var(--ls-e-rojo)]' : 'text-[var(--ls-t1)]')}>{texto}</span>
             <Boton variante="fantasma" soloIcono icono={X} aria-label="Quitar la selección" onClick={onQuitar} />

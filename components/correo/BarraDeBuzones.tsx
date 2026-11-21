@@ -805,7 +805,7 @@ export function BarraDeBuzones(props: PropsDeBarraDeBuzones & ExtrasDeBarra) {
         <LayoutGroup id="correo-barra-movil">
           <nav aria-label="Buzones de correo" className="flex flex-col">
             {/* Cabecera pegajosa: el hueco de la hamburguesa fija (.lat-hamburguesa) con pl-14 */}
-            <div className="sticky top-0 z-20 -mx-1 flex h-14 items-center gap-2 bg-[color-mix(in_srgb,var(--ls-fondo)_92%,transparent)] pl-14 pr-1 backdrop-blur-md lg:pl-0">
+            <div className="sticky top-[var(--cab-hueco,0px)] z-20 -mx-1 flex h-14 items-center gap-2 bg-[color-mix(in_srgb,var(--ls-fondo)_92%,transparent)] pl-1 pr-1 lg:top-0 backdrop-blur-md lg:pl-0">
               <h1 className="flex min-w-0 flex-1 items-center gap-2 text-[18px] font-semibold tracking-[-0.015em] text-[var(--ls-t1)]">
                 Correo
               </h1>

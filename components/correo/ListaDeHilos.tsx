@@ -260,8 +260,8 @@ export function ListaDeHilos(props: PropsDeLista) {
     <MotionConfig reducedMotion="user">
       <div className="flex flex-col md:h-full md:min-h-0">
         {/* ---------- Cabecera pegajosa del móvil (el hueco de la hamburguesa, y «←» después) ---------- */}
-        <div className="sticky top-0 z-20 bg-[var(--ls-fondo)] md:hidden">
-          <div className="flex h-14 items-center gap-1 pl-14 pr-0 lg:pl-0">
+        <div className="sticky top-[var(--cab-hueco,0px)] z-20 bg-[var(--ls-fondo)] md:hidden">
+          <div className="flex h-14 items-center gap-1 pl-1 pr-0 lg:pl-0">
             {onAtras && (
               <button type="button" onClick={onAtras} aria-label="Volver a las carpetas" className={cn('-ml-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--ls-t2)] active:bg-[var(--ls-sup3)]', FOCO)}>
                 <ArrowLeft className="h-5 w-5" aria-hidden />

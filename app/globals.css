@@ -5774,7 +5774,8 @@ html.light {
 
 @media (max-width: 1023.98px) {
   html:has(.cab-movil) { --cab-hueco: calc(var(--cab-alto) + env(safe-area-inset-top, 0px)); }
-  html:has(.barra-inferior) { --barra-hueco: calc(var(--barra-alto) + env(safe-area-inset-bottom, 0px)); }
+  /* Con el teclado abierto o el chat a pantalla completa la barra se oculta: entonces no ocupa sitio (si no, lo de abajo flota sobre el teclado) */
+  html:has(.barra-inferior):not([data-escribiendo]):not(.chat-abierto) { --barra-hueco: calc(var(--barra-alto) + env(safe-area-inset-bottom, 0px)); }
 
   /* ---------- La cabecera ---------- */
   .cab-movil {
@@ -5786,6 +5787,20 @@ html.light {
     -webkit-backdrop-filter: saturate(1.6) blur(16px); backdrop-filter: saturate(1.6) blur(16px);
     border-bottom: 1px solid var(--ls-linea);
   }
+  /* Tema claro con la app instalada en el iPhone: el reloj de la barra de estado es siempre blanco (black-translucent), así que la franja de la muesca va oscura */
+  html.light .cab-movil { background: linear-gradient(#0F1114 0 env(safe-area-inset-top, 0px), color-mix(in srgb, var(--ls-fondo) 84%, transparent) env(safe-area-inset-top, 0px)); }
+  /* La barra compacta de CabeceraDeModulo (al hacer scroll) sobra: la cabecera móvil ya enseña el título y quedaría encima de «Atrás» */
+  html:has(.cab-movil) .cabecera-compacta { display: none !important; }
+  /* iPhone en horizontal: el contenido no se mete bajo la muesca */
+  @media (orientation: landscape) {
+    .pagina-de-ruta, [data-app-persistente] { padding-left: max(1rem, env(safe-area-inset-left, 0px)); padding-right: max(1rem, env(safe-area-inset-right, 0px)); }
+    .lat { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+  }
+  /* Las vistas previas del chat, por encima de la barra de pestañas */
+  .chat-vistas { bottom: max(var(--dock-arriba, 70px), calc(var(--barra-hueco, 0px) + 12px)); }
+  /* Zonas de toque de 44 px */
+  .im-editar { min-height: 44px; }
+  .im-buscador-borrar { min-width: 44px; min-height: 44px; }
   .cab-movil-boton { position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--ls-t1); transition: background-color .15s ease; }
   .cab-movil-boton svg { width: 22px; height: 22px; }
   .cab-movil-boton:active { background: var(--ls-sup3); }

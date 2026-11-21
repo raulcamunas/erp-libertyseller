@@ -509,7 +509,7 @@ function MenuDelHilo({
 
 /** La cabecera pegajosa: en el móvil deja sitio a la hamburguesa (fixed, 40 px en .875rem) */
 function Cabecera({ children }: { children: ReactNode }) {
-  return <header className="sticky top-0 z-20 border-b border-[var(--ls-linea)] bg-[var(--ls-sup)] pl-14 md:static md:pl-0">{children}</header>
+  return <header className="sticky top-[var(--cab-hueco,0px)] z-20 border-b border-[var(--ls-linea)] bg-[var(--ls-sup)] pl-1 md:static md:pl-0">{children}</header>
 }
 
 function BotonAtras({ onAtras }: { onAtras: () => void }) {

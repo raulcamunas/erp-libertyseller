@@ -275,7 +275,7 @@ function BarraMovil({ children }: { children: ReactNode }) {
             ref={caja}
             role="region"
             aria-label="Siguiente paso"
-            className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 pb-[max(10px,env(safe-area-inset-bottom))] pt-[10px] shadow-[0_-10px_24px_-14px_rgba(0,0,0,0.55)] lg:hidden"
+            className="fixed inset-x-0 bottom-[var(--barra-hueco,0px)] z-40 border-t border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 pb-[max(10px,env(safe-area-inset-bottom))] pt-[10px] shadow-[0_-10px_24px_-14px_rgba(0,0,0,0.55)] lg:hidden"
           >
             <div className="mx-auto flex max-w-[720px] flex-wrap items-center gap-x-3 gap-y-2">{children}</div>
           </div>,

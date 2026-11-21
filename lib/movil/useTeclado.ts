@@ -21,7 +21,7 @@ export function useTeclado(): void {
     let quitar: number | undefined
 
     const decidir = () => {
-      const abierto = estrecha.matches && (esCampo(document.activeElement) || (vv ? window.innerHeight - vv.height > 150 : false))
+      const abierto = estrecha.matches && (esCampo(document.activeElement) || (vv ? vv.scale <= 1.01 && window.innerHeight - vv.height * vv.scale > 150 : false))
       html.toggleAttribute('data-escribiendo', abierto)
     }
     const alEnfocar = (e: FocusEvent) => {

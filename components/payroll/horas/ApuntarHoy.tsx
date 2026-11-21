@@ -103,7 +103,7 @@ export function ApuntarHoyTarjeta(props: { horasHoy: number; guardando: boolean;
  */
 export function ApuntarHoyPegajoso(props: { horasHoy: number; guardando: boolean; onApuntar: (h: number) => void; onOtra: () => void }) {
   return (
-    <div className="sticky bottom-0 z-20 -mx-6 mt-4 border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_97%,transparent)] px-6 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2.5 shadow-[0_-12px_30px_-18px_rgba(0,0,0,0.6)] lg:hidden">
+    <div className="sticky bottom-[var(--barra-hueco,0px)] z-20 lg:bottom-0 -mx-6 mt-4 border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_97%,transparent)] px-6 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2.5 shadow-[0_-12px_30px_-18px_rgba(0,0,0,0.6)] lg:hidden">
       <div className="mb-2">
         <Estado horasHoy={props.horasHoy} />
       </div>

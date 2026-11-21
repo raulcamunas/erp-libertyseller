@@ -280,7 +280,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   }, [pathname])
   useEffect(() => {
     if (!pendiente) return
-    const id = window.setTimeout(() => setPendiente(null), 4000)
+    const id = window.setTimeout(() => setPendiente(null), 10_000)
     return () => window.clearTimeout(id)
   }, [pendiente])
 
@@ -392,7 +392,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     setPuedeAtras(hayAtras(pila))
   }, [pathname])
   const volver = () => {
-    if (puedeAtras) router.back()
+    // La pila vive en sessionStorage y Chrome la copia al abrir un enlace en pestaña nueva: sin historial real del navegador, a Inicio
+    if (puedeAtras && window.history.length > 1) router.back()
     else router.push('/dashboard')
   }
 
@@ -584,7 +585,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       {!inmersivo && (
         <CabeceraMovil
           titulo={appActual?.name ?? 'Liberty Hub'}
-          enInicio={enInicio}
+          // Un cliente solo tiene Remesas: allí no hay a dónde volver (el middleware lo devolvería a la misma página), así que se ve el logo
+          enInicio={enInicio || (userRole === 'cliente' && (pathname ?? '').startsWith('/dashboard/remesas'))}
           avisos={avisosSinLeer}
           alVolver={volver}
           alAbrirAvisos={() => {
@@ -815,7 +817,9 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       {/* La barra de pestañas de abajo (móvil). No para un cliente (solo ve Remesas y no tiene Inicio) ni a pantalla completa */}
       {!inmersivo && userRole !== 'cliente' && (
         <BarraInferior
-          pestanas={pestanasMovil}
+          // Hasta leer el uso y los permisos, tres huecos vacíos: así las pestañas no saltan de las de por defecto a las de esa persona al arrancar
+          pestanas={movilMontado && pestanasListas ? pestanasMovil : []}
+          huecos={movilMontado && pestanasListas ? 0 : 3}
           rutaActiva={rutaDelMovil}
           enInicio={enInicio}
           masAbierto={isMobileOpen}

@@ -59,7 +59,7 @@ export function BarraCambiosSinGuardar({ visible, onGuardar, onDescartar, cuanto
     <MotionConfig reducedMotion="user">
       <AnimatePresence>
         {visible && (
-          <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[max(12px,env(safe-area-inset-bottom))] lg:left-[var(--lat-ancho,16rem)] lg:pb-6">
+          <div className="pointer-events-none fixed inset-x-0 bottom-[var(--barra-hueco,0px)] z-[60] lg:bottom-0 flex justify-center px-3 pb-[max(12px,env(safe-area-inset-bottom))] lg:left-[var(--lat-ancho,16rem)] lg:pb-6">
             <motion.div
               role="region"
               aria-label="Cambios sin guardar"

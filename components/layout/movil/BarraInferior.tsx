@@ -23,6 +23,7 @@ export interface PestanaDeLaBarra {
 
 export function BarraInferior({
   pestanas,
+  huecos = 0,
   rutaActiva,
   enInicio,
   masAbierto,
@@ -30,6 +31,8 @@ export function BarraInferior({
   alPulsarMas,
 }: {
   pestanas: readonly PestanaDeLaBarra[]
+  /** Sitios vacíos mientras se eligen las pestañas (para que la barra no cambie de forma) */
+  huecos?: number
   rutaActiva: string | null
   enInicio: boolean
   masAbierto: boolean
@@ -42,9 +45,15 @@ export function BarraInferior({
 
   const pulsar = (ruta: string, activa: boolean) => (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-    // Tocar la pestaña en la que ya se está sube al principio, como en las aplicaciones del teléfono
-    if (activa) {
+    // Tocar la pestaña en la que ya se está, en su pantalla principal, sube al principio (como en las aplicaciones del teléfono) sin volver a cargarla.
+    // Desde una subpantalla (/dashboard/crm/123) sí navega a la principal de esa aplicación.
+    if (activa && window.location.pathname === ruta) {
+      e.preventDefault()
       window.scrollTo({ top: 0, behavior: 'smooth' })
+      // Las pantallas de altura fija (Cold Calling, Correo, Agenda…) hacen scroll dentro de su propia caja
+      document.querySelectorAll<HTMLElement>('[data-app-persistente] *, .pagina-de-ruta *').forEach((el) => {
+        if (el.scrollTop > 0 && el.scrollHeight > el.clientHeight) el.scrollTo({ top: 0, behavior: 'smooth' })
+      })
       return
     }
     alPulsar(ruta)
@@ -69,6 +78,9 @@ export function BarraInferior({
     <nav className="barra-inferior lg:hidden" aria-label="Aplicaciones principales">
       {pestana('home', 'Inicio', '/dashboard', Home, enInicio && !masAbierto)}
       {pestanas.map((p) => pestana(p.id, p.nombre, p.ruta, p.icono, !masAbierto && p.ruta === rutaActiva, p.insignia, p.urgente))}
+      {Array.from({ length: huecos }, (_, i) => (
+        <span key={`hueco-${i}`} className="bi-pestana" aria-hidden />
+      ))}
       <button type="button" className="bi-pestana" data-activa={masEncendido ? 'true' : undefined} aria-expanded={masAbierto} aria-haspopup="dialog" onClick={alPulsarMas}>
         <span className="bi-icono">
           <Menu aria-hidden />

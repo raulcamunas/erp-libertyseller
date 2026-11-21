@@ -68,7 +68,7 @@ export function CabeceraDeModulo({ icono: Icono, titulo, subtitulo, acento, acci
         <div
           aria-hidden={!compacta}
           className={cn(
-            'fixed inset-x-0 top-0 z-40 flex h-[4.25rem] items-center gap-3 border-b border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_95%,transparent)] pl-[4.25rem] pr-4 shadow-[var(--ls-sombra-1)] transition-[transform,opacity] duration-200 lg:hidden motion-reduce:transition-none',
+            'cabecera-compacta fixed inset-x-0 top-0 z-40 flex h-[4.25rem] items-center gap-3 border-b border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-fondo)_95%,transparent)] pl-[4.25rem] pr-4 shadow-[var(--ls-sombra-1)] transition-[transform,opacity] duration-200 lg:hidden motion-reduce:transition-none',
             compacta ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0',
           )}
           style={{ ['--ls-acento' as string]: color }}

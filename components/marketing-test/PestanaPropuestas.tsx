@@ -519,7 +519,7 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 24, opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                className="fixed inset-x-3 bottom-3 z-40 mx-auto flex max-w-[860px] flex-wrap items-center gap-2 rounded-[14px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 py-3 shadow-[var(--ls-sombra-3)] [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]"
+                className="fixed inset-x-3 bottom-[calc(var(--barra-hueco,0px)+12px)] z-40 lg:bottom-3 mx-auto flex max-w-[860px] flex-wrap items-center gap-2 rounded-[14px] border border-[var(--ls-linea2)] bg-[var(--ls-sup)] px-4 py-3 shadow-[var(--ls-sombra-3)] [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]"
                 role="region"
                 aria-label="Propuestas marcadas"
               >
