@@ -12,12 +12,16 @@ import { COLOR_DE_FLECHA, colorDeRol, cuentasDeFlecha, nombreDeFlecha, nombreDeN
 /* Geometría                                                           */
 /* ------------------------------------------------------------------ */
 
-const ANCHO = 1000
-const MARGEN = 16
-const ALTO_NODO = 104
-const HUECO = 30
-const ARRIBA = 70
-const ALTO_SUMIDERO = 48
+// El dibujo se pinta a su tamaño (como mucho ANCHO px) y no se estira con la pantalla: antes, en un monitor grande, todo salía un 60 % más grande
+const ANCHO = 1120
+const MARGEN = 12
+const ALTO_NODO = 78
+const HUECO = 26
+/** Hueco de arriba solo si hay flechas que saltan columnas por encima de las cajas */
+const ARRIBA_CON_SALTOS = 64
+const ARRIBA_SIN_SALTOS = 8
+const BAJADA = 76
+const ALTO_SUMIDERO = 42
 
 /** Columna de cada papel: AUTO → AMPLIA → EXACTA (las dos apiladas) y ATAQUE ASIN aparte */
 const COLUMNA: Record<string, number> = { 'AUTO RADAR': 0, 'MANUAL AMPLIA': 1, 'MANUAL EXACTA / DOMINIO': 2, 'MANUAL EXACTA / ESTABILIDAD': 2, 'ATAQUE ASIN': 3 }
@@ -38,7 +42,8 @@ interface Punto {
 
 type ClaseDeTrazo = 'hecho' | 'propuesto' | 'deshecho' | 'fallido'
 
-const grosor = (n: number, clase: ClaseDeTrazo) => (clase === 'fallido' ? 1.5 : Math.min(14, 2 + 2 * Math.sqrt(Math.max(1, n))))
+// Lo hecho crece con los términos (hasta 9 px); lo propuesto es una línea discontinua fina al lado (antes, gruesa, parecía una escalera)
+const grosor = (n: number, clase: ClaseDeTrazo) => (clase === 'fallido' ? 1.5 : clase === 'propuesto' ? 2 : Math.min(9, 2 + 1.4 * Math.sqrt(Math.max(1, n))))
 
 /** Los trazos de una flecha (uno por clase que tenga), del más importante al menos */
 function trazosDe(f: FlechaDeFlujo, conPropuestas: boolean): Array<{ clase: ClaseDeTrazo; n: number }> {
@@ -52,12 +57,24 @@ function trazosDe(f: FlechaDeFlujo, conPropuestas: boolean): Array<{ clase: Clas
 }
 
 /** Las posiciones de las campañas y del sumidero */
-function colocar(flujo: Flujo) {
+function colocar(flujo: Flujo, conPropuestas: boolean) {
   const campanas = flujo.nodos.filter((n) => n.id !== SUMIDERO)
   const columnas = [...new Set(campanas.map((n) => COLUMNA[n.rol] ?? 1))].sort((a, b) => a - b)
   const nCol = Math.max(columnas.length, 1)
   const anchoCol = (ANCHO - 2 * MARGEN) / nCol
-  const w = Math.min(236, anchoCol - 58)
+  const w = Math.min(250, anchoCol - 64)
+  const colDe = (id: string) => {
+    const n = campanas.find((x) => x.id === id)
+    return n ? columnas.indexOf(COLUMNA[n.rol] ?? 1) : null
+  }
+  // ¿Alguna flecha visible va por encima (salta columnas o va hacia atrás)? Si no, no se deja hueco arriba
+  const hayFlechasPorEncima = flujo.flechas.some((f) => {
+    if (f.tipo === 'negativa' || trazosDe(f, conPropuestas).length === 0) return false
+    const a = colDe(f.desde)
+    const b = colDe(f.hacia)
+    return a != null && b != null && b !== a && b !== a + 1
+  })
+  const ARRIBA = hayFlechasPorEncima ? ARRIBA_CON_SALTOS : ARRIBA_SIN_SALTOS
   const cajas = new Map<string, Caja>()
   const porColumna = new Map<number, NodoDeFlujo[]>()
   for (const n of campanas) {
@@ -75,11 +92,10 @@ function colocar(flujo: Flujo) {
       fondo = Math.max(fondo, y + ALTO_NODO)
     })
   }
-  const ySumidero = fondo + 96
+  const ySumidero = fondo + BAJADA
   const sumidero = flujo.nodos.find((n) => n.id === SUMIDERO)
   if (sumidero) cajas.set(SUMIDERO, { nodo: sumidero, col: -1, x: MARGEN, y: ySumidero, w: ANCHO - 2 * MARGEN, h: ALTO_SUMIDERO })
-  const separador = columnas.includes(3) && nCol > 1 ? MARGEN + columnas.indexOf(3) * anchoCol : null
-  return { cajas, alto: ySumidero + ALTO_SUMIDERO + MARGEN, separador }
+  return { cajas, alto: ySumidero + ALTO_SUMIDERO + 4 }
 }
 
 /** El camino (curva) de una flecha, desplazado `d` px para dibujar trazos en paralelo, y su punto medio */
@@ -93,7 +109,7 @@ function camino(f: FlechaDeFlujo, a: Caja, b: Caja, d: number): { d: string; med
     const y0 = a.y + a.h
     const y1 = b.y - 2
     const r = cubica({ x, y: y0 }, { x, y: y0 + 20 }, { x, y: y1 - 20 }, { x, y: y1 })
-    return { d: r.d, medio: { x, y: y0 + 26 } }
+    return { d: r.d, medio: { x, y: (y0 + y1) / 2 } }
   }
   const ca = a.col
   const cb = b.col
@@ -151,10 +167,11 @@ export function ChipsDeNodo({ n, moneda }: { n: NodoDeFlujo; moneda: string | nu
   )
 }
 
+const tieneChips = (n: NodoDeFlujo) => n.negativas > 0 || n.pujas.suben > 0 || n.pujas.bajan > 0 || Boolean(n.presupuesto)
+
 function NodoSvg({ c, moneda, elegir }: { c: Caja; moneda: string | null; elegir: (s: Seleccion) => void }) {
   const n = c.nodo
   const color = colorDeRol(n.rol)
-  const sku = n.nombre.split('|')[1]?.trim()
   const abrir = () => elegir({ tipo: 'nodo', id: n.id })
   return (
     <foreignObject x={c.x} y={c.y} width={c.w} height={c.h}>
@@ -172,13 +189,17 @@ function NodoSvg({ c, moneda, elegir }: { c: Caja; moneda: string | null; elegir
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
           <span className="truncate text-[12px] font-semibold text-[var(--ls-t1)]">{nombreDeNodo(n)}</span>
         </div>
-        <div className="truncate text-[11px] text-[var(--ls-t4)]">{n.hipotetica ? 'Todavía no existe' : sku ? `SKU ${sku}` : n.nombre}</div>
-        <div className="flex items-center gap-2 text-[11px] tabular-nums text-[var(--ls-t3)]">
-          {n.entran > 0 && <span title="Términos que han entrado (cosechados)">⇢ {n.entran} entran</span>}
-          {n.salen > 0 && <span title="Términos que han salido a otra campaña">{n.salen} salen ⇢</span>}
-        </div>
+        {/* El SKU es el mismo en todas (ya sale en el título del panel): queda en el «title». Debajo, lo que entra y sale, o «Todavía no existe» */}
+        {(n.hipotetica || n.entran > 0 || n.salen > 0) && (
+          <div className="flex items-center gap-2 text-[11px] tabular-nums text-[var(--ls-t3)]">
+            {n.hipotetica && <span className="text-[var(--ls-t4)]">Todavía no existe</span>}
+            {n.entran > 0 && <span title="Términos que han entrado (cosechados)">⇢ {n.entran} entran</span>}
+            {n.salen > 0 && <span title="Términos que han salido a otra campaña">{n.salen} salen ⇢</span>}
+          </div>
+        )}
         <div className="mt-auto flex flex-wrap gap-1">
           <ChipsDeNodo n={n} moneda={moneda} />
+          {!tieneChips(n) && !n.hipotetica && <span className="text-[11px] text-[var(--ls-t4)]">Sin cambios</span>}
         </div>
       </div>
     </foreignObject>
@@ -200,8 +221,14 @@ function FlechaSvg({ f, a, b, conPropuestas, ids, elegir }: { f: FlechaDeFlujo; 
   const color = COLOR_DE_FLECHA[f.tipo]
   const abrir = () => elegir({ tipo: 'flecha', id: f.id })
   const principal = trazos[0]
-  const etiqueta = trazos.map((t) => (t.clase === 'hecho' ? `${t.n}` : t.clase === 'propuesto' ? (f.propuestos ? `${t.n} propuesto${t.n === 1 ? '' : 's'}` : `${t.n} sin aplicar`) : t.clase === 'deshecho' ? `${t.n} deshecho${t.n === 1 ? '' : 's'}` : `${t.n} fallo${t.n === 1 ? '' : 's'}`)).join(' · ')
-  const anchoEtiqueta = etiqueta.length * 6.4 + 14
+  // «3 hechas · 43 propuestas» (antes «3 · 43 propuestos»: no se sabía qué era el 3)
+  const pl = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`
+  const etiqueta = trazos
+    .map((t) =>
+      t.clase === 'hecho' ? pl(t.n, 'hecha', 'hechas') : t.clase === 'propuesto' ? (f.propuestos ? pl(t.n, 'propuesta', 'propuestas') : `${t.n} sin aplicar`) : t.clase === 'deshecho' ? pl(t.n, 'deshecha', 'deshechas') : pl(t.n, 'fallo', 'fallos'),
+    )
+    .join(' · ')
+  const anchoEtiqueta = etiqueta.length * 6.2 + 18
   return (
     <g role="button" tabIndex={0} aria-label={`${nombreDeFlecha(f, { nodos: [a.nodo, b.nodo], flechas: [], terminos: [] })}: ${cuentasDeFlecha(f)}`} onClick={abrir} onKeyDown={(e) => alTeclear(e, abrir)} className="cursor-pointer outline-none [&:focus-visible_.ls-halo]:opacity-30 [&:hover_.ls-halo]:opacity-20">
       <path d={base.d} fill="none" stroke={color} strokeWidth={total + 14} strokeLinecap="round" className="ls-halo opacity-0 transition-opacity" />
@@ -213,8 +240,8 @@ function FlechaSvg({ f, a, b, conPropuestas, ids, elegir }: { f: FlechaDeFlujo; 
       })}
       <path d={base.d} fill="none" stroke="transparent" strokeWidth={Math.max(20, total + 10)} />
       <g transform={`translate(${base.medio.x - anchoEtiqueta / 2}, ${base.medio.y - 10})`}>
-        <rect width={anchoEtiqueta} height={20} rx={10} fill="var(--ls-sup)" stroke={principal.clase === 'hecho' ? color : 'var(--ls-linea2)'} strokeWidth={1} />
-        <text x={anchoEtiqueta / 2} y={14} textAnchor="middle" fontSize={11.5} fontWeight={600} fill="var(--ls-t1)" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <rect width={anchoEtiqueta} height={20} rx={10} fill="var(--ls-sup2)" stroke={principal.clase === 'hecho' ? `color-mix(in srgb, ${color} 55%, var(--ls-linea))` : 'var(--ls-linea2)'} strokeWidth={1} />
+        <text x={anchoEtiqueta / 2} y={14} textAnchor="middle" fontSize={11} fontWeight={600} fill="var(--ls-t2)" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {etiqueta}
         </text>
       </g>
@@ -231,7 +258,7 @@ export function DiagramaDeFlujo({ flujo, conPropuestas, moneda, elegir }: { fluj
   const escritorio = useEsEscritorio()
   const base = useId().replace(/:/g, '')
   const ids = { verde: `${base}-v`, ambar: `${base}-a`, gris: `${base}-g`, rojo: `${base}-r` }
-  const { cajas, alto, separador } = useMemo(() => colocar(flujo), [flujo])
+  const { cajas, alto } = useMemo(() => colocar(flujo, conPropuestas), [flujo, conPropuestas])
   const visibles = flujo.flechas.filter((f) => trazosDe(f, conPropuestas).length > 0)
 
   if (!escritorio) return <FlujoEnLista flujo={flujo} conPropuestas={conPropuestas} moneda={moneda} elegir={elegir} />
@@ -243,7 +270,7 @@ export function DiagramaDeFlujo({ flujo, conPropuestas, moneda, elegir }: { fluj
 
   return (
     <div className="flex flex-col gap-2">
-      <svg viewBox={`0 0 ${ANCHO} ${alto}`} className="h-auto w-full" role="group" aria-label="Flujo de términos entre las campañas del producto">
+      <svg viewBox={`0 0 ${ANCHO} ${alto}`} className="mx-auto h-auto w-full" style={{ maxWidth: ANCHO }} role="group" aria-label="Flujo de términos entre las campañas del producto">
         <defs>
           {(
             [
@@ -258,8 +285,6 @@ export function DiagramaDeFlujo({ flujo, conPropuestas, moneda, elegir }: { fluj
             </marker>
           ))}
         </defs>
-
-        {separador != null && <line x1={separador} x2={separador} y1={ARRIBA - 24} y2={(sumidero?.y ?? alto) - 30} stroke="var(--ls-linea2)" strokeDasharray="3 5" />}
 
         {/* Las flechas debajo de las cajas */}
         {visibles.map((f) => {
@@ -277,11 +302,11 @@ export function DiagramaDeFlujo({ flujo, conPropuestas, moneda, elegir }: { fluj
 
         {sumidero && (
           <g role="button" tabIndex={0} aria-label="Negativizadas: ver todos los términos negativizados" className="cursor-pointer outline-none [&:hover_rect]:opacity-100" onClick={() => elegir({ tipo: 'nodo', id: SUMIDERO })} onKeyDown={(e) => alTeclear(e, () => elegir({ tipo: 'nodo', id: SUMIDERO }))}>
-            <rect x={sumidero.x} y={sumidero.y} width={sumidero.w} height={sumidero.h} rx={12} fill={`color-mix(in srgb, ${COLOR_ESTADO.ambar} 10%, var(--ls-sup))`} stroke={`color-mix(in srgb, ${COLOR_ESTADO.ambar} 45%, var(--ls-linea))`} className="opacity-90 transition-opacity" />
-            <text x={sumidero.x + 16} y={sumidero.y + 29} fontSize={13.5} fontWeight={600} fill="var(--ls-t1)">
+            <rect x={sumidero.x} y={sumidero.y} width={sumidero.w} height={sumidero.h} rx={10} fill={`color-mix(in srgb, ${COLOR_ESTADO.ambar} 7%, var(--ls-sup))`} stroke={`color-mix(in srgb, ${COLOR_ESTADO.ambar} 35%, var(--ls-linea))`} strokeDasharray="4 4" className="opacity-90 transition-opacity" />
+            <text x={sumidero.x + 14} y={sumidero.y + 26} fontSize={12.5} fontWeight={600} fill="var(--ls-t1)">
               Negativizadas
               <tspan fill="var(--ls-t3)" fontWeight={500}>
-                {`  ·  ${totalNeg} ${totalNeg === 1 ? 'término excluido' : 'términos excluidos'}${conPropuestas && propNeg ? ` · ${propNeg} propuestos` : ''}`}
+                {`  ·  ${totalNeg} ${totalNeg === 1 ? 'término excluido' : 'términos excluidos'}${conPropuestas && propNeg ? ` · ${propNeg} ${propNeg === 1 ? 'propuesto' : 'propuestos'} sin aplicar` : ''}`}
               </tspan>
             </text>
           </g>
