@@ -30,7 +30,7 @@ import { leerUmbrales } from '../umbrales-cuenta'
 import { UMBRALES_DE_PARTIDA } from '../umbrales'
 import { topesValidos } from './guardarrailes-calculo'
 import { acosObjetivoMedio, esCampanaDeMarca, faseDeProducto, motivoDeTechoIncompleto, objetivoBase, sumaDePresupuestosActivos, techoAutomatico, techoDeVentanaCorta, techoDelMes } from './objetivos-calculo'
-import { coberturaDias, stockDeAsin, stockEfectivo, stockEsViejo } from './stock-calculo'
+import { coberturaDias, faseDeStock, stockDeAsin, stockEfectivo, stockEsViejo } from './stock-calculo'
 import { eventoEn, eventosManualesValidos, hayEventoEnElMes, ventanaTocaEvento } from './temporada-calculo'
 import {
   AGENTE,
@@ -423,7 +423,7 @@ export async function stockPorAsin(perfilId: string): Promise<Map<string, StockD
   return (await leerStockPorAsin(perfilId)).porAsin
 }
 
-export type StockDeAsin = { stock: number | null; actualizadoAt: string | null; fuente: string }
+export type StockDeAsin = { stock: number | null; actualizadoAt: string | null; fuente: string; enCamino?: number | null }
 
 /**
  * Lo mismo que `stockPorAsin`, diciendo si se ha podido LEER: `ok: false` si falla cualquiera de las tres consultas (perfil, conexiones de vendedor o listados), con el
@@ -453,7 +453,7 @@ export async function leerStockPorAsin(perfilId: string): Promise<{ ok: boolean;
   const r = await todasLasFilas<Record<string, unknown>>((a, b) =>
     service
       .from('amazon_listings')
-      .select('asin, sku, marketplace_id, is_fba, quantity, fba_fulfillable_quantity, updated_at')
+      .select('asin, sku, marketplace_id, is_fba, quantity, fba_fulfillable_quantity, fba_inbound_quantity, updated_at')
       .in('connection_id', ids)
       .in('marketplace_id', mks)
       .order('sku')
@@ -470,11 +470,19 @@ export async function leerStockPorAsin(perfilId: string): Promise<{ ok: boolean;
   const locales = stockDeAsin(r.data.filter((x) => x.marketplace_id === mkLocal).map(fila))
   const espana = mkEspana && mkEspana !== mkLocal ? stockDeAsin(r.data.filter((x) => x.marketplace_id === mkEspana).map(fila)) : new Map()
   const asins = new Set<string>([...Array.from(locales.keys()), ...Array.from(espana.keys())])
+  // Lo entrante en FBA (en camino) por ASIN, del país y de España (EFN): repone el stock y evita frenar un producto que se va a reponer a tiempo
+  const enCamino = new Map<string, number>()
+  for (const x of r.data) {
+    if (x.marketplace_id !== mkLocal && x.marketplace_id !== mkEspana) continue
+    const n = numero(x.fba_inbound_quantity)
+    const a = String(x.asin ?? '').trim().toUpperCase()
+    if (a && n != null && n > 0) enCamino.set(a, (enCamino.get(a) ?? 0) + n)
+  }
   for (const asin of Array.from(asins)) {
     const e = stockEfectivo(locales.get(asin), espana.get(asin), pais)
     // Un ASIN que solo está en España y la cuenta no es EFN no cuenta: no se vende en este país
     if (!locales.has(asin) && e.fuente.startsWith('sin dato')) continue
-    salida.set(asin, e)
+    salida.set(asin, { ...e, enCamino: enCamino.get(asin.toUpperCase()) ?? null })
   }
   return { ok: true, error: null, porAsin: salida }
 }
@@ -884,6 +892,8 @@ export async function leerContextoDelAgente(cuenta: CuentaParaSincronizar, confi
         stockActualizadoAt: st?.actualizadoAt ?? null,
         stockViejo: stockN != null && stockEsViejo(st?.actualizadoAt ?? null, ahora),
         coberturaDias: coberturaDias(stockN, ventas.v14[p.asin]?.unidades ?? null),
+        enCamino: st?.enCamino ?? null,
+        faseStock: faseDeStock({ stock: stockN, unidades14: ventas.v14[p.asin]?.unidades ?? null, enCamino: st?.enCamino ?? null }),
         postura: p.postura,
         fuentePostura: p.fuentePostura,
         motivoPostura: p.motivoPostura,

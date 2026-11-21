@@ -56,7 +56,7 @@ import { clasificarErrorDeAmazon, datosDelError, datosViejos, esRara, evaluarFre
 import { combinarAjustes } from './objetivos-calculo'
 import { diaDeRampa } from './pasos-calculo'
 import { presionDelDia, recortePorRitmo, reglasDePresupuesto, ritmoDelMes } from './ritmo-calculo'
-import { coberturaDias, decisionDeStock, decisionDeStockConAnuncios, ESTADOS_DE_PAUSA_HECHA, pausasYaHechas, posturasPorStock, puedeReactivar, type FilaDePausa } from './stock-calculo'
+import { coberturaDias, decisionDeStock, decisionDeStockConAnuncios, ESTADOS_DE_PAUSA_HECHA, faseDeStock, pausasYaHechas, posturasPorStock, puedeReactivar, stockPermiteReactivar, type FilaDePausa } from './stock-calculo'
 import { eventoEn } from './temporada-calculo'
 import {
   AGENTE,
@@ -996,6 +996,55 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
       for (const [asin, porque] of Array.from(recortarPor.entries())) if (!porAsin.has(asin)) soloRecortarPorStock.push({ asin, nombre: nombreDe(asin), porque, ceroDesde: ceroDe.get(asin)?.primera_at ?? null })
     }
 
+    // Stock que SE ACABA (21 nov 2026): con ≤ 3 días o ≤ 2 unidades (faseDeStock) se pausa ANTES de llegar a 0, si no hay mercancía en camino que lo cubra.
+    // Solo con una lectura fresca del inventario (< LISTING_FRESCO_HORAS) y con los anuncios leídos (como la de stock 0: sin saber cuántos productos tiene la
+    // campaña no se pausa). Una campaña de un solo producto se pausa entera; con varios, solo el anuncio de este. Se reactiva al reponer (más de 7 días)
+    {
+      const fresco = (iso: string | null) => iso != null && ahora - Date.parse(iso) < AGENTE.LISTING_FRESCO_HORAS * 3_600_000
+      const casiSin = new Map<string, ReturnType<typeof faseDeStock>>()
+      for (const asin of Array.from(anunciados)) {
+        const st = stock.get(asin)
+        if (!st || st.stock == null || st.stock <= 0 || !fresco(st.actualizadoAt)) continue
+        const f = faseDeStock({ stock: st.stock, unidades14: ventas.v14[asin]?.unidades ?? null, enCamino: st.enCamino ?? null })
+        if (f.fase === 'pausar') casiSin.set(asin, f)
+      }
+      const campanasCasiSin = activas.filter((c) => {
+        const a = asinDeCampana(c.nombre)
+        return a != null && casiSin.has(a) && !campanaYaPausada.has(c.campaignId)
+      })
+      if (campanasCasiSin.length > 0) {
+        let anuncios: Map<string, Array<{ adId: string; asin: string }>> | null = null
+        try {
+          anuncios = await anunciosDeCampanas(cuenta, campanasCasiSin.map((c) => c.campaignId))
+        } catch (err) {
+          console.error(`[agente] anuncios de ${cuenta.id} (stock que se acaba):`, err)
+        }
+        const porAsin = new Map<string, number>()
+        for (const c of campanasCasiSin) {
+          const asin = asinDeCampana(c.nombre) as string
+          const f = casiSin.get(asin)!
+          const st = stock.get(asin)!
+          const ads = anuncios?.get(c.campaignId) ?? null
+          if (!ads || ads.length === 0) continue
+          const asins = new Set(ads.map((x) => String(x.asin ?? '').toUpperCase()).filter(Boolean))
+          const metricas = { stock: st.stock, coberturaDias: f.cobertura, enCamino: st.enCamino ?? null, fuenteStock: st.fuente, origenAgente: 'stock', anticipada: true }
+          const motivo = `El stock de ${nombreDe(asin)} (${asin}) se acaba: ${f.porque}. Fuente: ${st.fuente}.`
+          if (asins.size === 1) {
+            propuestas.push({ tipo: 'pausar-campana', asin, campaignId: c.campaignId, campaignNombre: c.nombre, motivo, metricas, valorActual: null, valorNuevo: null })
+          } else {
+            const ad = ads.find((x) => x.asin === asin)
+            if (!ad || anuncioYaPausado.has(ad.adId)) continue
+            propuestas.push({ tipo: 'pausar', asin, campaignId: c.campaignId, campaignNombre: c.nombre, objetivoTipo: 'anuncio', objetivoId: ad.adId, motivo, metricas, valorActual: null, valorNuevo: null })
+          }
+          porAsin.set(asin, (porAsin.get(asin) ?? 0) + 1)
+        }
+        for (const [asin, n] of Array.from(porAsin.entries())) {
+          const f = casiSin.get(asin)!
+          eventos.push({ tipo: 'stock', titulo: `Quedan ${f.cobertura != null ? f.cobertura.toLocaleString('es-ES') : '?'} días de stock de ${nombreDe(asin)}: campañas pausadas`, detalle: `${f.porque}. Propongo pausar ${n} campaña(s) o anuncio(s) antes de quedarse a 0; se reactivan al reponer.` })
+        }
+      }
+    }
+
     // §6.5: un producto sin stock queda en «recortar» YA (no a las 08:00 con el cerebro), para que aplicar y el motor de pujas dejen de subirle pujas y de promover.
     // Todos los ASIN a 0 (los que se pausan, los que solo se recortan y los que ya tenían la pausa propuesta). No lanza: si falla, decidirPropuesta retiene igual
     // las subidas de un producto con stock 0 (red de seguridad).
@@ -1029,6 +1078,8 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
         const asin = (p.asin as string).toUpperCase()
         const st = stock.get(asin)
         if (!st || st.stock == null || st.stock < AGENTE.STOCK_REACTIVAR) continue
+        // Con poco stock se volvería a pausar (o a bajar pujas) en la pasada siguiente: solo se reactiva con más de 7 días de stock (o lo en camino lo cubre)
+        if (!stockPermiteReactivar(faseDeStock({ stock: st.stock, unidades14: ventas.v14[asin]?.unidades ?? null, enCamino: st.enCamino ?? null }), st.stock)) continue
         const manuales = await cambiosAManoDeEstado(cuenta.id, p.campaign_id, p.objetivo_tipo === 'anuncio' ? p.objetivo_id : null, p.resuelta_at ?? ahoraIso)
         const r = puedeReactivar({ stock: st.stock, listingAt: st.actualizadoAt, ahora, cambiosManualesDesdeLaPausa: manuales })
         const x = porAsin.get(asin) ?? { propuestaIds: [], noReactivar: [] }

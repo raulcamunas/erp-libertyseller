@@ -182,6 +182,13 @@ export const AGENTE = {
   STOCK_PAUSA_PENDIENTE_HORAS: 12,
   COBERTURA_RECORTAR_DIAS: 7,
   COBERTURA_MANTENER_DIAS: 14,
+  // Stock que se acaba (Raúl, 21 nov 2026): por días de cobertura al ritmo de 14 días. ≤ 14 sin subidas; ≤ 7 bajada diaria de las pujas del producto (10 % a 7 días,
+  // 30 % a 4 o menos); ≤ 3 días o ≤ 2 unidades, pausa ANTES de llegar a 0. Con mercancía en camino que lo cubre, solo sin subidas. Se reactiva con > 7 días
+  STOCK_PAUSAR_DIAS: 3,
+  STOCK_PAUSAR_UNIDADES: 2,
+  STOCK_BAJADA_MIN_PCT: 10,
+  STOCK_BAJADA_MAX_PCT: 30,
+  STOCK_RESTAURAR_PCT: 15,
   // objetivos automáticos (congelados)
   ACOS_AUTO_EQUILIBRIO_X: 0.8,
   ACOS_AUTO_REAL_X: 0.9,
@@ -423,7 +430,11 @@ export interface AjustesDelAgenteParaPujas {
     fase: FaseDeProducto
     marca: string | null
     pujaMaxima: number | null
+    /** El stock se acaba (faseDeStock): «bajar» baja todas sus pujas `bajadaPct` una vez al día; con stock viejo no se usa */
+    stock?: { fase: 'normal' | 'sin_subidas' | 'bajar' | 'pausar'; bajadaPct: number; porque: string } | null
   }>
+  /** Pujas bajadas por stock que hay que devolver poco a poco a su valor de antes (objetivo_id → puja de antes) cuando el producto vuelve a tener stock */
+  restaurarPorStock?: Record<string, number>
   /** Por campaignId: la presión del día (R2/R3, días cerrados) */
   presion: Record<string, Presion>
   /** Campañas de marca (por rol o nombre): sin subidas, objetivo × MARCA_ACOS_X */
@@ -607,6 +618,10 @@ export interface ProductoDelContexto {
   /** El stock es de hace ≥ LISTING_FRESCO_HORAS (o sin fecha): para subir cuenta como desconocido. Sin el dato, fresco */
   stockViejo?: boolean
   coberturaDias: number | null
+  /** Unidades entrantes en FBA (en camino): no se venden aún, pero reponen. null = no se sabe */
+  enCamino?: number | null
+  /** Qué hacer por el stock que queda (stock-calculo faseDeStock): sin subidas, bajar pujas o pausar antes de quedarse a 0 */
+  faseStock?: { fase: 'normal' | 'sin_subidas' | 'bajar' | 'pausar'; cobertura: number | null; bajadaPct: number; porque: string }
   postura: Postura
   fuentePostura: FuenteDePostura | null
   motivoPostura: string | null

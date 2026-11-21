@@ -287,3 +287,44 @@ export function stockEsViejo(actualizadoAt: string | null, ahora: number): boole
   if (!Number.isFinite(t)) return true
   return (ahora - t) / 3_600_000 >= AGENTE.LISTING_FRESCO_HORAS
 }
+
+// ───────────────────────────── stock que se acaba (21 nov 2026) ─────────────────────────────
+
+export type FaseDeStock = 'normal' | 'sin_subidas' | 'bajar' | 'pausar'
+
+/**
+ * PURO. Qué hacer con un producto según los días de stock que le quedan (cobertura al ritmo de 14 días). Lo pidió Raúl: que las campañas no gasten hasta el
+ * último día y se paren antes de quedarse sin stock.
+ *   · ≤ 14 días: sin subidas. · ≤ 7: bajar las pujas `bajadaPct` (10 % a 7 días, hasta 30 % a 4 o menos). · ≤ 3 días o ≤ 2 unidades: pausar.
+ *   · Con mercancía EN CAMINO (entrante en FBA) que lleva la cobertura por encima de 7 días: como mucho «sin subidas» (se repone a tiempo: no se frena el producto).
+ * El stock 0 lo lleva `decisionDeStock` (dos lecturas a 0): aquí da «normal». Sin ventas (cobertura desconocida) o sin stock conocido, «normal».
+ */
+export function faseDeStock(e: { stock: number | null; unidades14: number | null; enCamino?: number | null }): { fase: FaseDeStock; cobertura: number | null; bajadaPct: number; porque: string } {
+  const normal = (porque: string, cobertura: number | null = null) => ({ fase: 'normal' as const, cobertura, bajadaPct: 0, porque })
+  if (!esNumero(e.stock) || e.stock <= 0) return normal('sin stock conocido o a 0 (lo lleva la pausa por stock 0)')
+  const cobertura = coberturaDias(e.stock, e.unidades14)
+  if (cobertura == null) return normal('sin ventas en 14 días: no se sabe cuánto dura el stock')
+  const enCamino = esNumero(e.enCamino) && e.enCamino > 0 ? e.enCamino : 0
+  const conCamino = enCamino > 0 ? coberturaDias(e.stock + enCamino, e.unidades14) : null
+  const dias = unDecimal(cobertura)
+  if (conCamino != null && conCamino > AGENTE.COBERTURA_RECORTAR_DIAS) {
+    if (cobertura <= AGENTE.COBERTURA_MANTENER_DIAS) return { fase: 'sin_subidas', cobertura, bajadaPct: 0, porque: `quedan ${dias} días de stock, pero hay ${enCamino} uds en camino (con ellas, ${unDecimal(conCamino)} días): no se sube, tampoco se baja` }
+    return normal(`quedan ${dias} días de stock`, cobertura)
+  }
+  if (e.stock <= AGENTE.STOCK_PAUSAR_UNIDADES || cobertura <= AGENTE.STOCK_PAUSAR_DIAS) {
+    return { fase: 'pausar', cobertura, bajadaPct: 0, porque: `quedan ${dias} días de stock (${e.stock} uds): se pausa antes de quedarse a 0` }
+  }
+  if (cobertura <= AGENTE.COBERTURA_RECORTAR_DIAS) {
+    const tramo = (AGENTE.COBERTURA_RECORTAR_DIAS - cobertura) / (AGENTE.COBERTURA_RECORTAR_DIAS - (AGENTE.STOCK_PAUSAR_DIAS + 1))
+    const pct = Math.round(AGENTE.STOCK_BAJADA_MIN_PCT + Math.min(1, Math.max(0, tramo)) * (AGENTE.STOCK_BAJADA_MAX_PCT - AGENTE.STOCK_BAJADA_MIN_PCT))
+    return { fase: 'bajar', cobertura, bajadaPct: pct, porque: `quedan ${dias} días de stock (${e.stock} uds): se bajan las pujas un ${pct} %` }
+  }
+  if (cobertura <= AGENTE.COBERTURA_MANTENER_DIAS) return { fase: 'sin_subidas', cobertura, bajadaPct: 0, porque: `quedan ${dias} días de stock: no se sube` }
+  return normal(`quedan ${dias} días de stock`, cobertura)
+}
+
+/** PURO. ¿Se puede reactivar lo pausado por stock? Solo con la fase de vuelta en «normal» o «sin subidas» (más de 7 días de stock, o lo en camino lo cubre) */
+export function stockPermiteReactivar(f: { fase: FaseDeStock; cobertura: number | null }, stock: number | null): boolean {
+  if (f.fase === 'normal' && f.cobertura == null) return esNumero(stock) && stock >= AGENTE.STOCK_REACTIVAR
+  return f.fase === 'normal' || f.fase === 'sin_subidas'
+}

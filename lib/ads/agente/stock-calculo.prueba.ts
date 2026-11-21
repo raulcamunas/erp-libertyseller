@@ -1,4 +1,4 @@
-import { coberturaDias, decisionDeStock, PAISES_EFN, pausasYaHechas, posturasPorStock, puedeReactivar, stockDeAsin, stockEfectivo, stockEsViejo, topeDePosturaPorStock } from './stock-calculo'
+import { coberturaDias, decisionDeStock, faseDeStock, PAISES_EFN, stockPermiteReactivar, pausasYaHechas, posturasPorStock, puedeReactivar, stockDeAsin, stockEfectivo, stockEsViejo, topeDePosturaPorStock } from './stock-calculo'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -148,6 +148,26 @@ console.log('\n=== ¿stock viejo? ===')
   ok('leído hace 1 h → fresco', !stockEsViejo('2026-12-10T11:00:00Z', t))
   ok('leído hace 6 h → viejo', stockEsViejo('2026-12-10T06:00:00Z', t))
   ok('sin fecha → viejo', stockEsViejo(null, t) && stockEsViejo('no es fecha', t))
+}
+
+console.log('\n=== stock que se acaba (pausar antes de 0, bajar pujas) ===')
+{
+  // 14 uds vendidas en 14 días = 1 al día
+  const f = (stock: number, enCamino = 0) => faseDeStock({ stock, unidades14: 14, enCamino })
+  ok('30 días de stock → normal', f(30).fase === 'normal')
+  ok('12 días → sin subidas', f(12).fase === 'sin_subidas' && f(12).bajadaPct === 0)
+  ok('7 días → bajar un 10 %', f(7).fase === 'bajar' && f(7).bajadaPct === 10, JSON.stringify(f(7)))
+  ok('5,5 días → bajar un 20 %', faseDeStock({ stock: 11, unidades14: 28 }).bajadaPct === 20, JSON.stringify(faseDeStock({ stock: 11, unidades14: 28 })))
+  ok('4 días → bajar un 30 %', f(4).fase === 'bajar' && f(4).bajadaPct === 30)
+  ok('3 días → pausar', f(3).fase === 'pausar')
+  ok('2 uds aunque duren 20 días → pausar', faseDeStock({ stock: 2, unidades14: 1 }).fase === 'pausar')
+  ok('3 días con 20 en camino → sin subidas (se repone a tiempo)', f(3, 20).fase === 'sin_subidas')
+  ok('3 días con 2 en camino (no llega a 7) → pausar', f(3, 2).fase === 'pausar')
+  ok('sin ventas → normal', faseDeStock({ stock: 3, unidades14: 0 }).fase === 'normal')
+  ok('stock 0 → normal (lo lleva la pausa por stock 0)', f(0).fase === 'normal')
+  ok('reactivar con 10 días → sí', stockPermiteReactivar(f(10), 10))
+  ok('reactivar con 5 días → no (bajaría otra vez)', !stockPermiteReactivar(f(5), 5))
+  ok('reactivar sin ventas y 5 uds → sí', stockPermiteReactivar(faseDeStock({ stock: 5, unidades14: 0 }), 5))
 }
 
 console.log(fallos === 0 ? '\nTODO OK' : `\n${fallos} FALLOS`)

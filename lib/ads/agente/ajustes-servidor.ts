@@ -16,7 +16,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { todasLasFilas } from '../paginar'
 import { asinDeCampana } from '../productos-agrupar'
 import { cvrsDeCuenta, leerUmbrales } from '../umbrales-cuenta'
-import { campanaEsDeMarca, cuentaDePerfil, desplazar, lanzar, leerConfigPropia, leerCuenta } from './contexto-servidor'
+import { campanaEsDeMarca, cuentaDePerfil, desplazar, lanzar, leerConfigPropia, leerCuenta, leerStockPorAsin } from './contexto-servidor'
+import { faseDeStock, stockEsViejo } from './stock-calculo'
 import { topesDelDia } from './guardarrailes-calculo'
 import { subidasVetadasPorEfectos } from './efectos-calculo'
 import { combinarAjustes, pujaMaxima } from './objetivos-calculo'
@@ -84,6 +85,13 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
   const { local, rendimiento, hasta, productos, ficha, perfil } = l
   const [{ umbrales }, efectos, vetadas] = await Promise.all([leerUmbrales(perfilId), efectosAbiertosPropios(perfilId), subidasVetadasDeCuenta(perfilId, l.local.fecha)])
   const cvrs = await cvrsDeCuenta(perfilId, umbrales.cvrPorDefectoPct)
+  // El stock por ASIN para «el stock se acaba» (faseDeStock). Si falla la lectura no se baja ni se frena nada por stock (no se decide con un dato que no hay)
+  const stockLeido = await leerStockPorAsin(perfilId).catch(() => null)
+  const faseDe = (asin: string) => {
+    const st = stockLeido?.ok ? stockLeido.porAsin.get(asin.toUpperCase()) : undefined
+    if (!st || st.stock == null || stockEsViejo(st.actualizadoAt, ahora)) return null
+    return faseDeStock({ stock: st.stock, unidades14: l.ventas.v14[asin.toUpperCase()]?.unidades ?? null, enCamino: st.enCamino ?? null })
+  }
 
   // ¿La cuenta deja subir? Ritmo recorte, rampa en «solo bajadas», techo nulo, o en los 7 días posteriores a un evento
   const rampaLocal = config?.rampaDesde ? horaLocal(Date.parse(config.rampaDesde), perfil.zona).fecha : null
@@ -124,7 +132,40 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
       fase: p.fase,
       marca: p.marca,
       pujaMaxima: pujaMaxima({ precio: p.precio, cvrPct: cvr * 100, acosObjetivoPct: p.acosObjetivoPct, topeFijo }),
+      // Stock que se acaba: sin subidas desde 14 días y bajada diaria desde 7. Con el stock viejo (o desconocido) no se usa: no se baja por un dato dudoso
+      stock: ((f) => (f && f.fase !== 'normal' ? { fase: f.fase, bajadaPct: f.bajadaPct, porque: f.porque } : null))(faseDe(p.asin)),
     }
+    if (porAsin[p.asin].stock) porAsin[p.asin].sinSubidas = true
+  }
+
+  // Pujas bajadas por stock en los últimos 45 días que hay que devolver (solo de productos que ya no están en «bajar» ni «pausar»): objetivo → puja de antes de la primera bajada
+  const restaurarPorStock: Record<string, number> = {}
+  try {
+    const asinsRepuestos = new Set(productos.filter((p) => {
+      const f = faseDe(p.asin)
+      return p.activo && f != null && (f.fase === 'normal' || f.fase === 'sin_subidas')
+    }).map((p) => p.asin.toUpperCase()))
+    if (asinsRepuestos.size > 0) {
+      type FilaBajada = { objetivo_id: string | null; asin: string | null; valor_actual: number | null; resuelta_at: string | null }
+      const r = await todasLasFilas<FilaBajada>((a, b) =>
+        createServiceClient()
+          .from('ads_propuestas')
+          .select('objetivo_id, asin, valor_actual, resuelta_at')
+          .eq('perfil_id', perfilId)
+          .eq('tipo', 'puja')
+          .eq('estado', 'aplicada')
+          .eq('metricas->>origenStock', 'bajar')
+          .gte('resuelta_at', new Date(ahora - 45 * 86_400_000).toISOString())
+          .order('resuelta_at')
+          .order('id')
+          .range(a, b) as unknown as PromiseLike<{ data: FilaBajada[] | null; error: { code?: string; message?: string } | null }>,
+      5_000)
+      if (r.error) throw new Error(r.error.message)
+      // Por orden de fecha: la primera bajada de cada objetivo guarda la puja de antes de que empezara a acabarse el stock
+      for (const f of r.data) if (f.objetivo_id && f.asin && asinsRepuestos.has(f.asin.toUpperCase()) && f.valor_actual != null && !(f.objetivo_id in restaurarPorStock)) restaurarPorStock[f.objetivo_id] = Number(f.valor_actual)
+    }
+  } catch (err) {
+    console.error(`[agente] pujas a devolver tras reponer stock (${perfilId}):`, err instanceof Error ? err.message : err)
   }
 
   // Campañas conocidas (30 días de rendimiento): las de marca y, en Amazon, su ajuste por ubicación
@@ -153,6 +194,7 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
 
   return {
     porAsin,
+    restaurarPorStock,
     presion: presionVigente(config?.presion ?? {}, config?.presionFecha ?? null, local.fecha),
     campanasDeMarca,
     campanasConUbicacionAlta,

@@ -27,7 +27,7 @@ import { cvrsDeCuenta, leerUmbrales } from './umbrales-cuenta'
 import { asinDeCampana } from './productos-agrupar'
 import { partesDeNombre } from './reglas'
 import { proponerPausas, proponerPresupuestos, proponerPujas, type SegmentacionParaReglas } from './reglas-pujas'
-import { CLAUSULA_AUTO, textoDeExpresion } from './segmentaciones-calculo'
+import { CLAUSULA_AUTO, pujaValida, textoDeExpresion } from './segmentaciones-calculo'
 import type { CuentaParaSincronizar } from './sincronizar'
 import type { UmbralesEstimados } from './umbrales'
 import { combinarAjustes, esTextoDeMarca, subidaPermitida } from './agente/objetivos-calculo'
@@ -227,9 +227,11 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
         else if (error.code !== '23505') throw error
       }
       const sinPausar = segs.filter((x) => !pausadas.has(x.id))
+      const conPropuesta = new Set<string>()
       for (const crudo of proponerPujas(sinPausar, { acosObjetivoPct: pg.acosObjetivoPct, cpaObjetivo: cpaGrupo, cambioPujaPct: ficha.cambioPujaPct, muestraMinimaClics: ficha.muestraMinimaClics, umbrales: pg.umbrales })) {
         const pr = ajustes ? filtrarSubidaDelAgente(crudo, g, ajustes) : crudo
         if (!pr) continue
+        conPropuesta.add(pr.objetivoId)
         const { error } = await service.from('ads_propuestas').insert({
           perfil_id: cuenta.id,
           tipo: 'puja',
@@ -245,6 +247,49 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
           objetivo_tipo: pr.objetivoTipo,
           valor_actual: pr.pujaActual,
           valor_nuevo: pr.pujaNueva,
+        })
+        if (!error) pujas += 1
+        else if (error.code !== '23505') throw error
+      }
+
+      // ---- El stock se acaba / se ha repuesto (solo en modo agente) ----
+      // Con 7 días o menos de stock, TODAS las segmentaciones activas del producto bajan `bajadaPct` (las que ya tienen propuesta de las reglas, no: una sola
+      // propuesta por segmentación). Cuando vuelve a tener stock, las que se bajaron por stock suben un 15 % al día hasta su puja de antes. Una vez al día:
+      // el motor genera una vez al día y el índice único de pendientes impide repetirlas
+      const stockDelAsin = ajustes ? (ajustes.porAsin[asin] ?? ajustes.porAsin[asin.toUpperCase()])?.stock : null
+      const restaurar = ajustes?.restaurarPorStock ?? {}
+      for (const s of sinPausar) {
+        if (conPropuesta.has(s.id) || !s.activa || !(s.puja > 0) || ajustes?.bloqueadasPorEfecto.includes(s.id)) continue
+        let nueva: number | null = null
+        let motivo = ''
+        let origenStock: 'bajar' | 'restaurar' | null = null
+        if (stockDelAsin?.fase === 'bajar' && stockDelAsin.bajadaPct > 0) {
+          nueva = pujaValida(s.puja * (1 - stockDelAsin.bajadaPct / 100))
+          motivo = `El stock se acaba: ${stockDelAsin.porque}`
+          origenStock = 'bajar'
+        } else if (!stockDelAsin && restaurar[s.id] != null && s.puja < restaurar[s.id] - 0.02) {
+          nueva = pujaValida(Math.min(restaurar[s.id], s.puja * (1 + AGENTE.STOCK_RESTAURAR_PCT / 100)))
+          motivo = `Vuelve a tener stock: la puja vuelve hacia la de antes de que se acabara (${restaurar[s.id].toFixed(2).replace('.', ',')}), un ${AGENTE.STOCK_RESTAURAR_PCT} % al día`
+          origenStock = 'restaurar'
+        }
+        if (nueva == null || !origenStock || Math.abs(nueva - s.puja) < 0.02) continue
+        const m = s.metricas
+        const { error } = await service.from('ads_propuestas').insert({
+          perfil_id: cuenta.id,
+          tipo: 'puja',
+          asin,
+          termino: s.texto.slice(0, 300),
+          campaign_id: s.campaignId,
+          campaign_nombre: s.campaignName,
+          ad_group_id: s.adGroupId || null,
+          desde_rol: partesDeNombre(s.campaignName)?.rol ?? null,
+          motivo,
+          // `agente: true` en la de devolver: es una subida que el filtro del agente da por buena (no busca rendimiento, deshace una bajada por stock)
+          metricas: { clics: m.clics, gasto: Math.round(m.gasto * 100) / 100, pedidos: m.pedidos, ventas: Math.round(m.ventas * 100) / 100, origenStock, ...(origenStock === 'restaurar' ? { agente: true } : {}) },
+          objetivo_id: s.id,
+          objetivo_tipo: s.tipo,
+          valor_actual: Math.round(s.puja * 100) / 100,
+          valor_nuevo: nueva,
         })
         if (!error) pujas += 1
         else if (error.code !== '23505') throw error

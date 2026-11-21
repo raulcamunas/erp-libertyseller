@@ -303,7 +303,11 @@ export function decidirPropuesta(
   //      STOCK_PAUSA_PENDIENTE_HORAS esperando (sin tope ese día, frenado…), se caduca: aplicarla ahora pausaría una campaña CON stock y el vigilar
   //      siguiente la reactivaría (dos escrituras, dos huecos del tope y la campaña parada entre medias). Si sigue a 0, vigilar la vuelve a proponer ----
   if (esPausaDeStock(p)) {
-    if (producto && producto.stock != null && producto.stock > 0) return { accion: 'caducar', motivo: `el producto vuelve a tener stock (${producto.stock}): ya no hay que pausar` }
+    // La pausa ANTICIPADA (quedan ≤ 3 días de stock, faseDeStock) se propone con stock > 0: solo sobra si el producto ya tiene más de 7 días de stock
+    const anticipada = (p.metricas as Record<string, unknown> | null)?.anticipada === true
+    if (anticipada) {
+      if (producto && producto.coberturaDias != null && producto.coberturaDias > AGENTE.COBERTURA_RECORTAR_DIAS) return { accion: 'caducar', motivo: `el producto ya tiene ${producto.coberturaDias} días de stock: ya no hay que pausar` }
+    } else if (producto && producto.stock != null && producto.stock > 0) return { accion: 'caducar', motivo: `el producto vuelve a tener stock (${producto.stock}): ya no hay que pausar` }
     if (horas > AGENTE.STOCK_PAUSA_PENDIENTE_HORAS) return { accion: 'caducar', motivo: `pausa por stock de hace más de ${AGENTE.STOCK_PAUSA_PENDIENTE_HORAS} h: si sigue a 0, se vuelve a proponer con el stock de ahora` }
   }
 
