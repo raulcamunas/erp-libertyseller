@@ -2,7 +2,7 @@
  * PRUEBAS DEL EDITOR DE FICHA (lib/seo/edicion.ts): qué se manda a Amazon, los Item Highlights y la verificación después de aplicar.
  *   npx tsx lib/seo/edicion.prueba.ts
  */
-import { atributoDeHighlights, bloqueosDeEdicion, camposCambiados, explicacionDeNoAplicada, highlightsDeAtributos, medidasDeEdicion, planDePatch, verificarEdicion, type TextosFicha } from './edicion'
+import { atributoDeHighlights, bloqueosDeEdicion, camposCambiados, camposPisadosDesdeValidar, decidirEdicion, explicacionDeNoAplicada, highlightsDeAtributos, medidasDeEdicion, planDePatch, valoresDeAtributo, verificarEdicion, vinetasQueSalen, type TextosFicha } from './edicion'
 import { fichaDeItem, incidenciasDe } from './ficha-servidor'
 
 let fallos = 0
@@ -59,6 +59,8 @@ console.log('\n=== límites (norma de 2026) ===')
   ok('la ñ cuenta 2 bytes en el backend', medidasDeEdicion({ ...base, backend: 'ñ' }).find((m) => m.campo === 'backend')?.valor === 2)
   ok('título vacío bloquea', bloqueosDeEdicion({ ...base, titulo: ' ' }, ['titulo']).bloqueos.some((x) => x.includes('vacío')))
   ok('seis viñetas bloquean', bloqueosDeEdicion({ ...base, bullets: ['a', 'b', 'c', 'd', 'e', 'f'] }, ['bullets']).bloqueos.length === 1)
+  ok('seis viñetas con una vacía no bloquean (cuentan las llenas)', bloqueosDeEdicion({ ...base, bullets: ['a', 'b', 'c', 'd', 'e', ' '] }, ['bullets']).bloqueos.length === 0)
+  ok('siete viñetas no bloquean si no se tocan', bloqueosDeEdicion({ ...base, bullets: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }, ['titulo']).bloqueos.length === 0)
 }
 
 console.log('\n=== verificar después de aplicar ===')
@@ -97,6 +99,82 @@ console.log('\n=== lectura del listing: highlights, tipo e incidencias ===')
   ok('highlights', f?.highlights === 'Pack')
   ok('incidencias aplanadas (sin las vacías)', f?.issues.length === 1 && f.issues[0].atributos[0] === 'brand')
   ok('incidencias de algo que no es lista → vacías', incidenciasDe(null).length === 0)
+}
+
+console.log('\n=== solo lo tocado, sin pisar (fallos 10 y 11) ===')
+{
+  const guardada: TextosFicha = { titulo: 'Título viejo', highlights: '', bullets: ['A', 'B', 'C', 'D', 'E'], descripcion: '', backend: 'backend viejo' }
+  const viva: TextosFicha = { titulo: 'Título viejo', highlights: '', bullets: ['A2', 'B2', 'C', 'D', 'E'], descripcion: '', backend: 'backend nuevo' }
+  const despues: TextosFicha = { ...guardada, titulo: 'Título nuevo' }
+  // (a)
+  const a = decidirEdicion({ viva, despues, soloCampos: ['titulo'], antesVisto: { titulo: guardada.titulo } })
+  ok('(a) viva con viñetas y backend cambiados en Amazon, solo se toca el título → campos [titulo]', a.ok && JSON.stringify(a.campos) === '["titulo"]', JSON.stringify(a))
+  const planA = a.ok ? planDePatch(despues, a.campos, { marketplaceId: ES, languageTag: 'es_ES', atributoHighlights: null }) : null
+  ok('(a) y el PATCH solo lleva item_name', planA?.patches.map((p) => p.path).join() === '/attributes/item_name', JSON.stringify(planA?.patches.map((p) => p.path)))
+  // (b)
+  const b = decidirEdicion({ viva: { ...viva, titulo: 'Título de Seller Central' }, despues, soloCampos: ['titulo'], antesVisto: { titulo: guardada.titulo } })
+  ok('(b) el campo tocado cambió en Amazon → ok:false', !b.ok && b.motivo.includes('ha cambiado en Amazon') && JSON.stringify(b.camposCambiadosEnAmazon) === '["titulo"]', JSON.stringify(b))
+  const b2 = decidirEdicion({ viva: { ...viva, titulo: 'Título nuevo' }, despues, soloCampos: ['titulo'], antesVisto: { titulo: guardada.titulo } })
+  ok('    si Amazon ya tiene lo nuevo, no es pisar (nada que cambiar)', !b2.ok && b2.motivo.includes('No hay nada que cambiar'))
+  ok('    sin soloCampos → rechaza', !decidirEdicion({ viva, despues, soloCampos: undefined, antesVisto: {} }).ok)
+  ok('    viñetas tocadas que cambiaron en Amazon → ok:false', !decidirEdicion({ viva, despues: { ...guardada, bullets: ['A', 'B', 'C', 'D', 'F'] }, soloCampos: ['bullets'], antesVisto: { bullets: guardada.bullets } }).ok)
+  // (c)
+  const siete: TextosFicha = { titulo: 'T', highlights: '', bullets: ['1', '2', '3', '4', '5', '6', '7'], descripcion: '', backend: 'k' }
+  const c = decidirEdicion({ viva: siete, despues: { ...siete, titulo: 'T2' }, soloCampos: ['titulo'], antesVisto: { titulo: 'T' } })
+  const planC = c.ok ? planDePatch({ ...siete, titulo: 'T2' }, c.campos, { marketplaceId: ES, languageTag: 'es_ES', atributoHighlights: null }) : null
+  ok('(c) viva con 7 viñetas y solo el título → el PATCH no lleva bullet_point', !!planC && !planC.patches.some((p) => p.path === '/attributes/bullet_point') && planC.patches.length === 1, JSON.stringify(c))
+  const planSiete = planDePatch(siete, ['bullets'], { marketplaceId: ES, languageTag: 'es_ES', atributoHighlights: null })
+  ok('    7 viñetas mandadas: no se recortan en silencio, se avisa y no se mandan', planSiete.patches.length === 0 && planSiete.avisos.length === 1)
+  ok('    la confirmación dice qué viñetas se borran', JSON.stringify(vinetasQueSalen(siete, { ...siete, bullets: ['1', '2', '3', '4', '5'] })) === '["6","7"]')
+  // Al aplicar: lo guardado al validar frente a la ficha viva
+  ok('    al aplicar, un campo cambiado en Amazon desde validar se detecta', JSON.stringify(camposPisadosDesdeValidar({ ...viva, titulo: 'Otro' }, viva, { ...viva, titulo: 'Título nuevo' }, ['titulo'])) === '["titulo"]')
+  ok('    y lo que no se manda no cuenta', camposPisadosDesdeValidar({ ...viva, backend: 'otro' }, viva, { ...viva, titulo: 'Título nuevo' }, ['titulo']).length === 0)
+  // (e)
+  const e = decidirEdicion({ viva, despues: { ...viva, titulo: 'Propuesta IA' }, soloCampos: ['titulo', 'highlights', 'bullets', 'backend'], esperado: guardada })
+  ok('(e) esperado distinto de la ficha viva → no se manda nada', !e.ok && e.motivo.includes('desde que se hizo la propuesta'), JSON.stringify(e))
+  const e2 = decidirEdicion({ viva, despues: { ...viva, titulo: 'Propuesta IA' }, soloCampos: ['titulo', 'highlights', 'bullets', 'backend'], esperado: { ...viva, titulo: ' Título  viejo', highlights: 'otros' } })
+  ok('    esperado igual (espacios y highlights aparte) → se manda', e2.ok && JSON.stringify(e2.campos) === '["titulo"]', JSON.stringify(e2))
+}
+
+console.log('\n=== un solo idioma (fallo 12) ===')
+{
+  const BE = 'AMEN7PMS3EDWL'
+  const item = {
+    sku: 'SKU-BE',
+    summaries: [{ marketplaceId: BE, asin: 'B0BELGICA1', productType: 'TOY' }],
+    attributes: {
+      item_name: [
+        { value: 'Titre FR', language_tag: 'fr_BE', marketplace_id: BE },
+        { value: 'Titel NL', language_tag: 'nl_BE', marketplace_id: BE },
+      ],
+      bullet_point: [
+        { value: 'fr 1', language_tag: 'fr_BE', marketplace_id: BE },
+        { value: 'nl 1', language_tag: 'nl_BE', marketplace_id: BE },
+        { value: 'fr 2', language_tag: 'fr_BE', marketplace_id: BE },
+        { value: 'nl 2', language_tag: 'nl_BE', marketplace_id: BE },
+        { value: 'fr 3', language_tag: 'fr_BE', marketplace_id: BE },
+        { value: 'nl 3', language_tag: 'nl_BE', marketplace_id: BE },
+      ],
+      generic_keyword: [
+        { value: 'jouet', language_tag: 'fr_BE', marketplace_id: BE },
+        { value: 'speelgoed', language_tag: 'nl_BE', marketplace_id: BE },
+      ],
+    },
+  }
+  const f = fichaDeItem(item, BE)
+  ok("(d) Bélgica con fr_BE y nl_BE → título 'Titre FR'", f?.titulo === 'Titre FR', f?.titulo ?? '')
+  ok('(d) 3 viñetas en francés', JSON.stringify(f?.bullets) === '["fr 1","fr 2","fr 3"]', JSON.stringify(f?.bullets))
+  ok("(d) otrosIdiomas ['nl_BE'] y se lee con fr_BE", JSON.stringify(f?.otrosIdiomas) === '["nl_BE"]' && f?.languageTag === 'fr_BE', JSON.stringify([f?.otrosIdiomas, f?.languageTag]))
+  ok('    el backend, solo el del idioma', f?.backend === 'jouet')
+  const v = decidirEdicion({ viva: { titulo: 'Titre FR', bullets: ['fr 1'], backend: 'jouet' }, despues: { titulo: 'Nouveau', bullets: ['fr 1'], backend: 'jouet' }, soloCampos: ['titulo'], antesVisto: { titulo: 'Titre FR' }, otrosIdiomas: f?.otrosIdiomas, languageTag: f?.languageTag })
+  ok('    la edición de una ficha bilingüe se bloquea con los dos idiomas', !v.ok && v.motivo.includes('fr_BE y nl_BE') && v.motivo.includes('Seller Central'), JSON.stringify(v))
+  // Si el país trae el suyo y otro primero, gana el del país
+  const nlPrimero = fichaDeItem({ ...item, attributes: { ...item.attributes, item_name: [...item.attributes.item_name].reverse() } }, BE)
+  ok('    si el título viene antes en nl_BE, se lee igual en el idioma del país (fr_BE)', nlPrimero?.titulo === 'Titre FR')
+  const es = fichaDeItem({ sku: 'S', summaries: [{ marketplaceId: ES }], attributes: { item_name: [{ value: 'Título', language_tag: 'es_ES', marketplace_id: ES }], bullet_point: [{ value: 'uno', language_tag: 'es_ES', marketplace_id: ES }] } }, ES)
+  ok('    una ficha de un idioma no tiene otros', es?.otrosIdiomas?.length === 0 && es?.languageTag === 'es_ES')
+  ok('    valoresDeAtributo sin idioma devuelve todo (como antes)', valoresDeAtributo(item.attributes, 'bullet_point', BE).length === 6)
+  ok('    los valores sin language_tag se cuentan en cualquier idioma', valoresDeAtributo({ x: [{ value: 'a' }, { value: 'b', language_tag: 'nl_BE' }] }, 'x', BE, 'fr_BE').join() === 'a')
 }
 
 console.log(fallos === 0 ? '\nTodo bien.\n' : `\n${fallos} FALLOS\n`)

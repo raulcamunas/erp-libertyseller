@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { CircleAlert, CircleCheck, Clock, History, PencilLine, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, XCircle } from 'lucide-react'
+import { ChevronDown, CircleAlert, CircleCheck, Clock, DownloadCloud, History, Languages, PencilLine, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, X, XCircle } from 'lucide-react'
 import { Boton, Confirmacion, Insignia, LineaDeTiempo, Tarjeta, mezcla, ACENTO, type Hito } from '@/components/ui-ls'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
-import { bloqueosDeEdicion, camposCambiados, medidasDeEdicion, MAX_VINETAS, NOMBRE_DE_CAMPO, normalizarTexto, type CampoFicha, type TextosFicha } from '@/lib/seo/edicion'
+import { bloqueosDeEdicion, camposCambiados, medidasDeEdicion, MAX_VINETAS, NOMBRE_DE_CAMPO, normalizarTexto, valorDeCampo, vinetasQueSalen, type CampoFicha, type TextosFicha } from '@/lib/seo/edicion'
 import type { EdicionGuardada } from '@/lib/seo/edicion-servidor'
 import type { FichaGuardada } from '@/lib/seo/datos'
 import { trozosNuevos } from '@/lib/seo/propuesta'
@@ -15,21 +15,47 @@ import { useDelProducto } from './useDelProducto'
 
 type Issue = { message?: string; code?: string; severity?: string }
 
-/** Un POST que devuelve el JSON, o lanza con el motivo y las incidencias de Amazon */
+/** Lo que acompaña a un rechazo del servidor: la ficha viva, los campos que cambiaron en Amazon y, si es bilingüe, sus idiomas */
+type Rechazo = { motivo: string; issues: Issue[]; viva?: TextosFicha | null; cambiadosEnAmazon?: CampoFicha[]; idiomas?: string[] | null }
+
+/** Un POST que devuelve el JSON, o lanza con el motivo, las incidencias de Amazon y lo que el servidor haya leído de la ficha */
 async function enviar<T>(cuerpo: unknown): Promise<T> {
   const res = await fetch('/api/seo/ediciones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo), cache: 'no-store' })
-  const j = (await res.json().catch(() => ({}))) as T & { error?: string; issues?: Issue[] }
-  if (!res.ok) throw Object.assign(new Error(j.error ?? `Error ${res.status}`), { issues: j.issues ?? [] })
+  const j = (await res.json().catch(() => ({}))) as T & { error?: string; issues?: Issue[]; antes?: TextosFicha | null; camposCambiadosEnAmazon?: CampoFicha[]; idiomas?: string[] | null }
+  if (!res.ok) throw Object.assign(new Error(j.error ?? `Error ${res.status}`), { issues: j.issues ?? [], viva: j.antes ?? null, cambiadosEnAmazon: j.camposCambiadosEnAmazon ?? [], idiomas: j.idiomas ?? null })
   return j
 }
 
-const textosDeFicha = (f: FichaGuardada): TextosFicha => ({
-  titulo: f.titulo ?? '',
-  highlights: f.highlights ?? '',
-  bullets: [...f.bullets, ...Array(Math.max(0, MAX_VINETAS - f.bullets.length)).fill('')].slice(0, MAX_VINETAS),
-  descripcion: f.descripcion ?? '',
-  backend: f.backend ?? '',
-})
+const rechazoDe = (e: unknown, porDefecto: string): Rechazo => {
+  const x = e as Partial<Rechazo>
+  return { motivo: e instanceof Error ? e.message : porDefecto, issues: x.issues ?? [], viva: x.viva ?? null, cambiadosEnAmazon: x.cambiadosEnAmazon ?? [], idiomas: x.idiomas ?? null }
+}
+
+/** Para el editor: las viñetas se rellenan hasta 5 huecos, pero NUNCA se recortan (una ficha con 7 las enseña todas) */
+const paraEditor = (t: { titulo?: string | null; highlights?: string | null; bullets?: string[] | null; descripcion?: string | null; backend?: string | null }): TextosFicha => {
+  const bullets = t.bullets ?? []
+  return {
+    titulo: t.titulo ?? '',
+    highlights: t.highlights ?? '',
+    bullets: bullets.length >= MAX_VINETAS ? [...bullets] : [...bullets, ...Array(MAX_VINETAS - bullets.length).fill('')],
+    descripcion: t.descripcion ?? '',
+    backend: t.backend ?? '',
+  }
+}
+
+const textosDeFicha = (f: FichaGuardada): TextosFicha => paraEditor(f)
+
+/** La ficha viva como base, con lo que la persona ha tocado encima (lo que no ha tocado queda como está ahora en Amazon) */
+function sobreLaViva(viva: TextosFicha, tocados: readonly CampoFicha[], actual: TextosFicha): TextosFicha {
+  const r: TextosFicha = { ...viva, bullets: [...viva.bullets] }
+  for (const c of tocados) {
+    if (c === 'bullets') r.bullets = [...actual.bullets]
+    else r[c] = actual[c] ?? ''
+  }
+  return r
+}
+
+const nombres = (campos: readonly CampoFicha[]) => campos.map((c) => NOMBRE_DE_CAMPO[c].toLowerCase()).join(', ')
 
 const ESTADO: Record<EdicionGuardada['estado'], { texto: string; tono: TonoEstado }> = {
   validada: { texto: 'Validada, sin mandar', tono: 'azul' },
@@ -47,17 +73,29 @@ const ESTADO: Record<EdicionGuardada['estado'], { texto: string; tono: TonoEstad
  * cuándo, qué dijo Amazon) y, al releer la ficha, se comprueba si de verdad ha quedado.
  */
 export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { cuentaId: string; asin: string; ficha: FichaGuardada; ventana: ReturnType<typeof ventanaDeCambio>; onAplicada?: () => void }) {
-  const original = useMemo(() => textosDeFicha(ficha), [ficha])
+  // El «original» es la ficha guardada (hasta 24 h) hasta que se valida: desde ahí, la que Amazon tiene en ese momento
+  const [original, setOriginal] = useState<TextosFicha>(() => textosDeFicha(ficha))
+  const [vivaLeida, setVivaLeida] = useState(false)
   const [abierto, setAbierto] = useState(false)
   const [t, setT] = useState<TextosFicha>(original)
   const [validando, setValidando] = useState(false)
-  const [validada, setValidada] = useState<{ id: string | null; huella: string; avisos: string[]; issues: Issue[]; ventanaCerrada: boolean } | null>(null)
-  const [rechazo, setRechazo] = useState<{ motivo: string; issues: Issue[] } | null>(null)
+  const [validada, setValidada] = useState<{ id: string | null; huella: string; campos: CampoFicha[]; avisos: string[]; issues: Issue[]; ventanaCerrada: boolean } | null>(null)
+  const [rechazo, setRechazo] = useState<Rechazo | null>(null)
+  const [bilingue, setBilingue] = useState<string[] | null>(null)
   const [confirmar, setConfirmar] = useState(false)
   const [saltarVentana, setSaltarVentana] = useState(false)
   const historial = useDelProducto<{ ediciones: EdicionGuardada[]; sinMigracion: boolean }>(`/api/seo/ediciones?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}`)
 
-  useEffect(() => setT(original), [original])
+  // Ficha nueva (otro producto o se ha vuelto a leer): se empieza de cero sobre ella
+  useEffect(() => {
+    const o = textosDeFicha(ficha)
+    setOriginal(o)
+    setT(o)
+    setVivaLeida(false)
+    setValidada(null)
+    setRechazo(null)
+    setBilingue(null)
+  }, [ficha])
 
   const campos = useMemo(() => camposCambiados(original, t), [original, t])
   const { bloqueos, incidencias } = useMemo(() => bloqueosDeEdicion(t, campos), [t, campos])
@@ -65,28 +103,79 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
   const huella = JSON.stringify(t)
   // Si se toca algo después de validar, hay que volver a validar
   const vigente = validada && validada.huella === huella ? validada : null
-  const tocaTitulo = campos.includes('titulo')
+  // Lo que se va a mandar es lo que dijo el servidor al validar (no lo que calcula el navegador)
+  const camposAMandar = vigente?.campos ?? campos
+  const tocaTitulo = camposAMandar.includes('titulo')
+  const vinetasLlenas = t.bullets.filter((b) => normalizarTexto(b)).length
+  const salen = useMemo(() => (camposAMandar.includes('bullets') ? vinetasQueSalen(original, t) : []), [camposAMandar, original, t])
 
   const cambiar = <K extends keyof TextosFicha>(k: K, v: TextosFicha[K]) => {
     setT((x) => ({ ...x, [k]: v }))
     setRechazo(null)
   }
 
+  /** Pone como base la ficha que Amazon tiene ahora, con lo tocado encima. Devuelve el nuevo texto del editor */
+  function adoptarViva(vivaCruda: TextosFicha, tocados: readonly CampoFicha[]): TextosFicha {
+    const viva = paraEditor(vivaCruda)
+    const nuevo = sobreLaViva(viva, tocados, t)
+    const fuera = camposCambiados(original, viva).filter((c) => !tocados.includes(c))
+    if (fuera.length > 0) toast.info(`En Amazon han cambiado ${nombres(fuera)} desde la última lectura. No los has tocado: se quedan como están ahora en Amazon.`)
+    setOriginal(viva)
+    setT(nuevo)
+    setVivaLeida(true)
+    return nuevo
+  }
+
   async function validar() {
     setValidando(true)
     setRechazo(null)
+    const tocados = campos
+    // Solo los campos tocados y lo que había en ellos al empezar: el servidor no pisa lo que haya cambiado en Amazon
+    const antes = Object.fromEntries(tocados.map((c) => [c, original[c]]))
     try {
-      const r = await enviar<{ edicion: EdicionGuardada | null; avisos: string[]; issues: Issue[]; ventana: { bloqueada: boolean } | null }>({ cuenta: cuentaId, accion: 'validar', asin, despues: { ...t, bullets: t.bullets.filter((b) => normalizarTexto(b)) } })
-      setValidada({ id: r.edicion?.id ?? null, huella, avisos: r.avisos, issues: r.issues, ventanaCerrada: Boolean(r.ventana?.bloqueada) })
+      const r = await enviar<{ edicion: EdicionGuardada | null; campos: CampoFicha[]; antes: TextosFicha; avisos: string[]; issues: Issue[]; ventana: { bloqueada: boolean } | null }>({ cuenta: cuentaId, accion: 'validar', asin, despues: { ...t, bullets: t.bullets.filter((b) => normalizarTexto(b)) }, campos: tocados, antes })
+      const nuevo = r.antes ? adoptarViva(r.antes, tocados) : t
+      setValidada({ id: r.edicion?.id ?? null, huella: JSON.stringify(nuevo), campos: r.campos ?? tocados, avisos: r.avisos, issues: r.issues, ventanaCerrada: Boolean(r.ventana?.bloqueada) })
       toast.success('Amazon lo acepta. Todavía no se ha cambiado nada.')
       void historial.recargar()
     } catch (e) {
       setValidada(null)
-      setRechazo({ motivo: e instanceof Error ? e.message : 'No se ha podido validar.', issues: (e as { issues?: Issue[] }).issues ?? [] })
+      const x = rechazoDe(e, 'No se ha podido validar.')
+      if (x.idiomas && x.idiomas.length > 1) setBilingue(x.idiomas)
+      setRechazo(x)
       void historial.recargar()
     } finally {
       setValidando(false)
     }
+  }
+
+  /** Tras «ha cambiado en Amazon»: la ficha de ahora como base y tus cambios encima, para que veas qué pisas antes de volver a validar */
+  function traerLaViva() {
+    if (!rechazo?.viva) return
+    adoptarViva(rechazo.viva, campos)
+    setRechazo(null)
+    setValidada(null)
+  }
+
+  /** «Cargar esta versión en el editor» (Historial): lo que había antes de esa edición, solo en sus campos. Luego, el flujo de siempre */
+  function cargarVersion(e: EdicionGuardada) {
+    const antes = paraEditor(e.antes)
+    const nuevo: TextosFicha = { ...original, bullets: [...original.bullets] }
+    const vacios: CampoFicha[] = []
+    for (const c of e.campos) {
+      if (!valorDeCampo(antes, c)) {
+        vacios.push(c)
+        continue
+      }
+      if (c === 'bullets') nuevo.bullets = [...antes.bullets]
+      else nuevo[c] = antes[c] ?? ''
+    }
+    setT(nuevo)
+    setValidada(null)
+    setRechazo(null)
+    setAbierto(true)
+    if (vacios.length > 0) toast.info(`Antes de ese cambio ${nombres(vacios)} estaba vacío: desde el ERP no se deja un campo vacío. Si hace falta, bórralo en Seller Central.`)
+    else toast.success('Versión cargada en el editor. Valídala en Amazon antes de aplicarla.')
   }
 
   async function aplicar() {
@@ -98,7 +187,8 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
       void historial.recargar()
       onAplicada?.()
     } catch (e) {
-      setRechazo({ motivo: e instanceof Error ? e.message : 'No se ha podido aplicar.', issues: (e as { issues?: Issue[] }).issues ?? [] })
+      setRechazo(rechazoDe(e, 'No se ha podido aplicar.'))
+      setValidada(null)
       throw e
     }
   }
@@ -127,6 +217,15 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
       <AnimatePresence initial={false}>
         {abierto && (
           <motion.div key="editor" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
+            {bilingue ? (
+              <div className="flex items-start gap-3 rounded-[14px] border px-4 py-3 text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.ambar, 40), background: mezcla(COLOR_ESTADO.ambar, 6) }}>
+                <Languages className="mt-[2px] h-[15px] w-[15px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-[var(--ls-t1)]">Esta ficha está en dos idiomas ({bilingue.join(' y ')}) en este país</div>
+                  <div className="mt-[2px] text-[var(--ls-t3)]">Edítala en Seller Central. Desde aquí se mandaría un solo idioma y Amazon borraría el otro. Los textos que ves en la pestaña son los de {bilingue[0]}.</div>
+                </div>
+              </div>
+            ) : (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
               <div className="flex min-w-0 flex-col gap-4">
                 <Campo etiqueta="Título" medida={medidas[0]} cambiado={campos.includes('titulo')}>
@@ -135,12 +234,25 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
                 <Campo etiqueta="Item Highlights" medida={medidas[1]} cambiado={campos.includes('highlights')} ayuda="Lo que no cabe en el título (formato, cantidad, duración). Se indexa como el título. Si el tipo de producto no lo admite, Amazon no lo recibe y se avisa.">
                   <textarea value={t.highlights ?? ''} onChange={(e) => cambiar('highlights', e.target.value)} rows={2} className={CAMPO} placeholder="Opcional" />
                 </Campo>
-                <Campo etiqueta="Viñetas" medida={medidas[2]} cambiado={campos.includes('bullets')} ayuda="Cinco, con un beneficio concreto delante. Se mandan todas: sustituyen a las que haya.">
+                <Campo etiqueta="Viñetas" medida={medidas[2]} cambiado={campos.includes('bullets')} ayuda="Cinco, con un beneficio concreto delante. Solo se mandan si las cambias, y entonces todas: sustituyen a las que haya.">
                   <div className="flex flex-col gap-2">
+                    {original.bullets.filter((b) => normalizarTexto(b)).length > MAX_VINETAS && (
+                      <p className="flex items-start gap-2 rounded-[10px] px-3 py-2 text-[12px] leading-[1.45]" style={{ color: COLOR_ESTADO.ambar, background: mezcla(COLOR_ESTADO.ambar, 10) }}>
+                        <TriangleAlert className="mt-[2px] h-[13px] w-[13px] shrink-0" />
+                        <span>
+                          Esta ficha tiene {original.bullets.filter((b) => normalizarTexto(b)).length} viñetas y el ERP trabaja con {MAX_VINETAS}. Si solo cambias otros campos, las viñetas no se tocan. Para cambiarlas, quita antes a mano las que sobren (×){vinetasLlenas > MAX_VINETAS ? `: sobran ${vinetasLlenas - MAX_VINETAS}.` : '.'}
+                        </span>
+                      </p>
+                    )}
                     {t.bullets.map((b, i) => (
                       <div key={i} className="flex items-start gap-2">
                         <span className="mt-[11px] w-4 shrink-0 text-right text-[11px] tabular-nums text-[var(--ls-t4)]">{i + 1}</span>
                         <textarea value={b} onChange={(e) => cambiar('bullets', t.bullets.map((x, k) => (k === i ? e.target.value : x)))} rows={3} className={CAMPO} />
+                        {t.bullets.length > MAX_VINETAS && (
+                          <button type="button" aria-label={`Quitar la viñeta ${i + 1}`} title="Quitar esta viñeta" onClick={() => cambiar('bullets', t.bullets.filter((_, k) => k !== i))} className="mt-[6px] grid h-[28px] w-[28px] shrink-0 place-items-center rounded-[8px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
+                            <X className="h-[14px] w-[14px]" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -159,6 +271,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
                     Antes y después
                     <span className="ml-auto text-[12px] font-normal text-[var(--ls-t4)]">{campos.length === 0 ? 'sin cambios' : `${campos.length} ${campos.length === 1 ? 'campo' : 'campos'}`}</span>
                   </div>
+                  <p className="mb-2 text-[11.5px] text-[var(--ls-t4)]">{vivaLeida ? '«Antes» es lo que Amazon tiene ahora mismo (leído al validar).' : `«Antes» es la ficha leída ${new Date(ficha.leidaAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Al validar se compara con la de ahora.`}</p>
                   {campos.length === 0 ? (
                     <p className="text-[12.5px] text-[var(--ls-t3)]">Edita a la izquierda: aquí verás lo que entra (verde) y lo que sale (tachado).</p>
                   ) : (
@@ -197,6 +310,14 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
                     {rechazo.issues.slice(0, 6).map((i, k) => (
                       <div key={k} className="text-[12px] text-[var(--ls-t3)]">· {i.message ?? i.code}</div>
                     ))}
+                    {rechazo.viva && (rechazo.cambiadosEnAmazon?.length ?? 0) > 0 && (
+                      <div className="mt-2">
+                        <Boton variante="secundario" tamano="sm" icono={DownloadCloud} onClick={traerLaViva}>
+                          Traer la ficha de Amazon y mantener mis cambios
+                        </Boton>
+                        <p className="mt-1 text-[11.5px] text-[var(--ls-t4)]">Verás a la derecha qué hay ahora en Amazon y qué lo sustituiría. Luego vuelve a validar.</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -205,6 +326,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
                     <div className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.verde }}>
                       <ShieldCheck className="h-[14px] w-[14px]" /> Amazon lo acepta (validación sin guardar)
                     </div>
+                    <div className="mt-1 text-[var(--ls-t2)]">Se mandará: {nombres(vigente.campos)}. El resto de la ficha no se toca.</div>
                     {[...vigente.avisos, ...vigente.issues.map((i) => i.message ?? '')].filter(Boolean).map((a) => (
                       <div key={a} className="mt-1 text-[12px] text-[var(--ls-t3)]">· {a}</div>
                     ))}
@@ -219,7 +341,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
                   <Boton variante="primario" icono={Send} disabled={!vigente?.id} onClick={() => setConfirmar(true)}>
                     Aplicar
                   </Boton>
-                  <Boton variante="fantasma" icono={RotateCcw} disabled={campos.length === 0} onClick={() => { setT(original); setValidada(null); setRechazo(null) }}>
+                  <Boton variante="fantasma" icono={RotateCcw} disabled={campos.length === 0} onClick={() => { setT({ ...original, bullets: [...original.bullets] }); setValidada(null); setRechazo(null) }}>
                     Deshacer
                   </Boton>
                 </div>
@@ -230,11 +352,12 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
                 )}
               </div>
             </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      <Historial ediciones={ediciones} cargando={historial.cargando && !historial.datos} sinMigracion={Boolean(historial.datos?.sinMigracion)} />
+      <Historial ediciones={ediciones} cargando={historial.cargando && !historial.datos} sinMigracion={Boolean(historial.datos?.sinMigracion)} onCargar={bilingue ? undefined : cargarVersion} />
 
       <Confirmacion
         abierto={confirmar}
@@ -243,7 +366,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
           if (!v) setSaltarVentana(false)
         }}
         titulo="¿Cambiar la ficha del cliente en Amazon?"
-        descripcion={`Se mandan ${campos.map((c) => NOMBRE_DE_CAMPO[c].toLowerCase()).join(', ')}. Amazon lo procesa en unos minutos; después el ERP relee la ficha y comprueba que ha quedado.`}
+        descripcion={`Se mandan ${nombres(camposAMandar)} (lo que Amazon ha validado; el resto de la ficha no se toca). Amazon lo procesa en unos minutos; después el ERP relee la ficha y comprueba que ha quedado.`}
         palabra={ventana?.bloqueada && tocaTitulo ? 'APLICAR' : null}
         tono="normal"
         textoConfirmar="Sí, cambiar la ficha"
@@ -252,6 +375,16 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
           await aplicar()
         }}
       >
+        {salen.length > 0 && (
+          <div className="mb-2 rounded-[10px] px-3 py-2 text-[12.5px] leading-[1.45]" style={{ color: 'var(--ls-t2)', background: mezcla(COLOR_ESTADO.rojo, 7) }}>
+            <div className="font-semibold" style={{ color: COLOR_ESTADO.rojo }}>
+              Se {salen.length === 1 ? 'borra esta viñeta' : `borran estas ${salen.length} viñetas`} de la ficha:
+            </div>
+            {salen.map((b, i) => (
+              <div key={i} className="mt-1 line-clamp-2 text-[12px] text-[var(--ls-t3)]">· {b}</div>
+            ))}
+          </div>
+        )}
         {ventana?.bloqueada && tocaTitulo && (
           <label className="flex items-start gap-2 text-[12.5px] text-[var(--ls-t2)]">
             <input type="checkbox" checked={saltarVentana} onChange={(e) => setSaltarVentana(e.target.checked)} className="mt-[3px] h-4 w-4" />
@@ -306,8 +439,45 @@ function Diferencia({ campo, antes, despues }: { campo: CampoFicha; antes: Texto
   )
 }
 
+/** Las ediciones que llegaron a la ficha: se pueden desplegar para ver qué cambiaron y volver a lo de antes */
+const VUELVE: ReadonlySet<EdicionGuardada['estado']> = new Set(['aplicada', 'enviada', 'parcial'])
+
+/** Una edición desplegable: lo que cambió y «Cargar esta versión en el editor» (lo de antes de esa edición, por el flujo normal: validar, confirmar y aplicar) */
+function VersionDesplegable({ e, texto, onCargar }: { e: EdicionGuardada; texto?: string; onCargar?: (e: EdicionGuardada) => void }) {
+  const [ver, setVer] = useState(false)
+  const antes = paraEditor(e.antes ?? {})
+  const despues = paraEditor(e.despues ?? {})
+  return (
+    <div className="flex flex-col gap-1">
+      {texto && <span>{texto}</span>}
+      <button type="button" onClick={() => setVer((v) => !v)} aria-expanded={ver} className="flex w-fit items-center gap-1 text-[12px] font-medium text-[var(--ls-t2)] hover:text-[var(--ls-t1)]">
+        <ChevronDown className="h-[13px] w-[13px] transition-transform" style={{ transform: ver ? 'rotate(180deg)' : undefined }} /> {ver ? 'Ocultar el cambio' : 'Ver qué cambió'}
+      </button>
+      <AnimatePresence initial={false}>
+        {ver && (
+          <motion.div key="v" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+            <div className="mt-1 flex flex-col gap-3 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-3">
+              {e.campos.map((c) => (
+                <Diferencia key={c} campo={c} antes={antes} despues={despues} />
+              ))}
+              {onCargar && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Boton variante="secundario" tamano="sm" icono={RotateCcw} onClick={() => onCargar(e)}>
+                    Cargar esta versión en el editor
+                  </Boton>
+                  <span className="text-[11.5px] text-[var(--ls-t4)]">Pone lo de antes de este cambio. No se manda nada hasta que valides y apliques.</span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 /** El registro: cada validación y cada envío, quién, cuándo, qué dijo Amazon y si ha quedado */
-function Historial({ ediciones, cargando, sinMigracion }: { ediciones: EdicionGuardada[]; cargando: boolean; sinMigracion: boolean }) {
+function Historial({ ediciones, cargando, sinMigracion, onCargar }: { ediciones: EdicionGuardada[]; cargando: boolean; sinMigracion: boolean; onCargar?: (e: EdicionGuardada) => void }) {
   if (sinMigracion) return <p className="mt-3 text-[12.5px]" style={{ color: COLOR_ESTADO.ambar }}>El registro de ediciones llega al lanzar la migración 312 en Supabase.</p>
   if (cargando || ediciones.length === 0) return null
   const hitos: Hito[] = ediciones.map((e) => {
@@ -328,7 +498,10 @@ function Historial({ ediciones, cargando, sinMigracion }: { ediciones: EdicionGu
           {e.fueraDeVentana && <Insignia tono="ambar" tamano="sm">fuera de la ventana del SOP</Insignia>}
         </span>
       ),
-      descripcion: e.verificacion?.explicacion ?? e.error ?? (e.avisos.length > 0 ? e.avisos.join(' ') : undefined),
+      descripcion: (() => {
+        const texto = e.verificacion?.explicacion ?? e.error ?? (e.avisos.length > 0 ? e.avisos.join(' ') : undefined)
+        return VUELVE.has(e.estado) && e.campos.length > 0 && e.antes ? <VersionDesplegable e={e} texto={texto ?? undefined} onCargar={onCargar} /> : texto
+      })(),
     }
   })
   return (

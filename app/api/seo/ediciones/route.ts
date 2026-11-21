@@ -2,14 +2,17 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { fail } from '@/lib/amazon/api'
 import { createServiceClient } from '@/lib/supabase/service'
 import { aplicarEdicion, edicionesDe, validarEdicion } from '@/lib/seo/edicion-servidor'
-import { MAX_VINETAS, type TextosFicha } from '@/lib/seo/edicion'
+import { CAMPOS_FICHA, MAX_VINETAS, type CampoFicha, type TextosFicha } from '@/lib/seo/edicion'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
 
 /**
  * SEO TEST · EL EDITOR DE FICHA. Administradores y quien tenga la casilla de SEO Test (decisión de Raúl, 14 nov 2026).
  *
  *   GET  ?cuenta=&asin=                                   → el historial de ediciones del producto (quién, cuándo, antes/después, qué dijo Amazon y si quedó)
- *   POST {cuenta, accion: 'validar', asin, despues}       → VALIDA en Amazon (VALIDATION_PREVIEW). No cambia la ficha. Apunta la edición validada o rechazada
+ *   POST {cuenta, accion: 'validar', asin, despues, campos, antes}
+ *                                                         → VALIDA en Amazon (VALIDATION_PREVIEW). No cambia la ficha. Apunta la edición validada o rechazada.
+ *                                                           `campos` son los que la persona tocó (solo esos se mandan) y `antes`, lo que había en ellos al
+ *                                                           empezar a editar: si Amazon ya tiene otra cosa, no se pisa. Devuelve también la ficha viva (`antes`)
  *   POST {cuenta, accion: 'aplicar', id, saltarVentana?}  → ESCRIBE EN LA FICHA DEL CLIENTE. Solo una edición validada; la pantalla pide confirmación antes
  */
 export const dynamic = 'force-dynamic'
@@ -20,17 +23,40 @@ const asinDe = (v: unknown) => (typeof v === 'string' && /^[A-Z0-9]{10}$/.test(v
 
 const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 
-/** Lo que llega del navegador, recortado a algo razonable (los límites de verdad los comprueba lib/seo/edicion.ts) */
+/** Amazon admite como mucho 10 viñetas en las categorías que más dejan: más que eso no es una ficha */
+const MAX_VINETAS_QUE_LLEGAN = 10
+
+/** Lo que llega del navegador, recortado a algo razonable (los límites de verdad los comprueba lib/seo/edicion.ts). Las viñetas NO se recortan: se perderían */
 function textosDe(v: unknown): TextosFicha | null {
   if (!v || typeof v !== 'object') return null
   const o = v as Record<string, unknown>
+  const bullets = Array.isArray(o.bullets) ? o.bullets : []
+  if (bullets.length > MAX_VINETAS_QUE_LLEGAN) return null
   return {
     titulo: texto(o.titulo, 600),
     highlights: typeof o.highlights === 'string' ? texto(o.highlights, 600) : null,
-    bullets: (Array.isArray(o.bullets) ? o.bullets : []).slice(0, MAX_VINETAS + 1).map((b) => texto(b, 1500)),
+    bullets: bullets.map((b) => texto(b, 1500)),
     descripcion: typeof o.descripcion === 'string' ? texto(o.descripcion, 4000) : null,
     backend: texto(o.backend, 1000),
   }
+}
+
+/** Los campos que la persona tocó (solo los conocidos y sin repetir) */
+function camposDe(v: unknown): CampoFicha[] {
+  if (!Array.isArray(v)) return []
+  return [...new Set(v.filter((c): c is CampoFicha => typeof c === 'string' && (CAMPOS_FICHA as readonly string[]).includes(c)))]
+}
+
+/** Lo que había en los campos tocados al empezar a editar (solo esos) */
+function antesDe(v: unknown, campos: readonly CampoFicha[]): Partial<TextosFicha> | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  const r: Partial<TextosFicha> = {}
+  for (const c of campos) {
+    if (c === 'bullets') r.bullets = (Array.isArray(o.bullets) ? o.bullets : []).slice(0, MAX_VINETAS_QUE_LLEGAN).map((b) => texto(b, 1500))
+    else r[c] = texto(o[c], c === 'descripcion' ? 4000 : 1000)
+  }
+  return r
 }
 
 export async function GET(request: NextRequest) {
@@ -55,13 +81,19 @@ export async function POST(request: NextRequest) {
     if (body.accion === 'validar') {
       const asin = asinDe(body.asin)
       const despues = textosDe(body.despues)
-      if (!asin || !despues) return fail(400, 'Faltan el producto o los textos.')
+      if (!asin || !despues) return fail(400, 'Faltan el producto o los textos (o llegan más de 10 viñetas).')
+      const campos = camposDe(body.campos)
+      const antesVisto = antesDe(body.antes, campos)
+      // Sin saber qué se ha tocado no se manda nada (una pantalla de antes de este cambio mandaba la ficha entera y pisaba Seller Central)
+      if (campos.length === 0 || !antesVisto) return fail(400, 'No se sabe qué campos has tocado: recarga la página y vuelve a editar.')
+      const vinetas = despues.bullets.filter((b) => b.trim()).length
+      if (campos.includes('bullets') && vinetas > MAX_VINETAS) return fail(400, `Llegan ${vinetas} viñetas y el ERP trabaja con ${MAX_VINETAS}: quita a mano las que sobren. No se recorta nada sin que lo elijas tú.`)
       // El SKU, del producto seguido (no se fía del navegador)
       const { data } = await createServiceClient().from('seo_productos').select('sku').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('asin', asin).maybeSingle()
       const sku = (data as { sku: string | null } | null)?.sku
       if (!sku) return fail(400, 'Este producto no tiene SKU apuntado: sin él no se puede cambiar la ficha.')
-      const r = await validarEdicion(c, { asin, sku, despues, origen: 'manual', userId: a.sesion.userId })
-      if (!r.ok) return NextResponse.json({ error: r.motivo, issues: r.issues, edicion: r.edicion ?? null }, { status: 409 })
+      const r = await validarEdicion(c, { asin, sku, despues, origen: 'manual', userId: a.sesion.userId, soloCampos: campos, antesVisto })
+      if (!r.ok) return NextResponse.json({ error: r.motivo, issues: r.issues, edicion: r.edicion ?? null, antes: r.antes ?? null, camposCambiadosEnAmazon: r.camposCambiadosEnAmazon ?? [], idiomas: r.idiomas ?? null }, { status: 409 })
       return NextResponse.json(r)
     }
 
