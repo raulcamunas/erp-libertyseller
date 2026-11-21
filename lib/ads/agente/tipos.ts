@@ -435,6 +435,8 @@ export interface AjustesDelAgenteParaPujas {
   }>
   /** Pujas bajadas por stock que hay que devolver poco a poco a su valor de antes (objetivo_id → puja de antes) cuando el producto vuelve a tener stock */
   restaurarPorStock?: Record<string, number>
+  /** Segmentaciones ya movidas por stock en las últimas 20 h (no se vuelven a mover hoy); null = no se ha podido leer (hoy no se toca nada por stock) */
+  cambiadasPorStockHoy?: string[] | null
   /** Por campaignId: la presión del día (R2/R3, días cerrados) */
   presion: Record<string, Presion>
   /** Campañas de marca (por rol o nombre): sin subidas, objetivo × MARCA_ACOS_X */

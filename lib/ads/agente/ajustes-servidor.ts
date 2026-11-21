@@ -138,32 +138,40 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
     if (porAsin[p.asin].stock) porAsin[p.asin].sinSubidas = true
   }
 
-  // Pujas bajadas por stock en los últimos 45 días que hay que devolver (solo de productos que ya no están en «bajar» ni «pausar»): objetivo → puja de antes de la primera bajada
+  // Pujas bajadas por stock en los últimos 45 días que hay que devolver (solo de productos que ya no están en «bajar» ni «pausar»): objetivo → puja de antes de la primera bajada.
+  // Y las segmentaciones que YA se han movido por stock en las últimas 20 h: el motor genera al llegar el informe, pero el botón «Generar» de la pantalla también, y sin esto
+  // una segunda generación el mismo día volvía a bajar (o a subir) la misma puja otra vez. Si la lectura falla, `cambiadasPorStockHoy` queda en null y ese día no se toca nada por stock
   const restaurarPorStock: Record<string, number> = {}
+  let cambiadasPorStockHoy: string[] | null = null
   try {
     const asinsRepuestos = new Set(productos.filter((p) => {
       const f = faseDe(p.asin)
       return p.activo && f != null && (f.fase === 'normal' || f.fase === 'sin_subidas')
     }).map((p) => p.asin.toUpperCase()))
-    if (asinsRepuestos.size > 0) {
-      type FilaBajada = { objetivo_id: string | null; asin: string | null; valor_actual: number | null; resuelta_at: string | null }
-      const r = await todasLasFilas<FilaBajada>((a, b) =>
-        createServiceClient()
-          .from('ads_propuestas')
-          .select('objetivo_id, asin, valor_actual, resuelta_at')
-          .eq('perfil_id', perfilId)
-          .eq('tipo', 'puja')
-          .eq('estado', 'aplicada')
-          .eq('metricas->>origenStock', 'bajar')
-          .gte('resuelta_at', new Date(ahora - 45 * 86_400_000).toISOString())
-          .order('resuelta_at')
-          .order('id')
-          .range(a, b) as unknown as PromiseLike<{ data: FilaBajada[] | null; error: { code?: string; message?: string } | null }>,
-      5_000)
-      if (r.error) throw new Error(r.error.message)
+    type FilaBajada = { objetivo_id: string | null; asin: string | null; valor_actual: number | null; resuelta_at: string | null; metricas: { origenStock?: string } | null }
+    const r = await todasLasFilas<FilaBajada>((a, b) =>
+      createServiceClient()
+        .from('ads_propuestas')
+        .select('objetivo_id, asin, valor_actual, resuelta_at, metricas')
+        .eq('perfil_id', perfilId)
+        .eq('tipo', 'puja')
+        .eq('estado', 'aplicada')
+        .in('metricas->>origenStock', ['bajar', 'restaurar'])
+        .gte('resuelta_at', new Date(ahora - 45 * 86_400_000).toISOString())
+        .order('resuelta_at')
+        .order('id')
+        .range(a, b) as unknown as PromiseLike<{ data: FilaBajada[] | null; error: { code?: string; message?: string } | null }>,
+    5_000)
+    if (r.error) throw new Error(r.error.message)
+    const desdeHoy = ahora - 20 * 3_600_000
+    const hoy = new Set<string>()
+    for (const f of r.data) {
+      if (!f.objetivo_id) continue
+      if (f.resuelta_at && Date.parse(f.resuelta_at) >= desdeHoy) hoy.add(f.objetivo_id)
       // Por orden de fecha: la primera bajada de cada objetivo guarda la puja de antes de que empezara a acabarse el stock
-      for (const f of r.data) if (f.objetivo_id && f.asin && asinsRepuestos.has(f.asin.toUpperCase()) && f.valor_actual != null && !(f.objetivo_id in restaurarPorStock)) restaurarPorStock[f.objetivo_id] = Number(f.valor_actual)
+      if (f.metricas?.origenStock === 'bajar' && f.asin && asinsRepuestos.has(f.asin.toUpperCase()) && f.valor_actual != null && !(f.objetivo_id in restaurarPorStock)) restaurarPorStock[f.objetivo_id] = Number(f.valor_actual)
     }
+    cambiadasPorStockHoy = [...hoy]
   } catch (err) {
     console.error(`[agente] pujas a devolver tras reponer stock (${perfilId}):`, err instanceof Error ? err.message : err)
   }
@@ -195,6 +203,7 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
   return {
     porAsin,
     restaurarPorStock,
+    cambiadasPorStockHoy,
     presion: presionVigente(config?.presion ?? {}, config?.presionFecha ?? null, local.fecha),
     campanasDeMarca,
     campanasConUbicacionAlta,

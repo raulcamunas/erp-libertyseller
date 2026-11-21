@@ -258,8 +258,10 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
       // el motor genera una vez al día y el índice único de pendientes impide repetirlas
       const stockDelAsin = ajustes ? (ajustes.porAsin[asin] ?? ajustes.porAsin[asin.toUpperCase()])?.stock : null
       const restaurar = ajustes?.restaurarPorStock ?? {}
-      for (const s of sinPausar) {
-        if (conPropuesta.has(s.id) || !s.activa || !(s.puja > 0) || ajustes?.bloqueadasPorEfecto.includes(s.id)) continue
+      // Sin saber qué se movió hoy por stock (la lectura falló), hoy no se mueve nada por stock: mejor un día sin bajar que bajar dos veces
+      const yaHoy = ajustes?.cambiadasPorStockHoy === undefined ? new Set<string>() : ajustes.cambiadasPorStockHoy === null ? null : new Set(ajustes.cambiadasPorStockHoy)
+      for (const s of yaHoy ? sinPausar : []) {
+        if (yaHoy?.has(s.id) || conPropuesta.has(s.id) || !s.activa || !(s.puja > 0) || ajustes?.bloqueadasPorEfecto.includes(s.id)) continue
         let nueva: number | null = null
         let motivo = ''
         let origenStock: 'bajar' | 'restaurar' | null = null
