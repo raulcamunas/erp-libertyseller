@@ -41,6 +41,15 @@ const ESTADOS_QUE_INTERESAN = [
   'CLOSED',
 ]
 
+/**
+ * Por IDENTIFICADOR (los envíos que tenemos apuntados) se piden también los cancelados y borrados: si no, Amazon no los devuelve, la remesa seguía «en
+ * camino» para siempre y el plan contaba unidades que no van a llegar. Con ShipmentIdList no trae nada de más
+ */
+export const ESTADOS_POR_IDENTIFICADOR = [...ESTADOS_QUE_INTERESAN, 'CANCELLED', 'DELETED', 'ERROR']
+
+/** Estados de un envío que ya no va a llegar a Amazon */
+export const ESTADOS_ENVIO_ANULADO = ['CANCELLED', 'DELETED', 'ERROR']
+
 export interface EnvioInbound {
   shipmentId: string
   nombre: string | null
@@ -98,7 +107,7 @@ export async function estadoDeEnvios(
         MarketplaceId: marketplaceId,
         QueryType: 'SHIPMENT',
         ShipmentIdList: lote,
-        ShipmentStatusList: ESTADOS_QUE_INTERESAN,
+        ShipmentStatusList: ESTADOS_POR_IDENTIFICADOR,
       },
     })
 

@@ -1,7 +1,7 @@
 import { connectionCredentials } from '@/lib/amazon/data'
 import { createServiceClient } from '@/lib/supabase/service'
 import { marketplaceById, marketplaceLabel, mercadosDeConexion } from '@/lib/types/amazon'
-import { estadoDeEnvios, listarEnviosDeCuenta } from './inbound'
+import { ESTADOS_ENVIO_ANULADO, estadoDeEnvios, listarEnviosDeCuenta } from './inbound'
 import { lineasConNombre, crearRemesaDeEnvio } from './importar-envio'
 import { ordenarNuevos, soloNuevos, type EnvioNuevo } from './envios-nuevos'
 import { diaDeCreacionDeEnvio } from './mercados'
@@ -52,8 +52,7 @@ async function preguntar(clienteId: string): Promise<ResultadoNuevos> {
   const resuelta = await connectionCredentials(c.id)
   if (!resuelta) return { clienteId, comprobadoAt: ahora, nuevos: [], error: 'La conexión de Amazon de este cliente ya no sirve: hay que volver a autorizarla.', sinConexion: false }
 
-  const { data: yaEstan } = await service.from('fba_remesas').select('referencia_envio').eq('client_id', clienteId).not('referencia_envio', 'is', null)
-  const importados = new Set(((yaEstan ?? []) as Array<{ referencia_envio: string | null }>).map((r) => (r.referencia_envio ?? '').trim().toUpperCase()).filter(Boolean))
+  const importados = await referenciasYaEnElErp(service, clienteId)
 
   const mercados = mercadosDeConexion({ marketplace_ids: c.marketplace_ids ?? [], marketplaces_activos: c.marketplaces_activos })
   const encontrados: EnvioNuevo[] = []
@@ -128,10 +127,10 @@ export async function importarEnvios(opciones: { clienteId: string; userId: stri
   for (const e of opciones.envios) {
     try {
       if (!permitidos.includes(e.mercadoId)) throw new Error('Esa cuenta no vende en ese mercado')
-      const { data: yaEsta } = await service.from('fba_remesas').select('id').eq('client_id', opciones.clienteId).eq('referencia_envio', e.shipmentId).limit(1).maybeSingle()
-      if (yaEsta) throw new Error('Ya estaba en el ERP')
+      if ((await referenciasYaEnElErp(service, opciones.clienteId)).has(e.shipmentId.trim().toUpperCase())) throw new Error('Ya estaba en el ERP')
       const info = (await estadoDeEnvios(resuelta.credentials, e.mercadoId, [e.shipmentId])).get(e.shipmentId)
       if (!info) throw new Error('Amazon ya no lo reconoce')
+      if (ESTADOS_ENVIO_ANULADO.includes(info.estado)) throw new Error(`Está cancelado en Amazon (${info.estado})`)
       const { crudas, lineas } = await lineasConNombre(service, resuelta.credentials, c.id, e.mercadoId, e.shipmentId)
       if (crudas === 0 || lineas.length === 0) throw new Error('Amazon no devuelve ninguna referencia con unidades')
       const fecha = diaDeCreacionDeEnvio(info.nombre, marketplaceById(e.mercadoId)?.region ?? null) ?? opciones.hoy
@@ -142,5 +141,25 @@ export async function importarEnvios(opciones: { clienteId: string; userId: stri
     }
   }
   if (salida.importados.length > 0) olvidarNuevos(opciones.clienteId)
+  return salida
+}
+
+/**
+ * Los números de envío de Amazon que ya están en el ERP para este cliente: la referencia de cada remesa y TODOS los FBA de sus envíos por la API
+ * (fba_envios). Una remesa que Amazon reparte en dos centros tiene FBA1 y FBA2; antes solo contaba el primero y FBA2 salía como «envío nuevo»: al
+ * importarlo, sus unidades contaban dos veces en el FIFO, el stock y el plan.
+ */
+async function referenciasYaEnElErp(service: ReturnType<typeof createServiceClient>, clienteId: string): Promise<Set<string>> {
+  const { data: remesas } = await service.from('fba_remesas').select('id, referencia_envio').eq('client_id', clienteId)
+  const filas = (remesas ?? []) as Array<{ id: string; referencia_envio: string | null }>
+  const salida = new Set(filas.map((r) => (r.referencia_envio ?? '').trim().toUpperCase()).filter(Boolean))
+  const ids = filas.map((r) => r.id)
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await service.from('fba_envios').select('confirmation_id, shipment_id').in('remesa_id', ids.slice(i, i + 200))
+    if (error) break // sin la 310 no hay tabla: solo cuentan las referencias
+    for (const e of (data ?? []) as Array<{ confirmation_id: string | null; shipment_id: string | null }>) {
+      for (const x of [e.confirmation_id, e.shipment_id]) if (x && x.trim()) salida.add(x.trim().toUpperCase())
+    }
+  }
   return salida
 }

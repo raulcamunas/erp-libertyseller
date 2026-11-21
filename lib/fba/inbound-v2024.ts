@@ -286,6 +286,8 @@ export interface EnvioDelPlan {
   saleDesde: string | null
   entregaDesde: string | null
   entregaHasta: string | null
+  /** La opción de transporte ya confirmada en Amazon (selectedTransportationOptionId), o null */
+  transporteElegido: string | null
   seguimientos: Array<{ boxId: string | null; numero: string | null; valido: string | null }>
 }
 
@@ -305,6 +307,7 @@ export function leerEnvio(data: Record<string, unknown>, shipmentId: string): En
     saleDesde: fechas.readyToShipWindow?.start ?? null,
     entregaDesde: ventana.startDate ?? null,
     entregaHasta: ventana.endDate ?? null,
+    transporteElegido: typeof data.selectedTransportationOptionId === 'string' ? data.selectedTransportationOptionId : null,
     seguimientos: (seg.spdTrackingDetail?.spdTrackingItems ?? []).map((t) => ({
       boxId: typeof t.boxId === 'string' ? t.boxId : null,
       numero: typeof t.trackingId === 'string' ? t.trackingId : null,

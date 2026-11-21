@@ -10,7 +10,7 @@ import {
   cambiarSeleccion,
   cancelabilidad,
   cotizacionVigente,
-  emparejarCajas,
+  emparejarCajasDeEnvios,
   embalajeAutomatico,
   esPasoEnvio,
   fechaDeRecogida,
@@ -402,10 +402,18 @@ async function moverPaso(ctx: Ctx, desde: PasoEnvio | PasoEnvio[], cambios: Reco
   return ok
 }
 
+/** El aviso que se pone cuando un paso «en curso» no tiene operación viva. Solo ESTE se borra solo al cambiar de paso (un error real no) */
+const TEXTO_SIN_OPERACION = 'No hay ninguna operación de Amazon en marcha para este paso. Reintenta o cancela.'
+
 async function guardar(ctx: Ctx, cambios: Record<string, unknown>): Promise<void> {
   const { error } = await ctx.service.from('fba_remesas').update({ ...cambios, envio_actualizado_at: new Date().toISOString() }).eq('id', ctx.fila.id)
   if (error) throw error
   Object.assign(ctx.fila, cambios)
+  // Al pasar a otro paso, el aviso de «no hay operación en marcha» del paso anterior ya no vale (A4.2): se quita solo si es ese texto
+  if ('envio_paso' in cambios && !('envio_error' in cambios) && ctx.fila.envio_error === TEXTO_SIN_OPERACION) {
+    await ctx.service.from('fba_remesas').update({ envio_error: null }).eq('id', ctx.fila.id).eq('envio_error', TEXTO_SIN_OPERACION)
+    ctx.fila.envio_error = null
+  }
 }
 
 const datosDe = (ctx: Ctx): DatosDelEnvio => ctx.fila.envio_datos ?? {}
@@ -420,21 +428,21 @@ const textoDeFallo = (e: unknown): string => (e instanceof AmazonApiError ? e.hu
 async function lanzar(ctx: Ctx, paso: PasoEnvio, llamada: () => Promise<{ operationId: string }>, peticion: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Promise<void> {
   const operacion = OPERACION_DEL_PASO[paso] ?? paso
   await guardar(ctx, { envio_paso: paso, envio_error: null, ...extra })
+  let aceptada = false
   try {
     const r = await llamada()
-    const { error } = await ctx.service.from('fba_inbound_operaciones').insert({
-      remesa_id: ctx.fila.id,
-      paso,
-      operacion,
-      operation_id: r.operationId,
-      estado: 'en_curso',
-      peticion,
-      respuesta: r,
-      actor: ctx.actor,
-      user_id: ctx.userId,
-    })
+    aceptada = true
+    const fila = { remesa_id: ctx.fila.id, paso, operacion, operation_id: r.operationId, estado: 'en_curso', peticion, respuesta: r, actor: ctx.actor, user_id: ctx.userId }
+    // A4.3: Amazon YA ha aceptado la operación. Si falla apuntarla en la base, se reintenta una vez; nunca se apunta como «fallo» algo que Amazon aceptó
+    let { error } = await ctx.service.from('fba_inbound_operaciones').insert(fila)
+    if (error) ({ error } = await ctx.service.from('fba_inbound_operaciones').insert(fila))
     if (error) throw error
   } catch (e) {
+    if (aceptada) {
+      // La llamada llegó a Amazon pero no se ha podido apuntar: Reintentar comprueba en Amazon si ya está hecho antes de repetir nada
+      await guardar(ctx, { envio_error: `Amazon ha aceptado este paso pero no se ha podido apuntar (${textoDeFallo(e)}). Pulsa «Reintentar»: se comprueba en Amazon antes de repetir nada.` })
+      return
+    }
     const texto = textoDeFallo(e)
     await ctx.service.from('fba_inbound_operaciones').insert({
       remesa_id: ctx.fila.id,
@@ -707,17 +715,26 @@ async function trasExito(ctx: Ctx, paso: PasoEnvio): Promise<void> {
       const cajas = await cajasDeRemesa(ctx.fila.id, ctx.service)
       const cajasAmazon: NonNullable<DatosDelEnvio['cajasAmazon']> = {}
       const avisos = [...(d.avisos ?? [])]
+      // Primero se leen las cajas de TODOS los envíos y luego se emparejan de una vez: cada caja del ERP recibe una sola etiqueta de Amazon
+      const leidas: Array<{ shipmentId: string; cajas: Awaited<ReturnType<typeof api.cajasDelEnvio>> }> = []
       for (const e of d.envios ?? []) {
         try {
-          const deAmazon = await api.cajasDelEnvio(ctx.creds, plan(ctx), e.shipmentId)
-          const pares = emparejarCajas(cajas.cajas, deAmazon)
-          cajasAmazon[e.shipmentId] = deAmazon.map((b) => ({ boxId: b.boxId, numero: pares.find((p) => p.boxId === b.boxId)?.numero ?? null }))
-          for (const p of pares) {
-            await ctx.service.from('fba_cajas').update({ box_id_amazon: p.boxId }).eq('remesa_id', ctx.fila.id).eq('numero', p.numero)
-          }
+          leidas.push({ shipmentId: e.shipmentId, cajas: await api.cajasDelEnvio(ctx.creds, plan(ctx), e.shipmentId) })
         } catch (err) {
           avisos.push(`No se han podido leer las cajas de ${e.confirmacion ?? e.shipmentId}: ${textoDeFallo(err)}`)
         }
+      }
+      const emparejadas = emparejarCajasDeEnvios(cajas.cajas, leidas)
+      for (const l of leidas) cajasAmazon[l.shipmentId] = l.cajas.map((b) => ({ boxId: b.boxId, numero: emparejadas.pares.find((p) => p.boxId === b.boxId)?.numero ?? null }))
+      // Las etiquetas viejas de un intento anterior se quitan antes, para que ninguna caja se quede con el boxId de otro envío
+      if (leidas.length > 0) await ctx.service.from('fba_cajas').update({ box_id_amazon: null }).eq('remesa_id', ctx.fila.id)
+      for (const p of emparejadas.pares) {
+        await ctx.service.from('fba_cajas').update({ box_id_amazon: p.boxId }).eq('remesa_id', ctx.fila.id).eq('numero', p.numero)
+      }
+      if (emparejadas.sinPareja.length > 0 || (leidas.length === (d.envios ?? []).length && emparejadas.sobran.length > 0)) {
+        avisos.push(
+          `${emparejadas.sinPareja.length} caja(s) de Amazon sin caja del ERP${emparejadas.sobran.length ? ` y ${emparejadas.sobran.length} caja(s) del ERP (${emparejadas.sobran.join(', ')}) sin etiqueta` : ''}: revisa el encaje antes de pegar etiquetas`,
+        )
       }
       for (const s of sel) {
         await ctx.service
@@ -735,7 +752,19 @@ async function trasExito(ctx: Ctx, paso: PasoEnvio): Promise<void> {
       const anteriores = [...(d.planesCancelados ?? [])]
       if (ctx.fila.inbound_plan_id) anteriores.push(ctx.fila.inbound_plan_id)
       await guardar(ctx, { envio_paso: 'cancelado', envio_cajas_bloqueadas_at: null, envio_datos: { ...d, planesCancelados: anteriores } })
-      await registrarEnHistorial({ remesaId: ctx.fila.id, actor: 'agencia', userId: ctx.userId, accion: 'envio_amazon', hasta: 'cancelado', detalle: { plan: ctx.fila.inbound_plan_id } }, ctx.service)
+      // A4.8: los FBA de este plan quedan cancelados también en el ERP. Si la remesa ya estaba «enviada» con uno de ellos, su estado de Amazon pasa a
+      // CANCELLED: si no, el plan seguía contando esas unidades «de camino» semanas. La remesa no se mueve sola de paso: se avisa
+      const sids = (d.envios ?? []).map((e) => e.shipmentId)
+      const fbas = (d.envios ?? []).map((e) => (e.confirmacion ?? '').trim().toUpperCase()).filter(Boolean)
+      if (sids.length > 0) await ctx.service.from('fba_envios').update({ estado: 'CANCELLED', updated_at: new Date().toISOString() }).eq('remesa_id', ctx.fila.id).in('shipment_id', sids)
+      const { data: rem } = await ctx.service.from('fba_remesas').select('estado, referencia_envio').eq('id', ctx.fila.id).maybeSingle()
+      const r = rem as { estado: string; referencia_envio: string | null } | null
+      if (r && r.estado === 'enviada' && r.referencia_envio && fbas.includes(r.referencia_envio.trim().toUpperCase())) {
+        await ctx.service.from('fba_remesas').update({ estado_amazon: 'CANCELLED', seguimiento_error: null, updated_at: new Date().toISOString() }).eq('id', ctx.fila.id)
+        const dd = datosDe(ctx)
+        await guardar(ctx, { envio_datos: { ...dd, avisos: [...(dd.avisos ?? []), 'Envío cancelado en Amazon: devuelve la remesa a «Lista» para reenviarla.'].slice(-20) } })
+      }
+      await registrarEnHistorial({ remesaId: ctx.fila.id, actor: 'agencia', userId: ctx.userId, accion: 'envio_amazon', hasta: 'cancelado', detalle: { plan: ctx.fila.inbound_plan_id, fba: fbas } }, ctx.service)
       return
     }
 
@@ -775,7 +804,14 @@ export async function avanzar(remesaId: string, userId: string | null, service: 
     const paso = pasoDe(f)
     const desde = Date.parse(f.envio_actualizado_at ?? '')
     if (pasoEnCurso(paso) && !f.envio_error && Number.isFinite(desde) && Date.now() - desde > 120_000) {
-      await service.from('fba_remesas').update({ envio_error: 'No hay ninguna operación de Amazon en marcha para este paso. Reintenta o cancela.' }).eq('id', remesaId).eq('envio_paso', paso).is('envio_error', null)
+      // A4.2: si la última operación de ESTE paso acabó bien hace poco, lo que pasa es que el seguimiento (trasExito) aún está trabajando (puede tardar:
+      // el reparto lee hasta 25 envíos). No es una operación perdida: no se pone el aviso (si no, salían Reintentar/Cancelar y Reintentar lo repetía)
+      const { data: ultima } = await service.from('fba_inbound_operaciones').select('paso, estado, terminada_at').eq('remesa_id', remesaId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+      const u = ultima as { paso: string; estado: string; terminada_at: string | null } | null
+      const recienAcabada = u && u.paso === paso && u.estado === 'ok' && u.terminada_at && Date.now() - Date.parse(u.terminada_at) < 3 * 60_000
+      if (!recienAcabada) {
+        await service.from('fba_remesas').update({ envio_error: TEXTO_SIN_OPERACION }).eq('id', remesaId).eq('envio_paso', paso).is('envio_error', null)
+      }
     }
     return
   }
@@ -812,6 +848,8 @@ export async function avanzar(remesaId: string, userId: string | null, service: 
     .eq('estado', 'en_curso')
     .select('id')
   if (!((cerrada as unknown[] | null) ?? []).length) return
+  // El reloj de «no hay operación en marcha» cuenta desde aquí, no desde que se lanzó (A4.2)
+  await service.from('fba_remesas').update({ envio_actualizado_at: new Date().toISOString() }).eq('id', remesaId)
 
   const ctx: Ctx = { service, fila: f, creds, userId, actor: 'sistema' }
   const paso = esPasoEnvio(op.paso) ? op.paso : pasoDe(f)
@@ -1039,6 +1077,18 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
         }
         return
       }
+      // A4.3: un CONFIRMAR que llegó a Amazon pero cuya respuesta se perdió no se repite a ciegas (Amazon lo rechaza siempre y la única salida era
+      // cancelar, que borra envíos FBA reales): se mira en Amazon, solo leyendo, si ya está hecho. Si lo está, se sigue como si la operación hubiera acabado bien
+      if (await yaAplicadoEnAmazon(ctx, paso)) {
+        await service.from('fba_inbound_operaciones').insert({ remesa_id: remesaId, paso, operacion: OPERACION_DEL_PASO[paso] ?? paso, estado: 'ok', peticion: { comprobado: true }, actor: ctx.actor, user_id: ctx.userId, terminada_at: new Date().toISOString() })
+        try {
+          await trasExito(ctx, paso)
+        } catch (e) {
+          await guardar(ctx, { envio_error: textoDeFallo(e) })
+          throw e
+        }
+        return
+      }
       return relanzar(ctx, paso)
     }
     case 'cancelar': {
@@ -1209,3 +1259,33 @@ export async function aceptarTransporte(remesaId: string, p: { nombre: string; c
 }
 
 export { OPERACION_DEL_PASO }
+
+/**
+ * ¿Este paso de CONFIRMAR ya está hecho en Amazon? Solo lee (A4.3). Ante cualquier duda o error de lectura, false: se relanza como siempre.
+ *   reparto_confirmar     → alguna opción de reparto ACCEPTED
+ *   embalaje_confirmar    → alguna opción de embalaje ACCEPTED
+ *   transporte_confirmar  → todos los envíos con transporte elegido
+ *   ventana_confirmar     → el envío de la ventana con la ventana de entrega puesta
+ */
+async function yaAplicadoEnAmazon(ctx: Ctx, paso: PasoEnvio): Promise<boolean> {
+  if (!ctx.fila.inbound_plan_id) return false
+  try {
+    if (paso === 'reparto_confirmar') return (await api.listarOpcionesReparto(ctx.creds, plan(ctx))).some((o) => o.estado === 'ACCEPTED')
+    if (paso === 'embalaje_confirmar') return (await api.listarOpcionesEmbalaje(ctx.creds, plan(ctx))).some((o) => o.estado === 'ACCEPTED')
+    const d = datosDe(ctx)
+    if (paso === 'transporte_confirmar') {
+      const sids = (ctx.fila.transporte_seleccion ?? []).map((x) => x.shipmentId)
+      if (sids.length === 0) return false
+      for (const sid of sids) if (!(await api.verEnvio(ctx.creds, plan(ctx), sid)).transporteElegido) return false
+      return true
+    }
+    if (paso === 'ventana_confirmar') {
+      const sid = d.ventanaElegida?.shipmentId ?? (d.ventanasPendientes ?? [])[0]
+      if (!sid) return false
+      return Boolean((await api.verEnvio(ctx.creds, plan(ctx), sid)).entregaDesde)
+    }
+  } catch (e) {
+    console.error('[envío] comprobar si ya está hecho en Amazon:', textoDeFallo(e))
+  }
+  return false
+}

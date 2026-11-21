@@ -9,6 +9,7 @@ import {
   cambiarSeleccion,
   cuantoQueda,
   emparejarCajas,
+  emparejarCajasDeEnvios,
   embalajeAutomatico,
   faseDelPaso,
   fechaDeRecogida,
@@ -245,6 +246,19 @@ const pares = emparejarCajas(
 )
 ok('emparejadas por contenido y peso', pares, [{ numero: 1, boxId: 'FBAU1' }, { numero: 2, boxId: 'FBAU2' }, { numero: 3, boxId: 'FBAU3' }])
 
+// A4.1: varios centros. Cada caja del ERP recibe UNA etiqueta, aunque las cajas sean iguales
+const cajaErp = (n: number) => ({ numero: n, pesoKg: 7, contenido: [{ sku: 'A', unidades: 5 }] })
+const cajaAm = (id: string) => ({ boxId: id, pesoKg: 7, items: [{ msku: 'A', unidades: 5 }] })
+const dosEnvios = emparejarCajasDeEnvios([cajaErp(1), cajaErp(2)], [{ shipmentId: 'X', cajas: [cajaAm('FBAX1')] }, { shipmentId: 'Y', cajas: [cajaAm('FBAY1')] }])
+ok('2 envíos con cajas iguales: una etiqueta por caja', dosEnvios.pares.map((p) => `${p.numero}:${p.boxId}`), ['1:FBAX1', '2:FBAY1'])
+const cuatro = emparejarCajasDeEnvios([1, 2, 3, 4].map(cajaErp), [{ shipmentId: 'X', cajas: [cajaAm('X1'), cajaAm('X2')] }, { shipmentId: 'Y', cajas: [cajaAm('Y1'), cajaAm('Y2')] }])
+ok('4 cajas iguales en X(2)+Y(2): cada número una sola vez', [new Set(cuatro.pares.map((p) => p.numero)).size, new Set(cuatro.pares.map((p) => p.boxId)).size, cuatro.sinPareja.length, cuatro.sobran.length], [4, 4, 0, 0])
+const cinco = emparejarCajasDeEnvios([1, 2, 3, 4, 5].map(cajaErp), [{ shipmentId: 'X', cajas: [cajaAm('X1'), cajaAm('X2'), cajaAm('X3')] }, { shipmentId: 'Y', cajas: [cajaAm('Y1'), cajaAm('Y2')] }])
+ok('5 cajas en 3+2: 3 a X y 2 a Y', [cinco.pares.filter((p) => p.shipmentId === 'X').length, cinco.pares.filter((p) => p.shipmentId === 'Y').length], [3, 2])
+const falta = emparejarCajasDeEnvios([cajaErp(1)], [{ shipmentId: 'X', cajas: [cajaAm('X1'), cajaAm('X2')] }])
+ok('una caja de Amazon sin pareja se avisa', falta.sinPareja.map((x) => x.boxId), ['X2'])
+const sobra = emparejarCajasDeEnvios([cajaErp(1), { numero: 2, pesoKg: 3, contenido: [{ sku: 'B', unidades: 1 }] }], [{ shipmentId: 'X', cajas: [cajaAm('X1')] }])
+ok('una caja del ERP sin etiqueta se avisa', sobra.sobran, [2])
 
 /* ---- Palés (LTL) ---- */
 const v1 = validarPalets({ cantidad: 1, largoCm: 120, anchoCm: 80, altoCm: 97, pesoKg: 46.5, apilable: false })

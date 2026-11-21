@@ -91,6 +91,30 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
     }
 
+    /**
+     * ENVÍO POR LA API EN MARCHA (migración 310): si la remesa se está creando en Amazon por la API, «enviada» solo se acepta con un FBA que haya creado
+     * ese mismo envío (fba_envios). Así nadie sube a la vez el manifiesto a Seller Central y enlaza otro FBA: serían dos envíos en Amazon para la misma
+     * mercancía y la remesa quedaría enlazada al equivocado. Sin la 310 las columnas no existen y no hay nada que comprobar.
+     */
+    if (hasta === 'enviada') {
+      const { data: m, error: errM } = await service.from('fba_remesas').select('envio_modo, envio_paso').eq('id', params.id).maybeSingle()
+      const modo = (m as { envio_modo?: string | null } | null)?.envio_modo ?? null
+      const paso = (m as { envio_paso?: string | null } | null)?.envio_paso ?? null
+      if (!errM && modo === 'api' && paso && paso !== 'sin_empezar' && paso !== 'cancelado') {
+        const { data: envios } = await service.from('fba_envios').select('confirmation_id, shipment_id').eq('remesa_id', params.id)
+        const propios = new Set(
+          ((envios ?? []) as Array<{ confirmation_id: string | null; shipment_id: string | null }>)
+            .flatMap((e) => [e.confirmation_id, e.shipment_id])
+            .filter((x): x is string => Boolean(x))
+            .map((x) => x.trim().toUpperCase()),
+        )
+        const ref = (remesa.referencia_envio ?? '').trim().toUpperCase()
+        if (!ref || !propios.has(ref)) {
+          return fail(409, 'Esta remesa se está enviando por la API: márcala como enviada desde «Enviar a Amazon», con el FBA que ha creado Amazon.')
+        }
+      }
+    }
+
     // Las líneas a 0 son las que el cliente ha dicho «esta no» desde su enlace: no cuentan como referencia
     const { count: lineas } = await service
       .from('fba_remesa_lineas')

@@ -3,6 +3,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
+import { combinarEnvios } from '@/lib/fba/inbound-estados'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -82,17 +83,50 @@ export async function POST(request: NextRequest) {
           continue
         }
         const { credentials } = resuelta
-        const estados = await estadoDeEnvios(credentials, mercado, remesas.map((r) => r.referencia_envio))
+        // Una remesa que Amazon repartió en varios centros tiene varios FBA (fba_envios): se siguen todos. Sin ellos (o sin la 310), su referencia
+        const refsDe = new Map<string, string[]>()
+        {
+          const { data: envs, error: errEnvs } = await service.from('fba_envios').select('remesa_id, confirmation_id').in('remesa_id', remesas.map((r) => r.id))
+          if (!errEnvs) {
+            for (const e of (envs ?? []) as Array<{ remesa_id: string; confirmation_id: string | null }>) {
+              if (!e.confirmation_id) continue
+              refsDe.set(e.remesa_id, [...(refsDe.get(e.remesa_id) ?? []), e.confirmation_id.trim().toUpperCase()])
+            }
+          }
+          for (const r of remesas) {
+            const propias = refsDe.get(r.id) ?? []
+            const ref = r.referencia_envio.trim().toUpperCase()
+            refsDe.set(r.id, propias.includes(ref) ? propias : [ref, ...propias])
+          }
+        }
+        const estados = await estadoDeEnvios(credentials, mercado, [...new Set([...refsDe.values()].flat())])
 
         for (const remesa of remesas) {
           if (Date.now() - arranque > PRESUPUESTO_MS) {
             avisos.push('sin tiempo: quedan envíos para la próxima pasada')
             break
           }
-          const info = estados.get(remesa.referencia_envio)
-          if (!info) continue
+          const refs = refsDe.get(remesa.id) ?? [remesa.referencia_envio]
+          const conocidos = refs.filter((x) => estados.has(x))
+          const info = conocidos.length > 0 ? { estado: '' } : null
+          if (!info) {
+            // Antes se saltaba callado y la remesa seguía «en camino» sin que nadie lo supiera
+            await service
+              .from('fba_remesas')
+              .update({ seguimiento_at: new Date().toISOString(), seguimiento_error: `Amazon no devuelve el envío ${remesa.referencia_envio}: revisa que el número es correcto`, updated_at: new Date().toISOString() })
+              .eq('id', remesa.id)
+            continue
+          }
 
-          const lineas = await lineasDeEnvio(credentials, mercado, remesa.referencia_envio)
+          // Las líneas de todos los FBA de la remesa, sumadas por SKU; el estado, el del envío menos avanzado
+          const porEnvio: Array<{ estado: string; lineas: Awaited<ReturnType<typeof lineasDeEnvio>> }> = []
+          for (const x of conocidos) porEnvio.push({ estado: estados.get(x)!.estado, lineas: await lineasDeEnvio(credentials, mercado, x) })
+          const combinado = combinarEnvios(porEnvio)
+          const lineas = combinado.lineas
+          info.estado = combinado.estado ?? estados.get(conocidos[0])!.estado
+          if (conocidos.length > 1) {
+            for (const x of conocidos) await service.from('fba_envios').update({ estado: estados.get(x)!.estado }).eq('remesa_id', remesa.id).eq('confirmation_id', x)
+          }
           for (const l of lineas) {
             await service
               .from('fba_remesa_lineas')

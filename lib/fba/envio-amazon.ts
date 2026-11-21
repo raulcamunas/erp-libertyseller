@@ -672,6 +672,34 @@ export function emparejarCajas(nuestras: Array<{ numero: number; pesoKg: number 
   return out
 }
 
+/**
+ * Empareja las cajas del ERP con las de TODOS los envíos de Amazon a la vez (cuando Amazon reparte la remesa en varios centros). Cada caja del ERP va a
+ * una sola caja de Amazon y viceversa: antes se emparejaba envío por envío con todas las cajas del ERP, y con cajas iguales repartidas en dos centros la
+ * caja 1 recibía la etiqueta de los dos y las cajas 3 y 4 ninguna. Entre candidatas iguales manda el peso más parecido y, a igualdad, el orden de los envíos.
+ * `sinPareja` = cajas de Amazon que no han encontrado caja del ERP; `sobran` = cajas del ERP sin caja de Amazon (hay que revisar el encaje).
+ */
+export function emparejarCajasDeEnvios(
+  nuestras: Array<{ numero: number; pesoKg: number | null; contenido: Array<{ sku: string; unidades: number }> }>,
+  porEnvio: ReadonlyArray<{ shipmentId: string; cajas: CajaDeAmazon[] }>,
+): { pares: Array<{ numero: number; boxId: string; shipmentId: string }>; sinPareja: Array<{ shipmentId: string; boxId: string }>; sobran: number[] } {
+  const libres = porEnvio.flatMap((e, i) => e.cajas.map((c) => ({ ...c, shipmentId: e.shipmentId, orden: i, firma: firma(c.items) })))
+  const pares: Array<{ numero: number; boxId: string; shipmentId: string }> = []
+  const sobran: number[] = []
+  for (const c of [...nuestras].sort((a, b) => a.numero - b.numero)) {
+    const f = firma(c.contenido.map((x) => ({ msku: x.sku, unidades: x.unidades })))
+    const candidatas = libres.filter((a) => a.firma === f)
+    if (!candidatas.length) {
+      sobran.push(c.numero)
+      continue
+    }
+    candidatas.sort((a, b) => Math.abs((a.pesoKg ?? 0) - (c.pesoKg ?? 0)) - Math.abs((b.pesoKg ?? 0) - (c.pesoKg ?? 0)) || a.orden - b.orden)
+    const elegida = candidatas[0]
+    libres.splice(libres.indexOf(elegida), 1)
+    pares.push({ numero: c.numero, boxId: elegida.boxId, shipmentId: elegida.shipmentId })
+  }
+  return { pares, sinPareja: libres.map((l) => ({ shipmentId: l.shipmentId, boxId: l.boxId })), sobran }
+}
+
 /* ------------------------------------------------------------------ */
 /* Lo que puede hacer la agencia ahora                                  */
 /* ------------------------------------------------------------------ */

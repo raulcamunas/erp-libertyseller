@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { UUID, errorResponse, fail } from '@/lib/amazon/api'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { requireFbaAccess } from '@/lib/fba/acceso'
-import { estadoDeEnvios } from '@/lib/fba/inbound'
+import { ESTADOS_ENVIO_ANULADO, estadoDeEnvios } from '@/lib/fba/inbound'
 import { crearRemesaDeEnvio, lineasConNombre } from '@/lib/fba/importar-envio'
 import { esMercadoEuropeo, MERCADO_POR_REGION } from '@/lib/fba/medidas-cliente'
 import { mercadoDeEnvio, mercadosQueVendeLaCuenta, participaEn, type ConexionParaMercado } from '@/lib/fba/mercados'
@@ -122,6 +122,7 @@ export async function POST(request: NextRequest) {
           '(Cadena de suministro → Gestionar envíos) y que el país es el del envío.'
       )
     }
+    if (ESTADOS_ENVIO_ANULADO.includes(info.estado)) return fail(409, `Ese envío está cancelado en Amazon (${info.estado}): no se importa.`)
     const { crudas, lineas } = await lineasConNombre(service, credentials, connectionId, mercado, shipmentId)
     if (crudas === 0) return fail(404, 'Amazon reconoce el envío pero no devuelve ninguna referencia.')
 
