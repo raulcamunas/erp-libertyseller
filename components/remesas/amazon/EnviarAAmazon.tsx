@@ -94,9 +94,15 @@ function useAhora(activo: boolean): Date {
   return ahora
 }
 
-export function EnviarAAmazon({ remesaId, soloSeguimiento = false }: { remesaId: string; soloSeguimiento?: boolean }) {
+export function EnviarAAmazon({ remesaId, soloSeguimiento = false, onModo }: { remesaId: string; soloSeguimiento?: boolean; onModo?: (modo: 'manual' | 'api', enMarcha: boolean) => void }) {
   const router = useRouter()
   const { estado: e, error, trabajando, leer, enviar } = useEnvioAmazon(remesaId)
+  // La ficha de la propuesta necesita saber el modo para no repetir lo del otro camino (manifiesto y dirección en manual; el paso a paso en API)
+  const modoActual = e && !e.sinMigrar ? e.modo : null
+  const enMarcha = !!e && !e.sinMigrar && e.paso !== 'sin_empezar' && e.paso !== 'cancelado'
+  useEffect(() => {
+    if (modoActual) onModo?.(modoActual, enMarcha)
+  }, [modoActual, enMarcha, onModo])
   const faseActual: FaseEnvio = e ? (e.paso === 'sin_empezar' ? 'inventario' : faseDelPaso(e.paso)) : 'inventario'
   const [vista, setVista] = useState<FaseEnvio | null>(null)
   const fase = vista ?? (soloSeguimiento && e?.paso === 'etiquetas' ? 'seguimiento' : faseActual)
@@ -238,7 +244,7 @@ function ModoManual({ e, soloSeguimiento, onPasar }: { e: EstadoDelEnvio; soloSe
     <EstadoVacio
       icono={Hand}
       titulo="Envío manual (como hasta ahora)"
-      descripcion="En «Lo que toca» tienes el manifiesto y el Excel de embalaje para subir a Seller Central, y luego se enlaza el nº FBA."
+      descripcion="Aquí debajo tienes el manifiesto y el Excel de embalaje para subir a Seller Central; luego se marca como enviada con el nº FBA."
       accion={e.conConexion && e.remesaEstado === 'lista' ? { texto: 'Hacerlo desde el ERP', onClick: onPasar, icono: Rocket } : undefined}
       acento="remesas"
     />

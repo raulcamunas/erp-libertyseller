@@ -3,20 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MotionConfig } from 'framer-motion'
 import {
-  AlertTriangle, ArrowRight, CalendarClock, Copy, Lock, MoreHorizontal, PackagePlus, Plane, RefreshCw, Settings2, Sparkles, Target, Timer, Truck, Wand2, X,
+  AlertTriangle, ArrowRight, Copy, Lock, MoreHorizontal, Plane, RefreshCw, Settings2, Sparkles, Target, Timer, Truck, Wand2, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Boton } from '@/components/ui-ls/Boton'
 import { EsqueletoTabla, EsqueletoTarjeta } from '@/components/ui-ls/Esqueleto'
 import { EstadoVacio } from '@/components/ui-ls/EstadoVacio'
 import { Insignia } from '@/components/ui-ls/Insignia'
-import { FilaDeKpis, Kpi } from '@/components/ui-ls/Kpi'
 import { Tarjeta } from '@/components/ui-ls/Tarjeta'
 import { haceCuanto } from '@/components/ui-ls/utilidades'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { diaEnEspana } from '@/lib/fba/fechas'
 import { ESTADOS_ACTIVOS, type EnvioPropuestoCalculado, type EnvioPropuestoGuardado, type PlanCliente, type RevisionIa } from '@/lib/fba/plan-tipos'
-import { decimal, dias, diasEntre, dinero, entero, fechaCorta, unidades } from '../formato'
+import { decimal, dias, dinero, entero, fechaCorta, unidades } from '../formato'
 import { AjustesReposicion } from '../comun/AjustesReposicion'
 import { BandaDeCalidad } from '../comun/BandaDeCalidad'
 import { leerRespuesta } from '../comun/errores'
@@ -26,7 +25,7 @@ import { invalidarRemesas } from '../comun/useAgencia'
 import { usePlan } from '../comun/usePlan'
 import { cx } from '../comun/ui'
 import { GruposDeAtencion } from './GruposDeAtencion'
-import { MapaDeCobertura } from './MapaDeCobertura'
+import { PanelReponer } from './PanelReponer'
 import { TablaPlanSku } from './TablaPlanSku'
 import { etapasDelPlazo, textoAcierto, textoPlazo, tonoAcierto } from './calculos'
 
@@ -232,7 +231,6 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
   const tp = textoPlazo(plazo, hoy)
   const acierto = textoAcierto(plan.acierto, hoy)
   const calculadoAt = datos.pasada?.calculadoAt ?? calidad.calculadoAt
-  const primeraRoturaDias = resumen.primeraRotura ? Math.max(0, diasEntre(hoy, resumen.primeraRotura)) : null
   const sin316 = datos.migracion316 === false
   const enviosCalculados: EnvioPropuestoCalculado[] = sin316 ? plan.envios : []
 
@@ -265,7 +263,7 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
         {/* Cabecera de la sección */}
         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">Reposición de {cliente.nombre}</h2>
+            <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-[var(--ls-t1)]">Reponer · {cliente.nombre}</h2>
             <p className="mt-[2px] flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[var(--ls-t4)]">
               <span>{calculadoAt ? `Plan calculado ${haceCuanto(calculadoAt)}` : 'Plan calculado ahora (sin pasada guardada)'}</span>
               {calidad.provisional && <Insignia tono="ambar" tamano="sm">Provisional</Insignia>}
@@ -302,22 +300,17 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
           </p>
         )}
 
-        {/* KPI */}
-        <FilaDeKpis minimo={170}>
-          <Kpi indice={0} acento="remesas" icono={PackagePlus} etiqueta="Piden envío" valor={resumen.conPropuesta} nota={`de ${entero(resumen.referencias)} referencias`} />
-          <Kpi indice={1} acento="remesas" icono={Truck} etiqueta="Unidades a enviar" valor={resumen.unidadesPropuestas} nota={`${entero(plan.envios.length)} ${plan.envios.length === 1 ? 'envío propuesto' : 'envíos propuestos'}`} />
-          <Kpi indice={2} acento="remesas" icono={AlertTriangle} etiqueta="Rompen en 14 días" valor={resumen.roturas14} nota={`${entero(resumen.roturas30)} en 30 días`} />
-          <Kpi indice={3} acento="remesas" etiqueta="En juego" valor={resumen.eurosEnRiesgo} formato={(n) => dinero(n, moneda)} nota="ventas perdidas si no sale nada" />
-          <Kpi
-            indice={4}
-            acento="remesas"
-            icono={CalendarClock}
-            etiqueta="Primera rotura"
-            valor={primeraRoturaDias}
-            formato={(n) => dias(n)}
-            nota={resumen.primeraRotura ? `el ${fechaCorta(resumen.primeraRotura, hoy)}${resumen.coberturaMediana !== null ? ` · mediana ${dias(resumen.coberturaMediana)}` : ''}` : 'sin rotura a la vista'}
-          />
-        </FilaDeKpis>
+        {/* Cuándo reponer: semáforo, una barra de cobertura por referencia (o modelo) y los envíos abiertos. Sustituye a la fila de KPI y al mapa de cobertura */}
+        <PanelReponer
+          lineas={plan.lineas}
+          plazo={plazo}
+          plazoDePartida={Object.values(plazo.origen ?? {}).includes('partida')}
+          hoy={hoy}
+          moneda={moneda}
+          envios={enviosGuardados}
+          onAbrirSku={abrirSku}
+          onAbrirEnvio={onAbrirEnvioPropuesto}
+        />
 
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
           {/* Plazo con el origen de cada etapa */}
@@ -370,8 +363,8 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
             )}
           </Tarjeta>
 
-          {/* Envíos propuestos de este cliente */}
-          <Tarjeta
+          {/* Envíos propuestos de este cliente: los abiertos ya salen en el panel «Reponer»; aquí solo los calculados sin la 316 */}
+          {sin316 && <Tarjeta
             titulo="Envíos propuestos"
             subtitulo={sin316 ? 'Calculados ahora (sin la 316 no se guardan)' : enviosGuardados.length === 0 ? 'Ninguno abierto' : `${entero(enviosGuardados.length)} abiertos`}
             icono={Truck}
@@ -394,15 +387,12 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
                 ))}
               </ul>
             )}
-          </Tarjeta>
+          </Tarjeta>}
         </div>
 
         {revision && <PanelRevision revision={revision} hoy={hoy} onCerrar={() => setRevisionCerrada(true)} onElegirSku={abrirSku} />}
 
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-          <Tarjeta titulo="Mapa de cobertura" subtitulo="Las 15 que antes se quedan sin stock, con lo que viene" icono={CalendarClock} acento="remesas">
-            <MapaDeCobertura lineas={plan.lineas} plazo={plazo} hoy={hoy} onElegir={abrirSku} />
-          </Tarjeta>
+        <div className="min-w-0">
           <GruposDeAtencion
             lineas={plan.lineas}
             ajustes={ajustes}

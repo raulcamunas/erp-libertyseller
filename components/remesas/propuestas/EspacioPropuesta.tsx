@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, Calendar, Check, CheckCircle2, ChevronDown, Circle, ClipboardList, History, Pencil, Send, StickyNote, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Calendar, Check, CheckCircle2, ChevronDown, ClipboardList, History, Pencil, StickyNote, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Boton, Confirmacion, Insignia, Pestanas, Tarjeta } from '@/components/ui-ls'
 import { CAMPO, COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
@@ -90,10 +90,14 @@ export function EspacioPropuesta({
   const [guardando, setGuardando] = useState(false)
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
   const [enlazando, setEnlazando] = useState(false)
-  const [pestana, setPestana] = useState<'trabajo' | 'amazon' | 'historial'>('trabajo')
+  const [pestana, setPestana] = useState<'trabajo' | 'historial'>('trabajo')
+  // El modo del envío a Amazon (lo dice EnviarAAmazon): con la API en marcha no se enseña el manifiesto ni la dirección repetida, ni «Marcar como enviada» en la barra
+  const [modoEnvio, setModoEnvio] = useState<{ modo: 'manual' | 'api'; enMarcha: boolean } | null>(null)
+  const alModo = useCallback((modo: 'manual' | 'api', enMarcha: boolean) => setModoEnvio({ modo, enMarcha }), [])
+  const porApi = modoEnvio?.modo === 'api'
   // «Enviar a Amazon» desde el ERP: solo administradores, y desde que se encaja (en «Lista» se manda)
   const conEnvioAmazon = esAdmin && (remesa.estado === 'encajando' || remesa.estado === 'lista')
-  const pestanaVista = pestana === 'amazon' && !conEnvioAmazon ? 'trabajo' : pestana
+  const pestanaVista = pestana
   const [form, setForm] = useState({ nombre: remesa.nombre ?? '', fechaEnvio: remesa.fechaEnvio, nota: remesa.nota ?? '' })
 
   /** Tras cualquier escritura: la página relee el panel y las pantallas de agencia olvidan lo de este cliente */
@@ -279,7 +283,6 @@ export function EspacioPropuesta({
         idPanel={idPanel}
         opciones={[
           { id: 'trabajo', texto: 'Lo que toca', icono: ClipboardList },
-          ...(conEnvioAmazon ? [{ id: 'amazon' as const, texto: 'Enviar a Amazon', icono: Send }] : []),
           { id: 'historial', texto: 'Historial', icono: History },
         ]}
         valor={pestanaVista}
@@ -289,10 +292,6 @@ export function EspacioPropuesta({
       {pestanaVista === 'historial' ? (
         <div id={idPanel} role="tabpanel">
           <HistorialRemesa key={`h-${remesa.id}`} remesaId={remesa.id} abierto />
-        </div>
-      ) : pestanaVista === 'amazon' ? (
-        <div id={idPanel} role="tabpanel">
-          <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} />
         </div>
       ) : (
         /* ================= LO QUE TOCA HACER AHORA ================= */
@@ -353,38 +352,27 @@ export function EspacioPropuesta({
                 version={cajas?.version ?? null}
               />
               {puedeImprimirEtiquetas(remesa.estado) && <ImprimirEtiquetas remesa={remesa} agencia={sesion.esAgencia} />}
-              <ResumenLineas remesa={remesa} />
+              {/* «Qué se manda» ya no se repite aquí: el cuadre del editor de cajas dice lo mismo, referencia a referencia */}
+              {conEnvioAmazon && <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} onModo={alModo} />}
             </>
           )}
 
           {remesa.estado === 'lista' && (
             <>
-              <PuntosDeControl remesa={remesa} cajas={cajas} />
-              {conEnvioAmazon && (
-                <button
-                  type="button"
-                  onClick={() => setPestana('amazon')}
-                  className="ls-elevar flex w-full items-center gap-3 rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-3 text-left [@media(hover:none)]:!transform-none [@media(pointer:coarse)]:min-h-[44px]"
-                >
-                  <Send className="h-4 w-4 shrink-0" style={{ color: 'var(--ls-mod-remesas)' }} aria-hidden />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold text-[var(--ls-t1)]">Crear el envío desde el ERP</span>
-                    <span className="block text-[12px] text-[var(--ls-t3)]">Plan, reparto, UPS de Amazon y etiquetas sin salir de aquí. O, como siempre, con el manifiesto en Seller Central.</span>
-                  </span>
-                </button>
-              )}
-              {agenciaEdita && <PlantillasAmazon remesaId={remesa.id} referencias={remesa.lineas.length} unidades={unidades} />}
-              {agenciaEdita && <DireccionOrigen clienteId={cliente.id} clienteNombre={cliente.nombre} puedeEditar={puedeEditar} />}
+              {/* El envío a Amazon, aquí mismo (antes era otra pestaña con su propio paso a paso, su dirección y su «Marcar como enviada»). El modo se elige una
+                  vez arriba: a mano (manifiesto + dirección de aquí debajo) o desde el ERP (el paso a paso de seis fases, con su dirección) */}
+              {conEnvioAmazon && <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} onModo={alModo} />}
+              {agenciaEdita && !porApi && <PlantillasAmazon remesaId={remesa.id} referencias={remesa.lineas.length} unidades={unidades} />}
+              {agenciaEdita && !porApi && <DireccionOrigen clienteId={cliente.id} clienteNombre={cliente.nombre} puedeEditar={puedeEditar} />}
               <ImprimirEtiquetas remesa={remesa} agencia={sesion.esAgencia} />
               {actor === 'agencia' && puedeEditar && <EnlaceParaElCliente remesaId={remesa.id} estado="lista" />}
-              <ResumenLineas remesa={remesa} />
             </>
           )}
         </div>
       )}
 
       {/* ================= EL SIGUIENTE PASO ================= */}
-      <BarraAcciones remesa={remesa} actor={actor} cajas={cajas} clienteId={cliente.id} onMarcarEnviada={() => setEnlazando(true)} />
+      <BarraAcciones remesa={remesa} actor={actor} cajas={cajas} clienteId={cliente.id} onMarcarEnviada={() => setEnlazando(true)} envioPorApi={porApi && !!modoEnvio?.enMarcha} />
 
       {enlazando && (
         <EnlazarEnvioDialog
@@ -414,42 +402,6 @@ export function EspacioPropuesta({
 /* ------------------------------------------------------------------ */
 /* Piezas                                                              */
 /* ------------------------------------------------------------------ */
-
-/** Lo que tiene que estar en orden antes de crear el envío en Amazon */
-function PuntosDeControl({ remesa, cajas }: { remesa: RemesaDePanel; cajas: CajasDeRemesa | null }) {
-  const cuadra = cajas?.cuadre.cuadra ?? false
-  const sinMedidas = cajas?.estado.sinMedidas ?? 0
-  const nCajas = cajas?.estado.cajas ?? 0
-  const etiquetasAlDia = !!remesa.ultimaImpresion && remesa.ultimaImpresion.version >= remesa.version
-
-  const puntos: Array<{ ok: boolean; texto: string; detalle?: string; informativo?: boolean }> = [
-    { ok: cuadra && nCajas > 0, texto: 'Lo encajado cuadra con lo que se manda', detalle: nCajas === 0 ? 'No hay ninguna caja' : cuadra ? `${nCajas} caja${nCajas === 1 ? '' : 's'}, sin diferencias` : 'Hay referencias que no cuadran' },
-    { ok: nCajas > 0 && sinMedidas === 0, texto: 'Todas las cajas llevan medidas y peso', detalle: sinMedidas > 0 ? `A ${sinMedidas} le faltan` : undefined },
-    { ok: etiquetasAlDia, informativo: true, texto: 'Las etiquetas impresas son de esta versión', detalle: remesa.ultimaImpresion ? undefined : 'Todavía no se han impreso' },
-  ]
-
-  return (
-    <Tarjeta icono={ClipboardList} acento="remesas" titulo="Antes de crear el envío" subtitulo="Para subirlo a Seller Central">
-      <ul className="space-y-2">
-        {puntos.map((p) => (
-          <li key={p.texto} className="flex items-start gap-2 text-[13px] text-[var(--ls-t2)]">
-            {p.ok ? (
-              <CheckCircle2 className="mt-[2px] h-[15px] w-[15px] shrink-0" style={{ color: COLOR_ESTADO.verde }} aria-label="Hecho" />
-            ) : p.informativo ? (
-              <Circle className="mt-[2px] h-[15px] w-[15px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} aria-label="Pendiente" />
-            ) : (
-              <AlertTriangle className="mt-[2px] h-[15px] w-[15px] shrink-0" style={{ color: COLOR_ESTADO.rojo }} aria-label="Falta" />
-            )}
-            <span className="min-w-0">
-              {p.texto}
-              {p.detalle && <span className="ml-2 text-[12px] text-[var(--ls-t4)]">{p.detalle}</span>}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </Tarjeta>
-  )
-}
 
 /** Qué se manda, en solo lectura: para tenerlo delante mientras se etiqueta o se encaja. En el móvil, filas apiladas */
 function ResumenLineas({ remesa, abierto = false }: { remesa: RemesaDePanel; abierto?: boolean }) {

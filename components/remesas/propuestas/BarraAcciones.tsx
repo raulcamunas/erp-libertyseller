@@ -62,12 +62,15 @@ export function BarraAcciones({
   actor,
   cajas,
   onMarcarEnviada,
+  envioPorApi = false,
   clienteId,
 }: {
   remesa: RemesaDePanel
   actor: Actor
   cajas: CajasDeRemesa | null
   onMarcarEnviada: () => void
+  /** El envío se está creando por la API: «Marcar como enviada» lo da la fase Etiquetas del propio envío, no esta barra (A1.6) */
+  envioPorApi?: boolean
   /** Para vaciar la memoria de las pantallas de ese cliente al mover. Sin él se vacía toda (es lo seguro) */
   clienteId?: string
 }) {
@@ -78,7 +81,7 @@ export function BarraAcciones({
 
   const pasos = siguientesPasos(remesa.estado, actor)
   const desde = ORDEN.indexOf(remesa.estado)
-  const adelante = pasos.filter((p) => ORDEN.indexOf(p.hasta) > desde)
+  const adelante = pasos.filter((p) => ORDEN.indexOf(p.hasta) > desde && !(envioPorApi && p.hasta === 'enviada'))
   const atras = pasos.filter((p) => ORDEN.indexOf(p.hasta) < desde)
   const principal = adelante[0] ?? null
 

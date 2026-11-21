@@ -77,7 +77,7 @@ const SECCION: Record<SeccionCliente, { texto: string; icono: typeof Package }> 
   resumen: { texto: 'Resumen', icono: LayoutDashboard },
   stock: { texto: 'Stock', icono: Boxes },
   ventas: { texto: 'Ventas', icono: BarChart3 },
-  reposicion: { texto: 'Reposición', icono: RefreshCcw },
+  reposicion: { texto: 'Reponer', icono: RefreshCcw },
   envios: { texto: 'Envíos', icono: Package },
   lotes: { texto: 'Lotes', icono: GanttChartSquare },
   propuestas: { texto: 'Propuestas', icono: ClipboardList },
