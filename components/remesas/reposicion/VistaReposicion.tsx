@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MotionConfig } from 'framer-motion'
 import {
-  AlertTriangle, ArrowRight, Copy, Lock, MoreHorizontal, Plane, RefreshCw, Settings2, Sparkles, Target, Timer, Truck, Wand2, X,
+  AlertTriangle, ArrowRight, Copy, Lock, MoreHorizontal, Plane, RefreshCw, Settings2, Sparkles, Target, Timer, Truck, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Boton } from '@/components/ui-ls/Boton'
@@ -77,7 +77,7 @@ async function copiar(texto: string, exito: string) {
   }
 }
 
-export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA, onPropuestaAMedida, onImportarPedidos, onLeerAmazon, leyendo }: VistaReposicionProps) {
+export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA, onImportarPedidos, onLeerAmazon, leyendo }: VistaReposicionProps) {
   const esAgencia = sesion.esAgencia && sesion.actor === 'agencia'
   const puedeEditar = esAgencia && cliente.puedeEditar
   const datos = usePlan(esAgencia ? cliente.id : null, { todas: true })
@@ -279,9 +279,7 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
             <Boton tamano="sm" variante="secundario" icono={RefreshCw} cargando={datos.recalculando} disabled={!puedeEditar || datos.recalculando} onClick={() => void recalcular()} title="Vuelve a calcular el plan con los datos de ahora (1 vez cada 2 minutos)">
               Recalcular
             </Boton>
-            <Boton tamano="sm" variante="primario" icono={Wand2} disabled={!puedeEditar} onClick={() => onPropuestaAMedida(cliente.id)} title="Propuesta con IA: tú eliges cobertura y referencias">
-              Propuesta a medida
-            </Boton>
+            {/* «Propuesta a medida (IA)» está en la cabecera del cliente */}
             <span className="hidden items-center gap-2 lg:inline-flex">{botonesExtra}</span>
             <div ref={refMenu} className="relative lg:hidden">
               <Boton tamano="sm" variante="fantasma" icono={MoreHorizontal} soloIcono aria-label="Más acciones" aria-expanded={menu} aria-haspopup="menu" onClick={() => setMenu((v) => !v)} />
@@ -354,12 +352,9 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
               </p>
             )}
             {plazo.sinConfirmar && puedeEditar && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] px-3 py-2 text-[12px] text-[var(--ls-t2)]" style={{ background: 'color-mix(in srgb, var(--ls-e-ambar) 10%, transparent)' }}>
-                <span className="min-w-0 flex-1">Hay etapas «de partida»: confírmalas si cuadran con cómo trabaja.</span>
-                <Boton tamano="sm" variante="secundario" cargando={confirmando} onClick={() => void confirmarPlazos()}>
-                  Confirmar plazos
-                </Boton>
-              </div>
+              <p className="mt-3 rounded-[10px] px-3 py-2 text-[12px] text-[var(--ls-t2)]" style={{ background: 'color-mix(in srgb, var(--ls-e-ambar) 10%, transparent)' }}>
+                Hay etapas «de partida»: confírmalas en la banda de arriba si cuadran con cómo trabaja.
+              </p>
             )}
           </Tarjeta>
 

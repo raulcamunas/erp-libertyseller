@@ -1,8 +1,8 @@
 'use client'
 
 import { useId, useMemo, useState } from 'react'
-import { Activity, BarChart3, Boxes, Cloud, GanttChartSquare, History, LayoutGrid, Route, Table2 } from 'lucide-react'
-import { PanelDePestana, Pestanas } from '@/components/ui-ls'
+import { BarChart3, Cloud, GanttChartSquare, LayoutGrid, Route, Table2 } from 'lucide-react'
+import { PanelDePestana, Pestanas, Segmentado } from '@/components/ui-ls'
 import type { RemesaDePanel, SkuDePanel } from '@/lib/fba/datos'
 import { analizarProductos, resumenDeRitmo, serieDeRemesa, type FilaProducto, type ResumenRitmo } from '@/lib/fba/analisis'
 import { HistorialRemesa } from '../propuestas/HistorialRemesa'
@@ -20,13 +20,11 @@ import { TabVentas } from './TabVentas'
  *
  *   Resumen      cómo va de un vistazo y el día a día.
  *   Ventas       las salidas de cada producto, día a día.
- *   Almacén      lo que queda de cada producto y si cuadra con Amazon.
- *   Rotación     a qué ritmo sale cada producto de ESTE envío (y el de su referencia al lado) y cuándo se agota.
- *   Seguimiento  el historial del envío y lo que no ha llegado.
- *   Lotes        (nuevo, §5.3) el FIFO de este envío: embudo, curva frente a los anteriores y referencias con «Lote vivo».
- *   Referencias  la tabla completa, con todas las columnas.
- *   Historial    quién hizo qué, de la propuesta al envío.
+ *   Referencias  una pestaña con tres vistas: todas las columnas, almacén (lo que queda y si cuadra con Amazon) y rotación (ritmo y cuándo se agota).
+ *   Seguimiento  lo que dice Amazon (recorrido y lo que no ha llegado) y, debajo, quién hizo qué en el equipo.
+ *   Lotes        el FIFO de este envío: embudo, curva frente a los anteriores y referencias con «Lote vivo».
  *   Amazon (API) el plan creado desde el ERP (solo administradores, envíos en «enviada»).
+ * Antes eran 9 pestañas (Almacén, Rotación e Historial sueltas); los enlaces del Resumen a ellas siguen llevando a su sitio.
  *
  * Todo sale de lo que el panel ya trae (lib/fba/analisis.ts), salvo Lotes (GET /api/fba/lotes, con memoria de 5 min) y
  * el Historial. Cada pestaña se monta solo cuando está abierta, así que sus gráficos no gastan nada escondidos. La cuenta
@@ -60,6 +58,16 @@ export function PestanasEnvio({
   ritmo?: ResumenRitmo
 }) {
   const [pestana, setPestana] = useState<IdPestana>('resumen')
+  // «Referencias» junta lo que antes eran tres pestañas (tabla completa, almacén y rotación): se elige la vista dentro
+  const [vistaRefs, setVistaRefs] = useState<'tabla' | 'almacen' | 'rotacion'>('tabla')
+  // Los enlaces viejos (el Resumen lleva a «almacén», «rotación» o «historial») caen en su sitio nuevo
+  const ir = (id: IdPestana) => {
+    if (id === 'almacen' || id === 'rotacion') {
+      setVistaRefs(id)
+      setPestana('referencias')
+    } else if (id === 'historial') setPestana('seguimiento')
+    else setPestana(id)
+  }
   const idPanel = `panel-envio-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
 
   const globales = useMemo(() => new Map(skus.map((s) => [s.sku, s])), [skus])
@@ -74,12 +82,9 @@ export function PestanasEnvio({
   const opciones = [
     { id: 'resumen' as const, texto: 'Resumen', icono: LayoutGrid },
     { id: 'ventas' as const, texto: 'Ventas por día', icono: BarChart3 },
-    { id: 'almacen' as const, texto: 'Almacén', icono: Boxes, cuenta: conDescuadre > 0 ? conDescuadre : undefined },
-    { id: 'rotacion' as const, texto: 'Rotación', icono: Activity, cuenta: ritmo.encaminoDeAgotarse > 0 ? ritmo.encaminoDeAgotarse : undefined },
+    { id: 'referencias' as const, texto: 'Referencias', icono: Table2, cuenta: conDescuadre + ritmo.encaminoDeAgotarse > 0 ? conDescuadre + ritmo.encaminoDeAgotarse : undefined },
     { id: 'seguimiento' as const, texto: 'Seguimiento', icono: Route, cuenta: conFaltantes > 0 ? conFaltantes : undefined },
     ...(clienteId ? [{ id: 'lotes' as const, texto: 'Lotes', icono: GanttChartSquare }] : []),
-    { id: 'referencias' as const, texto: 'Referencias', icono: Table2 },
-    { id: 'historial' as const, texto: 'Historial', icono: History },
     // El envío por API (seguimiento y anulación dentro de plazo). Solo administradores
     ...(esAdmin && remesa.estado === 'enviada' ? [{ id: 'amazon' as const, texto: 'Amazon (API)', icono: Cloud }] : []),
   ]
@@ -95,21 +100,41 @@ export function PestanasEnvio({
         acento="remesas"
         opciones={opciones}
         valor={activa}
-        onCambio={setPestana}
+        onCambio={ir}
         idPanel={idPanel}
         envolver
         className="gap-0.5 [&_[role=tab]]:px-2.5 max-2xl:[&_[role=tab]_svg]:hidden"
       />
 
       <PanelDePestana id={idPanel} key={activa} className="min-w-0">
-        {activa === 'resumen' && <TabResumen remesa={remesa} filas={filas} ritmo={ritmo} serie={serie} onIrA={setPestana} />}
+        {activa === 'resumen' && <TabResumen remesa={remesa} filas={filas} ritmo={ritmo} serie={serie} onIrA={ir} />}
         {activa === 'ventas' && <TabVentas remesa={remesa} hoy={hoy} />}
-        {activa === 'almacen' && <TabAlmacen filas={filas} lineas={remesa.lineas} nombreArchivo={nombreArchivo} />}
-        {activa === 'rotacion' && <TabRotacion filas={filas} lineas={remesa.lineas} ritmo={ritmo} nombreArchivo={nombreArchivo} ritmoReferencia={ritmoReferencia} />}
-        {activa === 'seguimiento' && <TabSeguimiento remesa={remesa} hoy={hoy} />}
+        {activa === 'seguimiento' && (
+          // Lo que dice Amazon (recorrido y lo que no ha llegado) y, debajo, quién hizo qué en el equipo: antes eran dos pestañas
+          <div className="flex min-w-0 flex-col gap-4">
+            <TabSeguimiento remesa={remesa} hoy={hoy} />
+            <HistorialRemesa key={remesa.id} remesaId={remesa.id} />
+          </div>
+        )}
         {activa === 'lotes' && clienteId && <TabLotes remesaId={remesa.id} clienteId={clienteId} hoy={hoy} />}
-        {activa === 'referencias' && <TablaReferencias filas={filas} lineas={remesa.lineas} conectado={conectado} nombreArchivo={nombreArchivo} ritmoReferencia={ritmoReferencia} />}
-        {activa === 'historial' && <HistorialRemesa key={remesa.id} remesaId={remesa.id} abierto />}
+        {activa === 'referencias' && (
+          <div className="flex min-w-0 flex-col gap-3">
+            <Segmentado<'tabla' | 'almacen' | 'rotacion'>
+              etiqueta="Vista de las referencias"
+              tamano="sm"
+              opciones={[
+                { id: 'tabla', texto: 'Todas las columnas' },
+                { id: 'almacen', texto: `Almacén${conDescuadre > 0 ? ` (${conDescuadre})` : ''}` },
+                { id: 'rotacion', texto: `Rotación${ritmo.encaminoDeAgotarse > 0 ? ` (${ritmo.encaminoDeAgotarse})` : ''}` },
+              ]}
+              valor={vistaRefs}
+              onCambio={setVistaRefs}
+            />
+            {vistaRefs === 'tabla' && <TablaReferencias filas={filas} lineas={remesa.lineas} conectado={conectado} nombreArchivo={nombreArchivo} ritmoReferencia={ritmoReferencia} />}
+            {vistaRefs === 'almacen' && <TabAlmacen filas={filas} lineas={remesa.lineas} nombreArchivo={nombreArchivo} />}
+            {vistaRefs === 'rotacion' && <TabRotacion filas={filas} lineas={remesa.lineas} ritmo={ritmo} nombreArchivo={nombreArchivo} ritmoReferencia={ritmoReferencia} />}
+          </div>
+        )}
         {activa === 'amazon' && <EnviarAAmazon key={`a-${remesa.id}`} remesaId={remesa.id} soloSeguimiento />}
       </PanelDePestana>
     </section>

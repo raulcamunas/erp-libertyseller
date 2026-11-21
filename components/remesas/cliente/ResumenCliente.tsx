@@ -162,11 +162,7 @@ export function ResumenCliente({ sesion, cliente, hoy, callbacks }: ResumenClien
             {planR.pasada?.calculadoAt ? ` · plan calculado el ${fechaCorta(planR.pasada.calculadoAt.slice(0, 10), hoy)}` : ''}
           </p>
         </div>
-        {puedeEditar && (
-          <Boton variante="secundario" tamano="sm" icono={Sparkles} onClick={() => callbacks.onPropuestaAMedida(cliente.id)}>
-            Propuesta a medida (IA)
-          </Boton>
-        )}
+        {/* «Propuesta a medida (IA)» está en la cabecera del cliente, encima de todas las secciones: aquí se repetía */}
       </div>
 
       {/* ================= BANDA DE CALIDAD ================= */}

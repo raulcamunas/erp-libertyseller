@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ArrowDown, ArrowUp, Boxes, CloudDownload, FileSpreadsheet, Loader2, RefreshCw, Search, Sparkles, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Boxes, FileSpreadsheet, Loader2, RefreshCw, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { EsqueletoTarjeta, EstadoVacio, TablaAdaptable, type Columna } from '@/components/ui-ls'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
 import { costeMensual, estimarAlmacenaje, mesDe, type SupuestosAlmacenaje } from '@/lib/fba/almacenaje'
 import { informeDeAntiguedad, productosDeTramo, tramoDelInforme, unidadesEnTramo, type IdTramoInforme } from '@/lib/fba/antiguedad'
-import { AVISO_ANTERIOR_AL_LIBRO, AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, dentroDe, diasEntreInv, type InventarioDeCliente } from '@/lib/fba/inventario'
+import { AVISO_ANTERIOR_AL_LIBRO, AVISO_LIBRO_SIN_LEER, AVISO_VENTAS_ATRASADAS, dentroDe, type InventarioDeCliente } from '@/lib/fba/inventario'
 import { TRAMOS_AMAZON, TRAMOS_MAS_DE_90 } from '@/lib/fba/planificacion'
 import type { EnCamino, PlanCliente, PlanParaCliente } from '@/lib/fba/plan-tipos'
 import { marketplaceLabel } from '@/lib/types/amazon'
@@ -526,7 +526,6 @@ function Contenido({
   }, [skuDeUrl, datos.skus])
 
   const mes = mesDe(hoy)
-  const ventasAtrasadas = datos.leidoHasta === null || diasEntreInv(datos.leidoHasta, hoy) > 1
   const ea = datos.edadAmazon
   const conAmazon = ea !== null
   const r = datos.resumen
@@ -680,34 +679,9 @@ function Contenido({
     )
   }
 
+  // «Propuesta a medida (IA)» está en la cabecera del cliente y «Leer de Amazon» en la banda de calidad de aquí debajo: no se repiten en esta cabecera
   const botonesCabecera: ReactNode = (
     <div className="flex flex-wrap items-center gap-2">
-      {puedeEditar && callbacks?.onPropuestaAMedida && (
-        <button
-          type="button"
-          onClick={() => callbacks.onPropuestaAMedida?.(cliente.id)}
-          className={cx(BOTON.base, BOTON.alto, sesion.esAdmin && datos.conexionId && ventasAtrasadas ? BOTON.secundario : BOTON.primario)}
-          title="Que la IA proponga qué mandar a Amazon, con este stock delante"
-        >
-          <Sparkles className="h-3 w-3" />
-          <span>Propuesta a medida (IA)</span>
-        </button>
-      )}
-      {sesion.esAdmin && datos.conexionId && (
-        <>
-          {lector.leyendo && <span className="hidden text-[11px] text-[var(--ls-t4)] xl:inline">Amazon tarda unos minutos en preparar el informe</span>}
-          <button
-            type="button"
-            onClick={() => void lector.leer(datos.conexionId)}
-            disabled={lector.leyendo}
-            className={cx(BOTON.base, BOTON.alto, ventasAtrasadas ? BOTON.primario : BOTON.secundario)}
-            title="Le pide a Amazon, y guarda, el libro mayor de este cliente hasta hoy —ventas y devoluciones— y su informe de antigüedad del stock. Tarda unos minutos"
-          >
-            {lector.leyendo ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : <CloudDownload className="h-3 w-3" />}
-            {lector.leyendo ? 'Leyendo de Amazon…' : 'Leer de Amazon'}
-          </button>
-        </>
-      )}
       <button type="button" onClick={onActualizar} disabled={actualizando} className={cx(BOTON.base, BOTON.alto, BOTON.secundario)} title="Volver a leer el inventario y el plan">
         <RefreshCw className={cx('h-3 w-3', actualizando && 'animate-spin motion-reduce:animate-none')} />
         Actualizar
