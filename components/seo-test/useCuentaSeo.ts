@@ -36,6 +36,8 @@ export interface DatosSeo {
   precios?: Record<string, number | null>
   /** Las fichas cambiadas en Amazon desde aquí (la ventana de 30 días del SOP) */
   cambios?: Array<{ asin: string; aplicadaAt: string }>
+  /** Las búsquedas marcadas a mano en la cuenta y país (migración 333): «No es nuestro producto» y «Sí es nuestro». Sin la migración, listas vacías y `disponible: false` */
+  decisiones?: { ajenas: string[]; nuestras: string[]; disponible: boolean }
 }
 
 // Cada 15 s (antes 8): cada pregunta da un paso de lectura en el servidor y la base va justa

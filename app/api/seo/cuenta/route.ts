@@ -3,13 +3,15 @@ import { fail } from '@/lib/amazon/api'
 import { avanzarSeo, leerEstadoSeo } from '@/lib/seo/lectura'
 import { cambiosAplicados, consultasDelAnterior, consultasGuardadas, evolucionDeCuenta, fichasGuardadas, periodosMostrados, preciosDeListings, productosSeguidos } from '@/lib/seo/datos'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
+import { decisionesDeBusquedas } from '@/lib/seo/ajenas-servidor'
 
 /**
  * SEO TEST · TODO LO DE UNA CUENTA Y PAÍS. Solo administradores. Solo LEE de Amazon.
  *
  *   GET  ?cuenta=connectionId~marketplaceId   → estado de la lectura (y del acceso a Brand Analytics), productos seguidos, búsquedas del último mes y semana, y fichas; con la migración 299,
  *                                              también la evolución de cada producto y las búsquedas del periodo anterior (para comparar). Además, el precio de cada producto en el catálogo
- *                                              (para descartar búsquedas que compran a otro precio) y los cambios de ficha aplicados (la ventana de 30 días del SOP). El periodo que se enseña
+ *                                              (para descartar búsquedas que compran a otro precio), los cambios de ficha aplicados (la ventana de 30 días del SOP) y, con la migración 333, las
+ *                                              búsquedas marcadas a mano como «No es nuestro producto» / «Sí es nuestro». El periodo que se enseña
  *                                              (`lectura.periodoMostrado`) es el que la lectura dio por terminado, no el más alto de la tabla: así no sale una semana a medias.
  *                                              `lectura.asinsSinBa`: los ASIN para los que Amazon no da Brand Analytics (migración 332; [] sin ella)
  *   POST {cuenta, accion: 'actualizar'}         → vuelve a leer ya (fichas e informe), sin esperar al proceso de fondo
@@ -40,9 +42,10 @@ export async function GET(request: NextRequest) {
     ])
     // Lo de apoyo no tumba la pantalla: sin precio se estima con Brand Analytics y sin cambios no hay ventana que vigilar
     const asins = productos.map((p) => p.asin)
-    const [precios, cambios] = await Promise.all([
+    const [precios, cambios, decisiones] = await Promise.all([
       preciosDeListings(c.connectionId, c.marketplaceId, asins).catch((e) => (console.error('SEO: precios:', e instanceof Error ? e.message : e), {})),
       cambiosAplicados(c.connectionId, c.marketplaceId).catch((e) => (console.error('SEO: cambios aplicados:', e instanceof Error ? e.message : e), [])),
+      decisionesDeBusquedas(c.connectionId, c.marketplaceId).catch((e) => (console.error('SEO: búsquedas decididas:', e instanceof Error ? e.message : e), { ajenas: [], nuestras: [], disponible: false })),
     ])
     return NextResponse.json({
       lectura: {
@@ -68,6 +71,7 @@ export async function GET(request: NextRequest) {
       fichas,
       precios,
       cambios,
+      decisiones,
     })
   } catch (error) {
     return errorDeRutaSeo(error, 'SEO: leer la cuenta')

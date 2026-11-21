@@ -6,7 +6,7 @@
  * que conoce el SOP mirando esos mismos números.
  */
 import { coberturaDe, LIMITE_BACKEND_BYTES, LIMITE_TITULO_CARACTERES, raiz, bytesDe } from './cobertura'
-import { diagnosticar, diagnosticarTodas, embudoDelProducto, sumarEmbudo, contextoDe, type FilaDeEmbudo } from './embudo'
+import { diagnosticar, diagnosticarTodas, embudoDelProducto, esRelevante, sumarEmbudo, contextoDe } from './embudo'
 import { backendRepetido, revisarFicha } from './norma'
 import { limpiarPropuesta, recortarBullets } from './propuesta'
 import { resumenDeProducto } from './resumen'
@@ -81,12 +81,47 @@ console.log('\n=== el embudo (SOP: quién arregla qué) ===')
   const muchaExposicion = diagnosticar(fila('w', [2000, 50000, 12000, 1500, 400, 200, 60, 100, 28, null, null]), { precioPropio: null, tasaMediana: null })
   ok('con el 24 % de impresiones ya no es infraexpuesta (pasa del 20 %)', muchaExposicion.tipo !== 'infraexpuesta', JSON.stringify(muchaExposicion))
   ok('el ruido no pesa al ordenar', busquedas.find((b) => b.fila.consulta === 'google')!.impacto === 0)
-  ok('una búsqueda sin datos suficientes no se juzga como fuga (0 de 1 esperado es azar)', diagnosticar(fila('x', [100, 1000, 10, 100, 0, 10, 0, 5, 0, null, null]), { precioPropio: null, tasaMediana: null }).tipo === 'visibilidad')
+  ok('una búsqueda sin datos suficientes no se juzga como fuga (0 de 1 esperado es azar): «pocos datos», no «falta visibilidad»', diagnosticar(fila('x', [100, 1000, 10, 100, 0, 10, 0, 5, 0, null, null]), { precioPropio: null, tasaMediana: null }).tipo === 'sin-datos')
+  const unaDeUna = diagnosticar(fila('u', [100, 1000, 600, 10, 6, 3, 2, 1, 1, null, null]), { precioPropio: null, tasaMediana: null })
+  ok('1 compra de 1 no es «Lidera» (es azar)', unaDeUna.tipo !== 'lider', JSON.stringify(unaDeUna))
+  const unaDeDos = diagnosticar(fila('v', [100, 1000, 600, 10, 6, 3, 2, 2, 1, null, null]), { precioPropio: null, tasaMediana: null })
+  ok('1 compra de 2 tampoco', unaDeDos.tipo !== 'lider', JSON.stringify(unaDeDos))
+  const dosDeCuatro = diagnosticar(fila('w2', [100, 1000, 600, 10, 6, 5, 3, 4, 2, null, null]), { precioPropio: null, tasaMediana: null })
+  ok('2 compras de 4 (50 %) sí lidera', dosDeCuatro.tipo === 'lider', JSON.stringify(dosDeCuatro))
   const lider = diagnosticar(fila('y', [1000, 10000, 2000, 500, 200, 100, 40, 50, 20, null, null]), { precioPropio: null, tasaMediana: null })
   ok('con el 40 % de las compras y sin caídas → líder (mantener)', lider.tipo === 'lider', JSON.stringify(lider))
   const sinPrecio = diagnosticar(OPINAS[1], { precioPropio: null, tasaMediana: null })
   ok('sin precio propio no se descarta por precio', sinPrecio.tipo !== 'otro-precio')
   ok('sin precio del listing, se estima con el mediano al que nos compran', contextoDe(OPINAS, null).precioPropio === 29.9)
+}
+
+console.log('\n=== búsquedas ajenas («lego» en un juego de mesa) ===')
+{
+  const juego = (consulta: string, n: Array<number | null>) => ({ ...fila(consulta, n), asin: 'B0JUEGO001' })
+  const JUEGOS = [
+    juego('juegos de mesa', [60000, 1000000, 100, 30000, 3, 3000, 0, 802, 0, 25, null]),
+    juego('juegos de mesa adultos', [8000, 300000, 3000, 9000, 90, 900, 9, 200, 2, 25, 30]),
+    juego('juego de mesa familiar', [5000, 200000, 2000, 6000, 60, 600, 6, 150, 1, 25, 30]),
+    juego('lego', [400000, 14340612, 661, 40000, 10, 9000, 0, 3557, 0, 45, null]),
+  ]
+  const FICHA_JUEGO = { titulo: 'MARCA Juego de Mesa para Adultos y Familias', bullets: ['Preguntas para toda la familia'], descripcion: null, backend: 'regalo cartas', highlights: null }
+  const { busquedas } = diagnosticarTodas(JUEGOS, 30, { ficha: FICHA_JUEGO })
+  const de = (q: string) => busquedas.find((b) => b.fila.consulta === q)!
+  ok('«lego» (661 de 14.340.612 impresiones, 10 clics, 0 de 3.557 compras) → pocos datos', de('lego').veredicto.tipo === 'sin-datos', JSON.stringify(de('lego').veredicto))
+  ok('…y posible ajena: «lego» no está en la ficha ni entre las palabras habituales', de('lego').posibleAjena === true)
+  ok('«juegos de mesa adultos» (2 compras propias) no es ajena', de('juegos de mesa adultos').posibleAjena === false && de('juegos de mesa adultos').veredicto.tipo !== 'sin-datos')
+  ok('sin ficha no se marca nada como ajena (no hay con qué comparar)', diagnosticarTodas(JUEGOS, 30).busquedas.every((b) => !b.posibleAjena))
+  ok('«Sí es nuestro» quita la sospecha', !diagnosticarTodas(JUEGOS, 30, { ficha: FICHA_JUEGO, nuestras: ['LEGO'] }).busquedas.find((b) => b.fila.consulta === 'lego')!.posibleAjena)
+  const marcada = diagnosticarTodas(JUEGOS, 30, { ficha: FICHA_JUEGO, ajenas: ['Lego '] }).busquedas.find((b) => b.fila.consulta === 'lego')!
+  ok('«No es nuestro producto» → veredicto «ajena», impacto 0 y fuera de lo relevante', marcada.veredicto.tipo === 'ajena' && marcada.impacto === 0 && !esRelevante(marcada.veredicto))
+  ok('pocos datos pesa enJuego × 0,3 para ordenar, y `compras` es el enJuego tal cual', Math.abs(de('lego').impacto - 3557 * 0.3) < 1e-9 && de('lego').compras === 3557)
+  const conLego = embudoDelProducto(busquedas, { precioPropio: 30, tasaMediana: null })
+  const sinLego = embudoDelProducto(diagnosticarTodas(JUEGOS.filter((j) => j.consulta !== 'lego'), 30, { ficha: FICHA_JUEGO }).busquedas, { precioPropio: 30, tasaMediana: null })
+  ok('el embudo del producto no suma «lego»', conLego.suma.impresionesTotal === sinLego.suma.impresionesTotal && conLego.relevantes === 3, `${conLego.suma.impresionesTotal} / ${sinLego.suma.impresionesTotal}`)
+  const legoGrande = diagnosticarTodas([...JUEGOS.slice(0, 3), juego('lego', [400000, 14340612, 661, 400000, 10, 9000, 0, 3557, 0, 45, null])], 30, { ficha: FICHA_JUEGO }).busquedas.find((b) => b.fila.consulta === 'lego')!
+  ok('con más clics en el mercado, «lego» pierde en clics sin un carrito propio → también posible ajena', legoGrande.veredicto.tipo === 'fuga' && legoGrande.posibleAjena, JSON.stringify(legoGrande.veredicto))
+  const r = resumenDeProducto(JUEGOS, FICHA_JUEGO, 30)
+  ok('el resumen no cuenta «lego»: 3 búsquedas y la principal es la de más compras', r.busquedas === 3 && r.principal === 'juegos de mesa', JSON.stringify(r))
 }
 
 console.log('\n=== el embudo del producto entero (la puerta de salida) ===')

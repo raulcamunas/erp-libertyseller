@@ -15,15 +15,24 @@
  * LA VENTANA DE CAMBIO (SOP): máximo un cambio de título cada 30 días por producto y 21 días antes de juzgarlo. Si la ficha se cambió hace menos, las tareas que tocan el título salen marcadas
  * «no tocar hasta…» en vez de desaparecer: se ve el trabajo pendiente pero no se hace a destiempo.
  *
- * El «impacto» son compras al mes (o a la semana) de todo Amazon que todavía no son del producto, en las búsquedas a las que afecta la tarea. No es una promesa de ventas: sirve para ordenar.
+ * El «impacto» son compras al mes (o a la semana) de todo Amazon que todavía no son del producto, en las búsquedas a las que afecta la tarea, ajustadas por lo que se puede ganar: SOLO sirve
+ * para ordenar. Lo que se enseña es `compras`: las mismas compras en juego, tal cual, sin multiplicador (con el multiplicador de «infraexpuesta» salía hasta el doble de las reales).
+ *
+ * Las búsquedas que pueden ser de otro producto (`posibleAjena`, lib/seo/embudo.ts) o que el SEO ha marcado como «No es nuestro producto» no cuentan para las palabras, la oportunidad ni la suma
+ * del embudo. Si una pierde en los clics, no se manda revisar la imagen: se dice que puede ser otro producto y que se negativice en PPC.
+ *
+ * CAÍDA GENERAL (con `movimientos`, lib/seo/movimientos.ts): si más de la mitad de las búsquedas de siempre de un producto bajan o salen del informe la misma semana, no es SEO (publicidad
+ * apagada, rotura de stock, supresión). Sale una tarea grave para quien lleva la cuenta, con el gasto PPC de esas semanas, y sustituye a la de «caída de la cuota» de ese producto.
  */
 
 import { coberturaDe, tokens } from './cobertura'
 import type { ConsultaGuardada, FichaGuardada, ProductoSeguido, PuntoDeEvolucion } from './datos'
-import { diagnosticarTodas, embudoDelProducto, esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE, RESPONSABLE_INFRAEXPUESTA, type BusquedaDiagnosticada, type Etapa } from './embudo'
+import { cestaFija } from './cesta'
+import { diagnosticarTodas, embudoDelProducto, esDelProducto, NOMBRE_DE_ETAPA, RESPONSABLE, RESPONSABLE_INFRAEXPUESTA, type BusquedaDiagnosticada, type Etapa } from './embudo'
+import type { Movimientos } from './movimientos'
 import { promocionalesEn, revisarFicha, type Gravedad } from './norma'
 
-export type TipoDeTarea = 'norma' | 'embudo' | 'caida' | 'fugas' | 'palabras' | 'oportunidad' | 'infraexpuesta' | 'reescrito' | 'datos' | 'ventana'
+export type TipoDeTarea = 'norma' | 'embudo' | 'caida' | 'caida-general' | 'fugas' | 'palabras' | 'oportunidad' | 'infraexpuesta' | 'reescrito' | 'datos' | 'ventana'
 
 export interface Tarea {
   id: string
@@ -34,7 +43,10 @@ export interface Tarea {
   detalle: string
   accion: string
   quien: string
+  /** Para ordenar (compras en juego ajustadas por lo que se puede ganar). No se enseña: para eso está `compras` */
   impacto: number
+  /** Las compras de todo Amazon que aún no son del producto en las búsquedas afectadas, tal cual: lo que se enseña como «compras en juego» */
+  compras: number
   /** Adónde lleva el botón de la tarea */
   ir: 'ficha' | 'busquedas' | 'productos' | null
   /** Palabras o búsquedas concretas, para enseñarlas como etiquetas */
@@ -57,6 +69,20 @@ export interface EntradaDeTareas {
   precios?: Readonly<Record<string, number | null>>
   /** Las propuestas de ficha aplicadas en Amazon (para la ventana de 30 días) */
   cambios?: ReadonlyArray<{ asin: string; aplicadaAt: string }>
+  /** Varios periodos de búsquedas (useHistorial): con ellos la tarea de caída usa la cesta fija (lib/seo/cesta.ts) en vez de la evolución, que mezcla búsquedas que entran y salen */
+  historial?: readonly ConsultaGuardada[]
+  /** Las búsquedas decididas a mano en la cuenta y país (migración 333) */
+  ajenas?: readonly string[]
+  nuestras?: readonly string[]
+}
+
+export interface OpcionesDeTareas {
+  /** Los movimientos de la semana de cada producto (lib/seo/movimientos.ts): con caída general sale la tarea 'caida-general' */
+  movimientos?: ReadonlyMap<string, Movimientos>
+  /** El gasto PPC semanal de cada producto, de la semana más vieja a la más nueva (Marketing Test); sin él, la tarea sale sin la línea del gasto */
+  gastoSemanal?: ReadonlyMap<string, ReadonlyArray<{ desde: string; gasto: number }>>
+  /** La moneda del gasto («€», «$»…) */
+  moneda?: string
 }
 
 const DIA = 86_400_000
@@ -90,8 +116,10 @@ export function consultasDelProducto(consultas: EntradaDeTareas['consultas'], as
 
 export interface PalabraQuePesa {
   palabra: string
-  /** Compras de todo Amazon en las búsquedas relevantes que la contienen */
+  /** Compras de todo Amazon en las búsquedas relevantes que la contienen (sirve para ordenar: una búsqueda con dos palabras suma en las dos) */
   compras: number
+  /** Las búsquedas que la contienen: para sumar las compras de varias palabras sin contar dos veces la misma búsqueda */
+  consultas: Set<string>
   volumen: number
   busquedas: number
   enTitulo: boolean
@@ -110,15 +138,16 @@ export function palabrasQuePesan(diagnosticadas: ReadonlyArray<BusquedaDiagnosti
   const enK = set(ficha?.backend)
   const por = new Map<string, PalabraQuePesa>()
   for (const d of diagnosticadas) {
-    if (!esRelevante(d.veredicto)) continue
+    if (!esDelProducto(d)) continue
     for (const [r, forma] of new Map(tokens(d.fila.consulta).map((x) => [x.raiz, x.forma]))) {
       // «oferta», «barato»… salen en búsquedas reales pero no se pueden poner en la ficha: no se proponen
       // y tampoco «amazon» (es la tienda, no el producto) ni un número suelto («100» de «100 tarjetas»), que solo tiene sentido junto a su palabra
       if (forma.length < 3 || /^\d+$/.test(forma) || forma === 'amazon' || promocionalesEn(forma).length > 0) continue
-      const x = por.get(r) ?? { palabra: forma, compras: 0, volumen: 0, busquedas: 0, enTitulo: enT.has(r), enBullets: enB.has(r), enBackend: enK.has(r) }
+      const x = por.get(r) ?? { palabra: forma, compras: 0, consultas: new Set<string>(), volumen: 0, busquedas: 0, enTitulo: enT.has(r), enBullets: enB.has(r), enBackend: enK.has(r) }
       x.compras += d.fila.comprasTotal ?? 0
       x.volumen += d.fila.volumen ?? 0
       x.busquedas += 1
+      x.consultas.add(d.fila.consulta)
       por.set(r, x)
     }
   }
@@ -126,8 +155,9 @@ export function palabrasQuePesan(diagnosticadas: ReadonlyArray<BusquedaDiagnosti
 }
 
 /** TODAS LAS TAREAS DE LA CUENTA Y PAÍS, de la más urgente a la menos */
-export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
+export function tareasDeLaCuenta(e: EntradaDeTareas, opciones: OpcionesDeTareas = {}): Tarea[] {
   const tareas: Tarea[] = []
+  const decisiones = { ajenas: e.ajenas, nuestras: e.nuestras }
   const nombreDe = (p: ProductoSeguido, f: FichaGuardada | null) => (p.nombre || f?.titulo || p.asin).slice(0, 80)
 
   for (const p of e.productos) {
@@ -137,15 +167,16 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
     const bloqueo = ventana?.bloqueada ? ventana.puedeDesde : null
     const { filas, periodo } = consultasDelProducto(e.consultas, p.asin)
     const unidad = periodo === 'MONTH' ? 'al mes' : 'a la semana'
-    const { contexto, busquedas } = diagnosticarTodas(filas, e.precios?.[p.asin] ?? null)
+    const { contexto, busquedas } = diagnosticarTodas(filas, e.precios?.[p.asin] ?? null, { ficha, ...decisiones })
+    const delProducto = busquedas.filter(esDelProducto)
     const producto = embudoDelProducto(busquedas, contexto)
     const enJuego = Math.max(0, (producto.suma.comprasTotal ?? 0) - (producto.suma.comprasAsin ?? 0))
 
     // ---------- lo que impide trabajar ----------
-    if (!p.sku) tareas.push({ id: `${p.asin}:sin-sku`, asin: p.asin, tipo: 'datos', gravedad: 'atencion', titulo: `${nombre}: sin SKU no se puede leer la ficha`, detalle: 'El ERP lee la ficha de Amazon por el SKU y este producto no lo tiene apuntado.', accion: 'Quítalo y vuelve a añadirlo desde «Añadir productos» (elegido del catálogo trae su SKU).', quien: 'Quien lleva la cuenta', impacto: 0, ir: 'productos' })
-    else if (!ficha && e.lectura.fichaLeidaAt) tareas.push({ id: `${p.asin}:sin-ficha`, asin: p.asin, tipo: 'datos', gravedad: 'info', titulo: `${nombre}: Amazon no ha devuelto la ficha`, detalle: 'Se ha intentado leer y no ha llegado nada con ese SKU en este país.', accion: 'Comprueba en Seller Central que el SKU existe y está activo en este marketplace.', quien: 'Quien lleva la cuenta', impacto: 0, ir: 'ficha' })
+    if (!p.sku) tareas.push({ id: `${p.asin}:sin-sku`, asin: p.asin, tipo: 'datos', gravedad: 'atencion', titulo: `${nombre}: sin SKU no se puede leer la ficha`, detalle: 'El ERP lee la ficha de Amazon por el SKU y este producto no lo tiene apuntado.', accion: 'Quítalo y vuelve a añadirlo desde «Añadir productos» (elegido del catálogo trae su SKU).', quien: 'Quien lleva la cuenta', impacto: 0, compras: 0, ir: 'productos' })
+    else if (!ficha && e.lectura.fichaLeidaAt) tareas.push({ id: `${p.asin}:sin-ficha`, asin: p.asin, tipo: 'datos', gravedad: 'info', titulo: `${nombre}: Amazon no ha devuelto la ficha`, detalle: 'Se ha intentado leer y no ha llegado nada con ese SKU en este país.', accion: 'Comprueba en Seller Central que el SKU existe y está activo en este marketplace.', quien: 'Quien lleva la cuenta', impacto: 0, compras: 0, ir: 'ficha' })
     if (filas.length === 0 && e.lectura.acceso === 'si' && e.lectura.mesOk && e.lectura.semanaOk)
-      tareas.push({ id: `${p.asin}:sin-busquedas`, asin: p.asin, tipo: 'datos', gravedad: 'info', titulo: `${nombre}: Amazon no da búsquedas de este ASIN`, detalle: 'Brand Analytics no tiene búsquedas de este producto ni en el último mes ni en la última semana: producto nuevo, sin tráfico o de una marca que no es del cliente.', accion: 'Si vende, comprueba que la marca está en el Brand Registry del cliente.', quien: 'Quien lleva la cuenta', impacto: 0, ir: 'busquedas' })
+      tareas.push({ id: `${p.asin}:sin-busquedas`, asin: p.asin, tipo: 'datos', gravedad: 'info', titulo: `${nombre}: Amazon no da búsquedas de este ASIN`, detalle: 'Brand Analytics no tiene búsquedas de este producto ni en el último mes ni en la última semana: producto nuevo, sin tráfico o de una marca que no es del cliente.', accion: 'Si vende, comprueba que la marca está en el Brand Registry del cliente.', quien: 'Quien lleva la cuenta', impacto: 0, compras: 0, ir: 'busquedas' })
 
     // ---------- la ventana de cambio ----------
     if (ventana && (ventana.bloqueada || !ventana.juzgable))
@@ -159,6 +190,7 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
         accion: `${ventana.juzgable ? 'Ya se puede juzgar' : `Se juzga a partir del ${fechaLarga(ventana.juzgarDesde)}`}; el título no se vuelve a tocar hasta el ${fechaLarga(ventana.puedeDesde)}.`,
         quien: 'SEO',
         impacto: 0,
+        compras: 0,
         ir: 'ficha',
       })
 
@@ -167,7 +199,7 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
       const { incidencias } = revisarFicha(ficha)
       const graves = incidencias.filter((i) => i.gravedad === 'grave')
       for (const i of graves)
-        tareas.push({ id: `${p.asin}:norma:${i.id}`, asin: p.asin, tipo: 'norma', gravedad: 'grave', titulo: `${nombre}: ${i.resumen}`, detalle: i.texto, accion: i.accion, quien: 'SEO', impacto: enJuego, ir: 'ficha', bloqueadaHasta: i.campo === 'titulo' ? bloqueo : null })
+        tareas.push({ id: `${p.asin}:norma:${i.id}`, asin: p.asin, tipo: 'norma', gravedad: 'grave', titulo: `${nombre}: ${i.resumen}`, detalle: i.texto, accion: i.accion, quien: 'SEO', impacto: enJuego, compras: enJuego, ir: 'ficha', bloqueadaHasta: i.campo === 'titulo' ? bloqueo : null })
       const resto = incidencias.filter((i) => i.gravedad === 'atencion')
       if (resto.length > 0)
         tareas.push({
@@ -180,6 +212,7 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
           accion: resto.map((i) => i.accion).join(' '),
           quien: 'SEO',
           impacto: enJuego * 0.3,
+          compras: enJuego,
           ir: 'ficha',
           bloqueadaHasta: resto.some((i) => i.campo === 'titulo') ? bloqueo : null,
         })
@@ -201,16 +234,47 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
         accion: r.accion,
         quien: r.quien,
         impacto: enJuego,
+        compras: enJuego,
         ir: 'busquedas',
       })
     }
 
-    // ---------- caída de la cuota de compras ----------
-    const serie = (e.evolucion ?? []).filter((x) => x.asin === p.asin && x.periodo === periodo && x.cuotaCompras != null).sort((a, b) => a.desde.localeCompare(b.desde))
-    if (serie.length >= 2) {
+    // ---------- caída general: más de la mitad de sus búsquedas de siempre bajan o salen (no es SEO) ----------
+    const mov = opciones.movimientos?.get(p.asin)
+    const caidaGeneral = Boolean(mov?.caidaGeneral && mov.semana)
+    if (mov && caidaGeneral) {
+      const gasto = [...(opciones.gastoSemanal?.get(p.asin) ?? [])].sort((a, b) => a.desde.localeCompare(b.desde)).slice(-5)
+      const moneda = opciones.moneda ? ` ${opciones.moneda}` : ''
+      const lineaGasto = gasto.length > 0 ? ` Gasto PPC por semana: ${gasto.map((g) => ent(g.gasto)).join(' → ')}${moneda}.` : ''
+      tareas.push({
+        id: `${p.asin}:caida-general:${mov.semana}`,
+        asin: p.asin,
+        tipo: 'caida-general',
+        gravedad: 'grave',
+        titulo: `${nombre}: caída general en la semana del ${fechaLarga(mov.semana as string)}`,
+        detalle: `De sus ${mov.base} búsquedas de siempre, ${mov.bajan.length} bajan y ${mov.salen.length} salen del informe frente a la media de las 4 semanas anteriores.${lineaGasto}`,
+        accion: 'Probablemente no es SEO: revisa las campañas (¿se han apagado o se ha quedado sin presupuesto?), el stock y si la ficha está suprimida antes de tocar la ficha.',
+        quien: 'Quien lleva la cuenta',
+        impacto: enJuego,
+        compras: enJuego,
+        ir: 'busquedas',
+        etiquetas: [...mov.bajan, ...mov.salen].sort((a, b) => b.comprasTotalMedia - a.comprasTotalMedia).slice(0, 6).map((m) => m.consulta),
+      })
+    }
+
+    // ---------- caída de la cuota de compras (si ya hay caída general, esa la explica) ----------
+    // Con historial, la cesta fija (las mismas 20 búsquedas en todos los periodos); sin él, la evolución de siempre
+    const conHistorial = (e.historial ?? []).some((x) => x.asin === p.asin && x.periodo === periodo)
+    const serie: Array<{ desde: string; cuotaCompras: number; compras: number; volumen: number }> = conHistorial
+      ? cestaFija(e.historial ?? [], p.asin, periodo, e.precios?.[p.asin] ?? null, undefined, { ficha, ...decisiones }).serie.flatMap((x) => (x.cuotaCompras != null && x.comprasAsin != null ? [{ desde: x.desde, cuotaCompras: x.cuotaCompras, compras: x.comprasAsin, volumen: x.volumen ?? 0 }] : []))
+      : (e.evolucion ?? [])
+          .filter((x) => x.asin === p.asin && x.periodo === periodo && x.cuotaCompras != null)
+          .sort((a, b) => a.desde.localeCompare(b.desde))
+          .map((x) => ({ desde: x.desde, cuotaCompras: x.cuotaCompras as number, compras: x.compras, volumen: x.volumen }))
+    if (!caidaGeneral && serie.length >= 2) {
       const [antes, ahora] = serie.slice(-2)
-      const a = antes.cuotaCompras as number
-      const b = ahora.cuotaCompras as number
+      const a = antes.cuotaCompras
+      const b = ahora.cuotaCompras
       const relativa = a > 0 ? (a - b) / a : 0
       if (antes.compras >= 5 && a - b >= 0.01 && relativa >= 0.2)
         tareas.push({
@@ -219,17 +283,41 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
           tipo: 'caida',
           gravedad: relativa >= 0.4 ? 'grave' : 'atencion',
           titulo: `${nombre}: la cuota de compras cae de ${pct(a)} a ${pct(b)}`,
-          detalle: `${periodo === 'MONTH' ? 'Mes' : 'Semana'} del ${fechaLarga(ahora.desde)} frente al anterior: ${ent(ahora.compras)} compras frente a ${ent(antes.compras)}, con ${ent(ahora.volumen)} búsquedas frente a ${ent(antes.volumen)}.`,
+          detalle: `${periodo === 'MONTH' ? 'Mes' : 'Semana'} del ${fechaLarga(ahora.desde)} frente al anterior${conHistorial ? ', en sus búsquedas que más venden (siempre las mismas)' : ''}: ${ent(ahora.compras)} compras frente a ${ent(antes.compras)}, con ${ent(ahora.volumen)} búsquedas frente a ${ent(antes.volumen)}.`,
           accion: 'Mira en «Búsquedas» qué búsquedas bajan (columna «vs anterior») y en qué escalón: si es la compra, revisa Buy Box y stock antes que la ficha.',
           quien: 'Quien lleva la cuenta',
           impacto: enJuego,
+          compras: enJuego,
           ir: 'busquedas',
         })
     }
 
     // ---------- búsquedas concretas con fuga (por escalón) ----------
     const porEtapa = new Map<Etapa, Array<BusquedaDiagnosticada<ConsultaGuardada>>>()
-    for (const d of busquedas) if (d.veredicto.tipo === 'fuga' && d.impacto > 0) porEtapa.set(d.veredicto.etapa, [...(porEtapa.get(d.veredicto.etapa) ?? []), d])
+    const ajenasEnClics: Array<BusquedaDiagnosticada<ConsultaGuardada>> = []
+    for (const d of busquedas) {
+      if (d.veredicto.tipo !== 'fuga' || d.impacto <= 0) continue
+      // Si puede ser otro producto, que no la pinchen no es cosa de la imagen
+      if (d.posibleAjena && d.veredicto.etapa === 'clics') ajenasEnClics.push(d)
+      else porEtapa.set(d.veredicto.etapa, [...(porEtapa.get(d.veredicto.etapa) ?? []), d])
+    }
+    if (ajenasEnClics.length > 0) {
+      const orden = [...ajenasEnClics].sort((x, y) => y.impacto - x.impacto)
+      tareas.push({
+        id: `${p.asin}:fugas:clics-ajenas`,
+        asin: p.asin,
+        tipo: 'fugas',
+        gravedad: 'info',
+        titulo: `${nombre}: ${orden.length} ${orden.length === 1 ? 'búsqueda que puede ser de otro producto pierde' : 'búsquedas que pueden ser de otro producto pierden'} en clics`,
+        detalle: `Llevan palabras que no están en la ficha ni en las búsquedas habituales del producto; la que más pesa es «${orden[0].fila.consulta}».`,
+        accion: 'Puede ser otro producto: negativízala en PPC. Si sí es tuyo, márcalo con «Sí es nuestro» en Búsquedas.',
+        quien: 'PPC',
+        impacto: orden.reduce((s, d) => s + d.impacto, 0),
+        compras: orden.reduce((s, d) => s + d.compras, 0),
+        ir: 'busquedas',
+        etiquetas: orden.slice(0, 6).map((d) => d.fila.consulta),
+      })
+    }
     for (const [etapa, lista] of porEtapa) {
       // Si el producto entero ya tiene la fuga en ese escalón, la tarea de arriba lo dice: aquí solo las búsquedas concretas
       const orden = [...lista].sort((x, y) => y.impacto - x.impacto)
@@ -245,6 +333,7 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
         accion: r.accion,
         quien: r.quien,
         impacto: total,
+        compras: orden.reduce((s, d) => s + d.compras, 0),
         ir: 'busquedas',
         etiquetas: orden.slice(0, 6).map((d) => d.fila.consulta),
       })
@@ -255,16 +344,21 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
       const faltan = palabrasQuePesan(busquedas, ficha, 40).filter((x) => !x.enTitulo && !x.enBullets && !x.enBackend && x.compras > 0)
       if (faltan.length > 0) {
         const top = faltan.slice(0, 8)
+        // Cada búsqueda una sola vez aunque lleve varias palabras del top («juegos de mesa» no cuenta para «juegos» y para «mesa»), y solo lo que aún no es tuyo
+        const consultasTop = new Set(top.flatMap((x) => [...x.consultas]))
+        const sumaTop = delProducto.filter((d) => consultasTop.has(d.fila.consulta)).reduce((s, d) => s + d.compras, 0)
+        const compras = Math.min(sumaTop, enJuego)
         tareas.push({
           id: `${p.asin}:palabras:${top.map((x) => x.palabra).join(',')}`,
           asin: p.asin,
           tipo: 'palabras',
           gravedad: 'atencion',
           titulo: `${nombre}: ${faltan.length} ${faltan.length === 1 ? 'palabra que pesa no está' : 'palabras que pesan no están'} en ninguna parte de la ficha`,
-          detalle: `Salen en búsquedas del producto (sin contar ruido ni falsos amigos por precio) con ${ent(top.reduce((s, x) => s + x.compras, 0))} compras ${unidad}. Amazon indexa palabras sueltas: si no están en la ficha, no posiciona por ellas.`,
+          detalle: `Salen en búsquedas del producto (sin contar ruido ni falsos amigos por precio) con ${ent(compras)} compras ${unidad} que aún no son tuyas. Amazon indexa palabras sueltas: si no están en la ficha, no posiciona por ellas.`,
           accion: 'Comprueba que describen el producto (formato, marca ajena, falso amigo) y mételas: las de más demanda en título o Item Highlights, el resto en viñetas o backend.',
           quien: 'SEO',
-          impacto: top.reduce((s, x) => s + x.compras, 0) * 0.5,
+          impacto: compras * 0.5,
+          compras,
           ir: 'ficha',
           etiquetas: top.map((x) => x.palabra),
           bloqueadaHasta: bloqueo,
@@ -272,8 +366,9 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
       }
 
       // ---------- la oportunidad de SEO: búsquedas del producto que venden y no están enteras en el título ----------
-      const oportunidades = busquedas
-        .filter((d) => d.veredicto.tipo === 'visibilidad' && d.impacto > 0 && !coberturaDe(d.fila.consulta, ficha).titulo)
+      // Las de pocos datos también (sale tan poco que no se puede juzgar el embudo: es justo lo que arregla el título), salvo las que pueden ser de otro producto
+      const oportunidades = delProducto
+        .filter((d) => (d.veredicto.tipo === 'visibilidad' || d.veredicto.tipo === 'sin-datos') && d.impacto > 0 && !coberturaDe(d.fila.consulta, ficha).titulo)
         .sort((x, y) => y.impacto - x.impacto)
       if (oportunidades.length > 0) {
         const top = oportunidades.slice(0, 6)
@@ -283,10 +378,11 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
           tipo: 'oportunidad',
           gravedad: 'info',
           titulo: `${nombre}: ${oportunidades.length} ${oportunidades.length === 1 ? 'búsqueda del producto no está entera' : 'búsquedas del producto no están enteras'} en el título`,
-          detalle: `El embudo no se cae en ellas: lo que falta es salir más. ${ent(top.reduce((s, d) => s + d.impacto, 0))} compras ${unidad} en juego en las primeras.`,
+          detalle: `El embudo no se cae en ellas: lo que falta es salir más. ${ent(top.reduce((s, d) => s + d.compras, 0))} compras ${unidad} en juego en las primeras.`,
           accion: 'Candidatas para el título o los Item Highlights en el próximo cambio: primero la de más demanda que describa literalmente el producto (SOP, paso 4).',
           quien: 'SEO',
           impacto: top.reduce((s, d) => s + d.impacto, 0) * 0.4,
+          compras: top.reduce((s, d) => s + d.compras, 0),
           ir: 'busquedas',
           etiquetas: top.map((d) => d.fila.consulta),
           bloqueadaHasta: bloqueo,
@@ -310,6 +406,7 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
             accion: `Revísalo en Seller Central › Review Listing Changes y acéptalo, edítalo o recházalo antes del ${fechaLarga(plazo)} (14 días). Apúntalo en el Log.`,
             quien: 'SEO',
             impacto: enJuego,
+            compras: enJuego,
             ir: 'ficha',
           })
       }
@@ -330,6 +427,7 @@ export function tareasDeLaCuenta(e: EntradaDeTareas): Tarea[] {
         accion: RESPONSABLE_INFRAEXPUESTA.accion,
         quien: RESPONSABLE_INFRAEXPUESTA.quien,
         impacto: top.reduce((s, d) => s + d.impacto, 0),
+        compras: top.reduce((s, d) => s + d.compras, 0),
         ir: 'busquedas',
         etiquetas: top.map((d) => d.fila.consulta),
       })

@@ -20,6 +20,7 @@ import { ventasTotales } from '@/lib/ads/ventas-totales'
 import { cuentasSeoDeClientes, productosSeguidos, fichasGuardadas, consultasGuardadas, evolucionDeCuenta, preciosDeListings, cambiosAplicados } from '@/lib/seo/datos'
 import { leerEstadoSeo } from '@/lib/seo/lectura'
 import { tareasDeLaCuenta, type Tarea as TareaSeo } from '@/lib/seo/tareas'
+import { decisionesDeBusquedas } from '@/lib/seo/ajenas-servidor'
 import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
 import type { TareaDeHoy as TareaCumplimiento } from '@/lib/cumplimiento/acciones'
@@ -206,7 +207,7 @@ export async function seoDeCliente(amazonClientId: string, hoy = Date.now()): Pr
         salida.push({ cuentaId: c.id, pais: c.pais, nombre: c.nombre, acceso: 'desconocido', productos: 0, tareas: [], fichas: 0, propuestasPendientes: 0, titulosCambiados: null })
         continue
       }
-      const [estado, fichas, mes, semana, evolucion, precios, cambios, propuestasPendientes] = await Promise.all([
+      const [estado, fichas, mes, semana, evolucion, precios, cambios, propuestasPendientes, decisiones] = await Promise.all([
         leerEstadoSeo({ connectionId, marketplaceId }),
         fichasGuardadas(connectionId, marketplaceId),
         consultasGuardadas(connectionId, marketplaceId, 'MONTH'),
@@ -215,9 +216,10 @@ export async function seoDeCliente(amazonClientId: string, hoy = Date.now()): Pr
         preciosDeListings(connectionId, marketplaceId, productos.map((p) => p.asin)).catch(() => ({})),
         cambiosAplicados(connectionId, marketplaceId).catch(() => []),
         propuestasSeoPendientes(connectionId, marketplaceId).catch(() => 0),
+        decisionesDeBusquedas(connectionId, marketplaceId).catch(() => ({ ajenas: [], nuestras: [] })),
       ])
       const lectura = { acceso: estado?.acceso ?? 'desconocido', mesOk: estado?.mes_ok ?? null, semanaOk: estado?.semana_ok ?? null, fichaLeidaAt: estado?.ficha_leida_at ?? null } as const
-      const tareas = tareasDeLaCuenta({ hoy: fecha(hoy), lectura, productos, fichas, consultas: { MONTH: mes, WEEK: semana }, evolucion, precios, cambios })
+      const tareas = tareasDeLaCuenta({ hoy: fecha(hoy), lectura, productos, fichas, consultas: { MONTH: mes, WEEK: semana }, evolucion, precios, cambios, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras })
       // El vigía: solo existe si la 304 está lanzada (las fichas traen entonces la clave tituloCambiadoAt, aunque sea null)
       const conVigia = fichas.some((f) => 'tituloCambiadoAt' in f)
       const corteVigia = hoy - 14 * DIA

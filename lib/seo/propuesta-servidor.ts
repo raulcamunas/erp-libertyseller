@@ -20,7 +20,8 @@ import { parametrosDeIa } from '@/lib/ia/modelo'
 import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
 import { coberturaDe } from './cobertura'
 import { cambiosAplicados, consultasGuardadas, fichasGuardadas, preciosDeListings, type FichaGuardada } from './datos'
-import { diagnosticarTodas, embudoDelProducto, esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE } from './embudo'
+import { diagnosticarTodas, embudoDelProducto, esDelProducto, NOMBRE_DE_ETAPA, RESPONSABLE } from './embudo'
+import { decisionesDeBusquedas } from './ajenas-servidor'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { avisosRojos, cambiosDesdeLaPropuesta, IDIOMA_DE_MARKETPLACE, instruccionesDeSistema, limpiarPropuesta, marcasAjenasDe, mensajeDeDatos, motivoFichaCambiada, propuestaCaducada, sinMarcasAjenas, vigilarPropuesta, DIAS_DE_VALIDEZ_PROPUESTA, type AvisoDeVigilancia, type CampoComparado, type PropuestaLimpia, type Razonamiento, type TextosPropuestos } from './propuesta'
 import { perfilesAdsDe, terminosDeAdsDelAsin } from './publicidad'
@@ -140,7 +141,9 @@ export async function proponerFicha(c: { connectionId: string; marketplaceId: st
 
   // Paso 2 y 3 del SOP: diagnosticar el embudo y descartar antes de elegir (ruido y búsquedas que compran a otro precio no llegan a la IA como candidatas)
   const precioListing = (await preciosDeListings(c.connectionId, c.marketplaceId, [asin]).catch(() => ({}) as Record<string, number | null>))[asin] ?? null
-  const { contexto, busquedas } = diagnosticarTodas(consultas, precioListing)
+  // Las búsquedas que pueden ser de otro producto («lego», «murdoku»…) o marcadas como ajenas no llegan a la IA como candidatas
+  const decisiones = await decisionesDeBusquedas(c.connectionId, c.marketplaceId).catch(() => ({ ajenas: [], nuestras: [] }))
+  const { contexto, busquedas } = diagnosticarTodas(consultas, precioListing, { ficha, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras })
   const producto = embudoDelProducto(busquedas, contexto)
   const v = producto.veredicto
   const embudo = !v ? null : v.tipo === 'fuga' ? `Se pierde en ${NOMBRE_DE_ETAPA[v.etapa].toLowerCase()} (${RESPONSABLE[v.etapa].quien}): ${v.motivo}` : v.motivo
@@ -148,11 +151,11 @@ export async function proponerFicha(c: { connectionId: string; marketplaceId: st
   const posibleAjena = (d: (typeof busquedas)[number]) => (d as { posibleAjena?: boolean }).posibleAjena === true
   const conMarca = new Map(sinMarcasAjenas(busquedas, (d) => d.fila.consulta, marcasAjenas).fuera.map((x) => [x.item, x.marca]))
   const fueraPorMarca = (d: (typeof busquedas)[number]) => posibleAjena(d) || conMarca.has(d)
-  const relevantes = busquedas.filter((d) => esRelevante(d.veredicto) && !fueraPorMarca(d))
+  const relevantes = busquedas.filter((d) => esDelProducto(d) && !fueraPorMarca(d))
   const descartadas = busquedas
-    .filter((d) => !esRelevante(d.veredicto) || fueraPorMarca(d))
+    .filter((d) => !esDelProducto(d) || fueraPorMarca(d))
     .sort((a, b) => (b.fila.volumen ?? 0) - (a.fila.volumen ?? 0))
-    .map((d) => ({ consulta: d.fila.consulta, porQue: conMarca.has(d) ? `marca ajena (${conMarca.get(d)})` : posibleAjena(d) && esRelevante(d.veredicto) ? 'posible marca ajena' : d.veredicto.motivo }))
+    .map((d) => ({ consulta: d.fila.consulta, porQue: conMarca.has(d) ? `marca ajena (${conMarca.get(d)})` : posibleAjena(d) && esDelProducto(d) ? 'posible marca ajena' : d.veredicto.motivo }))
   const helium = sinMarcasAjenas(oportunidadesParaLaIa((await heliumDe(c, asin).catch(() => null))?.palabras ?? [], 200), (k) => k.keyword, marcasAjenas).quedan.slice(0, 25)
   const diagnostico = (d: (typeof busquedas)[number]) => (d.veredicto.tipo === 'fuga' ? `se pierde en ${NOMBRE_DE_ETAPA[d.veredicto.etapa].toLowerCase()}` : d.veredicto.tipo === 'visibilidad' ? ((d.veredicto.fuerza ?? 0) >= 1.2 ? 'convierte bien, sale poco' : 'falta salir más') : d.veredicto.tipo === 'lider' ? 'ya manda' : '')
 
