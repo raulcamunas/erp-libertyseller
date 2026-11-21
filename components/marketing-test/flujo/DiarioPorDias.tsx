@@ -27,9 +27,9 @@ const TONO_DE_CLASE: Record<ClaseDeAccion, TonoEstado> = {
   negativa: 'ambar',
   cosecha: 'verde',
   puja_sube: 'verde',
-  puja_baja: 'rojo',
+  puja_baja: 'azul',
   presupuesto_sube: 'verde',
-  presupuesto_baja: 'rojo',
+  presupuesto_baja: 'azul',
   pausa: 'naranja',
   activa: 'azul',
   deshacer: 'gris',
@@ -56,7 +56,7 @@ const MAX_POR_DIA = 40
 function ChipsDeResumen({ r }: { r: ResumenDelDia }) {
   const chips: Array<{ texto: string; tono: TonoEstado }> = []
   if (r.pujasSuben) chips.push({ texto: `↑ ${r.pujasSuben} ${r.pujasSuben === 1 ? 'puja' : 'pujas'}`, tono: 'verde' })
-  if (r.pujasBajan) chips.push({ texto: `↓ ${r.pujasBajan} ${r.pujasBajan === 1 ? 'puja' : 'pujas'}`, tono: 'rojo' })
+  if (r.pujasBajan) chips.push({ texto: `↓ ${r.pujasBajan} ${r.pujasBajan === 1 ? 'puja' : 'pujas'}`, tono: 'azul' })
   if (r.negativas) chips.push({ texto: `${r.negativas} ${r.negativas === 1 ? 'negativa' : 'negativas'}`, tono: 'ambar' })
   if (r.cosechas) chips.push({ texto: `${r.cosechas} ${r.cosechas === 1 ? 'cosecha' : 'cosechas'}`, tono: 'verde' })
   if (r.pausas) chips.push({ texto: `${r.pausas} ${r.pausas === 1 ? 'pausa' : 'pausas'}`, tono: 'naranja' })
@@ -129,7 +129,7 @@ function LineaDeAccion({ a, conProducto }: { a: AccionDelDia; conProducto: boole
           )}
         </div>
         {a.motivo && (
-          <p className="line-clamp-2 break-words text-[12px] leading-[1.45] text-[var(--ls-t3)]" title={a.motivo}>
+          <p className={`${a.ok ? 'line-clamp-2' : ''} break-words text-[12px] leading-[1.45] text-[var(--ls-t3)]`} title={a.motivo ?? undefined}>
             {a.motivo}
           </p>
         )}
@@ -196,7 +196,7 @@ function BloqueDeDia({ d, conProducto }: { d: DiaDelDiario; conProducto: boolean
             {d.noHechas.length > 100 && <li className="text-[12px] text-[var(--ls-t4)]">Y {d.noHechas.length - 100} más (están en «Propuestas»).</li>}
           </ul>
         </Plegable>
-        <Plegable titulo="Notas del agente" icono={MessageSquareText} n={d.notas.length}>
+        <Plegable titulo="Notas del agente (de toda la cuenta)" icono={MessageSquareText} n={d.notas.length}>
           <ul className="flex flex-col gap-2">
             {d.notas.map((x) => (
               <li key={x.id} className="flex gap-2 text-[12.5px] leading-[1.45]">

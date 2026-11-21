@@ -163,7 +163,7 @@ console.log('\n=== flujo: cosecha con dos filas ===')
   ok('ATAQUE ASIN sale aunque no tenga cambios (de las campañas conocidas)', f.nodos.some((x) => x.id === ID.ataque))
   ok('lo de otro producto no entra', !f.nodos.some((x) => x.id === '9999') && !f.terminos.some((x) => x.termino === 'de otro producto'))
   const cad = f.terminos.find((x) => x.id === 'prop-caducada')
-  ok('la cosecha caducada sale como propuesta, con el motivo sin «Caducada por el agente:»', cad?.estado === 'caducada' && cad.motivo === 'No subo: el producto está en «recortar»' && f.flechas.find((x) => x.id === cad.flechaId)?.propuestos === 1, JSON.stringify(cad))
+  ok('la cosecha caducada sale como propuesta, con el motivo sin «Caducada por el agente:»', cad?.estado === 'caducada' && cad.motivo === 'No subo: el producto está en «recortar»' && f.flechas.find((x) => x.id === cad.flechaId)?.sinAplicar === 1, JSON.stringify(cad))
   ok('una cosecha a ATAQUE ASIN sin campaña destino conocida usa la que existe', f.terminos.find((x) => x.id === 'prop-sin-destino')?.flechaId === `cosecha:${ID.auto}>${ID.ataque}`)
   ok('el sumidero existe y cuenta lo hecho', f.nodos.find((x) => x.id === SUMIDERO)?.entran === 1)
 

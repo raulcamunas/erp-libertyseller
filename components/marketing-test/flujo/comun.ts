@@ -55,10 +55,11 @@ export function nombreDeFlecha(f: FlechaDeFlujo, flujo: Flujo): string {
 }
 
 /** «3 hechos · 5 propuestos · 1 deshecho» (solo lo que hay) */
-export function cuentasDeFlecha(f: Pick<FlechaDeFlujo, 'hechos' | 'propuestos' | 'deshechos' | 'fallidos'>): string {
+export function cuentasDeFlecha(f: Pick<FlechaDeFlujo, 'hechos' | 'propuestos' | 'deshechos' | 'fallidos'> & { sinAplicar?: number }): string {
   const p: string[] = []
   if (f.hechos) p.push(`${f.hechos} ${f.hechos === 1 ? 'hecho' : 'hechos'}`)
   if (f.propuestos) p.push(`${f.propuestos} ${f.propuestos === 1 ? 'propuesto' : 'propuestos'}`)
+  if (f.sinAplicar) p.push(`${f.sinAplicar} sin aplicar (caducados o descartados)`)
   if (f.deshechos) p.push(`${f.deshechos} ${f.deshechos === 1 ? 'deshecho' : 'deshechos'}`)
   if (f.fallidos) p.push(`${f.fallidos} ${f.fallidos === 1 ? 'fallido' : 'fallidos'}`)
   return p.join(' · ')

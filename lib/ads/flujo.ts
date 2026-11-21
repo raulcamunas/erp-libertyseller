@@ -148,10 +148,10 @@ export async function leerFlujo(perfilId: string, opciones: { dias: DiasDelFlujo
   let flujo: Flujo | null = null
   if (asin) {
     const entidades = [...new Set(filas.filter((f) => f.accion === 'promover' && f.ok && f.entidadId && asinDeNombre(f.nombreCampana) === asin).map((f) => f.entidadId as string))]
-    const diasObjetivo = await enTrozos<Fila>(entidades, (t) => s.from('ads_objetivos_diario').select('fecha, objetivo_id, clics, pedidos, gasto, ventas').eq('perfil_id', perfilId).in('objetivo_id', t).gte('fecha', sumarDias(primerDia, -1)).limit(5000))
+    const diasObjetivo = await enTrozos<Fila>(entidades, (t) => s.from('ads_objetivos_diario').select('fecha, objetivo_id, clics, pedidos, gasto, ventas').eq('perfil_id', perfilId).in('objetivo_id', t).gte('fecha', sumarDias(primerDia, -1)).order('objetivo_id').order('fecha').limit(1000), 25) // 25 keywords × ~32 días < 1.000 filas, el tope real de PostgREST
     const diasDeObjetivo: DiaDeObjetivo[] = diasObjetivo.map((d) => ({ fecha: String(d.fecha), objetivoId: String(d.objetivo_id), clics: numero(d.clics), pedidos: numero(d.pedidos), gasto: numero(d.gasto), ventas: numero(d.ventas) }))
-    const idsPropuesta = [...new Set([...filas.map((f) => f.propuestaId), ...propuestas.filter((p) => (p.asin ?? '').toUpperCase() === asin).map((p) => p.id)].filter((x): x is string => !!x))]
-    const efectosFilas = await enTrozos<Fila>(idsPropuesta, (t) => s.from('ads_efectos').select('propuesta_id, veredicto').in('propuesta_id', t))
+    const idsPropuesta = [...new Set([...filas.filter((f) => asinDeNombre(f.nombreCampana) === asin && (f.accion === 'promover' || f.accion === 'negativizar')).map((f) => f.propuestaId), ...propuestas.filter((p) => (p.asin ?? '').toUpperCase() === asin).map((p) => p.id)].filter((x): x is string => !!x))]
+    const efectosFilas = await enTrozos<Fila>(idsPropuesta, (t) => s.from('ads_efectos').select('propuesta_id, veredicto').eq('perfil_id', perfilId).in('propuesta_id', t))
     const efectos: EfectoFlujo[] = efectosFilas.map((x) => ({ propuestaId: String(x.propuesta_id), veredicto: texto(x.veredicto) }))
     flujo = construirFlujo({ asin, filas, propuestas, campanas: listaCampanas, diasDeObjetivo, efectos, conPropuestas: opciones.conPropuestas })
   }

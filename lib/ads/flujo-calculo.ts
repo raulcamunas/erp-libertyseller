@@ -133,6 +133,8 @@ export interface FlechaDeFlujo {
   tipo: 'cosecha' | 'negativa'
   hechos: number
   propuestos: number
+  /** Lo que se propuso y no se llegó a hacer (caducado, descartado o ensayado): no es trabajo pendiente */
+  sinAplicar: number
   deshechos: number
   fallidos: number
 }
@@ -548,7 +550,7 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
   const flecha = (tipo: 'cosecha' | 'negativa', desde: string, hacia: string) => {
     const id = `${tipo}:${desde}>${hacia}`
     let x = flechas.get(id)
-    if (!x) flechas.set(id, (x = { id, desde, hacia, tipo, hechos: 0, propuestos: 0, deshechos: 0, fallidos: 0 }))
+    if (!x) flechas.set(id, (x = { id, desde, hacia, tipo, hechos: 0, propuestos: 0, sinAplicar: 0, deshechos: 0, fallidos: 0 }))
     return x
   }
   const terminos = new Map<string, TerminoDeFlujo>()
@@ -556,7 +558,8 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
     if (estado === 'hecho') fl.hechos++
     else if (estado === 'deshecho') fl.deshechos++
     else if (estado === 'fallido') fl.fallidos++
-    else fl.propuestos++
+    else if (estado === 'pendiente') fl.propuestos++
+    else fl.sinAplicar++
   }
   const poner = (t: TerminoDeFlujo) => {
     const ya = terminos.get(t.id)
@@ -569,7 +572,16 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
     const q = quienDeFila(f, p?.origen ?? null)
     return { quien: q.tipo, persona: f.persona }
   }
-  const estadoDeFila = (f: FilaDeLogFlujo): EstadoDeTermino => (!f.ok ? 'fallido' : f.origen === 'ensayo' ? 'ensayada' : f.propuestaId && deshechas.has(f.propuestaId) ? 'deshecho' : 'hecho')
+  // La última fila fallida de cada propuesta: una cosecha que se creó y luego se quitó al fallar la negativa en origen deja una fila buena y otra mala después
+  const ultimoFalloDe = new Map<string, string>()
+  for (const f of filas) if (!f.ok && f.propuestaId && (ultimoFalloDe.get(f.propuestaId) ?? '') < f.creadoAt) ultimoFalloDe.set(f.propuestaId, f.creadoAt)
+  const estadoDeFila = (f: FilaDeLogFlujo): EstadoDeTermino => {
+    if (!f.ok) return 'fallido'
+    if (f.origen === 'ensayo') return 'ensayada'
+    if (f.propuestaId && deshechas.has(f.propuestaId)) return 'deshecho'
+    if (f.propuestaId && (propuestaPorId.get(f.propuestaId)?.estado === 'error' || (ultimoFalloDe.get(f.propuestaId) ?? '') > f.creadoAt)) return 'fallido'
+    return 'hecho'
+  }
 
   // 1) Cosechas del log (la fila «promover» en el destino) y su negativa en origen
   const negativaDeCosecha = new Map<string, FilaDeLogFlujo>()
@@ -580,17 +592,15 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
   for (const f of cosechas) {
     const p = f.propuestaId ? propuestaPorId.get(f.propuestaId) : undefined
     const neg = f.propuestaId ? negativaDeCosecha.get(f.propuestaId) : undefined
-    const origen = neg?.campaignId ?? (p?.campaignId && nodos.has(p.campaignId) ? p.campaignId : null) ?? nodoDeRol(f.valorAnterior ?? p?.desdeRol)
-    const destino = f.campaignId as string
-    if (!origen) continue
+    // Una cosecha FALLIDA se apunta en la campaña de ORIGEN (motor.ts usa los datos del origen): el destino sale de la propuesta
+    const origen = !f.ok
+      ? (f.campaignId as string)
+      : (neg?.campaignId ?? (p?.campaignId && nodos.has(p.campaignId) ? p.campaignId : null) ?? nodoDeRol(f.valorAnterior ?? p?.desdeRol))
+    const destino = !f.ok ? (p?.haciaCampaignId && nodos.has(p.haciaCampaignId) ? p.haciaCampaignId : nodoDeRol(p?.haciaRol)) : (f.campaignId as string)
+    if (!origen || !destino || origen === destino) continue
     const fl = flecha('cosecha', origen, destino)
     const estado = estadoDeFila(f)
     const termino = terminoDeFila(f) ?? p?.termino ?? '¿?'
-    cuenta(fl, estado)
-    if (estado === 'hecho') {
-      nodos.get(destino)!.entran++
-      nodos.get(origen)!.salen++
-    }
     poner({
       id: f.propuestaId ?? f.id,
       flechaId: fl.id,
@@ -613,15 +623,10 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
   // 2) Negativas del log que no son parte de una cosecha
   for (const f of filas) {
     if (f.accion !== 'negativizar') continue
-    if (f.propuestaId && propuestasDeCosecha.has(f.propuestaId)) {
-      if (f.ok && f.origen !== 'ensayo') nodos.get(f.campaignId as string)!.negativas++
-      continue
-    }
+    if (f.propuestaId && propuestasDeCosecha.has(f.propuestaId)) continue // la negativa en origen de una cosecha se cuenta con su cosecha
     const p = f.propuestaId ? propuestaPorId.get(f.propuestaId) : undefined
     const fl = flecha('negativa', f.campaignId as string, SUMIDERO)
     const estado = estadoDeFila(f)
-    cuenta(fl, estado)
-    if (estado === 'hecho') nodos.get(f.campaignId as string)!.negativas++
     const termino = terminoDeFila(f) ?? p?.termino ?? '¿?'
     poner({
       id: f.propuestaId ?? f.id,
@@ -661,6 +666,8 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
 
   // 4) Lo propuesto que no está en el log (pendiente, caducado, descartado, ensayado…)
   if (e.conPropuestas) {
+    // Un mismo término que se vuelve a proponer tras caducar sale una sola vez (el más reciente)
+    const vistos = new Map<string, string>()
     for (const p of e.propuestas) {
       if (p.tipo !== 'promover' && p.tipo !== 'negativizar') continue
       if ((p.asin ?? '').toUpperCase() !== asin && asinDeNombre(p.campaignNombre) !== asin) continue
@@ -675,8 +682,16 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
         if (!destino) continue
         fl = flecha('cosecha', origen, destino)
       } else fl = flecha('negativa', origen, SUMIDERO)
-      cuenta(fl, estado)
       const termino = p.termino ?? '¿?'
+      const clave = `${fl.id}|${termino.toLowerCase().trim()}`
+      const fechaP = p.resueltaAt ?? p.retenidaAt ?? p.creadaAt
+      const otro = vistos.get(clave)
+      if (otro) {
+        const previo = terminos.get(otro)
+        if (previo && previo.fecha >= fechaP) continue
+        terminos.delete(otro)
+      }
+      vistos.set(clave, p.id)
       const conc = (p.metricas?.concordancia ?? '').toLowerCase()
       poner({
         id: p.id,
@@ -696,6 +711,26 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
         propuestaId: p.id,
         logId: null,
       })
+    }
+  }
+
+  // Las cifras de flechas y campañas salen de los TÉRMINOS (uno por propuesta), no de las filas del log: un reintento no cuenta dos veces
+  for (const t of terminos.values()) {
+    const fl = flechas.get(t.flechaId)
+    if (!fl) continue
+    cuenta(fl, t.estado)
+    if (t.estado !== 'hecho') continue
+    if (fl.tipo === 'cosecha') {
+      const d = nodos.get(fl.hacia)
+      const o = nodos.get(fl.desde)
+      if (d) d.entran++
+      if (o) {
+        o.salen++
+        if (t.negativizadoEnOrigen) o.negativas++
+      }
+    } else {
+      const o = nodos.get(fl.desde)
+      if (o) o.negativas++
     }
   }
 
@@ -726,7 +761,7 @@ export function construirFlujo(e: EntradaDelFlujo): Flujo {
 
   return {
     nodos: lista,
-    flechas: [...flechas.values()].sort((a, b) => b.hechos + b.propuestos - (a.hechos + a.propuestos)),
+    flechas: [...flechas.values()].filter((f) => f.hechos + f.propuestos + f.sinAplicar + f.deshechos + f.fallidos > 0).sort((a, b) => b.hechos + b.propuestos - (a.hechos + a.propuestos)),
     terminos: [...terminos.values()].sort((a, b) => b.fecha.localeCompare(a.fecha)),
   }
 }
@@ -746,7 +781,7 @@ export function resumenDelDia(acciones: readonly AccionDelDia[]): ResumenDelDia 
       r.ensayos++
       continue
     }
-    if (a.deshecho) r.deshechos++
+    // Lo deshecho se cuenta una vez, con su línea «deshacer»; la original no suma
     if (a.deshecho && a.clase !== 'deshacer') continue
     switch (a.clase) {
       case 'puja_sube':
@@ -838,7 +873,14 @@ export function construirDiario(e: EntradaDelDiario): DiaDelDiario[] {
     const clase = clasificarEntrada(f)
     const p = f.propuestaId ? propuestaPorId.get(f.propuestaId) : undefined
     let frase = fraseDeAccion(f, clase)
-    if (clase === 'cosecha' && f.ok) {
+    // Una cosecha fallida se apunta en la campaña de ORIGEN: el destino de verdad está en la propuesta
+    if (clase === 'cosecha' && !f.ok && p?.haciaRol) frase = `No se ha podido pasar "${terminoDeFila(f) ?? p.termino ?? '¿?'}" a ${rolCorto(comoRol(p.haciaRol)) || p.haciaRol}`
+    // Una cosecha que se creó y se quitó al fallar la negativa en origen no se ha hecho
+    const quitadaDespues = clase === 'cosecha' && f.ok && Boolean(f.propuestaId && filas.some((x) => x.propuestaId === f.propuestaId && !x.ok && x.creadoAt > f.creadoAt))
+    if (quitadaDespues) frase += ' (se quitó al fallar la negativa en origen)'
+    // Deshacer una cosecha: la keyword sale del destino y la negativa del origen
+    if (clase === 'deshacer' && p?.tipo === 'promover') frase = `Se ha deshecho la cosecha de "${terminoDeFila(f) ?? p.termino ?? '¿?'}" (sale de ${rolCorto(comoRol(p.haciaRol)) || 'la de destino'} y vuelve a ${rolCorto(comoRol(p.desdeRol)) || 'la de origen'})`
+    if (clase === 'cosecha' && f.ok && !quitadaDespues) {
       const neg = filas.find((x) => x.accion === 'negativizar' && x.ok && x.propuestaId === f.propuestaId)
       if (neg) frase += ` y se ha negativizado en ${rolCorto(rolDeNombre(neg.nombreCampana)) || 'la de origen'}`
     }
@@ -856,7 +898,7 @@ export function construirDiario(e: EntradaDelDiario): DiaDelDiario[] {
       motivo: f.ok ? f.motivo : f.error ? `${f.error}${f.motivo ? ` · ${f.motivo}` : ''}` : f.motivo,
       quien: quienDeFila(f, p?.origen ?? null).texto,
       ok: f.ok,
-      deshecho: clase !== 'deshacer' && Boolean(f.propuestaId && deshechas.has(f.propuestaId)),
+      deshecho: (clase !== 'deshacer' && Boolean(f.propuestaId && deshechas.has(f.propuestaId))) || quitadaDespues,
       ensayo: f.origen === 'ensayo',
       propuestaId: f.propuestaId,
     })
@@ -884,8 +926,10 @@ export function construirDiario(e: EntradaDelDiario): DiaDelDiario[] {
     })
   }
 
-  // Lo que NO se ha hecho: caducadas, retenidas y con error
+  // Lo que NO se ha hecho: caducadas, retenidas y con error (las de error que ya salen en rojo en el log no se repiten)
+  const conFilaFallida = new Set(filas.filter((f) => !f.ok && f.propuestaId).map((f) => f.propuestaId as string))
   for (const p of e.propuestas) {
+    if (p.estado === 'error' && conFilaFallida.has(p.id)) continue
     if (asin && (p.asin ?? '').toUpperCase() !== asin && asinDeNombre(p.campaignNombre) !== asin) continue
     let cuando: string | null = null
     if (p.estado === 'caducada') cuando = p.resueltaAt ?? p.creadaAt

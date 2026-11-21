@@ -44,7 +44,8 @@ const grosor = (n: number, clase: ClaseDeTrazo) => (clase === 'fallido' ? 1.5 : 
 function trazosDe(f: FlechaDeFlujo, conPropuestas: boolean): Array<{ clase: ClaseDeTrazo; n: number }> {
   const t: Array<{ clase: ClaseDeTrazo; n: number }> = []
   if (f.hechos) t.push({ clase: 'hecho', n: f.hechos })
-  if (conPropuestas && f.propuestos) t.push({ clase: 'propuesto', n: f.propuestos })
+  // Lo propuesto y lo que se quedó sin aplicar (caducado, descartado) se dibujan igual, discontinuo; la etiqueta los distingue
+  if (conPropuestas && f.propuestos + f.sinAplicar) t.push({ clase: 'propuesto', n: f.propuestos + f.sinAplicar })
   if (f.deshechos) t.push({ clase: 'deshecho', n: f.deshechos })
   if (f.fallidos) t.push({ clase: 'fallido', n: f.fallidos })
   return t
@@ -139,13 +140,13 @@ function Chip({ icono: Icono, texto, color }: { icono: typeof Ban; texto: string
 
 /** Los chips de una campaña: negativas, pujas y presupuesto de → a */
 export function ChipsDeNodo({ n, moneda }: { n: NodoDeFlujo; moneda: string | null }) {
-  const simbolo = moneda === 'EUR' || !moneda ? '' : ` ${moneda}`
+  const simbolo = moneda === 'EUR' || !moneda ? ' €' : ` ${moneda}`
   return (
     <>
       {n.negativas > 0 && <Chip icono={Ban} texto={`${n.negativas} neg.`} color={COLOR_ESTADO.ambar} />}
       {n.pujas.suben > 0 && <Chip icono={TrendingUp} texto={`${n.pujas.suben} puja${n.pujas.suben === 1 ? '' : 's'}`} color={COLOR_ESTADO.verde} />}
-      {n.pujas.bajan > 0 && <Chip icono={TrendingDown} texto={`${n.pujas.bajan} puja${n.pujas.bajan === 1 ? '' : 's'}`} color={COLOR_ESTADO.rojo} />}
-      {n.presupuesto && <Chip icono={Wallet} texto={`${decimal(n.presupuesto.de)} → ${decimal(n.presupuesto.a)}${simbolo}`} color={n.presupuesto.a >= n.presupuesto.de ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo} />}
+      {n.pujas.bajan > 0 && <Chip icono={TrendingDown} texto={`${n.pujas.bajan} puja${n.pujas.bajan === 1 ? '' : 's'}`} color={COLOR_ESTADO.azul} />}
+      {n.presupuesto && <Chip icono={Wallet} texto={`${decimal(n.presupuesto.de)} → ${decimal(n.presupuesto.a)}${simbolo}`} color={n.presupuesto.a >= n.presupuesto.de ? COLOR_ESTADO.verde : COLOR_ESTADO.azul} />}
     </>
   )
 }
@@ -199,7 +200,7 @@ function FlechaSvg({ f, a, b, conPropuestas, ids, elegir }: { f: FlechaDeFlujo; 
   const color = COLOR_DE_FLECHA[f.tipo]
   const abrir = () => elegir({ tipo: 'flecha', id: f.id })
   const principal = trazos[0]
-  const etiqueta = trazos.map((t) => (t.clase === 'hecho' ? `${t.n}` : t.clase === 'propuesto' ? `${t.n} prop.` : t.clase === 'deshecho' ? `${t.n} desh.` : `${t.n} fallo${t.n === 1 ? '' : 's'}`)).join(' · ')
+  const etiqueta = trazos.map((t) => (t.clase === 'hecho' ? `${t.n}` : t.clase === 'propuesto' ? (f.propuestos ? `${t.n} propuesto${t.n === 1 ? '' : 's'}` : `${t.n} sin aplicar`) : t.clase === 'deshecho' ? `${t.n} deshecho${t.n === 1 ? '' : 's'}` : `${t.n} fallo${t.n === 1 ? '' : 's'}`)).join(' · ')
   const anchoEtiqueta = etiqueta.length * 6.4 + 14
   return (
     <g role="button" tabIndex={0} aria-label={`${nombreDeFlecha(f, { nodos: [a.nodo, b.nodo], flechas: [], terminos: [] })}: ${cuentasDeFlecha(f)}`} onClick={abrir} onKeyDown={(e) => alTeclear(e, abrir)} className="cursor-pointer outline-none [&:focus-visible_.ls-halo]:opacity-30 [&:hover_.ls-halo]:opacity-20">
@@ -318,7 +319,7 @@ function FlujoEnLista({ flujo, conPropuestas, moneda, elegir }: { flujo: Flujo; 
       <ul className="flex flex-col gap-2">
         {flechas.length === 0 && <li className="text-[13px] text-[var(--ls-t3)]">En estos días ningún término ha pasado de una campaña a otra ni se ha negativizado.</li>}
         {flechas.map((f) => {
-          const n = f.hechos + (conPropuestas ? f.propuestos : 0) + f.deshechos + f.fallidos
+          const n = f.hechos + (conPropuestas ? f.propuestos + f.sinAplicar : 0) + f.deshechos + f.fallidos
           const color = f.hechos ? COLOR_DE_FLECHA[f.tipo] : 'var(--ls-t4)'
           return (
             <li key={f.id}>
@@ -331,7 +332,7 @@ function FlujoEnLista({ flujo, conPropuestas, moneda, elegir }: { flujo: Flujo; 
                     {nombreDeNodo(flujo.nodos.find((x) => x.id === f.hacia))}
                   </span>
                   <span className="text-[12px] text-[var(--ls-t3)]">
-                    {f.tipo === 'cosecha' ? 'Cosecha' : 'Negativa'} · {n} {n === 1 ? 'término' : 'términos'} ({cuentasDeFlecha({ ...f, propuestos: conPropuestas ? f.propuestos : 0 })})
+                    {f.tipo === 'cosecha' ? 'Cosecha' : 'Negativa'} · {n} {n === 1 ? 'término' : 'términos'} ({cuentasDeFlecha({ ...f, propuestos: conPropuestas ? f.propuestos : 0, sinAplicar: conPropuestas ? f.sinAplicar : 0 })})
                   </span>
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-[var(--ls-t4)]" aria-hidden />
@@ -353,6 +354,12 @@ function FlujoEnLista({ flujo, conPropuestas, moneda, elegir }: { flujo: Flujo; 
             </span>
           </button>
         ))}
+        {flujo.nodos.some((n) => n.id === SUMIDERO) && (
+          <button type="button" onClick={() => elegir({ tipo: 'nodo', id: SUMIDERO })} className="flex min-h-[48px] items-center gap-2 rounded-[12px] border border-dashed bg-[var(--ls-sup)] px-3 py-2 text-left text-[13px] font-semibold text-[var(--ls-t1)]" style={{ borderColor: `color-mix(in srgb, ${COLOR_DE_FLECHA.negativa} 45%, var(--ls-linea))` }}>
+            <span className="h-2 w-2 rounded-full" style={{ background: COLOR_DE_FLECHA.negativa }} aria-hidden />
+            Negativizadas · {flujo.terminos.filter((t) => flujo.flechas.find((f) => f.id === t.flechaId)?.tipo === 'negativa').length} términos
+          </button>
+        )}
       </div>
     </div>
   )

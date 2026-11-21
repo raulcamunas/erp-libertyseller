@@ -89,17 +89,18 @@ export function PestanaFlujo({ perfilId, moneda, irA }: { perfilId: string; mone
 
   const productos = datos?.productos ?? []
   // El producto elegido puede no tener nada en este periodo: se añade al desplegable para que no desaparezca
-  const opciones = datos?.asin && !productos.some((p) => p.asin === datos.asin) ? [{ asin: datos.asin, resumen: '', cambios: 0, roles: [] }, ...productos] : productos
+  const elegido = asin && asin !== 'auto' ? asin : (datos?.asin ?? null)
+  const opciones = elegido && !productos.some((p) => p.asin === elegido) ? [{ asin: elegido, resumen: '', cambios: 0, roles: [] }, ...productos] : productos
   const flujo = datos?.flujo ?? null
   const titulo = seleccion && flujo ? tituloDeSeleccion(seleccion, flujo) : null
-  const hayFlechas = Boolean(flujo?.flechas.some((f) => f.hechos + f.deshechos + f.fallidos + (conPropuestas ? f.propuestos : 0) > 0))
+  const hayFlechas = Boolean(flujo?.flechas.some((f) => f.hechos + f.deshechos + f.fallidos + (conPropuestas ? f.propuestos + f.sinAplicar : 0) > 0))
 
   return (
     <div className="flex flex-col gap-4 pb-8">
       {/* ---- la barra: producto, periodo y «ver lo propuesto» ---- */}
       <Tarjeta acento="marketing" cuerpoClassName="flex flex-wrap items-center gap-2">
         <select
-          value={datos?.asin ?? (asin && asin !== 'auto' ? asin : '')}
+          value={asin && asin !== 'auto' ? asin : (datos?.asin ?? '')}
           onChange={(e) => e.target.value && elegirProducto(e.target.value)}
           disabled={opciones.length === 0}
           className={`${CAMPO.input} min-h-[36px] min-w-0 flex-1 basis-[260px] text-[13.5px] [@media(pointer:coarse)]:min-h-[44px]`}
@@ -114,9 +115,15 @@ export function PestanaFlujo({ perfilId, moneda, irA }: { perfilId: string; mone
             </option>
           ))}
         </select>
-        <Segmentado etiqueta="Periodo" tamano="sm" opciones={DIAS} valor={dias} onCambio={setDias} />
+        <Segmentado etiqueta="Periodo" tamano="sm" opciones={DIAS} valor={dias} onCambio={(d) => {
+            setSeleccion(null)
+            setDias(d)
+          }} />
         <label className="inline-flex min-h-[36px] cursor-pointer select-none items-center gap-2 rounded-[10px] px-2 text-[13px] text-[var(--ls-t2)] [@media(pointer:coarse)]:min-h-[44px]">
-          <input type="checkbox" checked={conPropuestas} onChange={(e) => setConPropuestas(e.target.checked)} className="h-4 w-4 accent-[var(--ls-acc)]" />
+          <input type="checkbox" checked={conPropuestas} onChange={(e) => {
+              setSeleccion(null)
+              setConPropuestas(e.target.checked)
+            }} className="h-4 w-4 accent-[var(--ls-acc)]" />
           Ver también lo propuesto
         </label>
         <Boton variante="fantasma" tamano="sm" icono={RefreshCw} soloIcono aria-label="Actualizar" cargando={cargando && Boolean(datos)} onClick={() => void cargar()} />
@@ -159,7 +166,7 @@ export function PestanaFlujo({ perfilId, moneda, irA }: { perfilId: string; mone
                 )}
                 {hayFlechas && flujo.flechas.every((f) => f.tipo !== 'cosecha' || f.hechos === 0) && flujo.flechas.some((f) => f.tipo === 'cosecha') && (
                   <p className="rounded-[10px] bg-[var(--ls-sup2)] px-3 py-2 text-[12.5px] text-[var(--ls-t3)]">
-                    Las cosechas de este periodo están sin aplicar (discontinuas): el agente aún no ha pasado ningún término a otra campaña. Pulsa la flecha para ver por qué.
+                    Todavía no se ha pasado ningún término a otra campaña: las cosechas están sin aplicar (líneas discontinuas). Púlsalas para ver por qué.
                   </p>
                 )}
                 <DiagramaDeFlujo flujo={flujo} conPropuestas={conPropuestas} moneda={moneda} elegir={setSeleccion} />
@@ -169,7 +176,7 @@ export function PestanaFlujo({ perfilId, moneda, irA }: { perfilId: string; mone
             )}
           </Tarjeta>
 
-          <Tarjeta acento="marketing" icono={CalendarDays} titulo="Diario por días" subtitulo="Qué se ha hecho cada día en las campañas de este producto, quién y por qué">
+          <Tarjeta acento="marketing" icono={CalendarDays} titulo="Diario por días" subtitulo="Qué se ha hecho cada día en las campañas de este producto, quién y por qué" cuerpoClassName={cargando ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
             <DiarioPorDias diario={datos.diario} />
           </Tarjeta>
           {datos.cortado && <p className="text-[12px] text-[var(--ls-t4)]">Hay tantos cambios en este periodo que solo se han leído los 5.000 más recientes: prueba con menos días.</p>}

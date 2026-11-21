@@ -90,7 +90,11 @@ export function PestanaLog({ perfilId, irA }: { perfilId: string; irA?: (pestana
         valor={vista}
         onCambio={setVista}
       />
-      {vista === 'tabla' ? <TablaDelLog perfilId={perfilId} irA={irA} /> : <DiarioDeCuenta perfilId={perfilId} />}
+      {/* Las dos montadas: al cambiar de vista la tabla conserva filtros, búsqueda y páginas cargadas */}
+      <div hidden={vista !== 'tabla'}>
+        <TablaDelLog perfilId={perfilId} irA={irA} />
+      </div>
+      {vista !== 'tabla' && <DiarioDeCuenta perfilId={perfilId} />}
     </div>
   )
 }
