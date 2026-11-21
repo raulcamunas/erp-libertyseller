@@ -705,6 +705,37 @@ async function volverAPendiente(perfilId: string, id: string, error: string, val
   }
 }
 
+/** Los motivos con los que, ANTES de B1 y de «sin personas» (20–21 nov 2026), se apartaba un término REVISAR para que lo decidiera una persona */
+export const RETENIDA_ANTIGUA_DE_LA_IA = [/^La IA dice: .*Revísala para enseñar al agente/, /^Sin etiqueta de la IA en \d+ h: lo decide una persona/, /^Ha vendido .*lo decide una persona/]
+
+/**
+ * Esas negativas se quedaban pendientes para siempre: aplicar solo mira las libres (sin `retenida_at`) y ya no hay personas resolviéndolas (en Cobo Family
+ * llegaron a ser ~300). Se liberan para que `decidirPropuesta` las decida con la etiqueta de la IA de ahora: relevante → descartar, otro producto / sin ventas →
+ * negativa, ha vendido → descartar, sin etiqueta → caducar. Las retenidas por un fallo de red (la negativa PUEDE estar creada en Amazon) NO se tocan.
+ */
+async function liberarRetenidasDeLaIa(perfilId: string): Promise<void> {
+  try {
+    const db = createServiceClient()
+    const { data, error } = await db
+      .from('ads_propuestas')
+      .select('id, retenida_motivo')
+      .eq('perfil_id', perfilId)
+      .eq('estado', 'pendiente')
+      .eq('tipo', 'negativizar')
+      .not('retenida_at', 'is', null)
+      .limit(1000)
+    if (error) throw new Error(error.message)
+    const ids = ((data ?? []) as Array<{ id: string; retenida_motivo: string | null }>).filter((f) => RETENIDA_ANTIGUA_DE_LA_IA.some((re) => re.test(f.retenida_motivo ?? ''))).map((f) => f.id)
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error: e } = await db.from('ads_propuestas').update({ retenida_at: null, retenida_motivo: null }).eq('perfil_id', perfilId).eq('estado', 'pendiente').in('id', ids.slice(i, i + 200))
+      if (e) throw new Error(e.message)
+    }
+    if (ids.length > 0) console.log(`[agente] ${perfilId}: ${ids.length} negativas REVISAR apartadas para una persona vuelven a decidirse con la IA`)
+  } catch (err) {
+    console.error(`[agente] liberar las negativas apartadas (${perfilId}):`, err instanceof Error ? err.message : err)
+  }
+}
+
 /**
  * Promover o negativizar que falló por tiempo agotado, red o 5xx: la keyword o la negativa PUEDE estar creada en Amazon. No se reintenta a ciegas (daría DUPLICATE
  * y quedaría viva sin propuesta «aplicada» que la deshaga): vuelve a pendiente RETENIDA para una persona. Solo si sigue en error
@@ -1029,6 +1060,9 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     console.warn(`[agente] ${perfilId}: sin un vigilar bueno en ${AGENTE.VIGILAR_OK_MAX_MIN} min (último: ${config.vigilarOkAt ?? 'nunca'}): no aplico`)
     return r
   }
+
+  // Las negativas REVISAR que se apartaron «para una persona» antes de B1 (21 nov 2026): vuelven a ser libres y las decide la etiqueta de la IA como las demás
+  await liberarRetenidasDeLaIa(perfilId)
 
   // ---- 2. pendientes libres ----
   const pendientes = await pendientesLibres(perfilId, PENDIENTES_A_MIRAR)
