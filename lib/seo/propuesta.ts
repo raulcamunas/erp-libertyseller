@@ -9,8 +9,12 @@
  *   · Item Highlights de 125 caracteres: lo que no cupo en el título (formato, cantidad, duración). Se indexa igual que el título.
  *   · Cinco viñetas que sumen 1.000 bytes como mucho (unos 200 cada una), beneficio concreto delante y un grupo de búsquedas por viñeta.
  *   · Backend de 249 bytes como mucho (un byte de más y Amazon lo ignora entero), sin comas y SIN repetir ninguna palabra que ya esté arriba (título, highlights o viñetas).
- *   · Solo hechos que ya están en la ficha; fuera marcas ajenas, falsos amigos y búsquedas que compran a otro precio (se le pasan ya marcadas como descartadas).
+ *   · Solo hechos que ya están en la ficha; fuera falsos amigos y búsquedas que compran a otro precio (se le pasan ya marcadas como descartadas).
  * Y la limpieza de aquí lo vuelve a comprobar con código, porque una IA se salta los límites y el SOP pide recuentos calculados, nunca a ojo.
+ *
+ * MARCAS AJENAS (fallo 13): el texto de las reglas no basta. Las marcas son el `marca` de las fotos de los rivales que se siguen (seo_competidores_fotos), menos la propia. Antes de llamar a la IA
+ * se quitan las búsquedas y las palabras de Helium 10 que las llevan (propuesta-servidor.ts), y después `vigilarPropuesta` repasa la salida: quita las marcas del backend y avisa en rojo si
+ * salen en el título, los highlights o las viñetas (no se borran: lo decide la persona, con doble confirmación). Sin rivales seguidos no hay lista de marcas y solo queda la regla del prompt.
  *
  * Antes eran 200 caracteres de título (con «los primeros 75 se ven en el móvil») y 250 bytes de backend: las reglas viejas. Con ellas la IA proponía títulos que Amazon ya reescribe.
  */
@@ -281,4 +285,232 @@ export function trozosNuevos(viejo: string, nuevo: string): Array<{ texto: strin
     const p = palabras(t)
     return { texto: t, nuevo: p.length > 0 && p.some((x) => !antes.has(x)) }
   })
+}
+
+/* ------------------------------------------------------------------ */
+/* Vigilancia de la salida: marcas ajenas, descartadas e invenciones   */
+/* ------------------------------------------------------------------ */
+
+export type CampoVigilado = 'titulo' | 'highlights' | 'bullets' | 'backend'
+
+export interface AvisoDeVigilancia {
+  /** rojo = no debería llegar a Amazon sin que una persona lo vea (pide doble confirmación); ambar = revísalo */
+  nivel: 'rojo' | 'ambar'
+  campo: CampoVigilado | null
+  texto: string
+}
+
+const NOMBRE_CAMPO_VIGILADO: Record<CampoVigilado, string> = { titulo: 'el título', highlights: 'los Item Highlights', bullets: 'las viñetas', backend: 'el backend' }
+
+/** Lo que pone una ficha cuando no hay marca: no es la marca de nadie */
+const NO_SON_MARCA = new Set(['generic', 'generico', 'sin marca', 'unbranded', 'unknown', 'desconocido', 'na', 'n a', 'none', 'no aplica'])
+
+/** Las palabras de un texto sin tildes ni signos, TODAS (también «de», «the»): una marca como «De'Longhi» tiene que casar entera */
+const palabrasCrudas = (texto: string | null | undefined): string[] => normalizar(texto ?? '').split(' ').filter(Boolean)
+
+/** ¿Está la secuencia `aguja` seguida dentro de `pajar`? (palabras ya normalizadas) */
+function contieneSecuencia(pajar: readonly string[], aguja: readonly string[]): boolean {
+  if (aguja.length === 0 || aguja.length > pajar.length) return false
+  for (let i = 0; i + aguja.length <= pajar.length; i++) if (aguja.every((w, k) => pajar[i + k] === w)) return true
+  return false
+}
+
+/** ¿Sale esta marca (palabras enteras, seguidas) en el texto? */
+export function contieneMarca(texto: string | null | undefined, marca: string): boolean {
+  return contieneSecuencia(palabrasCrudas(texto), palabrasCrudas(marca))
+}
+
+/** ¿Sale esta búsqueda entera en el texto? Por palabras con contenido y su raíz (cable/cables casan), seguidas */
+export function contieneConsulta(texto: string | null | undefined, consulta: string): boolean {
+  return contieneSecuencia(palabras(texto ?? ''), palabras(consulta))
+}
+
+/** La marca propia: la primera palabra del título actual (como se escribe en el título; el SOP abre siempre el título con la marca). null si no hay título */
+export function marcaPropiaDe(tituloActual: string | null | undefined): string | null {
+  const primera = (tituloActual ?? '').trim().split(/\s+/)[0] ?? ''
+  return palabrasCrudas(primera).length > 0 ? primera.replace(/[,;:\-–|]+$/, '') : null
+}
+
+/**
+ * Las marcas AJENAS de un producto: las de los rivales que se siguen, sin repetir, sin la propia (la que abre el título actual, aunque el rival la escriba con más palabras: «Cecotec Conga»
+ * es de la casa si la nuestra es «Cecotec»), sin «Generic» y parecidos, y sin las que ya son palabras del título actual (una marca rival que se llame como algo que vendemos, «Home», no es ajena
+ * en nuestra ficha).
+ */
+export function marcasAjenasDe(marcasDeRivales: ReadonlyArray<string | null | undefined>, tituloActual: string | null | undefined): string[] {
+  const propia = palabrasCrudas(marcaPropiaDe(tituloActual))[0] ?? null
+  const enTitulo = palabrasCrudas(tituloActual)
+  const vistas = new Map<string, string>()
+  for (const m of marcasDeRivales) {
+    const limpia = (m ?? '').replace(/\s+/g, ' ').trim()
+    const p = palabrasCrudas(limpia)
+    const clave = p.join(' ')
+    if (!clave || clave.length < 2 || NO_SON_MARCA.has(clave)) continue
+    if (propia && p[0] === propia) continue
+    if (contieneSecuencia(enTitulo, p)) continue
+    if (!vistas.has(clave)) vistas.set(clave, limpia)
+  }
+  return [...vistas.values()]
+}
+
+/** Las marcas ajenas que salen en un texto */
+export const marcasEn = (texto: string | null | undefined, marcas: readonly string[]): string[] => marcas.filter((m) => contieneMarca(texto, m))
+
+/** Quita de una lista lo que lleva una marca ajena (búsquedas, palabras de Helium 10, términos de publicidad): antes de pedir nada a la IA */
+export function sinMarcasAjenas<T>(lista: readonly T[], texto: (x: T) => string, marcas: readonly string[]): { quedan: T[]; fuera: Array<{ item: T; marca: string }> } {
+  const quedan: T[] = []
+  const fuera: Array<{ item: T; marca: string }> = []
+  for (const x of lista) {
+    const m = marcas.find((marca) => contieneMarca(texto(x), marca))
+    if (m) fuera.push({ item: x, marca: m })
+    else quedan.push(x)
+  }
+  return { quedan, fuera }
+}
+
+/** Un número con unidad («5L», «30 cm», «1.500 W», «2 piezas») normalizado: «5 l», «30 cm», «1500 w», «2 pieza» */
+const UNIDADES: Record<string, string> = {
+  l: 'l', litro: 'l', litros: 'l', lt: 'l', ml: 'ml', cl: 'cl',
+  cm: 'cm', mm: 'mm', m: 'm', metro: 'm', metros: 'm', pulgada: 'pulgada', pulgadas: 'pulgada',
+  kg: 'kg', g: 'g', gr: 'g', gramo: 'g', gramos: 'g', oz: 'oz', lb: 'lb',
+  w: 'w', kw: 'kw', v: 'v', mah: 'mah', wh: 'wh', hz: 'hz', gb: 'gb', tb: 'tb',
+  pieza: 'pieza', piezas: 'pieza', ud: 'ud', uds: 'ud', unidad: 'ud', unidades: 'ud',
+}
+
+export function cantidadesDe(texto: string | null | undefined): string[] {
+  const plano = (texto ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const salida = new Set<string>()
+  for (const m of plano.matchAll(/(\d+(?:[.,]\d+)*)\s*(litros?|lt|ml|cl|l|cm|mm|metros?|m|pulgadas?|kg|gramos?|gr|g|oz|lb|kw|w|v|mah|wh|hz|gb|tb|piezas?|uds?|unidad(?:es)?)(?![a-z0-9])/g)) {
+    const crudo = m[1]
+    // «1.500» y «1,5»: un punto o una coma seguidos de tres cifras son miles; si no, decimales
+    const numero = /^\d{1,3}([.,]\d{3})+$/.test(crudo) ? crudo.replace(/[.,]/g, '') : crudo.replace(',', '.')
+    const unidad = UNIDADES[m[2]]
+    if (unidad) salida.add(`${Number(numero)} ${unidad}`)
+  }
+  return [...salida]
+}
+
+export interface ContextoDeVigilancia {
+  fichaActual: { titulo: string | null; highlights?: string | null; bullets: readonly string[]; descripcion?: string | null; backend: string | null }
+  /** Las búsquedas que sí son del producto (para decir de dónde ha sacado la IA una cifra) */
+  consultasRelevantes: readonly string[]
+  /** Las descartadas (ruido, falsos amigos, otro precio, marca ajena): ninguna puede salir entera */
+  descartadas: readonly string[]
+  heliumKeywords?: readonly string[]
+  terminosAds?: readonly string[]
+  marcasAjenas: readonly string[]
+}
+
+/**
+ * VIGILA LA PROPUESTA ANTES DE ENSEÑARLA (fallo 13). Devuelve la propuesta con el backend ya sin marcas ajenas y los avisos:
+ *   · rojo  si una marca ajena sale en el título, los highlights o las viñetas (no se toca el texto: lo decide la persona, con doble confirmación).
+ *   · aviso si sale en el backend: se quita de ahí (el backend no lo lee nadie y es donde la IA las esconde).
+ *   · rojo  si una búsqueda descartada sale ENTERA en cualquier campo.
+ *   · rojo  si el título no abre con la marca del título actual.
+ *   · ámbar si un número con unidad (5L, 30 cm) no está en la ficha actual: posible invención. No se avisa de cada palabra nueva: saldrían demasiados avisos falsos.
+ */
+export function vigilarPropuesta<P extends TextosPropuestos>(limpia: P, ctx: ContextoDeVigilancia): { propuesta: P; avisos: AvisoDeVigilancia[] } {
+  const avisos: AvisoDeVigilancia[] = []
+  const marcas = ctx.marcasAjenas
+
+  // 1) Marcas ajenas arriba: rojo, sin tocar
+  const arriba: Array<[CampoVigilado, string]> = [
+    ['titulo', limpia.titulo],
+    ['highlights', limpia.highlights ?? ''],
+    ['bullets', limpia.bullets.join(' \n ')],
+  ]
+  for (const [campo, t] of arriba) {
+    const m = marcasEn(t, marcas)
+    if (m.length > 0) avisos.push({ nivel: 'rojo', campo, texto: `Marca de un rival en ${NOMBRE_CAMPO_VIGILADO[campo]}: ${m.join(', ')}. Amazon puede bloquear la ficha por usar marcas ajenas: quítala antes de aplicar.` })
+  }
+
+  // 2) Marcas ajenas en el backend: se quitan
+  let backend = limpia.backend
+  const enBackend = marcasEn(backend, marcas)
+  if (enBackend.length > 0) {
+    let w = backend.split(/\s+/).filter(Boolean)
+    for (const marca of enBackend) {
+      const p = palabrasCrudas(marca)
+      const salida: string[] = []
+      for (let i = 0; i < w.length; ) {
+        const tramo = w.slice(i, i + p.length).map((x) => palabrasCrudas(x).join(' '))
+        if (tramo.length === p.length && tramo.every((x, k) => x === p[k])) i += p.length
+        else salida.push(w[i++])
+      }
+      w = salida
+    }
+    backend = w.join(' ')
+    avisos.push({ nivel: 'ambar', campo: 'backend', texto: `Se han quitado del backend marcas de rivales: ${enBackend.join(', ')}.` })
+  }
+
+  // 3) Búsquedas descartadas enteras en la salida
+  const todo: Array<[CampoVigilado, string]> = [...arriba, ['backend', backend]]
+  const vistas = new Set<string>()
+  // No es la IA quien la mete si ya estaba en la ficha actual, ni si va dentro de una búsqueda buena («freidora», ruido, dentro de «freidora de aire»): avisar ahí sería un falso rojo
+  const fichaActualEntera = [ctx.fichaActual.titulo, ctx.fichaActual.highlights, ...ctx.fichaActual.bullets, ctx.fichaActual.backend].filter(Boolean).join(' \n ')
+  for (const q of ctx.descartadas) {
+    const clave = normalizar(q)
+    if (!clave || vistas.has(clave) || palabras(q).length === 0) continue
+    if (contieneConsulta(fichaActualEntera, q) || ctx.consultasRelevantes.some((r) => contieneConsulta(r, q))) continue
+    const donde = todo.filter(([, t]) => contieneConsulta(t, q)).map(([c]) => NOMBRE_CAMPO_VIGILADO[c])
+    if (donde.length > 0) {
+      vistas.add(clave)
+      avisos.push({ nivel: 'rojo', campo: todo.find(([, t]) => contieneConsulta(t, q))?.[0] ?? null, texto: `La búsqueda descartada «${q}» sale en ${donde.join(' y ')}: no es del producto (ruido, falso amigo, otro precio o marca ajena).` })
+    }
+  }
+
+  // 4) El título abre con la marca
+  const propia = marcaPropiaDe(ctx.fichaActual.titulo)
+  if (propia) {
+    const p = palabrasCrudas(propia)
+    const t = palabrasCrudas(limpia.titulo)
+    if (!p.every((w, k) => t[k] === w)) avisos.push({ nivel: 'rojo', campo: 'titulo', texto: `El título no empieza por la marca («${propia}»), como pide el SOP y como está ahora.` })
+  }
+
+  // 5) Cifras con unidad que no están en la ficha actual
+  const f = ctx.fichaActual
+  const enFicha = new Set(cantidadesDe([f.titulo, f.highlights, ...f.bullets, f.descripcion, f.backend].filter(Boolean).join(' \n ')))
+  const fuentes = [...ctx.consultasRelevantes, ...(ctx.heliumKeywords ?? []), ...(ctx.terminosAds ?? [])]
+  const nuevas = new Map<string, CampoVigilado>()
+  for (const [campo, t] of todo) for (const c of cantidadesDe(t)) if (!enFicha.has(c) && !nuevas.has(c)) nuevas.set(c, campo)
+  for (const [c, campo] of nuevas) {
+    const de = fuentes.find((q) => cantidadesDe(q).includes(c))
+    avisos.push({ nivel: 'ambar', campo, texto: `«${c}» (en ${NOMBRE_CAMPO_VIGILADO[campo]}) no está en la ficha actual${de ? ` (sale de «${de}»)` : ''}: confirma que el producto es así, o es una invención.` })
+  }
+
+  return { propuesta: { ...limpia, backend }, avisos }
+}
+
+export const avisosRojos = (avisos: readonly AvisoDeVigilancia[] | null | undefined) => (avisos ?? []).filter((a) => a.nivel === 'rojo')
+
+/* ------------------------------------------------------------------ */
+/* Propuesta vieja: ficha cambiada y caducidad (fallo 14)              */
+/* ------------------------------------------------------------------ */
+
+export type CampoComparado = 'titulo' | 'bullets' | 'backend'
+const NOMBRE_COMPARADO: Record<CampoComparado, string> = { titulo: 'título', bullets: 'viñetas', backend: 'backend' }
+const sinEspacios = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
+
+/**
+ * Lo que ha cambiado en la ficha desde que se pidió la propuesta: título, viñetas y backend con los espacios normalizados. Los highlights no cuentan (la lectura diaria no siempre los trae, y
+ * saldría «cambiada» sin haberlo).
+ */
+export function cambiosDesdeLaPropuesta(esperado: Pick<TextosPropuestos, 'titulo' | 'bullets' | 'backend'>, viva: { titulo?: string | null; bullets: readonly string[]; backend?: string | null }): CampoComparado[] {
+  const vinetas = (b: readonly string[]) => b.map(sinEspacios).filter(Boolean).join('\n')
+  const salida: CampoComparado[] = []
+  if (sinEspacios(esperado.titulo) !== sinEspacios(viva.titulo)) salida.push('titulo')
+  if (vinetas(esperado.bullets ?? []) !== vinetas(viva.bullets)) salida.push('bullets')
+  if (sinEspacios(esperado.backend) !== sinEspacios(viva.backend)) salida.push('backend')
+  return salida
+}
+
+export function motivoFichaCambiada(campos: readonly CampoComparado[]): string {
+  return `La ficha ha cambiado desde que se pidió esta propuesta (${campos.map((c) => NOMBRE_COMPARADO[c]).join(', ')}): pide una nueva.`
+}
+
+/** Decisión del dueño (21 nov 2026): una propuesta pendiente caduca a los 7 días. No se aplica y se enseña «Caducada», con el botón de pedir otra */
+export const DIAS_DE_VALIDEZ_PROPUESTA = 7
+
+export function propuestaCaducada(estado: string, creadaAt: string, ahora = Date.now()): boolean {
+  const t = Date.parse(creadaAt)
+  return estado === 'pendiente' && Number.isFinite(t) && ahora - t > DIAS_DE_VALIDEZ_PROPUESTA * 86_400_000
 }

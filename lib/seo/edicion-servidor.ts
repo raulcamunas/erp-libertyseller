@@ -19,6 +19,7 @@ import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { bloqueosDeEdicion, camposPisadosDesdeValidar, CAMPOS_FICHA, decidirEdicion, NOMBRE_DE_CAMPO, explicacionDeNoAplicada, highlightsDeAtributos, MINUTOS_ANTES_DE_VERIFICAR, planDePatch, verificarEdicion, atributoDeHighlights, type CampoFicha, type ComparacionDeCampo, type EstadoVerificado, type TextosFicha } from './edicion'
 import { fichaDeItem, type FichaLeida } from './ficha-servidor'
+import { cambiosDesdeLaPropuesta, IDIOMA_DE_MARKETPLACE, motivoFichaCambiada, type CampoComparado } from './propuesta'
 import { DIAS_ENTRE_CAMBIOS, ventanaDeCambio } from './tareas'
 import { cambiosAplicados } from './datos'
 
@@ -472,19 +473,27 @@ async function marcarPropuesta(id: string, estado: EstadoVerificado, verificacio
 }
 
 /**
- * Para la propuesta de la IA: valida y, si Amazon dice que sí, manda en el mismo paso (la persona ya confirmó en la pantalla). Con `esperado` (la ficha
- * sobre la que se hizo la propuesta, `p.antes`): si el título, las viñetas o el backend de Amazon ya no son esos, no se manda nada.
+ * Para la propuesta de la IA: valida y, si Amazon dice que sí, manda en el mismo paso (la persona ya confirmó en la pantalla).
+ *
+ * `esperado` (fallo 14): la ficha sobre la que se escribió la propuesta. Si la viva ya no coincide en título, viñetas o backend, NO se manda nada (la propuesta pisaría lo que alguien cambió
+ * después) y se devuelve `fichaCambiada` con los campos. La validación ya leyó la ficha viva sin escribir (VALIDATION_PREVIEW): la edición que apuntó se marca rechazada.
  */
 export async function validarYAplicar(c: Cuenta, e: { asin: string; sku: string; despues: TextosFicha; propuestaId: string; userId: string }, opciones: { esperado?: TextosFicha | null } = {}): Promise<ResultadoDeAplicarIa> {
-  const v = await validarEdicion(c, { ...e, origen: 'ia', soloCampos: ['titulo', 'highlights', 'bullets', 'backend'], esperado: opciones.esperado ?? null })
+  const v = await validarEdicion(c, { ...e, origen: 'ia', soloCampos: ['titulo', 'highlights', 'bullets', 'backend'] })
   if (!v.ok) return { ok: false, motivo: v.motivo, issues: v.issues }
+  const cambiados = opciones.esperado ? cambiosDesdeLaPropuesta(opciones.esperado, v.antes) : []
+  if (cambiados.length > 0) {
+    const motivo = motivoFichaCambiada(cambiados)
+    if (v.edicion) await createServiceClient().from('seo_ediciones').update({ estado: 'rechazada', error: motivo }).eq('id', v.edicion.id)
+    return { ok: false, motivo, issues: [], fichaCambiada: cambiados }
+  }
   if (!v.edicion) return enviarSinRegistro(c, e.sku, e.despues, v.campos)
   // La ventana del SOP ya la comprobó quien llama (aplicarPropuesta): aquí no se vuelve a bloquear
   const r = await aplicarEdicion(c, v.edicion.id, e.userId, { saltarVentana: true })
   return r.ok ? { ...r, campos: v.campos, antes: v.antes, avisosPlan: v.avisos } : r
 }
 
-export type ResultadoDeAplicarIa = { ok: true; edicion: EdicionGuardada | null; submissionId: string | null; avisos: string | null; campos?: CampoFicha[]; antes?: TextosFicha; avisosPlan?: string[] } | { ok: false; motivo: string; issues: AmazonIssue[] }
+export type ResultadoDeAplicarIa = { ok: true; edicion: EdicionGuardada | null; submissionId: string | null; avisos: string | null; campos?: CampoFicha[]; antes?: TextosFicha; avisosPlan?: string[] } | { ok: false; motivo: string; issues: AmazonIssue[]; fichaCambiada?: CampoComparado[] }
 
 /**
  * Sin la migración 312 (todavía sin lanzar) la propuesta de la IA se sigue pudiendo aplicar como antes: ya validada, se manda y queda apuntada en la

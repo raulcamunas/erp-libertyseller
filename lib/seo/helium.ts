@@ -72,7 +72,10 @@ export function cruzarConBrandAnalytics(keywords: readonly KeywordH10[], consult
     .sort((a, b) => b.oportunidad - a.oportunidad || (b.volumen ?? 0) - (a.volumen ?? 0))
 }
 
-/** Lo que se le pasa a la IA: las mejores oportunidades de Helium 10 (sin marcas de otros: las que llevan un ASIN fuera) */
+/**
+ * Lo que se le pasa a la IA: las mejores oportunidades de Helium 10, sin las que llevan un ASIN. Aquí NO se quitan las marcas de otros (Helium 10 no dice cuáles son): lo hace quien llama
+ * (propuesta-servidor.ts) con las marcas de los rivales que se siguen, antes de recortar a `max`.
+ */
 export function oportunidadesParaLaIa(cruzadas: readonly KeywordCruzada[], max = 25): Array<{ keyword: string; volumen: number | null; rangoOrganico: number | null; enLaFicha: boolean }> {
   return cruzadas
     .filter((k) => k.oportunidad > 0 && !/\bb0[a-z0-9]{8}\b/i.test(k.keyword))

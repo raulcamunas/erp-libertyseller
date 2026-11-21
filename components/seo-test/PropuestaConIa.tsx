@@ -8,7 +8,7 @@ import { CAJA } from '@/components/marketing-test/piezas'
 import { llamar } from '@/components/marketing-test/llamar'
 import { bytesDe, caracteresDe, coberturaDe, LIMITE_BACKEND_BYTES, LIMITE_BULLETS_BYTES, LIMITE_HIGHLIGHTS_CARACTERES, LIMITE_TITULO_CARACTERES } from '@/lib/seo/cobertura'
 import { esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE } from '@/lib/seo/embudo'
-import { trozosNuevos, type TextosPropuestos } from '@/lib/seo/propuesta'
+import { avisosRojos, DIAS_DE_VALIDEZ_PROPUESTA, motivoFichaCambiada, trozosNuevos, type AvisoDeVigilancia, type TextosPropuestos } from '@/lib/seo/propuesta'
 import type { PropuestaGuardada } from '@/lib/seo/propuesta-servidor'
 import type { ventanaDeCambio } from '@/lib/seo/tareas'
 import { BotonCopiar, type DiagnosticoDeProducto } from './comun'
@@ -21,6 +21,9 @@ const ESTADO: Record<PropuestaGuardada['estado'], { texto: string; color: string
   error: { texto: 'Amazon la rechazó', color: COLOR_ESTADO.rojo },
 }
 
+const CADUCADA = { texto: 'Caducada', color: 'var(--ls-t4)' }
+const estadoDe = (p: PropuestaGuardada) => (p.caducada ? CADUCADA : ESTADO[p.estado])
+
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 /**
@@ -30,17 +33,25 @@ const fecha = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: 'num
  * Antes de pedirla, la puerta de salida del SOP: si el embudo dice que se pierde en clics, carrito o compra, se avisa (se puede pedir igual, pero sabiendo que no es lo primero). A Amazon solo
  * llega si una persona pulsa «Aplicar en Amazon» y lo confirma (dos clics a propósito: cambia la ficha del cliente); y no si la ficha se cambió hace menos de 30 días. Los Item Highlights se
  * mandan con el atributo del tipo de producto (si no lo tiene, se avisa). Después se comprueba al releer la ficha si de verdad ha quedado.
+ *
+ * Frenos (fallos 13 y 14): los avisos ROJOS de la vigilancia (marca de un rival arriba, búsqueda descartada, título sin la marca) salen arriba y, si hay alguno, «Aplicar» pide una SEGUNDA
+ * confirmación que los enumera. Si la ficha guardada de hoy ya no es aquella sobre la que se escribió la propuesta, o la propuesta tiene más de 7 días, «Aplicar» no se ofrece: hay que pedir otra.
  */
 export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras, diagnostico, ventana }: { cuentaId: string; asin: string; hayBusquedas: boolean; hayFicha: boolean; mejoras: boolean; diagnostico: DiagnosticoDeProducto | null; ventana: ReturnType<typeof ventanaDeCambio> }) {
   const { datos, recargar } = useDelProducto<{ propuestas: PropuestaGuardada[]; sinMigracion?: boolean }>(mejoras ? `/api/seo/propuestas?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const [pidiendo, setPidiendo] = useState(false)
-  const [confirmar, setConfirmar] = useState(false)
+  // 0 = sin confirmar · 1 = primera confirmación · 2 = segunda, con los avisos rojos enumerados
+  const [confirmar, setConfirmar] = useState<0 | 1 | 2>(0)
   const [aplicando, setAplicando] = useState(false)
-  const [rechazo, setRechazo] = useState<{ motivo: string; issues: Array<{ message?: string; code?: string }> } | null>(null)
+  const [rechazo, setRechazo] = useState<{ motivo: string; issues: Array<{ message?: string; code?: string }>; freno: boolean } | null>(null)
   const [verHistorial, setVerHistorial] = useState(false)
 
   const propuestas = datos?.propuestas ?? []
   const actual = propuestas[0] ?? null
+  const vigilancia: AvisoDeVigilancia[] = actual?.razonamiento.vigilancia ?? []
+  const rojos = avisosRojos(vigilancia)
+  const ambar = vigilancia.filter((a) => a.nivel === 'ambar')
+  const fichaCambiada = actual?.fichaCambiada ?? []
 
   async function proponer() {
     setPidiendo(true)
@@ -55,18 +66,19 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
     }
   }
 
-  async function aplicar(id: string) {
+  async function aplicar(id: string, aceptarAvisos: boolean) {
     setAplicando(true)
     setRechazo(null)
     try {
-      const res = await fetch('/api/seo/propuestas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuenta: cuentaId, id, accion: 'aplicar' }) })
-      const j = (await res.json().catch(() => ({}))) as { error?: string; issues?: Array<{ message?: string; code?: string }>; avisos?: string | null }
+      const res = await fetch('/api/seo/propuestas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cuenta: cuentaId, id, accion: 'aplicar', aceptarAvisos }) })
+      const j = (await res.json().catch(() => ({}))) as { error?: string; issues?: Array<{ message?: string; code?: string }>; avisos?: string | null; fichaCambiada?: string[] | null; avisosRojos?: unknown[] | null }
       if (!res.ok) {
-        setRechazo({ motivo: j.error ?? `Error ${res.status}`, issues: j.issues ?? [] })
+        // Un freno del ERP (ficha cambiada, avisos sin confirmar, caducada…) no es un rechazo de Amazon: no se ha mandado nada
+        setRechazo({ motivo: j.error ?? `Error ${res.status}`, issues: j.issues ?? [], freno: (j.issues ?? []).length === 0 })
       } else {
         toast.success(j.avisos ? `Enviada a Amazon con avisos: ${j.avisos}` : 'Enviada a Amazon. La procesa en unos minutos y la ficha se vuelve a leer sola.')
       }
-      setConfirmar(false)
+      setConfirmar(0)
       await recargar()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se ha podido aplicar.')
@@ -122,10 +134,24 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
-              <span className="rounded-full px-[9px] py-[2px] font-semibold" style={{ color: ESTADO[actual.estado].color, background: `color-mix(in srgb, ${ESTADO[actual.estado].color} 13%, transparent)` }}>{ESTADO[actual.estado].texto}</span>
+              <span className="rounded-full px-[9px] py-[2px] font-semibold" style={{ color: estadoDe(actual).color, background: `color-mix(in srgb, ${estadoDe(actual).color} 13%, transparent)` }}>{estadoDe(actual).texto}</span>
               <span className="text-[var(--ls-t4)]">propuesta del {fecha(actual.creadaAt)}{actual.modelo ? ` · ${actual.modelo}` : ''}</span>
               {actual.aplicadaAt && <span className="text-[var(--ls-t4)]">· aplicada el {fecha(actual.aplicadaAt)}</span>}
             </div>
+
+            {actual.estado === 'pendiente' && rojos.length > 0 && <AvisosRojos avisos={rojos} />}
+            {actual.estado === 'pendiente' && !actual.caducada && fichaCambiada.length > 0 && (
+              <p className="flex items-start gap-2 rounded-[10px] px-3 py-[8px] text-[12px] leading-[1.5]" style={{ color: COLOR_ESTADO.ambar, background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 9%, transparent)` }}>
+                <CircleAlert className="mt-[2px] h-3 w-3 shrink-0" />
+                <span>{motivoFichaCambiada(fichaCambiada)} Si la aplicaras, pisaría lo que se cambió después.</span>
+              </p>
+            )}
+            {actual.caducada && (
+              <p className="flex items-start gap-2 rounded-[10px] bg-[var(--ls-sup2)] px-3 py-[8px] text-[12px] leading-[1.5] text-[var(--ls-t3)]">
+                <CircleAlert className="mt-[2px] h-3 w-3 shrink-0" />
+                <span>Esta propuesta tiene más de {DIAS_DE_VALIDEZ_PROPUESTA} días y ha caducado: las búsquedas y la ficha pueden haber cambiado. Pulsa «Pedir otra propuesta» (cuesta céntimos).</span>
+              </p>
+            )}
 
             {actual.razonamiento.resumen && <p className="rounded-[10px] bg-[var(--ls-sup2)] px-3 py-[9px] text-[12.5px] leading-[1.55] text-[var(--ls-t2)]">{actual.razonamiento.resumen}</p>}
 
@@ -165,10 +191,15 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
               </div>
             )}
             {(actual.razonamiento.avisos?.length ?? 0) > 0 && <p className="text-[11.5px]" style={{ color: COLOR_ESTADO.ambar }}>Al revisar la propuesta: {actual.razonamiento.avisos?.join(' ')}</p>}
+            {ambar.length > 0 && (
+              <ul className="flex flex-col gap-[3px] text-[11.5px] leading-[1.5]" style={{ color: COLOR_ESTADO.ambar }}>
+                {ambar.map((a, i) => <li key={i}>· {a.texto}</li>)}
+              </ul>
+            )}
 
             {(rechazo || (actual.error && actual.estado !== 'aplicada')) && (
               <div className="rounded-[10px] border px-3 py-[9px] text-[12px] leading-[1.5]" style={{ borderColor: `color-mix(in srgb, ${COLOR_ESTADO.rojo} 40%, transparent)`, color: COLOR_ESTADO.rojo }}>
-                <div className="flex items-center gap-2 font-semibold"><ShieldAlert className="h-[13px] w-[13px]" /> Amazon no la ha aceptado</div>
+                <div className="flex items-center gap-2 font-semibold"><ShieldAlert className="h-[13px] w-[13px]" /> {(rechazo ? rechazo.freno : actual.estado === 'descartada') ? 'No se ha mandado nada a Amazon' : 'Amazon no la ha aceptado'}</div>
                 <div className="mt-1 text-[var(--ls-t2)]">{rechazo?.motivo ?? actual.error}</div>
                 {(rechazo?.issues ?? []).map((i, k) => <div key={k} className="text-[11.5px] text-[var(--ls-t3)]">· {i.message ?? i.code}</div>)}
               </div>
@@ -180,27 +211,51 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
             {actual.estado === 'pendiente' && (
               <div className="flex flex-wrap items-center gap-2 border-t border-[var(--ls-linea)] pt-3">
                 <BotonCopiar texto={textoParaCopiar(actual.propuesta)} etiqueta="Copiar todo" />
-                {ventana?.bloqueada ? (
-                  <span className="text-[12px]" style={{ color: COLOR_ESTADO.ambar }}>
-                    No se puede aplicar todavía: la ficha se cambió el {new Date(`${ventana.ultimo}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' })} y el SOP pide 30 días entre cambios de título.
-                  </span>
-                ) : !confirmar ? (
+                {actual.caducada || fichaCambiada.length > 0 ? (
                   <>
-                    <button type="button" onClick={() => setConfirmar(true)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] bg-[var(--ls-acc-relleno)] px-3 text-[12.5px] font-semibold text-[var(--ls-acc-tinta)]">
+                    <button type="button" disabled title={actual.caducada ? 'Ha caducado: pide otra propuesta' : 'La ficha ha cambiado: pide otra propuesta'} className="inline-flex h-[32px] cursor-not-allowed items-center gap-[6px] rounded-[9px] bg-[var(--ls-acc-relleno)] px-3 text-[12.5px] font-semibold text-[var(--ls-acc-tinta)] opacity-50">
                       <Check className="h-[13px] w-[13px]" /> Aplicar en Amazon
                     </button>
                     <button type="button" onClick={() => descartar(actual.id)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] border border-[var(--ls-linea)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
                       <X className="h-[13px] w-[13px]" /> Descartar
                     </button>
                   </>
-                ) : (
+                ) : ventana?.bloqueada ? (
+                  <span className="text-[12px]" style={{ color: COLOR_ESTADO.ambar }}>
+                    No se puede aplicar todavía: la ficha se cambió el {new Date(`${ventana.ultimo}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' })} y el SOP pide 30 días entre cambios de título.
+                  </span>
+                ) : confirmar === 0 ? (
+                  <>
+                    <button type="button" onClick={() => setConfirmar(1)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] bg-[var(--ls-acc-relleno)] px-3 text-[12.5px] font-semibold text-[var(--ls-acc-tinta)]">
+                      <Check className="h-[13px] w-[13px]" /> Aplicar en Amazon
+                    </button>
+                    <button type="button" onClick={() => descartar(actual.id)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] border border-[var(--ls-linea)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
+                      <X className="h-[13px] w-[13px]" /> Descartar
+                    </button>
+                  </>
+                ) : confirmar === 1 ? (
                   <>
                     <span className="text-[12.5px] text-[var(--ls-t1)]">Esto cambia el título, los Item Highlights, las viñetas y el backend de la ficha del cliente en Amazon. SOP: en la semana sin pujas (S3) y guardando el texto anterior. ¿Seguro?</span>
-                    <button type="button" disabled={aplicando} onClick={() => aplicar(actual.id)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] px-3 text-[12.5px] font-semibold text-white disabled:opacity-60" style={{ background: COLOR_ESTADO.rojo }}>
+                    <button type="button" disabled={aplicando} onClick={() => (rojos.length > 0 ? setConfirmar(2) : aplicar(actual.id, false))} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] px-3 text-[12.5px] font-semibold text-white disabled:opacity-60" style={{ background: COLOR_ESTADO.rojo }}>
                       {aplicando ? <Loader2 className="h-[13px] w-[13px] animate-spin" /> : <Check className="h-[13px] w-[13px]" />} {aplicando ? 'Validando y enviando…' : 'Sí, cambiar la ficha en Amazon'}
                     </button>
-                    <button type="button" disabled={aplicando} onClick={() => setConfirmar(false)} className="h-[32px] rounded-[9px] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">Cancelar</button>
+                    <button type="button" disabled={aplicando} onClick={() => setConfirmar(0)} className="h-[32px] rounded-[9px] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">Cancelar</button>
                   </>
+                ) : (
+                  <div className="flex w-full flex-col gap-2">
+                    <span className="text-[12.5px] font-semibold" style={{ color: COLOR_ESTADO.rojo }}>
+                      Segunda confirmación: la propuesta tiene {rojos.length === 1 ? 'un aviso rojo' : `${rojos.length} avisos rojos`} y se mandaría tal cual.
+                    </span>
+                    <ul className="flex flex-col gap-[3px] text-[12px] leading-[1.5] text-[var(--ls-t2)]">
+                      {rojos.map((a, i) => <li key={i}>· {a.texto}</li>)}
+                    </ul>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" disabled={aplicando} onClick={() => aplicar(actual.id, true)} className="inline-flex h-[32px] items-center gap-[6px] rounded-[9px] px-3 text-[12.5px] font-semibold text-white disabled:opacity-60" style={{ background: COLOR_ESTADO.rojo }}>
+                        {aplicando ? <Loader2 className="h-[13px] w-[13px] animate-spin" /> : <ShieldAlert className="h-[13px] w-[13px]" />} {aplicando ? 'Validando y enviando…' : 'Aplicar con estos avisos'}
+                      </button>
+                      <button type="button" disabled={aplicando} onClick={() => setConfirmar(0)} className="h-[32px] rounded-[9px] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">Cancelar y revisarla</button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -214,7 +269,7 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
                   <div className="mt-2 flex flex-col gap-1">
                     {propuestas.slice(1).map((p) => (
                       <div key={p.id} className="flex items-center gap-2 text-[11.5px]">
-                        <span className="w-[130px] font-medium" style={{ color: ESTADO[p.estado].color }}>{ESTADO[p.estado].texto}</span>
+                        <span className="w-[130px] shrink-0 font-medium" style={{ color: estadoDe(p).color }}>{estadoDe(p).texto}</span>
                         <span className="text-[var(--ls-t4)]">{fecha(p.creadaAt)}</span>
                         <span className="min-w-0 flex-1 truncate text-[var(--ls-t3)]">{p.propuesta.titulo}</span>
                       </div>
@@ -227,6 +282,20 @@ export function PropuestaConIa({ cuentaId, asin, hayBusquedas, hayFicha, mejoras
         )}
       </div>
     </section>
+  )
+}
+
+/** Los avisos rojos de la vigilancia, arriba de todo: lo que no debería llegar a Amazon sin que alguien lo mire */
+function AvisosRojos({ avisos }: { avisos: AvisoDeVigilancia[] }) {
+  return (
+    <div className="rounded-[10px] border px-3 py-[9px] text-[12px] leading-[1.5]" style={{ borderColor: `color-mix(in srgb, ${COLOR_ESTADO.rojo} 40%, transparent)`, background: `color-mix(in srgb, ${COLOR_ESTADO.rojo} 6%, transparent)` }}>
+      <div className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.rojo }}>
+        <ShieldAlert className="h-[13px] w-[13px]" /> {avisos.length === 1 ? 'Un aviso rojo' : `${avisos.length} avisos rojos`}: revísalo antes de aplicarla
+      </div>
+      <ul className="mt-1 flex flex-col gap-[2px] text-[var(--ls-t2)]">
+        {avisos.map((a, i) => <li key={i}>· {a.texto}</li>)}
+      </ul>
+    </div>
   )
 }
 
