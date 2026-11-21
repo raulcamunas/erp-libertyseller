@@ -121,6 +121,13 @@ try {
   ok('sin ninguna caja con contenido, se niega', e instanceof LibroError)
 }
 try {
+  const c = (numero: number) => ({ numero, pesoKg: 1, anchoCm: 1, largoCm: 1, altoCm: 1, contenido: [{ sku: 'X', unidades: 1 }] })
+  rellenarEmbalaje(bytes, [c(1), c(3), c(4)])
+  ok('cajas 1, 3 y 4 (falta la 2): se niega con un motivo claro', false)
+} catch (e) {
+  ok('cajas 1, 3 y 4 (falta la 2): se niega con un motivo claro', e instanceof LibroError && /caja 2/.test(String(e)), String(e).slice(0, 120))
+}
+try {
   const muchas: CajaParaPlantilla[] = Array.from({ length: 60 }, (_, i) => ({
     numero: i + 1, pesoKg: 1, anchoCm: 1, largoCm: 1, altoCm: 1,
     contenido: [{ sku: 'x', unidades: 1 }],

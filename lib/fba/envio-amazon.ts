@@ -29,6 +29,7 @@
  * (elegir reparto, elegir transporte, la aceptación del cliente, confirmar). Un 200 con FAILED es un
  * FALLO: el paso se queda donde estaba con el error a la vista y se puede reintentar.
  */
+import { fueraDeLimites, LIMITES_CAJA } from './limites-caja'
 
 /* ------------------------------------------------------------------ */
 /* Pasos y fases                                                       */
@@ -331,7 +332,8 @@ export function validarInventario(p: {
  * (Team lift / Heavy package). Si una caja se pasa, setPackingInformation acaba en FAILED, y es mejor
  * decirlo antes de mandar nada.
  */
-export const LIMITES_CAJA = { maxLadoCm: 63.5, maxPesoKg: 23, pesadoDesdeKg: 15, minPesoKg: 0.1 }
+// Los límites viven en lib/fba/limites-caja.ts: los mismos para el paso a «Lista», el Excel y este motor
+export { LIMITES_CAJA }
 
 export interface CajaParaValidar {
   numero: number
@@ -351,10 +353,10 @@ export function validarCaja(c: CajaParaValidar): Problema[] {
     out.push({ nivel: 'error', texto: `Caja ${c.numero}: le faltan medidas o peso` })
     return out
   }
-  const mayor = Math.max(...(lados as number[]))
-  if (mayor > LIMITES_CAJA.maxLadoCm) out.push({ nivel: 'error', texto: `Caja ${c.numero}: un lado mide ${es(mayor)} cm y Amazon admite ${es(LIMITES_CAJA.maxLadoCm)} cm como mucho` })
-  if (c.pesoKg > LIMITES_CAJA.maxPesoKg) out.push({ nivel: 'error', texto: `Caja ${c.numero}: pesa ${es(c.pesoKg)} kg y Amazon admite ${LIMITES_CAJA.maxPesoKg} kg como mucho` })
-  else if (c.pesoKg >= LIMITES_CAJA.pesadoDesdeKg) out.push({ nivel: 'aviso', texto: `Caja ${c.numero}: ${es(c.pesoKg)} kg. Lleva la etiqueta de «pesado» (desde ${LIMITES_CAJA.pesadoDesdeKg} kg)` })
+  const unidadesDentro = c.contenido.reduce((s, x) => s + x.unidades, 0)
+  // Misma regla que el paso a «Lista» (A4.10): una caja de una sola unidad que se pasa solo avisa
+  for (const f of fueraDeLimites({ numero: c.numero, largoCm: c.largoCm, anchoCm: c.anchoCm, altoCm: c.altoCm, pesoKg: c.pesoKg, unidades: unidadesDentro })) out.push({ nivel: f.bloquea ? 'error' : 'aviso', texto: f.texto })
+  if (c.pesoKg <= LIMITES_CAJA.maxPesoKg && c.pesoKg >= LIMITES_CAJA.pesadoDesdeKg) out.push({ nivel: 'aviso', texto: `Caja ${c.numero}: ${es(c.pesoKg)} kg. Lleva la etiqueta de «pesado» (desde ${LIMITES_CAJA.pesadoDesdeKg} kg)` })
   if (c.pesoKg < LIMITES_CAJA.minPesoKg) out.push({ nivel: 'error', texto: `Caja ${c.numero}: un peso de ${es(c.pesoKg)} kg no es real` })
   const unidades = c.contenido.reduce((s, x) => s + x.unidades, 0)
   if (unidades <= 0) out.push({ nivel: 'error', texto: `Caja ${c.numero}: está vacía` })

@@ -5,6 +5,7 @@ import { Box, Copy, GripVertical, Minus, Plus, Search, Trash2, TriangleAlert, X 
 import { maximoEnCaja, type CampoDeMedida } from '@/lib/fba/encaje-operaciones'
 import { KG_DE_CARGA_PESADA, cajaCompleta, leerMedida, unidadesDeCaja, type CajaEnEdicion, type LineaParaEncajar, type ResumenDeEncaje } from '@/lib/fba/encaje-resumen'
 import { FUENTE_TITULO, cx, medidaATexto, n0 } from './marca'
+import { esCajaPesada, fueraDeLimites } from '@/lib/fba/limites-caja'
 
 /**
  * UNA CAJA: SUS MEDIDAS, SU PESO Y LO QUE LLEVA DENTRO.
@@ -62,7 +63,9 @@ export function TarjetaCaja({
   const unidades = unidadesDeCaja(caja)
   const vacia = unidades === 0
   const completa = cajaCompleta(caja)
-  const pesada = (caja.pesoKg ?? 0) > KG_DE_CARGA_PESADA
+  const pesada = esCajaPesada(caja.pesoKg)
+  // Lo que se pasa de los límites de Amazon (23 kg, 63,5 cm): impide terminar el encaje (una caja de una sola unidad solo avisa)
+  const fuera = fueraDeLimites({ numero: caja.numero, largoCm: caja.largoCm, anchoCm: caja.anchoCm, altoCm: caja.altoCm, pesoKg: caja.pesoKg, unidades })
   // Mientras la caja está vacía no se riñe por sus medidas: primero lo que lleva dentro
   const faltaMedir = !vacia && !completa
   const pendientesEnTotal = resumen.pendientes
@@ -113,6 +116,11 @@ export function TarjetaCaja({
         </span>
         {vacia && editable && <Etiqueta tono="ambar">Vacía</Etiqueta>}
         {faltaMedir && <Etiqueta tono="ambar">Falta medirla o pesarla</Etiqueta>}
+        {fuera.map((f) => (
+          <Etiqueta key={f.texto} tono={f.bloquea ? 'rojo' : 'ambar'} titulo={f.texto}>
+            {f.bloquea ? 'Se pasa de lo que admite Amazon' : 'Voluminosa'}
+          </Etiqueta>
+        ))}
         {pesada && (
           <Etiqueta tono="ambar" titulo={`Más de ${KG_DE_CARGA_PESADA} kg: Amazon la trata como carga pesada y hay que etiquetarla como tal`}>
             Carga pesada
@@ -270,9 +278,9 @@ export function TarjetaCaja({
 /* Piezas                                                              */
 /* ------------------------------------------------------------------ */
 
-function Etiqueta({ tono, titulo, children }: { tono: 'ambar'; titulo?: string; children: React.ReactNode }) {
+function Etiqueta({ tono, titulo, children }: { tono: 'ambar' | 'rojo'; titulo?: string; children: React.ReactNode }) {
   return (
-    <span title={titulo} className={cx('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium', tono === 'ambar' && 'bg-[#FBF0D2] text-[#9A7410]')}>
+    <span title={titulo} className={cx('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium', tono === 'ambar' && 'bg-[#FBF0D2] text-[#9A7410]', tono === 'rojo' && 'bg-[#F8E1DC] text-[#B03A2E]')}>
       <TriangleAlert className="h-3 w-3" />
       {children}
     </span>

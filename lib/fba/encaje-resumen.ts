@@ -1,4 +1,5 @@
 import { puedeAvanzar, type Cuadre, type EstadoDeCajas, type EstadoRemesa } from './flujo'
+import { motivosDeLimites } from './limites-caja'
 
 /**
  * EL RESUMEN DE UN ENCAJE: QUÉ FALTA PARA PODER DECIR «HE TERMINADO».
@@ -93,7 +94,8 @@ export function resumirEncaje(lineas: LineaParaEncajar[], cajas: CajaEnEdicion[]
   const cuadre: Cuadre = { descuadres, cuadra: descuadres.every((d) => d.diferencia === 0) }
   const sinMedidas = cajas.filter((c) => !cajaCompleta(c)).map((c) => c.numero)
   const vacias = cajas.filter((c) => unidadesDeCaja(c) === 0).map((c) => c.numero)
-  const estadoDeCajas: EstadoDeCajas = { cajas: cajas.length, sinMedidas: sinMedidas.length, vacias: vacias.length }
+  const fuera = motivosDeLimites(cajas.map((c) => ({ numero: c.numero, largoCm: c.largoCm, anchoCm: c.anchoCm, altoCm: c.altoCm, pesoKg: c.pesoKg, unidades: unidadesDeCaja(c) })))
+  const estadoDeCajas: EstadoDeCajas = { cajas: cajas.length, sinMedidas: sinMedidas.length, vacias: vacias.length, fueraDeLimites: fuera }
   const permiso = puedeAvanzar('encajando', 'lista', 'cliente', { lineas: lineas.length, cuadre, cajas: estadoDeCajas })
 
   return {

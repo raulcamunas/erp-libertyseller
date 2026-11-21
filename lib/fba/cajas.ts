@@ -1,4 +1,5 @@
 import { leerTodo } from './paginar'
+import { motivosDeLimites } from './limites-caja'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { Cuadre, EstadoDeCajas } from './flujo'
 
@@ -169,6 +170,7 @@ export async function cajasDeRemesa(remesaId: string, service: ClienteDeBase = c
       cajas: cajas.length,
       sinMedidas: cajas.filter((c) => !c.completa).length,
       vacias: cajas.filter((c) => c.unidades === 0).length,
+      fueraDeLimites: motivosDeLimites(cajas.map((c) => ({ numero: c.numero, largoCm: c.largoCm, anchoCm: c.anchoCm, altoCm: c.altoCm, pesoKg: c.pesoKg, unidades: c.unidades }))),
     },
     unidadesEncajadas: cajas.reduce((s, c) => s + c.unidades, 0),
     unidadesDeclaradas: descuadres.reduce((s, d) => s + d.declaradas, 0),

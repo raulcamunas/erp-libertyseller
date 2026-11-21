@@ -6,6 +6,7 @@ import { LibroError } from '@/lib/fba/libro'
 import { type EstadoRemesa } from '@/lib/fba/flujo'
 import { registrarEnHistorial } from '@/lib/fba/historial'
 import { createServiceClient } from '@/lib/supabase/service'
+import { motivosDeLimites } from '@/lib/fba/limites-caja'
 
 /**
  * EL EXCEL DE EMBALAJE DE UNA REMESA.
@@ -117,6 +118,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       altoCm: Number(c.alto_cm),
       contenido: (c.fba_caja_contenido ?? []).map((l) => ({ sku: l.sku, unidades: l.unidades })),
     }))
+
+    // A3.1: los límites de Amazon (23 kg, 63,5 cm) antes de generar un fichero que Amazon rechazaría
+    const fuera = motivosDeLimites(paraPlantilla.map((c) => ({ numero: c.numero, largoCm: c.largoCm, anchoCm: c.anchoCm, altoCm: c.altoCm, pesoKg: c.pesoKg, unidades: c.contenido.reduce((s, x) => s + x.unidades, 0) })))
+    if (fuera.length > 0) return fail(400, `${fuera.join('. ')}. Corrige el encaje antes de generar el fichero.`)
 
     const r = rellenarEmbalaje(await fichero.arrayBuffer(), paraPlantilla)
 

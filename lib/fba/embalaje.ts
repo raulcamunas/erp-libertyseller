@@ -131,6 +131,16 @@ export function rellenarEmbalaje(
     )
   }
 
+  // A3.2: cada caja va en la columna de su NÚMERO. Si falta un número (se quitó la caja 2 y quedan la 1, la 3 y la 4), la «Caja 3» iría en la columna 2
+  // y quien prepara le pegaría la etiqueta U000003, que en Amazon es el contenido de otra caja. Se para aquí
+  const hueco = conContenido.findIndex((c, i) => c.numero !== i + 1)
+  if (hueco >= 0) {
+    throw new LibroError(
+      `La caja ${hueco + 1} está vacía o no existe: las cajas tienen que ir numeradas de la 1 a la ${conContenido.length} sin huecos. ` +
+        'Quítala o llénala en el encaje (al guardar se vuelven a numerar) y genera el fichero otra vez.'
+    )
+  }
+
   if (conContenido.length > geo.maxCajas) {
     throw new LibroError(
       `El envío va en ${conContenido.length} cajas y esta plantilla solo tiene sitio para ` +

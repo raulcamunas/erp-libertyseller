@@ -221,6 +221,8 @@ export interface EstadoDeCajas {
   sinMedidas: number
   /** Cuántas están vacías: una caja sin contenido no es una caja */
   vacias: number
+  /** Lo que se pasa de los límites de Amazon (23 kg, 63,5 cm) y no deja pasar a «Lista» (lib/fba/limites-caja.ts). Sin el dato, nada */
+  fueraDeLimites?: string[]
 }
 
 export interface Motivo {
@@ -292,6 +294,8 @@ export function puedeAvanzar(
           texto: `A ${c.sinMedidas} caja${c.sinMedidas === 1 ? ' le faltan' : 's les faltan'} las medidas o el peso`,
         })
       }
+      // Antes solo lo miraba el envío por la API: una caja de 28 kg llegaba a «Lista», precintada, y fallaba al enviarla
+      for (const texto of c.fueraDeLimites ?? []) motivos.push({ texto })
     }
   }
 

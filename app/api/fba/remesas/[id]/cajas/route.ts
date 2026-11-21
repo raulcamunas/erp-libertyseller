@@ -78,7 +78,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     // las mismas que usa la página pública del encaje.
     const limpieza = limpiarCajas(body.cajas)
     if (!limpieza.ok) return fail(400, limpieza.error)
-    const limpias = limpieza.cajas
+    // Siempre numeradas 1..N por su orden (A3.2): el Excel de Amazon coloca cada caja en la columna de su número, y un hueco (1, 3, 4) cambiaba el
+    // contenido de dos cajas. Aquí solo se llega en «Encajando», antes de que Amazon tenga las cajas
+    const limpias = [...limpieza.cajas].sort((a, b) => a.numero - b.numero).map((c, i) => ({ ...c, numero: i + 1 }))
 
     try {
       await guardarCajas(params.id, limpias, undefined, version)

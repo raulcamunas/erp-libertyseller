@@ -328,7 +328,8 @@ export function EditorCajas({
                         aria-label={`Quitar la caja ${caja.numero}`}
                         title="Quitar esta caja"
                         className="hover:!text-[var(--ls-e-rojo)]"
-                        onClick={() => tocar((p) => p.filter((c) => c.numero !== caja.numero))}
+                        // Al quitar una caja se vuelven a numerar 1..N: el Excel de Amazon coloca cada caja en la columna de su número (A3.2)
+                        onClick={() => tocar((p) => p.filter((c) => c.numero !== caja.numero).sort((a, b) => a.numero - b.numero).map((c, i) => ({ ...c, numero: i + 1 })))}
                       />
                     )}
                   </div>
