@@ -47,6 +47,12 @@ export const TOPES_DE_PARTIDA: TopesDelAgente = {
   pausar_campana: 3,
 }
 
+/**
+ * Clases SIN tope diario (23 nov 2026, Raúl): si hay que negativizar, se negativiza. Un tope de negativas no protege nada (una negativa solo deja de gastar en
+ * una búsqueda que no vende) y en una cuenta grande deja cientos en cola durante semanas. Solo las limita el ritmo técnico de cada pasada (MAX_NEGATIVAS_POR_PASADA).
+ */
+export const CLASES_SIN_TOPE: ReadonlySet<ClaseDeTope> = new Set<ClaseDeTope>(['negativizar'])
+
 /** Lo que cuesta cada paso (ms): solo se empieza si queda ese tiempo en la pasada */
 export const COSTE_DE_PASO_MS: Record<PasoDelAgente, number> = {
   vigilar: 15_000,
@@ -74,6 +80,8 @@ export const AGENTE = {
   MIN_ENTRE_VIGILAR: 30,
   MIN_ENTRE_APLICAR: 10,
   MAX_APLICAR_POR_PASADA: 8,
+  /** Negativas por pasada, aparte de las 8 de arriba (sin tope diario: solo el ritmo técnico; con la pasada cada 10 min, ~2.800 al día) */
+  MAX_NEGATIVAS_POR_PASADA: 20,
   MAX_PASOS_POR_CUENTA: 3,
   PRESUPUESTO_PASADA_MS: 240_000,
   RESERVA_CUENTA_S: 330,
@@ -200,6 +208,8 @@ export const AGENTE = {
   ACOS_AUTO_SUBIDA_MAX_PTS: 2,
   ACOS_AUTO_DIA_REVISION: 4,
   LANZAMIENTO_DIAS: 60,
+  /** Vendía al menos estos días antes de su primera estructura → ya existía: no es lanzamiento */
+  LANZAMIENTO_VENTA_PREVIA_DIAS: 30,
   LANZAMIENTO_PAUSA_X_MUESTRA: 2,
   MARCA_ACOS_X: 0.5,
   MARCA_LETRAS_MIN: 3,

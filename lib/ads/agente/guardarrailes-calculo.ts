@@ -19,6 +19,7 @@
 import { esReintentoDeTransporte } from '../motor-calculo'
 import {
   AGENTE,
+  CLASES_SIN_TOPE,
   RAMPA,
   TOPES_DE_PARTIDA,
   limitesDePuja,
@@ -139,9 +140,10 @@ export function topesDelDia(
   return { topes: r, soloBajadas, sinPresupuestoSubir, factor }
 }
 
-/** ¿Queda sitio hoy para otro cambio de esta clase? */
+/** ¿Queda sitio hoy para otro cambio de esta clase? Las clases sin tope, siempre */
 export function quedaTope(clase: ClaseDeCambio, hechosHoy: Partial<Record<ClaseDeTope, number>>, topes: TopesDelAgente): boolean {
   const c = claseDeTope(clase)
+  if (CLASES_SIN_TOPE.has(c)) return true
   return (hechosHoy[c] ?? 0) < (topes[c] ?? 0)
 }
 

@@ -180,12 +180,14 @@ export interface CuentaParaDecidir {
 }
 
 /**
- * Lo que se ha leído para una NEGATIVA pendiente con los términos de AHORA (ads_terminos) y las cosechas pendientes. `ventas` null = el término no está en la
- * lectura de ahora o no se ha podido leer: no se negativiza a ciegas (espera)
+ * Lo que se ha leído para una NEGATIVA pendiente con los términos de AHORA (ads_terminos) y las cosechas pendientes. `ventas` null = no se sabe: o la lectura ha
+ * fallado (espera, no se negativiza a ciegas) o, con `sinActividad`, la lectura ha ido bien y el término ya no está en la ventana de 30 días: no ha tenido ni un
+ * clic en un mes, así que la negativa no ahorra nada y se caduca (si vuelve a gastar, el motor la propone otra vez con datos nuevos). Antes esperaba para siempre.
  */
 export interface DatosDeNegativa {
   ventas: { pedidos: number; ventas: number } | null
   promoverPendiente: boolean
+  sinActividad?: boolean
 }
 
 /** Lo que se ha leído para un término REVISAR */
@@ -320,6 +322,7 @@ export function decidirPropuesta(
   if (p.tipo === 'negativizar' && extra.negativa) {
     if (extra.negativa.promoverPendiente) return { accion: 'caducar', motivo: 'hay una cosecha pendiente del mismo término en esta campaña, que ya pone su negativa en origen' }
     const v = extra.negativa.ventas
+    if (v == null && extra.negativa.sinActividad) return { accion: 'caducar', motivo: 'el término ya no aparece en los últimos 30 días (no gasta): si vuelve a gastar sin vender, se propondrá otra vez' }
     if (v == null) return { accion: 'esperar', motivo: 'No tengo los datos de ahora de este término: no lo negativizo sin comprobar que no vende' }
     if (v.pedidos > 0 || v.ventas > 0) return { accion: 'caducar', motivo: `el término ya vende en esta campaña (${v.pedidos} pedidos, ${euros(v.ventas)} en ventas): no se negativiza` }
   }
@@ -789,7 +792,10 @@ async function datosDeNegativas(perfilId: string, negativas: readonly Propuesta[
     const { data: cosechas, error: eCos } = await todasLasFilas((a, b) => db.from('ads_propuestas').select('id, campaign_id, termino').eq('perfil_id', perfilId).eq('estado', 'pendiente').eq('tipo', 'promover').order('id').range(a, b))
     if (eCos) throw new Error(eCos.message ?? 'no se han podido leer las cosechas pendientes')
     const conCosecha = new Set(((cosechas ?? []) as Array<{ campaign_id: string; termino: string }>).map((c) => k(c.campaign_id, c.termino)))
-    for (const n of negativas) salida.set(n.id, { ventas: ventas.get(k(n.campaignId, n.termino)) ?? null, promoverPendiente: conCosecha.has(k(n.campaignId, n.termino)) })
+    for (const n of negativas) {
+      const v = ventas.get(k(n.campaignId, n.termino)) ?? null
+      salida.set(n.id, { ventas: v, promoverPendiente: conCosecha.has(k(n.campaignId, n.termino)), sinActividad: v == null })
+    }
   } catch (e) {
     console.error(`[agente] ${perfilId}: no se han podido comprobar las negativas con los términos de ahora:`, e instanceof Error ? e.message : e)
     for (const n of negativas) salida.set(n.id, { ventas: null, promoverPendiente: false })
@@ -1259,9 +1265,19 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
   const inicioDelDia = inicioDelDiaLocal(local.fecha, zona)
   const contextoAgente: ContextoDeAplicar = { modo: 'agente', fichaFirmada: Boolean(l.ficha.firmadaAt), aplicadasHoy: 0, topeDiario: Number.MAX_SAFE_INTEGER }
   let intentos = 0
+  let negativasIntentadas = 0
   let erroresSeguidos = 0
-  for (const { p, d } of ordenarParaAplicar(planes.map((x) => ({ ...x, orden: x.d.orden, gasto: x.d.gasto })))) {
-    if (intentos >= AGENTE.MAX_APLICAR_POR_PASADA || sinTiempo()) break
+  // Las negativas (sin tope diario) van DESPUÉS del resto y con su propio cupo por pasada: una cola de cientos no tapa las pujas ni los presupuestos,
+  // y entre pasada y pasada (cada 10 min) se vacía sola
+  const ordenadas = ordenarParaAplicar(planes.map((x) => ({ ...x, orden: x.d.orden, gasto: x.d.gasto })))
+  const enOrden = [...ordenadas.filter((x) => x.d.clase !== 'negativizar'), ...ordenadas.filter((x) => x.d.clase === 'negativizar')]
+  for (const { p, d } of enOrden) {
+    const esNegativa = d.clase === 'negativizar'
+    if (sinTiempo()) break
+    if (esNegativa ? negativasIntentadas >= AGENTE.MAX_NEGATIVAS_POR_PASADA : intentos >= AGENTE.MAX_APLICAR_POR_PASADA) {
+      if (esNegativa) break
+      continue
+    }
     if (erroresSeguidos >= AGENTE.FRENO_ERRORES_SEGUIDOS) break
 
     // 9. justo antes: parada general, estado del agente y lo hecho hoy
@@ -1314,7 +1330,8 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     // MAX_APLICAR_POR_PASADA plazas ni cuenta como error; si no, ocho imposibles con mucho gasto tapaban cada pasada las cosechas buenas y las R1
     if (!decidirConContexto(contextoAgente, p, true, { origen: 'agente', iaAprueba: d.iaAprueba }).ok) continue
 
-    intentos += 1
+    if (esNegativa) negativasIntentadas += 1
+    else intentos += 1
     try {
       // Lo que la decisión cambia se guarda en la propuesta antes de aplicarla (queda en el motivo)
       if (valorNuevo != null && (valorNuevo !== p.valorNuevo || d.tipoNuevo)) await ajustarValorNuevo(perfilId, p.id, valorNuevo, nota ?? 'Ajustada por el agente', d.tipoNuevo ?? undefined, d.valorActualNuevo ?? undefined)

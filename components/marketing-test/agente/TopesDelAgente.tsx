@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CalendarPlus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { Boton, Confirmacion, Tarjeta } from '@/components/ui-ls'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { AGENTE, TOPES_DE_PARTIDA, type ClaseDeTope, type EventoDeTemporada, type PanelDelAgente, type TopesDelAgente as Topes } from '@/lib/ads/agente/tipos'
+import { AGENTE, CLASES_SIN_TOPE, TOPES_DE_PARTIDA, type ClaseDeTope, type EventoDeTemporada, type PanelDelAgente, type TopesDelAgente as Topes } from '@/lib/ads/agente/tipos'
 import { CAMPO_AGENTE, NOMBRE_DE_CLASE, type Accion } from './TarjetaDeEstado'
 
 const CLASES = Object.keys(TOPES_DE_PARTIDA) as ClaseDeTope[]
@@ -104,6 +104,17 @@ export function TopesDelAgente({ panel, moneda, accion }: { panel: PanelDelAgent
           const hoy = panel.topesHoy[k]
           const hechos = panel.hechosHoy[k] ?? 0
           const recortado = hoy != null && hoy < num(topes[k])
+          if (CLASES_SIN_TOPE.has(k)) {
+            return (
+              <div key={k} className="flex min-w-0 items-center gap-3 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 py-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-medium text-[var(--ls-t1)]">{NOMBRE_DE_CLASE[k]}</span>
+                  <span className="block text-[11.5px] tabular-nums text-[var(--ls-t4)]">hoy {hechos}</span>
+                </span>
+                <span className="shrink-0 text-[12px] font-medium text-[var(--ls-t3)]">Sin tope</span>
+              </div>
+            )
+          }
           return (
             <label key={k} className="flex min-w-0 items-center gap-3 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 py-2">
               <span className="min-w-0 flex-1">

@@ -17,7 +17,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { campanasDe } from '../campanas'
-import { leerFicha, marketplaceDePais, productosDeCuenta, type FichaDeCuenta } from '../cuenta'
+import { cuentaPorId, leerFicha, marketplaceDePais, productosDeCuenta, type FichaDeCuenta } from '../cuenta'
 import { margenDeProducto, precioParaMotor } from '../margen'
 import { todasLasFilas } from '../paginar'
 import { nombreDePais } from '../paises'
@@ -538,6 +538,46 @@ export function ticketsMedios(filas: readonly DiaDeCampana[], desde: string, has
 }
 
 /**
+ * La primera venta (libro de FBA, `fba_movimientos` tipo Shipments, cualquier país de las conexiones del cliente) de los productos que por fecha de estructura
+ * estarían en lanzamiento: con ella, faseDeProducto distingue un producto nuevo de uno que ya vendía y solo tiene campañas nuevas. Solo lectura y sin romper nada:
+ * si falla o el cliente no tiene conexión de Amazon, mapa vacío (la regla de siempre).
+ */
+async function primerasVentasDeLanzamientos(
+  perfilId: string,
+  productos: ReadonlyArray<{ id: string; asin: string }>,
+  primera: ReadonlyMap<string, string>,
+  ahora: number,
+): Promise<Map<string, string>> {
+  const salida = new Map<string, string>()
+  try {
+    const limite = ahora - AGENTE.LANZAMIENTO_DIAS * 86_400_000
+    const asins = [...new Set(productos.filter((p) => { const t = Date.parse(primera.get(p.id) ?? ''); return Number.isFinite(t) && t > limite }).map((p) => p.asin.toUpperCase()))]
+    if (asins.length === 0) return salida
+    const cuenta = await cuentaPorId(perfilId)
+    if (!cuenta?.clienteAmazonId) return salida
+    const service = createServiceClient()
+    const { data: conexiones, error } = await service.from('amazon_connections').select('id').eq('client_id', cuenta.clienteAmazonId)
+    if (error) throw error
+    const ids = ((conexiones ?? []) as Array<{ id: string }>).map((c) => c.id)
+    if (ids.length === 0) return salida
+    for (let i = 0; i < asins.length; i += 10) {
+      await Promise.all(
+        asins.slice(i, i + 10).map(async (asin) => {
+          const { data, error: e } = await service.from('fba_movimientos').select('fecha').in('connection_id', ids).eq('asin', asin).eq('tipo', 'Shipments').order('fecha', { ascending: true }).limit(1)
+          if (e) throw e
+          const f = (data?.[0] as { fecha?: string } | undefined)?.fecha
+          if (f) salida.set(asin, f)
+        }),
+      )
+    }
+  } catch (e) {
+    console.error(`[agente] ${perfilId}: no se ha podido leer la primera venta de los productos en lanzamiento:`, e instanceof Error ? e.message : e)
+    return new Map()
+  }
+  return salida
+}
+
+/**
  * Los productos de la cuenta (ads_productos) con lo que el agente necesita: objetivo base (el humano manda; si no, el automático CONGELADO de ads_agente_objetivos), fase (manual o < 60 días desde su
  * primera estructura), marca, equilibrio, CPA objetivo y la postura guardada. Sin la 315, lanza.
  */
@@ -558,6 +598,7 @@ export async function productosDelAgente(perfilId: string, ficha: FichaDeCuenta,
   const extraPorId = new Map(((extra.data ?? []) as Array<{ id: string; marca: string | null; fase_agente: string | null }>).map((x) => [x.id, x]))
   const primera = new Map<string, string>()
   for (const e of (estructuras.data ?? []) as Array<{ producto_id: string; created_at: string }>) if (!primera.has(e.producto_id)) primera.set(e.producto_id, e.created_at)
+  const primeraVenta = await primerasVentasDeLanzamientos(perfilId, productos, primera, ahora)
   const autoPorAsin = new Map<string, ProductoDelAgente['automatico']>()
   for (const o of (objetivos.data ?? []) as Array<Record<string, unknown>>) {
     const pct = numero(o.acos_objetivo_pct)
@@ -581,7 +622,7 @@ export async function productosDelAgente(perfilId: string, ficha: FichaDeCuenta,
     const asin = p.asin.toUpperCase()
     const ex = extraPorId.get(p.id)
     const faseManual = ex?.fase_agente === 'lanzamiento' || ex?.fase_agente === 'normal' ? (ex.fase_agente as FaseDeProducto) : null
-    const fase = faseDeProducto({ faseManual, primeraEstructuraAt: primera.get(p.id) ?? null, ahora })
+    const fase = faseDeProducto({ faseManual, primeraEstructuraAt: primera.get(p.id) ?? null, ahora, primeraVentaAt: primeraVenta.get(p.asin.toUpperCase()) ?? null })
     const automatico = autoPorAsin.get(asin) ?? null
     const base = objetivoBase({ humano: p.acosObjetivoPct, automatico, fase, acosLanzamientoX: ficha.acosLanzamientoX })
     const precio = precioParaMotor(p.precio, tickets.get(asin))

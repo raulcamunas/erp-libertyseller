@@ -487,11 +487,12 @@ console.log('\n=== A9: el fallo principal manda (lo de « (OJO:» es el borrado 
 console.log('\n=== A20: negativas pendientes con los términos de ahora ===')
 {
   const neg = (x: Partial<PropuestaParaDecidir> = {}) => prop({ tipo: 'negativizar', termino: 'fedora', objetivoTipo: null, valorActual: null, valorNuevo: null, metricas: { clics: 30, gasto: 20, pedidos: 0, ventas: 0 }, ...x })
-  const con = (negativa: { ventas: { pedidos: number; ventas: number } | null; promoverPendiente: boolean }) => decidirPropuesta(neg(), CUENTA, PROD, { ...SIN, negativa })
+  const con = (negativa: { ventas: { pedidos: number; ventas: number } | null; promoverPendiente: boolean; sinActividad?: boolean }) => decidirPropuesta(neg(), CUENTA, PROD, { ...SIN, negativa })
   ok('el término ahora vende → caducar', con({ ventas: { pedidos: 1, ventas: 30 }, promoverPendiente: false }).accion === 'caducar')
   ok('solo ventas (sin pedidos) → caducar', con({ ventas: { pedidos: 0, ventas: 12 }, promoverPendiente: false }).accion === 'caducar')
   ok('hay un promover del mismo par pendiente → caducar', con({ ventas: { pedidos: 0, ventas: 0 }, promoverPendiente: true }).accion === 'caducar')
-  ok('sin fila de ahora (o la lectura falla) → esperar', con({ ventas: null, promoverPendiente: false }).accion === 'esperar')
+  ok('la lectura falla → esperar', con({ ventas: null, promoverPendiente: false }).accion === 'esperar')
+  ok('leído bien y sin fila en 30 días → caducar (no esperar para siempre)', con({ ventas: null, promoverPendiente: false, sinActividad: true }).accion === 'caducar')
   ok('sigue sin vender → aplicar', con({ ventas: { pedidos: 0, ventas: 0 }, promoverPendiente: false }).accion === 'aplicar')
   ok('sin el dato (undefined) no se mira', decidirPropuesta(neg(), CUENTA, PROD, SIN).accion === 'aplicar')
 }

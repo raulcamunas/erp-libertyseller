@@ -354,12 +354,19 @@ export function acosObjetivoMedio(productos: ReadonlyArray<{ acosObjetivoPct: nu
  * 3.5 · FASE Y MARCA
  * ============================================================================================================================================================= */
 
-/** La fase de un producto: la manual si la hay; si no, «lanzamiento» si su primera estructura tiene menos de 60 días; si no, «normal» */
-export function faseDeProducto(e: { faseManual: FaseDeProducto | null; primeraEstructuraAt: string | null; ahora: number }): FaseDeProducto {
+/**
+ * La fase de un producto: la manual si la hay; si no, «lanzamiento» si su primera estructura tiene menos de 60 días; si no, «normal».
+ * Un producto que YA EXISTÍA no es un lanzamiento aunque sus campañas del ERP sean nuevas (23 nov 2026, Raúl: los 9 de Cobo salían «en lanzamiento» por
+ * montarles las campañas el 20 nov, y llevaban vendiendo desde 2025): si su primera venta (libro de FBA) es de ANTES de su primera estructura con
+ * margen de LANZAMIENTO_VENTA_PREVIA_DIAS, es «normal». Sin dato de ventas, la regla de siempre.
+ */
+export function faseDeProducto(e: { faseManual: FaseDeProducto | null; primeraEstructuraAt: string | null; ahora: number; primeraVentaAt?: string | null }): FaseDeProducto {
   if (e.faseManual === 'lanzamiento' || e.faseManual === 'normal') return e.faseManual
   if (!e.primeraEstructuraAt) return 'normal'
   const t = Date.parse(e.primeraEstructuraAt)
   if (!Number.isFinite(t)) return 'normal'
+  const venta = e.primeraVentaAt ? Date.parse(e.primeraVentaAt) : NaN
+  if (Number.isFinite(venta) && t - venta >= AGENTE.LANZAMIENTO_VENTA_PREVIA_DIAS * DIA_MS) return 'normal'
   return e.ahora - t < AGENTE.LANZAMIENTO_DIAS * DIA_MS ? 'lanzamiento' : 'normal'
 }
 
