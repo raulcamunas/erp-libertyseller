@@ -52,6 +52,8 @@ export interface Cobertura {
   titulo: boolean
   bullets: boolean
   backend: boolean
+  /** Enteras en los Item Highlights (se indexan igual que el título) */
+  highlights: boolean
   /** Lo que falta de la búsqueda en TODA la ficha (vacío = está entera en algún sitio) */
   faltan: string[]
 }
@@ -61,6 +63,8 @@ export interface TextosDeFicha {
   bullets: readonly string[]
   descripcion: string | null
   backend: string | null
+  /** Los Item Highlights: los de Amazon o, si la API no los da, los puestos a mano (migración 334). Cuentan como parte de la ficha */
+  highlights?: string | null
 }
 
 /** ¿Están todas las palabras de la búsqueda en cada parte de la ficha? Lo que falta se devuelve con su forma legible («cables», no la raíz «cabl») */
@@ -71,10 +75,11 @@ export function coberturaDe(consulta: string, ficha: TextosDeFicha): Cobertura {
   const enBullets = conjunto(ficha.bullets.join(' '))
   const enBackend = conjunto(ficha.backend)
   const enDescripcion = conjunto(ficha.descripcion)
+  const enHighlights = conjunto(ficha.highlights)
   const todas = (s: Set<string>) => buscadas.length > 0 && buscadas.every((p) => s.has(p.raiz))
-  const enAlgunSitio = new Set([...enTitulo, ...enBullets, ...enBackend, ...enDescripcion])
+  const enAlgunSitio = new Set([...enTitulo, ...enHighlights, ...enBullets, ...enBackend, ...enDescripcion])
   const faltan = [...new Map(buscadas.filter((p) => !enAlgunSitio.has(p.raiz)).map((p) => [p.raiz, p.forma])).values()]
-  return { titulo: todas(enTitulo), bullets: todas(enBullets), backend: todas(enBackend), faltan }
+  return { titulo: todas(enTitulo), bullets: todas(enBullets), backend: todas(enBackend), highlights: todas(enHighlights), faltan }
 }
 
 /** Los bytes que ocupa un texto en UTF-8: Amazon mide el backend y las viñetas en bytes (las tildes y la ñ cuentan doble) */

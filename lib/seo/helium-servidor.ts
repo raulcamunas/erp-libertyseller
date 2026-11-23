@@ -5,6 +5,7 @@
  * sus palabras (seo_helium_keywords). Para cruzar se usan la última de Cerebro/Magnet y la última del Keyword Tracker de ese producto.
  */
 
+import { fichasGuardadas } from './datos'
 import { decisionesDeBusquedas } from './ajenas-servidor'
 import { revisarPalabrasConIa } from './helium-ia'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -119,10 +120,10 @@ async function consultasDelProducto(c: { connectionId: string; marketplaceId: st
 }
 
 async function fichaDe(c: { connectionId: string; marketplaceId: string }, asin: string): Promise<TextosDeFicha | null> {
-  const { data } = await createServiceClient().from('seo_fichas').select('titulo, bullets, descripcion, backend').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('asin', asin).maybeSingle()
-  if (!data) return null
-  const f = data as { titulo: string | null; bullets: string[] | null; descripcion: string | null; backend: string | null }
-  return { titulo: f.titulo, bullets: Array.isArray(f.bullets) ? f.bullets : [], descripcion: f.descripcion, backend: f.backend }
+  // Con los Item Highlights (de Amazon o puestos a mano, migración 334): una palabra que está ahí no «falta en la ficha»
+  const f = (await fichasGuardadas(c.connectionId, c.marketplaceId)).find((x) => x.asin === asin)
+  if (!f) return null
+  return { titulo: f.titulo, bullets: f.bullets, descripcion: f.descripcion, backend: f.backend, highlights: f.highlights ?? null }
 }
 
 export interface DatosDeHelium {

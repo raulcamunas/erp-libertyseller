@@ -14,6 +14,7 @@ import { BotonCopiar, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun
 import type { DatosSeo } from './useCuentaSeo'
 import { PropuestaConIa } from './PropuestaConIa'
 import { EditorDeFicha } from './EditorDeFicha'
+import { HighlightsDeLaFicha } from './HighlightsDeLaFicha'
 import { useDelProducto } from './useDelProducto'
 import type { DatosDePublicidad } from './PestanaSeoBusquedas'
 
@@ -98,12 +99,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
                 </p>
               </Bloque>
               <Bloque titulo="Item Highlights" medida={ficha.highlights ? `${[...ficha.highlights].length} / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres` : `— / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres`} lleno={ficha.highlights ? [...ficha.highlights].length / LIMITE_HIGHLIGHTS_CARACTERES : 0} alerta={[...(ficha.highlights ?? '')].length > LIMITE_HIGHLIGHTS_CARACTERES} copiar={ficha.highlights ?? undefined}>
-                {ficha.highlights ? <p className="text-[13px] leading-[1.5] text-[var(--ls-t1)]">{ficha.highlights}</p> : <p className="flex items-start gap-2 text-[12px] leading-[1.5] text-[var(--ls-t3)]">
-                  <Info className="mt-[3px] h-3 w-3 shrink-0" />
-                  {ficha.highlights === ''
-                    ? 'Vacíos: este tipo de producto los tiene en Amazon pero la ficha no los lleva. Se indexan igual que el título; ahí va lo que no cabe en los 75 caracteres (formato, cantidad, duración). La propuesta con IA los escribe y se mandan desde aquí.'
-                    : 'Amazon no los da por la API para este tipo de producto (o la ficha se leyó antes de mirarlo: pulsa «Actualizar»). Revísalos en Seller Central. Se indexan igual que el título; ahí va lo que no cabe en los 75 caracteres. La propuesta con IA los escribe.'}
-                </p>}
+                {asin && <HighlightsDeLaFicha key={`hl-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} recargar={recargar} />}
               </Bloque>
               <Bloque titulo="Viñetas (bullets)" medida={`${ficha.bullets.length} de 5 · ${entero(m?.bulletsBytes ?? 0)} / ${entero(LIMITE_BULLETS_BYTES)} bytes`} lleno={(m?.bulletsBytes ?? 0) / LIMITE_BULLETS_BYTES} alerta={ficha.bullets.length < 5 || (m?.bulletsBytes ?? 0) > LIMITE_BULLETS_BYTES} copiar={ficha.bullets.join('\n')}>
                 {ficha.bullets.length === 0 ? (

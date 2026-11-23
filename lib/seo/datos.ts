@@ -367,6 +367,10 @@ export interface FichaGuardada {
   tituloCambiadoAt?: string | null
   /** Migración 312: los Item Highlights (si el listing los trae con un atributo conocido), el tipo de producto y lo que Amazon dice que le pasa */
   highlights?: string | null
+  /** Migración 334: los Item Highlights puestos a mano (si Amazon no los da por la API). `highlights` ya los incluye cuando Amazon no trae los suyos */
+  highlightsManual?: { texto: string; at: string | null; por: string | null } | null
+  /** De dónde salen los `highlights`: de Amazon, puestos a mano o de ningún sitio */
+  origenHighlights?: 'amazon' | 'manual' | null
   productType?: string | null
   issues?: Array<{ code: string | null; message: string; severity: string | null; atributos: string[] }>
 }
@@ -381,6 +385,16 @@ export async function migracion312Lanzada(): Promise<boolean> {
   return hay312
 }
 
+/** ¿Está la migración 334 (Item Highlights a mano)? Se pregunta una vez por proceso (si sí) */
+let hay334: boolean | null = null
+export async function migracion334Lanzada(): Promise<boolean> {
+  if (hay334 === true) return true
+  const { error } = await createServiceClient().from('seo_fichas').select('highlights_manual').limit(1)
+  if (error && !isMissingSchema(error) && error.code !== '42703') throw error
+  hay334 = !error
+  return hay334
+}
+
 /** ¿Está la migración 304 (vigía de títulos)? Se pregunta una vez por proceso */
 let hayVigia: boolean | null = null
 export async function vigiaLanzado(): Promise<boolean> {
@@ -392,10 +406,10 @@ export async function vigiaLanzado(): Promise<boolean> {
 }
 
 export async function fichasGuardadas(connectionId: string, marketplaceId: string): Promise<FichaGuardada[]> {
-  const [vigia, m312] = await Promise.all([vigiaLanzado().catch(() => false), migracion312Lanzada().catch(() => false)])
+  const [vigia, m312, m334] = await Promise.all([vigiaLanzado().catch(() => false), migracion312Lanzada().catch(() => false), migracion334Lanzada().catch(() => false)])
   const { data, error } = await createServiceClient()
     .from('seo_fichas')
-    .select(`asin, sku, titulo, bullets, descripcion, backend, leida_at${vigia ? ', titulo_anterior, titulo_cambiado_at' : ''}${m312 ? ', highlights, product_type, issues' : ''}`)
+    .select(`asin, sku, titulo, bullets, descripcion, backend, leida_at${vigia ? ', titulo_anterior, titulo_cambiado_at' : ''}${m312 ? ', highlights, product_type, issues' : ''}${m334 ? ', highlights_manual, highlights_manual_at, highlights_manual_por' : ''}`)
     .eq('connection_id', connectionId)
     .eq('marketplace_id', marketplaceId)
   if (error) throw error
@@ -409,7 +423,31 @@ export async function fichasGuardadas(connectionId: string, marketplaceId: strin
     leidaAt: String(f.leida_at),
     ...(vigia ? { tituloAnterior: (f.titulo_anterior as string | null) ?? null, tituloCambiadoAt: (f.titulo_cambiado_at as string | null) ?? null } : {}),
     ...(m312 ? { highlights: (f.highlights as string | null) ?? null, productType: (f.product_type as string | null) ?? null, issues: Array.isArray(f.issues) ? (f.issues as NonNullable<FichaGuardada['issues']>) : [] } : {}),
+    ...(m334 ? conHighlightsAMano(f) : {}),
   }))
+}
+
+/** Los de Amazon mandan; si Amazon no trae ninguno (null o vacío), los puestos a mano */
+function conHighlightsAMano(f: Record<string, unknown>): Pick<FichaGuardada, 'highlights' | 'highlightsManual' | 'origenHighlights'> {
+  const deAmazon = typeof f.highlights === 'string' && f.highlights.trim() ? f.highlights : null
+  const manual = typeof f.highlights_manual === 'string' && f.highlights_manual.trim() ? { texto: f.highlights_manual, at: (f.highlights_manual_at as string | null) ?? null, por: (f.highlights_manual_por as string | null) ?? null } : null
+  if (deAmazon) return { highlights: deAmazon, highlightsManual: manual, origenHighlights: 'amazon' }
+  if (manual) return { highlights: manual.texto, highlightsManual: manual, origenHighlights: 'manual' }
+  return { highlights: (f.highlights as string | null) ?? null, highlightsManual: null, origenHighlights: null }
+}
+
+/** Guarda (o borra, con texto vacío) los Item Highlights puestos a mano de un producto. Hace falta la ficha leída (la fila de seo_fichas) */
+export async function guardarHighlightsAMano(connectionId: string, marketplaceId: string, asin: string, texto: string | null, userId: string): Promise<boolean> {
+  const limpio = texto?.replace(/\s+/g, ' ').trim().slice(0, 1000) || null
+  const { data, error } = await createServiceClient()
+    .from('seo_fichas')
+    .update({ highlights_manual: limpio, highlights_manual_at: limpio ? new Date().toISOString() : null, highlights_manual_por: limpio ? userId : null })
+    .eq('connection_id', connectionId)
+    .eq('marketplace_id', marketplaceId)
+    .eq('asin', asin)
+    .select('asin')
+  if (error) throw error
+  return (data ?? []).length > 0
 }
 
 export type { EstadoSeo }
