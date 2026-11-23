@@ -6,6 +6,7 @@ import { CAJA } from '@/components/marketing-test/piezas'
 import { entero } from '@/components/marketing-test/formato'
 import type { Movimientos, Mov } from '@/lib/seo/movimientos'
 import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
+import { frasesSinVentas, sinVentasEnPeriodo, type TramoSinVentas } from '@/lib/seo/sin-stock'
 
 /**
  * «MOVIMIENTOS DE LA SEMANA» (encima de las tareas de Qué hacer hoy). Un bloque por producto:
@@ -21,11 +22,14 @@ export function FranjaDeMovimientos({
   porProducto,
   nombreDe,
   gastoSemanal,
+  sinVentas = null,
   verBusqueda,
 }: {
   porProducto: ReadonlyArray<{ asin: string; mov: Movimientos }>
   nombreDe: (asin: string) => string
   gastoSemanal: GastoSemanal[] | null
+  /** Por ASIN, los tramos sin ventas en FBA (lib/seo/sin-stock.ts): si la semana tuvo días sin stock, el banner lo dice */
+  sinVentas?: Record<string, TramoSinVentas[]> | null
   verBusqueda: (asin: string, consulta: string) => void
 }) {
   if (porProducto.length === 0) return null
@@ -48,13 +52,17 @@ export function FranjaDeMovimientos({
           {conAlgo.map(({ asin, mov }) => {
             const top = [...mov.suben, ...mov.bajan, ...mov.salen].sort((a, b) => b.comprasTotalMedia - a.comprasTotalMedia).slice(0, 3)
             const gasto = gastoSemanal ? semanasDeGasto(gastoSemanal, asin, mov.semana) : null
+            const sv = sinVentas?.[asin] && mov.semana ? sinVentasEnPeriodo(sinVentas[asin], mov.semana, new Date(Date.parse(`${mov.semana}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10)) : null
+            const sinStock = sv != null && sv.dias >= 3
             return (
               <li key={asin} className="min-w-0">
                 {mov.caidaGeneral && (
                   <p className="mb-1.5 flex items-start gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12.5px]" style={{ color: COLOR_ESTADO.rojo, background: `color-mix(in srgb, ${COLOR_ESTADO.rojo} 10%, transparent)` }}>
                     <TriangleAlert className="mt-[2px] h-3.5 w-3.5 shrink-0" aria-hidden />
                     <span>
-                      Caen a la vez más de la mitad de sus búsquedas: probablemente no es SEO, revisa campañas, stock o supresión.
+                      {sinStock
+                        ? `Caen a la vez más de la mitad de sus búsquedas y esa semana se quedó sin stock: ${frasesSinVentas(sv.tramos)} No es SEO.`
+                        : 'Caen a la vez más de la mitad de sus búsquedas: probablemente no es SEO, revisa campañas, stock o supresión.'}
                       {gasto && gasto.length > 1 ? ` Gasto PPC: ${gasto.map((g) => entero(g)).join(' → ')}.` : ''}
                     </span>
                   </p>

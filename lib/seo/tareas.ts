@@ -25,6 +25,7 @@
  * apagada, rotura de stock, supresión). Sale una tarea grave para quien lleva la cuenta, con el gasto PPC de esas semanas, y sustituye a la de «caída de la cuota» de ese producto.
  */
 
+import { frasesSinVentas, sinVentasEnPeriodo, type TramoSinVentas } from './sin-stock'
 import { coberturaDe, tokens } from './cobertura'
 import type { ConsultaGuardada, FichaGuardada, ProductoSeguido, PuntoDeEvolucion } from './datos'
 import { cestaFija } from './cesta'
@@ -83,10 +84,22 @@ export interface OpcionesDeTareas {
   gastoSemanal?: ReadonlyMap<string, ReadonlyArray<{ desde: string; gasto: number }>>
   /** La moneda del gasto («€», «$»…) */
   moneda?: string
+  /** Por ASIN, los tramos sin ninguna venta en FBA (libro mayor; lib/seo/sin-stock.ts). Con ellos, las caídas dicen si en ese periodo no hubo stock */
+  sinVentas?: Readonly<Record<string, readonly TramoSinVentas[]>> | null
 }
 
 const DIA = 86_400_000
 export const DIAS_ENTRE_CAMBIOS = 30
+
+/** El último día de un periodo de Brand Analytics: el mes entero o la semana (domingo a sábado) */
+function finDelPeriodo(desde: string, periodo: 'MONTH' | 'WEEK'): string {
+  const d = new Date(`${desde.slice(0, 10)}T00:00:00Z`)
+  if (periodo === 'WEEK') return new Date(d.getTime() + 6 * DIA).toISOString().slice(0, 10)
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
+}
+
+/** Con 3 días o más sin ventas en el periodo de la caída, la explicación es el stock (o la ficha caída), no el SEO */
+const DIAS_SIN_VENTAS_EXPLICAN = 3
 export const DIAS_PARA_JUZGAR = 21
 
 const fechaLarga = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' })
@@ -246,14 +259,18 @@ export function tareasDeLaCuenta(e: EntradaDeTareas, opciones: OpcionesDeTareas 
       const gasto = [...(opciones.gastoSemanal?.get(p.asin) ?? [])].sort((a, b) => a.desde.localeCompare(b.desde)).slice(-5)
       const moneda = opciones.moneda ? ` ${opciones.moneda}` : ''
       const lineaGasto = gasto.length > 0 ? ` Gasto PPC por semana: ${gasto.map((g) => ent(g.gasto)).join(' → ')}${moneda}.` : ''
+      const sv = opciones.sinVentas?.[p.asin] ? sinVentasEnPeriodo(opciones.sinVentas[p.asin], mov.semana as string, finDelPeriodo(mov.semana as string, 'WEEK')) : null
+      const porStock = sv != null && sv.dias >= DIAS_SIN_VENTAS_EXPLICAN
       tareas.push({
         id: `${p.asin}:caida-general:${mov.semana}`,
         asin: p.asin,
         tipo: 'caida-general',
         gravedad: 'grave',
         titulo: `${nombre}: caída general en la semana del ${fechaLarga(mov.semana as string)}`,
-        detalle: `De sus ${mov.base} búsquedas de siempre, ${mov.bajan.length} bajan y ${mov.salen.length} salen del informe frente a la media de las 4 semanas anteriores.${lineaGasto}`,
-        accion: 'Probablemente no es SEO: revisa las campañas (¿se han apagado o se ha quedado sin presupuesto?), el stock y si la ficha está suprimida antes de tocar la ficha.',
+        detalle: `De sus ${mov.base} búsquedas de siempre, ${mov.bajan.length} bajan y ${mov.salen.length} salen del informe frente a la media de las 4 semanas anteriores.${lineaGasto}${porStock ? ` SIN STOCK: ${frasesSinVentas(sv.tramos)}` : ''}`,
+        accion: porStock
+          ? 'No es SEO ni publicidad: esa semana el producto se quedó sin stock en FBA. No toques la ficha; revisa en Remesas («Reponer») que no se repita y juzga la cuota con una semana entera con stock.'
+          : 'Probablemente no es SEO: revisa las campañas (¿se han apagado o se ha quedado sin presupuesto?), el stock y si la ficha está suprimida antes de tocar la ficha.',
         quien: 'Quien lleva la cuenta',
         impacto: enJuego,
         compras: enJuego,
@@ -276,15 +293,19 @@ export function tareasDeLaCuenta(e: EntradaDeTareas, opciones: OpcionesDeTareas 
       const a = antes.cuotaCompras
       const b = ahora.cuotaCompras
       const relativa = a > 0 ? (a - b) / a : 0
+      const sv = opciones.sinVentas?.[p.asin] ? sinVentasEnPeriodo(opciones.sinVentas[p.asin], ahora.desde.slice(0, 10), finDelPeriodo(ahora.desde, periodo)) : null
+      const porStock = sv != null && sv.dias >= DIAS_SIN_VENTAS_EXPLICAN
       if (antes.compras >= 5 && a - b >= 0.01 && relativa >= 0.2)
         tareas.push({
           id: `${p.asin}:caida:${ahora.desde}`,
           asin: p.asin,
           tipo: 'caida',
           gravedad: relativa >= 0.4 ? 'grave' : 'atencion',
-          titulo: `${nombre}: la cuota de compras cae de ${pct(a)} a ${pct(b)}`,
-          detalle: `${periodo === 'MONTH' ? 'Mes' : 'Semana'} del ${fechaLarga(ahora.desde)} frente al anterior${conHistorial ? ', en sus búsquedas que más venden (siempre las mismas)' : ''}: ${ent(ahora.compras)} compras frente a ${ent(antes.compras)}, con ${ent(ahora.volumen)} búsquedas frente a ${ent(antes.volumen)}.`,
-          accion: 'Mira en «Búsquedas» qué búsquedas bajan (columna «vs anterior») y en qué escalón: si es la compra, revisa Buy Box y stock antes que la ficha.',
+          titulo: `${nombre}: la cuota de compras cae de ${pct(a)} a ${pct(b)}${porStock ? ` (${sv.dias} días sin stock)` : ''}`,
+          detalle: `${periodo === 'MONTH' ? 'Mes' : 'Semana'} del ${fechaLarga(ahora.desde)} frente al anterior${conHistorial ? ', en sus búsquedas que más venden (siempre las mismas)' : ''}: ${ent(ahora.compras)} compras frente a ${ent(antes.compras)}, con ${ent(ahora.volumen)} búsquedas frente a ${ent(antes.volumen)}.${porStock ? ` SIN STOCK: ${frasesSinVentas(sv.tramos)}` : ''}`,
+          accion: porStock
+            ? `No es SEO: ${sv.dias} días del periodo sin stock en FBA explican la caída. No toques la ficha por esto; revisa en Remesas («Reponer») que no se repita y juzga la cuota con el ${periodo === 'MONTH' ? 'mes' : 'semana'} siguiente, ya con stock.`
+            : 'Mira en «Búsquedas» qué búsquedas bajan (columna «vs anterior») y en qué escalón: si es la compra, revisa Buy Box y stock antes que la ficha.',
           quien: 'Quien lleva la cuenta',
           impacto: enJuego,
           compras: enJuego,

@@ -4,6 +4,7 @@ import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
 import { historialDeConsultas, productosSeguidos } from '@/lib/seo/datos'
 import { domingoDeLaSemana } from '@/lib/seo/periodo-mostrado'
 import { gastoSemanalPorAsin, perfilesAdsDe } from '@/lib/seo/publicidad'
+import { sinVentasPorAsin } from '@/lib/seo/sin-stock-servidor'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
 
 /**
@@ -12,6 +13,7 @@ import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
  *   GET ?cuenta=&asin=&semanas=&meses=   → { filas: ConsultaHistorica[], gastoSemanal: Array<{asin, desde, gasto}> | null }
  *       · sin semanas ni meses: todas las semanas y meses leídos; con uno de los dos, solo ese tipo.
  *       · nunca pasa del periodo que se enseña (la semana a medias no entra).
+ *       · sinVentas: por ASIN, los tramos de días sin ninguna venta en FBA (libro mayor) de los últimos 150 días: probable rotura de stock (lib/seo/sin-stock.ts). null si falla.
  *       · gastoSemanal: el gasto de publicidad por ASIN y semana (domingo a sábado) de las campañas con el ASIN en el nombre. null si el cliente no tiene Marketing Test en ese país.
  *
  * Va aparte de /api/seo/cuenta para no frenar la primera pintura: la pantalla lo pide después.
@@ -55,7 +57,17 @@ export async function GET(request: NextRequest) {
       gastoSemanal = null
     }
 
-    return NextResponse.json({ filas, gastoSemanal })
+    // Los días sin ventas (probable rotura de stock), del libro mayor de FBA. Tampoco tumba el historial
+    let sinVentas: Awaited<ReturnType<typeof sinVentasPorAsin>> | null = null
+    try {
+      const asins = asin ? [asin] : (await productosSeguidos(a.connectionId, a.marketplaceId)).map((x) => x.asin)
+      sinVentas = await sinVentasPorAsin(a.connectionId, asins)
+    } catch (e) {
+      console.error('SEO: días sin ventas:', e instanceof Error ? e.message : e)
+      sinVentas = null
+    }
+
+    return NextResponse.json({ filas, gastoSemanal, sinVentas })
   } catch (error) {
     return errorDeRutaSeo(error, 'SEO: leer el historial')
   }

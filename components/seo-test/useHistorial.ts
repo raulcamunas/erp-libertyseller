@@ -4,11 +4,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { llamar } from '@/components/marketing-test/llamar'
 import type { ConsultaHistorica } from '@/lib/seo/datos'
 import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
+import type { TramoSinVentas } from '@/lib/seo/sin-stock'
 
 export interface DatosDeHistorial {
   filas: ConsultaHistorica[]
   /** Gasto de publicidad por ASIN y semana (domingo a sábado). null si el cliente no tiene Marketing Test en ese país */
   gastoSemanal: GastoSemanal[] | null
+  /** Por ASIN, los tramos sin ninguna venta en FBA (probable rotura de stock). null si no se ha podido leer */
+  sinVentas?: Record<string, TramoSinVentas[]> | null
 }
 
 /**
@@ -19,6 +22,7 @@ export function useHistorial(cuentaId: string | null | undefined, opciones: { as
   const { asin = null, semanas = null, meses = null } = opciones
   const [filas, setFilas] = useState<ConsultaHistorica[]>([])
   const [gastoSemanal, setGastoSemanal] = useState<GastoSemanal[] | null>(null)
+  const [sinVentas, setSinVentas] = useState<Record<string, TramoSinVentas[]> | null>(null)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const generacion = useRef(0)
@@ -28,6 +32,7 @@ export function useHistorial(cuentaId: string | null | undefined, opciones: { as
     if (!cuentaId) {
       setFilas([])
       setGastoSemanal(null)
+      setSinVentas(null)
       setCargando(false)
       return
     }
@@ -42,6 +47,7 @@ export function useHistorial(cuentaId: string | null | undefined, opciones: { as
       if (generacion.current !== mia) return
       setFilas(d.filas ?? [])
       setGastoSemanal(d.gastoSemanal ?? null)
+      setSinVentas(d.sinVentas ?? null)
     } catch (e) {
       if (generacion.current === mia) setError(e instanceof Error ? e.message : 'No se ha podido cargar el historial.')
     } finally {
@@ -52,11 +58,12 @@ export function useHistorial(cuentaId: string | null | undefined, opciones: { as
   useEffect(() => {
     setFilas([])
     setGastoSemanal(null)
+    setSinVentas(null)
     void cargar()
     return () => {
       generacion.current++
     }
   }, [cargar])
 
-  return { filas, gastoSemanal, cargando, error, recargar: cargar }
+  return { filas, gastoSemanal, sinVentas, cargando, error, recargar: cargar }
 }

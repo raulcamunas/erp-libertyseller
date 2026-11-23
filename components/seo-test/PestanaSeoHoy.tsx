@@ -12,6 +12,7 @@ import { BotonCopiar, DeslizableEnMovil, fichaDe, IrA, nombreDe, SELECT_PEQUENO,
 import type { DatosSeo } from './useCuentaSeo'
 import { movimientosDe, type Movimientos } from '@/lib/seo/movimientos'
 import type { ConsultaHistorica } from '@/lib/seo/datos'
+import type { TramoSinVentas } from '@/lib/seo/sin-stock'
 import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
 import { FranjaDeMovimientos } from './FranjaDeMovimientos'
 
@@ -53,7 +54,7 @@ export function PestanaSeoHoy({
   cuentaId: string
   datos: DatosSeo
   irA: (t: 'productos' | 'busquedas' | 'ficha', asin?: string) => void
-  historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; cargando: boolean }
+  historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; sinVentas?: Record<string, TramoSinVentas[]> | null; cargando: boolean }
   verBusqueda?: (asin: string, consulta: string) => void
 }) {
   const [filtro, setFiltro] = useState<Filtro>('todas')
@@ -82,8 +83,8 @@ export function PestanaSeoHoy({
         evolucion: datos.evolucion,
         precios: datos.precios,
         cambios: datos.cambios,
-      }, { movimientos }),
-    [datos, movimientos]
+      }, { movimientos, sinVentas: historial?.sinVentas ?? null }),
+    [datos, movimientos, historial?.sinVentas]
   )
 
   const marcar = (id: string, si: boolean) =>
@@ -130,6 +131,7 @@ export function PestanaSeoHoy({
           porProducto={datos.productos.filter((p) => movimientos.has(p.asin)).map((p) => ({ asin: p.asin, mov: movimientos.get(p.asin)! }))}
           nombreDe={(a) => { const p = datos.productos.find((x) => x.asin === a); return p ? nombreDe(p, fichaDe(datos, a)) : a }}
           gastoSemanal={historial.gastoSemanal}
+          sinVentas={historial.sinVentas ?? null}
           verBusqueda={verBusqueda}
         />
       )}

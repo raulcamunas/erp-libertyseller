@@ -17,6 +17,7 @@ import type { DatosSeo } from './useCuentaSeo'
 import { movimientosDe, type Movimientos } from '@/lib/seo/movimientos'
 import { tareasDeLaCuenta, type Tarea } from '@/lib/seo/tareas'
 import type { ConsultaHistorica } from '@/lib/seo/datos'
+import type { TramoSinVentas } from '@/lib/seo/sin-stock'
 import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
 import { FichaDelProducto } from './FichaDelProducto'
 import { leerRevisadas } from './PestanaSeoHoy'
@@ -41,7 +42,7 @@ export function PestanaSeoProductos({
   recargar: () => void
   verBusquedas: (asin: string) => void
   verFicha: (asin: string) => void
-  historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; cargando: boolean }
+  historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; sinVentas?: Record<string, TramoSinVentas[]> | null; cargando: boolean }
   verBusqueda?: (asin: string, consulta: string) => void
   verHoy?: () => void
   verCompetencia?: (asin: string) => void
@@ -64,9 +65,9 @@ export function PestanaSeoProductos({
     () =>
       tareasDeLaCuenta(
         { hoy: new Date().toISOString().slice(0, 10), lectura: datos.lectura, productos: datos.productos, fichas: datos.fichas, consultas: datos.consultas, evolucion: datos.evolucion, precios: datos.precios, cambios: datos.cambios },
-        { movimientos }
+        { movimientos, sinVentas: historial?.sinVentas ?? null }
       ).filter((t) => !revisadas[t.id]),
-    [datos, movimientos, revisadas]
+    [datos, movimientos, revisadas, historial?.sinVentas]
   )
   // Gasto PPC de las 4 últimas semanas por producto (null sin Marketing Test)
   const gasto4 = (asin: string): number | null => {
