@@ -32,14 +32,15 @@ export function PestanaSeoHelium({ cuentaId, datos, asin, setAsin, irAProductos 
   const [leido, setLeido] = useState<Leido | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [encima, setEncima] = useState(false)
-  const [vista, setVista] = useState<'oportunidades' | 'todas'>('oportunidades')
+  const [vista, setVista] = useState<'oportunidades' | 'todas' | 'ajenas'>('oportunidades')
+  const [decidiendo, setDecidiendo] = useState<string | null>(null)
   const [filtro, setFiltro] = useState('')
   const input = useRef<HTMLInputElement>(null)
 
   const palabras = h.datos?.palabras ?? []
   const visibles = useMemo(() => {
     const q = filtro.trim().toLowerCase()
-    return palabras.filter((p) => (vista === 'todas' || p.oportunidad > 0) && (!q || p.keyword.includes(q)))
+    return palabras.filter((p) => (vista === 'todas' || (vista === 'ajenas' ? p.decision === 'ajena' : p.oportunidad > 0)) && (!q || p.keyword.includes(q)))
   }, [palabras, vista, filtro])
   const kpis = useMemo(() => {
     const op = palabras.filter((p) => p.oportunidad > 0)
@@ -48,6 +49,7 @@ export function PestanaSeoHelium({ cuentaId, datos, asin, setAsin, irAProductos 
       oportunidades: op.length,
       volumenOportunidad: op.reduce((s, p) => s + (p.volumen ?? 0), 0),
       top10: palabras.filter((p) => p.rangoOrganico != null && p.rangoOrganico <= 10).length,
+      ajenas: palabras.filter((p) => p.decision === 'ajena').length,
       conRango: palabras.some((p) => p.rangoOrganico != null),
     }
   }, [palabras])
@@ -90,6 +92,20 @@ export function PestanaSeoHelium({ cuentaId, datos, asin, setAsin, irAProductos 
     }
   }
 
+  /** «No es nuestro producto» / deshacer: la misma decisión que en Búsquedas (vale para toda la cuenta y país) */
+  async function decidir(p: KeywordCruzada, decision: 'ajena' | 'nuestra' | null) {
+    setDecidiendo(p.keyword)
+    try {
+      if (decision) await llamar('/api/seo/ajenas', { metodo: 'POST', cuerpo: { cuenta: cuentaId, consulta: p.keyword, decision, asin } })
+      else await llamar('/api/seo/ajenas', { metodo: 'DELETE', cuerpo: { cuenta: cuentaId, consulta: p.keyword } })
+      await h.recargar()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se ha podido guardar.')
+    } finally {
+      setDecidiendo(null)
+    }
+  }
+
   async function borrar(id: string) {
     try {
       await llamar('/api/seo/helium', { metodo: 'POST', cuerpo: { cuenta: cuentaId, accion: 'borrar', id } })
@@ -100,7 +116,17 @@ export function PestanaSeoHelium({ cuentaId, datos, asin, setAsin, irAProductos 
   }
 
   const columnas: Columna<KeywordCruzada>[] = [
-    { id: 'keyword', cabecera: 'Palabra', celda: (p) => <span className="font-medium text-[var(--ls-t1)]">{p.keyword}</span>, ordenar: (p) => p.keyword, movil: 'titulo' },
+    {
+      id: 'keyword',
+      cabecera: 'Palabra',
+      celda: (p) => (
+        <span className={`font-medium ${p.decision === 'ajena' ? 'text-[var(--ls-t4)] line-through decoration-[var(--ls-t4)]/60' : 'text-[var(--ls-t1)]'}`} title={p.decision === 'ajena' ? 'No es nuestro producto: no cuenta como oportunidad ni le llega a la IA' : undefined}>
+          {p.keyword}
+        </span>
+      ),
+      ordenar: (p) => p.keyword,
+      movil: 'titulo',
+    },
     { id: 'volumen', cabecera: 'Volumen', celda: (p) => formatoEntero(p.volumen ?? 0), ordenar: (p) => p.volumen ?? 0, alinear: 'derecha', movil: 'dato' },
     { id: 'iq', cabecera: 'IQ', celda: (p) => (p.cerebroIq != null ? formatoEntero(p.cerebroIq) : '—'), ordenar: (p) => p.cerebroIq ?? -1, alinear: 'derecha', movil: 'oculto' },
     { id: 'rango', cabecera: 'Rango orgánico', celda: (p) => (p.rangoOrganico != null ? <span style={{ color: p.rangoOrganico <= 10 ? COLOR_ESTADO.verde : p.rangoOrganico <= 50 ? 'var(--ls-t1)' : COLOR_ESTADO.ambar }}>#{p.rangoOrganico}</span> : '—'), ordenar: (p) => p.rangoOrganico ?? 9999, alinear: 'derecha', movil: 'dato', rotuloMovil: 'Rango' },
@@ -111,6 +137,22 @@ export function PestanaSeoHelium({ cuentaId, datos, asin, setAsin, irAProductos 
       cabecera: 'Oportunidad',
       celda: (p) => <BarraOportunidad valor={p.oportunidad} max={palabras[0]?.oportunidad ?? 1} titulo={p.motivo} />,
       ordenar: (p) => p.oportunidad,
+      alinear: 'derecha',
+      movil: 'dato',
+    },
+    {
+      id: 'decision',
+      cabecera: '',
+      celda: (p) =>
+        p.decision === 'ajena' ? (
+          <button type="button" disabled={decidiendo === p.keyword} onClick={() => void decidir(p, null)} className="whitespace-nowrap rounded-[8px] px-2 py-1 text-[12px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)] disabled:opacity-50 [@media(pointer:coarse)]:min-h-[40px]">
+            Deshacer
+          </button>
+        ) : p.enBrandAnalytics ? null : (
+          <button type="button" disabled={decidiendo === p.keyword} onClick={() => void decidir(p, 'ajena')} title="La palabra es de otro producto o de otra marca: deja de ser oportunidad (también en Búsquedas y en la propuesta con IA)" className="whitespace-nowrap rounded-[8px] px-2 py-1 text-[12px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)] disabled:opacity-50 [@media(pointer:coarse)]:min-h-[40px]">
+            No es nuestro
+          </button>
+        ),
       alinear: 'derecha',
       movil: 'dato',
     },
@@ -188,7 +230,7 @@ export function PestanaSeoHelium({ cuentaId, datos, asin, setAsin, irAProductos 
               </FilaDeKpis>
               {h.datos && h.datos.busquedasBA === 0 && <p className="text-[12.5px]" style={{ color: COLOR_ESTADO.ambar }}>Este producto aún no tiene búsquedas de Brand Analytics: hasta que lleguen, todas las palabras salen como «no sale».</p>}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Segmentado etiqueta="Qué palabras" opciones={[{ id: 'oportunidades', texto: 'Oportunidades', cuenta: kpis.oportunidades }, { id: 'todas', texto: 'Todas', cuenta: kpis.total }]} valor={vista} onCambio={setVista} tamano="sm" />
+                <Segmentado etiqueta="Qué palabras" opciones={[{ id: 'oportunidades', texto: 'Oportunidades', cuenta: kpis.oportunidades }, { id: 'todas', texto: 'Todas', cuenta: kpis.total }, ...(kpis.ajenas > 0 ? [{ id: 'ajenas' as const, texto: 'No son nuestras', cuenta: kpis.ajenas }] : [])]} valor={vista} onCambio={setVista} tamano="sm" />
                 <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Buscar palabra…" className="h-[34px] w-full rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc-graf)] sm:ml-auto sm:w-[260px] [@media(pointer:coarse)]:h-[44px] [@media(pointer:coarse)]:text-[16px]" />
               </div>
               <TablaAdaptable etiqueta="Palabras de Helium 10" columnas={columnas} filas={visibles} claveDe={(p) => p.keyword} ordenInicial={{ id: 'oportunidad', sentido: 'desc' }} cargando={h.cargando && !h.datos} vacio={{ icono: Search, titulo: 'Ninguna palabra con ese filtro' }} />

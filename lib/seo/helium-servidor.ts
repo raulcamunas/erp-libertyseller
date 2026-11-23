@@ -5,6 +5,8 @@
  * sus palabras (seo_helium_keywords). Para cruzar se usan la última de Cerebro/Magnet y la última del Keyword Tracker de ese producto.
  */
 
+import { decisionesDeBusquedas } from './ajenas-servidor'
+import { revisarPalabrasConIa } from './helium-ia'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import type { TextosDeFicha } from './cobertura'
@@ -148,6 +150,27 @@ export async function heliumDe(c: { connectionId: string; marketplaceId: string 
   const cerebro = importaciones.find((i) => i.tipo === 'cerebro' || i.tipo === 'magnet')
   const tracker = importaciones.find((i) => i.tipo === 'keyword_tracker')
   if (!cerebro && !tracker) return { importaciones, palabras: [], busquedasBA: 0 }
-  const [kc, kt, consultas, ficha] = await Promise.all([cerebro ? keywordsDe(cerebro.id) : [], tracker ? keywordsDe(tracker.id) : [], consultasDelProducto(c, asin), fichaDe(c, asin)])
-  return { importaciones, palabras: cruzarConBrandAnalytics(juntarImportaciones(kc, kt), consultas, ficha), busquedasBA: consultas.length }
+  const [kc, kt, consultas, ficha, dec] = await Promise.all([
+    cerebro ? keywordsDe(cerebro.id) : [],
+    tracker ? keywordsDe(tracker.id) : [],
+    consultasDelProducto(c, asin),
+    fichaDe(c, asin),
+    decisionesDeBusquedas(c.connectionId, c.marketplaceId).catch(() => ({ ajenas: [] as string[], nuestras: [] as string[], disponible: false })),
+  ])
+  const juntas = juntarImportaciones(kc, kt)
+  const cruzar = (d: { ajenas: string[]; nuestras: string[] }) => cruzarConBrandAnalytics(juntas, consultas, ficha, { ajenas: new Set(d.ajenas), nuestras: new Set(d.nuestras) })
+  let palabras = cruzar(dec)
+  // Las oportunidades sin decidir las mira la IA (¿son de este producto?): las de otro producto o de otra marca salen de la lista y de la propuesta
+  if (dec.disponible && ficha) {
+    const sinDecidir = palabras.filter((p) => p.oportunidad > 0 && p.decision == null).map((p) => p.keyword)
+    if (sinDecidir.length > 0) {
+      try {
+        const n = await revisarPalabrasConIa(c, asin, { titulo: ficha.titulo, bullets: ficha.bullets }, sinDecidir)
+        if (n > 0) palabras = cruzar(await decisionesDeBusquedas(c.connectionId, c.marketplaceId))
+      } catch (e) {
+        console.error('SEO: revisar las palabras de Helium 10 con la IA:', e instanceof Error ? e.message : e)
+      }
+    }
+  }
+  return { importaciones, palabras, busquedasBA: consultas.length }
 }

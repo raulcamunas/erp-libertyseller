@@ -11,7 +11,7 @@
  */
 
 import { spApiRequest, type AmazonCredentials } from '@/lib/amazon/sp-api'
-import { highlightsDeAtributos, idiomasDeAtributo, valoresDeAtributo } from './edicion'
+import { atributoDeHighlights, highlightsDeAtributos, idiomasDeAtributo, valoresDeAtributo } from './edicion'
 import { IDIOMA_DE_MARKETPLACE } from './propuesta'
 
 export interface FichaLeida {
@@ -107,6 +107,19 @@ export async function leerFichas(creds: AmazonCredentials, marketplaceId: string
       const f = fichaDeItem(item, marketplaceId)
       if (f) salida.push(f)
     }
+  }
+  // Item Highlights: si el listing no trae el campo relleno, no aparece en sus atributos y no se sabía si el tipo de producto no lo tiene o si está vacío. Se
+  // pregunta a la definición del tipo (una vez por tipo, con caché): si lo tiene, se lee por su nombre y, vacío, queda '' (existe y está vacío); si no lo tiene, null
+  const { propiedadesDelTipo } = await import('./edicion-servidor')
+  const atributoPorTipo = new Map<string, string | null>()
+  for (const f of salida) {
+    if (f.highlights != null || !f.productType) continue
+    if (!atributoPorTipo.has(f.productType)) {
+      const props = await propiedadesDelTipo(creds, marketplaceId, f.productType).catch(() => null)
+      atributoPorTipo.set(f.productType, props ? atributoDeHighlights(props) : null)
+    }
+    const atributo = atributoPorTipo.get(f.productType)
+    if (atributo) f.highlights = highlightsDeAtributos(f.atributos, marketplaceId, atributo, f.languageTag) ?? ''
   }
   return salida
 }

@@ -8,6 +8,7 @@
  * La puntuación de oportunidad ordena, no decide: volumen de Helium 10, más si las palabras no están en la ficha y si el rango orgánico es malo o no hay.
  */
 
+import { claveDeBusqueda } from './embudo'
 import { coberturaDe, type TextosDeFicha } from './cobertura'
 import { normalizarConsulta } from './top-terminos'
 
@@ -34,6 +35,8 @@ export interface KeywordCruzada extends KeywordH10 {
   /** 0 = no es oportunidad (ya sale en Brand Analytics); cuanto más, mejor */
   oportunidad: number
   motivo: string
+  /** «No es nuestro producto» / «Sí es nuestro» (la misma decisión que en Búsquedas, migración 333; la puede tomar una persona o la IA al revisar las oportunidades) */
+  decision: 'ajena' | 'nuestra' | null
 }
 
 /** Junta lo de varias importaciones de un producto: el Cerebro/Magnet más reciente pone volumen e IQ; el Keyword Tracker más reciente pone el rango */
@@ -50,7 +53,12 @@ export function juntarImportaciones(cerebro: readonly KeywordH10[], tracker: rea
 }
 
 /** Las palabras de Helium 10 cruzadas con las búsquedas de Brand Analytics del producto y con su ficha, ordenadas por oportunidad */
-export function cruzarConBrandAnalytics(keywords: readonly KeywordH10[], consultasBA: readonly string[], ficha: TextosDeFicha | null): KeywordCruzada[] {
+export function cruzarConBrandAnalytics(
+  keywords: readonly KeywordH10[],
+  consultasBA: readonly string[],
+  ficha: TextosDeFicha | null,
+  decisiones: { ajenas: ReadonlySet<string>; nuestras: ReadonlySet<string> } = { ajenas: new Set(), nuestras: new Set() },
+): KeywordCruzada[] {
   const ba = new Set(consultasBA.map(normalizarConsulta))
   return keywords
     .map((k) => {
@@ -67,7 +75,11 @@ export function cruzarConBrandAnalytics(keywords: readonly KeywordH10[], consult
         oportunidad = Math.round(vol * factorFicha * factorRango)
         motivo = !enFicha ? `Tiene ${vol.toLocaleString('es-ES')} búsquedas y faltan en la ficha: ${cob?.faltan.join(', ') ?? 'todas'}` : r == null || r > 10 ? `Las palabras ya están en la ficha pero no posiciona${r ? ` (puesto ${r})` : ''}` : `Posiciona en el puesto ${r} aunque Brand Analytics no la registra aún`
       }
-      return { ...k, enBrandAnalytics, enFicha, enTitulo: cob?.titulo ?? false, faltan: cob?.faltan ?? [], oportunidad, motivo }
+      const clave = claveDeBusqueda(k.keyword)
+      const decision = decisiones.ajenas.has(clave) ? ('ajena' as const) : decisiones.nuestras.has(clave) ? ('nuestra' as const) : null
+      // Una palabra de otro producto no es una oportunidad, por mucho volumen que tenga: ni sale en la lista ni le llega a la IA de la propuesta
+      if (decision === 'ajena') return { ...k, enBrandAnalytics, enFicha, enTitulo: cob?.titulo ?? false, faltan: cob?.faltan ?? [], oportunidad: 0, motivo: 'No es nuestro producto', decision }
+      return { ...k, enBrandAnalytics, enFicha, enTitulo: cob?.titulo ?? false, faltan: cob?.faltan ?? [], oportunidad, motivo, decision }
     })
     .sort((a, b) => b.oportunidad - a.oportunidad || (b.volumen ?? 0) - (a.volumen ?? 0))
 }
