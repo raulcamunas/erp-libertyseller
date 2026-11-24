@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { ConflictoDeVersion, EstadoCambiado, cajasDeRemesa, guardarCajas, type ClienteDeBase } from './cajas'
 import { registrarEnHistorial } from './historial'
+import { avisarEncajeTerminado } from './encaje-aviso'
 import { limpiarCajas } from './cajas-validacion'
 import { porQueNoSePuedeEncajar, resumirEncaje, type CajaEnEdicion, type LineaParaEncajar } from './encaje-resumen'
 import { puedeAvanzar, puedeEditarCajas, type EstadoRemesa } from './flujo'
@@ -383,5 +384,7 @@ export async function terminarEncaje(r: Extract<ResolucionDeEnlace, { ok: true }
 
   await service.from('fba_enlaces_encaje').update({ terminado_at: iso }).eq('id', r.enlace.id)
   await registrarEnHistorial({ remesaId: r.remesa.id, actor: 'enlace', enlaceId: r.enlace.id, accion: 'encaje_terminado', desde: 'encajando', hasta: 'lista', ip }, service, ahora)
+  // Que la agencia se entere (campana y chat). Nunca lanza
+  await avisarEncajeTerminado(service as Parameters<typeof avisarEncajeTerminado>[0], r.remesa.id, 'enlace', iso)
   return { ok: true }
 }

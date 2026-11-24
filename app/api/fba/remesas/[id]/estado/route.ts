@@ -5,6 +5,7 @@ import { cajasDeRemesa } from '@/lib/fba/cajas'
 import { eventoDeCambioDeRemesa, invalidarCaches, seguirARemesa } from '@/lib/fba/envios-propuestos-servidor'
 import { puedeAvanzar, type EstadoRemesa } from '@/lib/fba/flujo'
 import { registrarEnHistorial } from '@/lib/fba/historial'
+import { avisarEncajeTerminado } from '@/lib/fba/encaje-aviso'
 import { createServiceClient } from '@/lib/supabase/service'
 
 /**
@@ -229,6 +230,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         }
       }
       return NextResponse.json({ error: 'Alguien acaba de mover esta remesa de paso. Recarga para ver lo último.', conflicto: true }, { status: 409 })
+    }
+
+    // El cliente ha terminado de encajar desde el ERP: aviso a la agencia (campana y chat), como desde su enlace. Nunca lanza
+    if (actor === 'cliente' && remesa.estado === 'encajando' && hasta === 'lista') {
+      await avisarEncajeTerminado(service, params.id, 'cliente', String(cambios.lista_at))
     }
 
     if (resumenAprobacion) {
