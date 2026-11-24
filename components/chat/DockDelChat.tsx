@@ -9,6 +9,7 @@ import { pedirCanalAlChat, ponerChatAbiertoEnElDock, proveedorDelChatVivo } from
 import { ponerPastillaDelChatVisible, quitarVistaPrevia, type VistaPrevia } from '@/lib/chat/vista-previa'
 import { ChatApp } from './ChatApp'
 import { VistasPreviasDelChat } from './VistasPreviasDelChat'
+import { useEsquinaOcupada } from './useEsquinaOcupada'
 
 const PREGUNTAR_CADA_MS = 60_000
 /** Lo que tiene que quedar libre encima de la ventana flotante para que los avisos vayan encima (un aviso mide ~110 px); si no, van a su izquierda */
@@ -61,6 +62,8 @@ export function DockDelChat() {
   const ofrecido = ancho >= ANCHO_MINIMO_PARA_EL_DOCK && seOfreceElDock(ruta)
   const efectivo = modoEfectivo(modo, ancho)
   const abierto = ofrecido && efectivo !== 'cerrado'
+  // Si la pastilla taparía un botón o texto (los paneles laterales ponen ahí los suyos), se aparta al borde derecho, a media altura
+  const apartada = useEsquinaOcupada(ofrecido && efectivo === 'cerrado', () => document.querySelector<HTMLElement>('.chat-dock-pastilla'))
 
   // Lo que se aparta la página por la derecha, y si el chat está a la vista (para que la campana no repita avisos)
   useEffect(() => {
@@ -90,6 +93,11 @@ export function DockDelChat() {
       return
     }
     const lateral = efectivo === 'lateral'
+    // Apartada al borde, la esquina queda libre: la junta y los avisos vuelven a su sitio de siempre
+    if (apartada && efectivo === 'cerrado') {
+      quitar()
+      return
+    }
     const poner = () => {
       raiz.style.setProperty('--junta-derecha', `${18 + el.offsetWidth + 10}px`)
       // Encima de la ventana flotante no cabe un aviso (la han hecho casi tan alta como la pantalla): se ponen a su izquierda, abajo
@@ -112,7 +120,7 @@ export function DockDelChat() {
       window.removeEventListener('resize', poner)
       quitar()
     }
-  }, [ofrecido, efectivo, abierto, sinLeer])
+  }, [ofrecido, efectivo, abierto, sinLeer, apartada])
 
   // Arrastrar un borde de la ventana flotante: mientras se arrastra se toca el estilo directamente (sin repintar el chat a cada movimiento); al soltar se guarda
   const guardarTamano = useCallback((t: TamanoDelDock) => {
@@ -202,7 +210,7 @@ export function DockDelChat() {
     <>
       {pastillaVisible && <VistasPreviasDelChat alAbrir={abrirDesdeUnaTarjeta} />}
       {ofrecido && efectivo === 'cerrado' && (
-        <button type="button" className="chat-dock-pastilla" data-menciona={sinLeer.menciones > 0 ? 'true' : undefined} onClick={() => cambiar('pequeno')} aria-label={total > 0 ? `Abrir el chat (${total} sin leer)` : 'Abrir el chat'}>
+        <button type="button" className="chat-dock-pastilla" data-apartada={apartada ? 'true' : undefined} title={apartada ? 'Chat' : undefined} data-menciona={sinLeer.menciones > 0 ? 'true' : undefined} onClick={() => cambiar('pequeno')} aria-label={total > 0 ? `Abrir el chat (${total} sin leer)` : 'Abrir el chat'}>
           <MessagesSquare className="h-4 w-4" />
           <span>Chat</span>
           {total > 0 && <b key={total}>{insignia}</b>}

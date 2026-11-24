@@ -5104,6 +5104,10 @@ kbd { border-radius: 6px; border: 1px solid var(--ls-linea2); background: var(--
 .chat-dock-pastilla svg { color: var(--ls-acc); }
 .chat-dock-pastilla b { min-width: 20px; border-radius: 999px; background: var(--ls-acc); padding: 1px 6px; text-align: center; font-size: 11px; font-weight: 700; line-height: 16px; color: var(--ls-acc-tinta); }
 .chat-dock-pastilla[data-menciona='true'] b { background: var(--ls-e-rojo); color: #fff; }
+/* Apartada (components/chat/useEsquinaOcupada.ts): en la esquina taparía un botón o texto, así que se queda como una pestañita pegada al borde derecho, a media altura */
+.chat-dock-pastilla[data-apartada='true'] { right: 0; bottom: 50%; translate: 0 50%; height: 44px; gap: 6px; border-right-width: 0; border-radius: 14px 0 0 14px; padding: 0 9px 0 11px; box-shadow: -10px 10px 30px -14px rgba(0, 0, 0, .7); }
+.chat-dock-pastilla[data-apartada='true'] > span { display: none; }
+.chat-dock-pastilla[data-apartada='true']:hover { transform: translateX(-3px); }
 .chat-dock { position: fixed; z-index: 70; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--ls-linea2); background: var(--ls-fondo); }
 .chat-dock[hidden] { display: none; }
 .chat-dock[data-modo='pequeno'] { right: 18px; bottom: 18px; width: min(var(--dock-w, 380px), calc(100vw - 36px)); height: min(var(--dock-h, 580px), calc(100dvh - 36px)); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .8); }
