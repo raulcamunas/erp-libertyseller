@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, Tooltip, XAxis, YAxis } from 'recharts'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Boton, Insignia } from '@/components/ui-ls'
@@ -157,11 +158,21 @@ function GraficoCronograma({
     )
   }
 
-  function Contenido({ active, payload }: { active?: boolean; payload?: Array<{ payload?: FilaCronograma }> }) {
+  // El recuadro se pinta SOBRE la página (portal al <body>, posición fija): con pocos envíos el gráfico mide 140 px y el recuadro, ~200;
+  // dentro del gráfico se cortaba por abajo (24 nov 2026). Se coloca junto al ratón y, si no cabe abajo o a la derecha, al otro lado.
+  const caja = useRef<HTMLDivElement>(null)
+  function Contenido({ active, payload, coordinate }: { active?: boolean; payload?: Array<{ payload?: FilaCronograma }>; coordinate?: { x?: number; y?: number } }) {
     const f = active ? payload?.[0]?.payload : undefined
-    if (!f) return null
-    return (
-      <div className="pointer-events-none min-w-[210px] max-w-[280px] rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12.5px] shadow-[var(--ls-sombra-2)]">
+    const r = caja.current?.getBoundingClientRect()
+    if (!f || !r || typeof document === 'undefined') return null
+    const ANCHO = 290
+    const ALTO = 210
+    const px = r.left + (coordinate?.x ?? 0)
+    const py = r.top + (coordinate?.y ?? 0)
+    const left = px + 16 + ANCHO > window.innerWidth - 8 ? Math.max(8, px - 16 - ANCHO) : px + 16
+    const top = py + 16 + ALTO > window.innerHeight - 8 ? Math.max(8, py - 16 - ALTO) : py + 16
+    return createPortal(
+      <div style={{ position: 'fixed', left, top, zIndex: 90 }} className="pointer-events-none min-w-[210px] max-w-[280px] rounded-[10px] border border-[var(--ls-linea2)] bg-[var(--ls-sup2)] px-3 py-2 text-[12.5px] shadow-[var(--ls-sombra-2)]">
         <p className="font-semibold text-[var(--ls-t1)]">{f.nombre}</p>
         {f.referenciaEnvio && <p className="font-mono text-[11.5px] text-[var(--ls-t4)]">{f.referenciaEnvio}</p>}
         <dl className="mt-1 space-y-[2px] text-[var(--ls-t3)]">
@@ -173,7 +184,8 @@ function GraficoCronograma({
           {f.marca80 !== null && <Linea k="80 % vendido">{`día ${f.marca80 - f.inicio - f.transito}`}</Linea>}
           {f.estimado > 0 && f.agotaraElEstimado && <Linea k="Se agotará">{`~${fechaCorta(f.agotaraElEstimado)} (estimado)`}</Linea>}
         </dl>
-      </div>
+      </div>,
+      document.body
     )
   }
 
@@ -194,6 +206,7 @@ function GraficoCronograma({
           50 % y 80 % vendido
         </span>
       </div>
+      <div ref={caja}>
       <Grafico etiqueta="Cronograma de los envíos: tránsito, venta y lo que les queda" alto={Math.max(140, datos.length * ALTO_FILA + 46)} vacio={datos.length === 0} textoVacio="Todavía no hay envíos que colocar en el tiempo">
         <BarChart data={datos} layout="vertical" margin={{ top: 16, right: 18, left: 0, bottom: 0 }} barCategoryGap={8}>
           <defs>
@@ -217,6 +230,7 @@ function GraficoCronograma({
           {crono.hoy !== null && <ReferenceLine x={crono.hoy} stroke="var(--ls-mod-remesas)" strokeDasharray="3 3" label={{ value: 'hoy', position: 'top', fill: 'var(--ls-t3)', fontSize: 11 }} />}
         </BarChart>
       </Grafico>
+      </div>
     </div>
   )
 }
