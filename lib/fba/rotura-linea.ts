@@ -10,7 +10,7 @@
  */
 import type { LineaPlan, MotivoFuera } from './plan-tipos'
 
-export const FUERA_SIN_ROTURA: readonly MotivoFuera[] = ['descatalogada', 'no_comprable', 'sin_ventas', 'sin_datos', 'agotado_largo', 'talla_sin_ventas', 'exceso']
+export const FUERA_SIN_ROTURA: readonly MotivoFuera[] = ['descatalogada', 'no_comprable', 'sin_ventas', 'sin_datos', 'agotado_largo', 'talla_sin_ventas', 'exceso', 'fuera_de_temporada']
 
 type LineaRotura = Pick<LineaPlan, 'fuera' | 'fechaRotura'> & { ritmo: Pick<LineaPlan['ritmo'], 'confianza'> }
 

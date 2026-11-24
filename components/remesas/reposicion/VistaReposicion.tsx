@@ -26,6 +26,7 @@ import { usePlan } from '../comun/usePlan'
 import { cx } from '../comun/ui'
 import { GruposDeAtencion } from './GruposDeAtencion'
 import { PanelReponer } from './PanelReponer'
+import { VendeFbmSinFba } from './VendeFbmSinFba'
 import { TablaPlanSku } from './TablaPlanSku'
 import { etapasDelPlazo, textoAcierto, textoPlazo, tonoAcierto } from './calculos'
 
@@ -409,6 +410,10 @@ export function VistaReposicion({ sesion, cliente, onAbrirEnvioPropuesto, onIrA,
             alCambiar={() => void datos.recargar()}
           />
         </div>
+
+        {plan.calidad.fbmSinFba && plan.calidad.fbmSinFba.length > 0 && (
+          <VendeFbmSinFba lista={plan.calidad.fbmSinFba} leidoHasta={plan.calidad.fbmLeidoHasta} hoy={hoy} />
+        )}
 
         <div ref={refTabla} className="min-w-0 scroll-mt-24 space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-2">

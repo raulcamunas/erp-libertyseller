@@ -4,7 +4,7 @@ import { puedeEditar, puedeVer, requireFbaAccess, type SesionFba } from '@/lib/f
 import { leerEnvios } from '@/lib/fba/envios-propuestos-servidor'
 import { diaEnEspana } from '@/lib/fba/fechas'
 import { avisarPlanCliente } from '@/lib/fba/plan-avisos'
-import { estadoDePasada, planificarCliente } from '@/lib/fba/plan-cliente'
+import { estadoDePasada } from '@/lib/fba/plan-cliente'
 import {
   AVISO_FALTA_316,
   aCachePlan,
@@ -14,6 +14,7 @@ import {
   invalidarCachePlan,
   leerEntradaPlan,
   leerUltimaPasada,
+  planificarConTemporadas,
 } from '@/lib/fba/plan-datos'
 import { faltaLaTabla } from '@/lib/fba/planificacion'
 import { planParaCliente } from '@/lib/fba/recorte-cliente'
@@ -84,7 +85,7 @@ function calcularConCandado(clienteId: string, hoy: string, guardar: boolean): P
     }
     // Sin la 316: solo en memoria
     const leida = await leerEntradaPlan(service, clienteId, hoy)
-    const plan = planificarCliente(leida.entrada).plan
+    const plan = (await planificarConTemporadas(service, clienteId, leida.entrada)).plan
     if (!plan.calidad.avisos.includes(AVISO_FALTA_316)) plan.calidad.avisos.push(AVISO_FALTA_316)
     return { plan, pasadaId: null, migracion316: false }
   })()

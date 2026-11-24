@@ -162,6 +162,21 @@ export const TAREAS_CRON = [
       'descuenta las remesas y lo que permite cuadrarlas.',
   },
   {
+    /**
+     * CADA 5 MINUTOS: PIDE O RECOGE EL INFORME DE PEDIDOS DE CADA CUENTA (24 nov 2026).
+     *
+     * Las ventas por canal (FBA y FBM) para el plan de reposición: un ASIN que vende por FBM cuenta aunque en FBA no haya stock (lib/fba/pedidos.ts).
+     * No espera a Amazon: en una pasada pide el informe y en otra lo recoge. Al día, cada cuenta se relee cada 6 horas. Solo lee de Amazon.
+     */
+    id: 'fba-pedidos',
+    nombre: 'Ventas FBA y FBM (pedidos)',
+    ruta: '/api/fba/cron-pedidos',
+    cadaMinutos: 5,
+    que:
+      'Lee de Amazon los pedidos de cada cuenta con FBA y guarda cuántas unidades se venden al día de cada referencia, por FBA y por FBM ' +
+      '(sin nada del comprador). Con eso el plan de reposición cuenta también lo que el cliente vende desde su almacén.',
+  },
+  {
     id: 'fba-seguimiento',
     nombre: 'Seguimiento de envíos a FBA',
     ruta: '/api/fba/cron-seguimiento',
@@ -582,6 +597,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'pcc-precios': { prioridad: 'normal' },
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
+  'fba-pedidos': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'fba-planificador': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },

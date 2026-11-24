@@ -25,6 +25,8 @@ import { MERCADO_ESPANA, stockEntreMercados } from './lectura-elegida'
 import { caminoEsDudoso, ESTADOS_AMAZON_RECIBIENDO, llegadaPrevistaDeCamino, llegadasDeSku, type ComprometidoRemesa, type EnvioHablado } from './llegadas'
 import { cajaDeducida, medirCadencia, medirRecepcion, medirTransporte, mercadoDeRemesa } from './medidas-cliente'
 import { modeloDesdeSku, patronesDeCliente } from './modelo-sku'
+import { fbmEntre, repartirFbm, sumarFbmASerie, type VentaFbm } from './fbm-plan'
+import type { Temporada } from './temporada'
 import {
   ajustarPorModelo,
   dinero,
@@ -175,6 +177,13 @@ export interface EntradaPlanCliente {
   descartes: Array<{ prioridad: Prioridad; estadoCambiadoAt: string; skus: string[]; prioridadPorSku?: Record<string, Prioridad> }>
   /** Ritmos previstos de la pasada de hace ~30 días, para el acierto (D43.2) */
   pasadaAnterior: { hoy: string; previstos: Record<string, number> } | null
+  /**
+   * Ventas FBM por día y SKU (24 nov 2026, migración 335; lib/fba/fbm-plan.ts). `desde`/`hasta`: lo que cubren los pedidos leídos. `nombres`: el
+   * título de los SKU FBM, para la lista de «vende por FBM y no está en FBA». Ausente o null = no se leen pedidos: el plan es solo FBA.
+   */
+  ventasFbm?: { desde: string | null; hasta: string | null; ventas: VentaFbm[]; nombres?: Record<string, string> } | null
+  /** Temporada por clave (el modelo, o el SKU si no tiene), de `fba_temporadas`. Ausente = sin la 335: no se mira la temporada */
+  temporadas?: Record<string, Temporada>
 }
 
 /* ------------------------------------------------------------------ */
@@ -486,6 +495,22 @@ function estadisticasDe(movs: readonly MovimientoDiario[], leidoHasta: string | 
   return e
 }
 
+/** Las ventas FBM (mismo ASIN) en las estadísticas del SKU: ventas de 90 y 180 días (la curva de tallas), el año por día (el perfil) y la última venta */
+function sumarFbmAEstadisticas(e: EstadisticasSku, fbm: ReadonlyMap<string, number>, desdeFbm: string, leidoHasta: string): void {
+  const d90 = sumarDias(leidoHasta, -89)
+  const d180 = sumarDias(leidoHasta, -179)
+  const d365 = sumarDias(leidoHasta, -364)
+  const ano = new Map(e.anoPorDia.map((d) => [d.fecha, d.unidades] as const))
+  for (const [f, u] of fbm) {
+    if (f < desdeFbm || f > leidoHasta || !(u > 0)) continue
+    if (!e.ultimaVenta || f > e.ultimaVenta) e.ultimaVenta = f
+    if (f >= d90) e.ventas90 += u
+    if (f >= d180) e.ventas180 += u
+    if (f >= d365) ano.set(f, (ano.get(f) ?? 0) + u)
+  }
+  e.anoPorDia = [...ano.entries()].map(([fecha, unidades]) => ({ fecha, unidades }))
+}
+
 /**
  * % del stock vendible con más de 180 días, estimado por FIFO (lo que queda es lo último que llegó). Lo que no explican las
  * entradas del libro llegó antes de que empezara: cuenta como viejo. Solo con el libro completo; si no, null.
@@ -518,6 +543,8 @@ export interface ResultadoPlanCliente {
   /** Para el resumen de la pasada: el ritmo previsto de cada SKU con ritmo (acierto dentro de 30 días) */
   previstos: Record<string, number>
   movimientos90: number
+  /** Claves (modelo o SKU) sin temporada guardada: las clasifica temporada-servidor.ts (regla y, en calzado, la IA) y se recalcula */
+  temporadasPendientes: Array<{ clave: string; nombre: string | null; conTalla: boolean }>
 }
 
 export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCliente {
@@ -633,6 +660,10 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
   // A6.3: el día de la lectura, si es HOY, va a medias (la pasada lee a primera hora): el ritmo se calcula hasta AYER. El stock no se descuadra:
   // serieDiaria estima lo vendido desde el último día leído (el «atraso»). Antes, 2 ventas de 9 horas contaban como un día entero y r14 bajaba hasta un 7 %
   const fechaSerie = leidoHasta && leidoHasta >= hoy ? sumarDias(hoy, -1) : (leidoHasta ?? hoy)
+  // Las ventas FBM del mismo ASIN se suman a cada SKU FBA (lib/fba/fbm-plan.ts); las de ASIN que no están en el plan, aparte
+  const asinDeSku = new Map<string, string | null>(skus.map((sku) => [sku, (listingsPorSku.get(sku) ?? []).find((l) => l.asin)?.asin ?? null] as const))
+  const fbm = entrada.ventasFbm ? repartirFbm(entrada.ventasFbm.ventas, skus, asinDeSku, fechaSerie) : null
+  const desdeFbm = entrada.ventasFbm?.desde ?? null
   // Días sin stock del año (para que el perfil no lea «no vendió» donde no había qué vender) y si el SKU tiene el año entero
   const sinStockAno = new Map<string, Set<string>>()
   const anoCompleto = new Set<string>()
@@ -640,9 +671,11 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
   for (const sku of skus) {
     const movs = movsPorSku.get(sku) ?? []
     const v = stock.get(sku)?.vendibles ?? 0
-    const serie = serieDiaria([...centinela, ...movs], sku, v, fechaSerie, hoy, 365)
+    const fbmSku = fbm?.porSku.get(sku)
+    const serie = sumarFbmASerie(serieDiaria([...centinela, ...movs], sku, v, fechaSerie, hoy, 365), fbmSku, desdeFbm).serie
     series.set(sku, serie)
     const e = estadisticasDe(movs, leidoHasta)
+    if (fbmSku && leidoHasta && desdeFbm) sumarFbmAEstadisticas(e, fbmSku, desdeFbm, leidoHasta)
     estad.set(sku, e)
     if (libroAnual && inicioAno && leidoHasta) {
       const sinStock = new Set<string>()
@@ -756,6 +789,30 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
     }))
   }
 
+  if (fbm) {
+    for (const [sku, m] of fbm.porSku) {
+      const r = ritmos.get(sku)
+      if (!r) continue
+      const u = fbmEntre(m, desdeFbm ? maxFecha(desdeFbm, sumarDias(fechaSerie, -89)) : sumarDias(fechaSerie, -89), fechaSerie)
+      if (u > 0) ritmos.set(sku, { ...r, fbm90: u })
+    }
+  }
+
+  /* ---------- temporada: la del modelo (o la del SKU sin modelo); lo que no se sabe se pide clasificar ---------- */
+  const claveTemporada = (sku: string): string => modeloDe.get(sku)?.modelo ?? sku
+  const temporadasPendientes: ResultadoPlanCliente['temporadasPendientes'] = []
+  if (entrada.temporadas) {
+    const vistas = new Set<string>()
+    for (const sku of skus) {
+      const clave = claveTemporada(sku)
+      if (entrada.temporadas[clave] || vistas.has(clave)) continue
+      vistas.add(clave)
+      const cat = catalogoPorSku.get(sku)
+      const titulo = (listingsPorSku.get(sku) ?? []).find((l) => l.titulo)?.titulo ?? (cat ? [cat.ref, cat.nombre].filter(Boolean).join(' ') : null)
+      temporadasPendientes.push({ clave, nombre: titulo, conTalla: modeloDe.has(sku) })
+    }
+  }
+
   /* ---------- entradas y líneas ---------- */
   const entradas = new Map<string, EntradaSku>()
   const lineasBrutas: LineaPlan[] = []
@@ -817,9 +874,10 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
       provisional,
       stockViejoDias: s?.deOtroMercado && s.viejoDias !== null ? s.viejoDias : null,
       almacenCliente: null,
+      temporada: entrada.temporadas?.[claveTemporada(sku)] ?? null,
     }
     entradas.set(sku, ent)
-    lineasBrutas.push(planificarSku(ent, hoy, plazoSku, ajustes, medidas))
+    lineasBrutas.push({ ...planificarSku(ent, hoy, plazoSku, ajustes, medidas), temporada: ent.temporada ?? null })
   }
 
   const lineasModelo = ajustarPorModelo(lineasBrutas, ajustes)
@@ -905,6 +963,12 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
     ? skus.filter((s) => !catalogoPorSku.has(s) && (estad.get(s)?.ventas90 ?? 0) > 0).length
     : 0
   const calidad: CalidadDatos = {
+    ...(entrada.ventasFbm
+      ? {
+          fbmLeidoHasta: entrada.ventasFbm.hasta,
+          fbmSinFba: (fbm?.sinFba ?? []).slice(0, 100).map((x) => ({ ...x, nombre: x.skus.map((k) => entrada.ventasFbm?.nombres?.[k]).find(Boolean) ?? null })),
+        }
+      : {}),
     libro, leidoHasta, leidoDesde, diasAtraso,
     ultimoError: entrada.lectura?.ultimoError ?? null,
     mercado: entrada.lectura?.marketplaceId ?? null,
@@ -939,7 +1003,7 @@ export function planificarCliente(entrada: EntradaPlanCliente): ResultadoPlanCli
     lineas: ordenarLineasPlan(lineas),
     envios, enCamino, resumen, acierto,
   }
-  return { plan, entradas, plazoDeSku, previstos, movimientos90 }
+  return { plan, entradas, plazoDeSku, previstos, movimientos90, temporadasPendientes }
 }
 
 /* ------------------------------------------------------------------ */

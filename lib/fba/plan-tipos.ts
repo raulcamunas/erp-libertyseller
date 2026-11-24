@@ -8,6 +8,8 @@ export type Prioridad = 'tarde' | 'urgente' | 'esta_semana' | 'proximas_2' | 'es
 export type MotivoFuera =
   | 'sin_ventas' | 'descatalogada' | 'no_comprable' | 'sin_datos' | 'stock_de_sobra' | 'aun_no_toca'
   | 'cantidad_ridicula' | 'parado' | 'antiguo' | 'en_cuarentena' | 'agotado_largo' | 'talla_sin_ventas' | 'exceso'
+  /** De verano o de invierno y llegaría fuera de su temporada (lib/fba/temporada.ts, 24 nov 2026) */
+  | 'fuera_de_temporada'
 export type OrigenEtapa = 'manual' | 'medido' | 'partida'
 export type EstadoEnvioPropuesto = 'nuevo' | 'hablado' | 'esperando_cliente' | 'en_preparacion' | 'enviado' | 'descartado' | 'caducado'
 export const ESTADOS_ACTIVOS: readonly EstadoEnvioPropuesto[] = ['nuevo', 'hablado', 'esperando_cliente', 'en_preparacion']
@@ -19,6 +21,8 @@ export type AvisoLinea =
   | 'devoluciones_altas' | 'antiguo' | 'sin_precio' | 'plazo_de_partida' | 'adelantada' | 'recortada_capacidad'
   | 'provisional' | 'pedido_grande' | 'entrante_sin_remesa' | 'envio_dudoso' | 'comprometido_parado'
   | 'stock_viejo' | 'llega_tarde_campana' | 'tope_estacional' | 'merma_alta' | 'almacen_cliente_corto' | 'solo_r14'
+  /** De verano o de invierno: la cantidad se ha limitado al fin de su temporada (lib/fba/temporada.ts) */
+  | 'fin_de_temporada'
 
 /* ------------------------------ Plazo y ajustes ------------------------------ */
 
@@ -81,6 +85,8 @@ export interface RitmoSku {
   consumoNeto: number | null
   /** p. ej. «2,1 ud/día · media de 14/30/90 días con stock (78 de 90)» */
   explicacion: string
+  /** Unidades vendidas por FBM (mismo ASIN, otro SKU) en los 90 días del ritmo, ya sumadas a él (lib/fba/fbm-plan.ts). Sin pedidos leídos, no está */
+  fbm90?: number
 }
 
 export interface SerieSku {
@@ -126,6 +132,8 @@ export interface EntradaSku {
   /** Stock de otro mercado y viejo (D11): días de antigüedad */
   stockViejoDias: number | null
   almacenCliente: number | null
+  /** Verano, invierno o todo el año (lib/fba/temporada.ts). null/ausente = no se sabe: como todo el año */
+  temporada?: 'verano' | 'invierno' | 'todo' | null
 }
 
 export interface LineaPlan {
@@ -159,6 +167,8 @@ export interface LineaPlan {
   /** Remesas sin salir que ya llevan esta referencia (opcional: las pasadas viejas no lo traen) */
   remesasSinSalir?: RemesaSinSalirDeLinea[]
   ajusteIa: { tipo: AjusteIa['tipo']; valor: number | null; motivo: string } | null
+  /** Verano, invierno o todo el año, si se sabe */
+  temporada?: 'verano' | 'invierno' | 'todo' | null
 }
 
 /* ------------------------------ Envíos propuestos ------------------------------ */
@@ -224,7 +234,16 @@ export interface CalidadDatos {
   refsFueraDeCatalogo: number; pctMerma90: number | null
   calculadoAt: string | null; horasDesdeCalculo: number | null
   avisos: string[] // ya redactados, en orden de gravedad
+  /** Hasta cuándo hay pedidos (ventas FBM) leídos (migración 335); ausente = no se leen y el plan es solo FBA */
+  fbmLeidoHasta?: string | null
+  /**
+   * Lo que vende por FBM y no está en el plan (sin stock ni movimientos en FBA en el libro): candidatos a mandar (24 nov 2026). Va en la calidad
+   * porque es lo que se guarda entero con la pasada. Ausente = no se leen pedidos
+   */
+  fbmSinFba?: FbmSinFbaPlan[]
 }
+
+export interface FbmSinFbaPlan { asin: string | null; skus: string[]; nombre: string | null; ventas30: number; ventas90: number; ultimaVenta: string }
 
 export interface EnCamino {
   remesaId: string; nombre: string; referenciaEnvio: string | null; estadoAmazon: string | null

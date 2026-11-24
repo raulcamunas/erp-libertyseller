@@ -620,7 +620,7 @@ export interface BarraMapa {
   fuera: MotivoFuera | null
 }
 
-const FUERA_GRIS = new Set<MotivoFuera>(['sin_ventas', 'descatalogada', 'no_comprable', 'sin_datos', 'parado', 'antiguo', 'agotado_largo', 'talla_sin_ventas'])
+const FUERA_GRIS = new Set<MotivoFuera>(['sin_ventas', 'descatalogada', 'no_comprable', 'sin_datos', 'parado', 'antiguo', 'agotado_largo', 'talla_sin_ventas', 'fuera_de_temporada'])
 
 /** Agencia: color por prioridad (gris si el plan la deja fuera). Cliente externo: por días (≤ 14 rojo, ≤ 30 ámbar, verde) */
 function colorDeBarra(b: BarraMapa): string {

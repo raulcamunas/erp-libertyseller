@@ -498,5 +498,30 @@ console.log('\n=== D8 · agotada hace poco (pocos días con stock en 90) no es �
   ok('76 días justos aún se planifica', j.fuera !== 'agotado_largo', j.fuera)
 }
 
+console.log('\n=== 24 nov 2026. Temporada: ni sandalias en diciembre ni botas en julio ===')
+{
+  // Agotada y vendía 2/día: hoy (15 nov) lo que sale llega ~2 dic
+  const sandalia = plan(entrada({ vendibles: 0, temporada: 'verano' }))
+  ok('una sandalia agotada en noviembre no se manda: fuera de temporada', sandalia.fuera === 'fuera_de_temporada' && sandalia.cantidad === 0, sandalia)
+  ok('la frase dice cuándo vuelve (15 mar)', /15 mar/.test(sandalia.porque), sandalia.porque)
+  const sinTemporada = plan(entrada({ vendibles: 0 }))
+  ok('la misma sin temporada sí se manda', sinTemporada.cantidad > 0, sinTemporada)
+  // Una bota en enero: llega a primeros de febrero; con 90 días de cobertura máxima se iría a mayo
+  const bota = plan(entrada({ vendibles: 0, temporada: 'invierno' }), plazoBase(), ajustesBase({ coberturaObjetivo: 60, coberturaMaxima: 90 }), medidasBase(), '2027-01-10')
+  const botaTodo = plan(entrada({ vendibles: 0 }), plazoBase(), ajustesBase({ coberturaObjetivo: 60, coberturaMaxima: 90 }), medidasBase(), '2027-01-10')
+  ok('una bota en enero se manda, pero solo hasta el fin del invierno (menos que sin temporada)', bota.cantidad > 0 && bota.cantidad < botaTodo.cantidad && bota.avisos.includes('fin_de_temporada'), { bota: bota.cantidad, todo: botaTodo.cantidad, avisos: bota.avisos })
+  ok('…y la frase lo dice', /hasta el 28 feb/.test(bota.porque), bota.porque)
+  const botaJulio = plan(entrada({ vendibles: 0, temporada: 'invierno' }), plazoBase(), ajustesBase(), medidasBase(), '2027-07-01')
+  ok('una bota en julio no se manda', botaJulio.fuera === 'fuera_de_temporada', botaJulio.fuera)
+  const todoElAno = plan(entrada({ vendibles: 0, temporada: 'todo' }))
+  ok('«todo el año» se planifica como siempre', todoElAno.cantidad === sinTemporada.cantidad, todoElAno.cantidad)
+}
+
+console.log('\n=== 24 nov 2026. La frase dice cuánto del ritmo es FBM ===')
+{
+  const l = plan(entrada({ vendibles: 0, ritmo: ritmoBase(2, { fbm90: 120 }) }))
+  ok('«incluye 120 ud vendidas por FBM en 90 días»', /incluye 120 ud vendidas por FBM en 90 días/.test(l.porque), l.porque)
+}
+
 console.log(`\n${comprobaciones - fallos}/${comprobaciones} bien${fallos ? ` · ${fallos} FALLAN` : ''}`)
 if (fallos) process.exit(1)

@@ -15,6 +15,7 @@
  * Este fichero no importa ritmo.ts: recibe el `RitmoSku` hecho.
  */
 
+import { enTemporada, finDeTemporada, proximoInicio, TEMPORADAS } from './temporada'
 import { repartirTotal } from './plazos'
 import { costeMensual, mesDe } from './almacenaje'
 import type {
@@ -655,7 +656,9 @@ export const planificarSku: FnPlanificarSku = (e, hoy, plazo, ajustes, medidas, 
   const previstoTexto = ritmoVendido !== null && Math.abs(Dref / ritmoVendido - 1) >= 0.05
     ? `; ${Dref > ritmoVendido ? 'con la temporada ' : ''}se prevén ~${ritmoTexto(Dref)} ud/día las próximas 4 semanas`
     : ''
-  const ritmoFrase = `Vende ${ritmoTexto(ritmoVendido ?? Dref)} ud/día${origenVendido}${previstoTexto}${consumoTexto}`
+  // Las ventas FBM del mismo ASIN ya están dentro del ritmo (lib/fba/fbm-plan.ts): se dice cuántas son, para que nadie piense que es solo FBA
+  const fbmTexto = (ritmo.fbm90 ?? 0) > 0 ? `; incluye ${numero(ritmo.fbm90 ?? 0)} ud vendidas por FBM en 90 días` : ''
+  const ritmoFrase = `Vende ${ritmoTexto(ritmoVendido ?? Dref)} ud/día${origenVendido}${fbmTexto}${previstoTexto}${consumoTexto}`
 
   // Paso 2 · Fechas
   const roturaEf = fechaRotura ?? sumarDias(H, sim.fechas.length)
@@ -680,6 +683,16 @@ export const planificarSku: FnPlanificarSku = (e, hoy, plazo, ajustes, medidas, 
   base.aLaVentaObjetivo = A
   base.salirAntesDe = salirAntesDe
   base.decidirAntesDe = decidirAntesDe
+
+  // Temporada (24 nov 2026): un producto de verano o de invierno solo se manda si llega dentro de su temporada, y cubre como mucho hasta que acaba
+  let finTemporada: string | null = null
+  if (e.temporada === 'verano' || e.temporada === 'invierno') {
+    if (!enTemporada(e.temporada, A)) {
+      const vuelve = proximoInicio(e.temporada, A)
+      return cerrar('fuera_de_temporada', `${ritmoFrase}, ${tieneTexto}. Es de ${e.temporada} (se vende ${TEMPORADAS[e.temporada].texto}) y el envío llegaría el ${fechaCorta(A)}, fuera de temporada: se propondrá para llegar a partir del ${fechaCorta(vuelve)}.`)
+    }
+    finTemporada = finDeTemporada(e.temporada, A)
+  }
 
   // Provisional: la prioridad máxima es «este mes» salvo los agotados que venden
   const agotadoQueVende = e.vendibles <= 0 && (ritmo.ventas30 ?? 0) > 0
@@ -761,8 +774,15 @@ export const planificarSku: FnPlanificarSku = (e, hoy, plazo, ajustes, medidas, 
   if (campana && A > campana) avisos.add('llega_tarde_campana')
 
   // Paso 3 · Cantidad: lo que falta en [A, A + Tef + M) con el perfil de esas semanas, y el tope en [A, A + Tmax)
-  const necesidad = faltaEn(A, sumarDias(A, Tef + M))
+  let necesidad = faltaEn(A, sumarDias(A, Tef + M))
   let tope = faltaEn(A, sumarDias(A, Tmax))
+  // De temporada: no se cubre más allá de su último día de venta (lo que sobre se quedaría un año en el almacén)
+  if (finTemporada && sumarDias(A, Tmax) > sumarDias(finTemporada, 1)) {
+    const hastaFin = faltaEn(A, sumarDias(finTemporada, 1))
+    if (hastaFin < tope) avisos.add('fin_de_temporada')
+    tope = Math.min(tope, hastaFin)
+    necesidad = Math.min(necesidad, hastaFin)
+  }
   if (soloR14) {
     avisos.add('solo_r14')
     const r14 = ritmo.r14 ?? 0
@@ -835,6 +855,7 @@ export const planificarSku: FnPlanificarSku = (e, hoy, plazo, ajustes, medidas, 
   if (avisos.has('devoluciones_altas')) frases.push(`Devoluciones altas (${numero((tasaDev ?? 0) * 100)} %): revísalo antes de mandar.`)
   if (e.stockViejoDias !== null && e.stockViejoDias !== undefined) frases.push(`El stock es de otro mercado y de hace ${e.stockViejoDias} días.`)
   if (soloR14) frases.push(`Solo hay ritmo de 14 días: la cantidad se limita.`)
+  if (avisos.has('fin_de_temporada') && finTemporada && e.temporada) frases.push(`Es de ${e.temporada}: se cubre solo hasta el ${fechaCorta(finTemporada)}, cuando acaba su temporada.`)
   if (e.almacenCliente !== null && e.almacenCliente !== undefined) {
     if (cantidad > 0 && e.almacenCliente < cantidad) avisos.add('almacen_cliente_corto')
     frases.push(`El cliente tiene ${numero(e.almacenCliente)} en su almacén.`)

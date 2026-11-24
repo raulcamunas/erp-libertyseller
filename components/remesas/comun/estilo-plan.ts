@@ -155,6 +155,7 @@ export const MOTIVO_FUERA: Record<MotivoFuera, string> = {
   agotado_largo: 'Agotado hace tiempo: ¿se repone?',
   talla_sin_ventas: 'Talla sin ventas en 180 días',
   exceso: 'Exceso de stock',
+  fuera_de_temporada: 'Fuera de temporada',
 }
 
 export const AVISO_LINEA: Record<AvisoLinea, { texto: string; tono: TonoEstado }> = {
@@ -175,6 +176,7 @@ export const AVISO_LINEA: Record<AvisoLinea, { texto: string; tono: TonoEstado }
   merma_alta: { texto: 'Merma alta', tono: 'magenta' },
   almacen_cliente_corto: { texto: 'El cliente tiene menos en su almacén', tono: 'ambar' },
   solo_r14: { texto: 'Solo 14 días de ritmo', tono: 'gris' },
+  fin_de_temporada: { texto: 'Hasta fin de temporada', tono: 'ambar' },
 }
 
 export const MOTIVO_DESCARTE: Record<MotivoDescarte, string> = {

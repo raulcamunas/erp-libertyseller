@@ -10,6 +10,9 @@ import { leerTodo } from './paginar'
 import { invalidarResumen } from './resumen-servidor'
 import { faltaLaTabla, fraccionMasDe180 } from './planificacion'
 import { sumarDias } from './planificador'
+import { clasificarTemporadas } from './temporada-servidor'
+import type { Temporada } from './temporada'
+import type { VentaFbm } from './fbm-plan'
 import {
   COLUMNAS_LISTING,
   catalogoDesdeFila,
@@ -476,6 +479,15 @@ export async function leerEntradaPlan(service: Servicio, clienteId: string, hoy:
   /* ---------- antigüedad que cuenta Amazon (la que cobra el recargo), si la foto es reciente ---------- */
   const edadAmazon = conexion ? await leerEdadAmazon(service, conexion.id, mercado, hoy) : null
 
+  /* ---------- ventas FBM y temporadas (migración 335; sin ella, el plan es como antes) ---------- */
+  const ventasFbm = conexion && lectura ? await leerVentasFbm(service, conexion.id, mercado, hoy, new Set(listings.map((l) => l.sku))) : null
+  let temporadas: Record<string, Temporada> | undefined
+  {
+    const t = await service.from('fba_temporadas').select('clave, temporada').eq('client_id', clienteId)
+    if (!t.error) temporadas = Object.fromEntries(((t.data ?? []) as Array<{ clave: string; temporada: Temporada }>).map((x) => [x.clave, x.temporada]))
+    else if (!faltaLaTabla(t.error)) console.error('[fba/plan] temporadas', t.error.message)
+  }
+
   const cfgFila = (cfgAlertas.data ?? null) as Record<string, unknown> | null
   const entrada: EntradaPlanCliente = {
     clienteId,
@@ -503,8 +515,59 @@ export async function leerEntradaPlan(service: Servicio, clienteId: string, hoy:
     edadAmazon,
     descartes,
     pasadaAnterior,
+    ventasFbm,
+    ...(temporadas ? { temporadas } : {}),
   }
   return { entrada, migracion316, avisar: cfgFila ? cfgFila.avisar !== false : true }
+}
+
+/**
+ * Las ventas FBM de la cuenta (fba_ventas_canal, canal 'fbm') de los últimos 400 días, y el nombre de los SKU FBM que más venden (para la lista de
+ * «vende por FBM y no está en FBA»). null si no hay pedidos leídos (o falta la 335): el plan es solo FBA.
+ */
+async function leerVentasFbm(service: Servicio, connectionId: string, mercado: string, hoy: string, skusConListing: ReadonlySet<string>): Promise<EntradaPlanCliente['ventasFbm']> {
+  try {
+    const { data: est, error } = await service.from('fba_ventas_canal_lecturas').select('leido_desde, leido_hasta').eq('connection_id', connectionId).eq('marketplace_id', mercado).maybeSingle()
+    if (error) {
+      if (!faltaLaTabla(error)) console.error('[fba/plan] lectura de pedidos', error.message)
+      return null
+    }
+    const e = est as { leido_desde: string | null; leido_hasta: string | null } | null
+    if (!e?.leido_hasta) return null
+    const ventas = await leerTodo<VentaFbm>((a, b) =>
+      service.from('fba_ventas_canal').select('fecha, sku, asin, unidades')
+        .eq('connection_id', connectionId).eq('marketplace_id', mercado).eq('canal', 'fbm')
+        .gte('fecha', sumarDias(hoy, -400))
+        .order('fecha', { ascending: true }).order('sku', { ascending: true }).range(a, b))
+    // Los nombres: de los SKU FBM más vendidos en 90 días que no son ya del plan
+    const d90 = sumarDias(hoy, -90)
+    const porSku = new Map<string, number>()
+    for (const v of ventas) if (v.fecha >= d90 && !skusConListing.has(v.sku)) porSku.set(v.sku, (porSku.get(v.sku) ?? 0) + v.unidades)
+    const top = [...porSku.entries()].sort((a, b) => b[1] - a[1]).slice(0, 150).map(([sku]) => sku)
+    const nombres: Record<string, string> = {}
+    for (let i = 0; i < top.length; i += 100) {
+      const { data } = await service.from('amazon_listings').select('sku, title').eq('connection_id', connectionId).in('sku', top.slice(i, i + 100))
+      for (const f of (data ?? []) as Array<{ sku: string; title: string | null }>) if (f.title && !nombres[f.sku]) nombres[f.sku] = f.title
+    }
+    return { desde: e.leido_desde, hasta: e.leido_hasta, ventas: ventas.map((v) => ({ ...v, unidades: Number(v.unidades) || 0 })), nombres }
+  } catch (err) {
+    if (faltaLaTabla(err as { code?: string })) return null
+    console.error('[fba/plan] ventas FBM', (err as Error)?.message ?? err)
+    return null
+  }
+}
+
+/**
+ * Planifica y, si hay modelos o SKU sin temporada, los clasifica (regla y, en calzado, la IA; temporada-servidor.ts), los guarda y vuelve a
+ * planificar con ellos. La segunda vez ya están guardados: la IA se paga una vez por modelo.
+ */
+export async function planificarConTemporadas(service: Servicio, clienteId: string, entrada: EntradaPlanCliente): Promise<ReturnType<typeof planificarCliente>> {
+  const r = planificarCliente(entrada)
+  if (!entrada.temporadas || r.temporadasPendientes.length === 0) return r
+  const nuevas = await clasificarTemporadas(service, clienteId, r.temporadasPendientes)
+  if (Object.keys(nuevas).length === 0) return r
+  entrada.temporadas = { ...entrada.temporadas, ...nuevas }
+  return planificarCliente(entrada)
 }
 
 /** Días que vale la foto de antigüedad de Amazon (la misma regla que la tarjeta de inventario) */
@@ -858,7 +921,7 @@ export async function calcularYGuardarCliente(
   const t0 = Date.now()
   const ahora = new Date().toISOString()
   const leida = await leerEntradaPlan(service, clienteId, hoy, ahora)
-  const r = planificarCliente(leida.entrada)
+  const r = await planificarConTemporadas(service, clienteId, leida.entrada)
   const plan = r.plan
   const estado = estadoDePasada(plan)
   const base = { plan, migracion316: leida.migracion316, avisar: leida.avisar, clienteNombre: leida.entrada.clienteNombre }
