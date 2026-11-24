@@ -92,7 +92,7 @@ function resumenDelInforme(original: InformeDelCorreo): string {
   const lineas = [
     `Tienda: ${inf.vendedor.nombre}`,
     `Tipo de vendedor: ${inf.tipoTexto}`,
-    `Productos activos en España: ${inf.cifras.productos}`,
+    `Productos activos en ${inf.mercado === 'mx' ? 'México' : 'España'}: ${inf.cifras.productos}`,
     inf.cifras.buyBox !== null ? `Buy Box en sus ofertas: ${inf.cifras.buyBox} %` : null,
     `Lo que más pesa (de más a menos):`,
     ...inf.oportunidades.slice(0, 4).map((o) => `- ${o.cifra} ${o.titulo}${o.impacto ? ` (${o.impacto})` : ''}`),
@@ -136,7 +136,7 @@ export async function escribirTextos(
       ? `Eres ${datos.comercial}, del equipo comercial de Liberty Seller (agencia que gestiona cuentas de vendedores en Amazon). Escribes el principio de un correo que acompaña a un análisis de la oportunidad en Amazon de su tienda online, que hoy no vende en Amazon.`
       : `Eres ${datos.comercial}, del equipo comercial de Liberty Seller (agencia que gestiona cuentas de vendedores en Amazon). Escribes el principio de un correo que acompaña a un análisis de la cuenta de Amazon del destinatario.`,
     'Debajo de tu texto el correo ya enseña las cifras, los tres puntos clave y un botón para ver el análisis: NO los repitas todos ni pongas enlaces.',
-    'Reglas: trato de TÚ (tu, tus, te, tienes, vendes), nunca de usted ni de vosotros. Español de España, natural, directo, sin frases de agencia ("potenciar", "llevar al siguiente nivel", "sinergias"). Sin exclamaciones. Sin emojis.',
+    `Reglas: trato de TÚ (tu, tus, te, tienes, vendes), nunca de usted ni de vosotros. ${!esSinAmazon(inf) && inf.mercado === 'mx' ? 'El destinatario vende en Amazon México: español neutro que se lea natural en México, sin expresiones de España (nada de «vale», «guay», «móvil»), y sin hablar de Europa' : 'Español de España'}, natural, directo, sin frases de agencia ("potenciar", "llevar al siguiente nivel", "sinergias"). Sin exclamaciones. Sin emojis.`,
     'Nunca hables de dinero, precios ni de cuánto ganaría. Nunca prometas resultados. No inventes nada que no esté en los datos o en el historial.',
     'Tú no explicas ni resuelves los puntos del análisis, ni propones hacerlo por teléfono: si ofreces seguir, es poner a la persona en contacto con nuestro equipo de estrategia, que se lo explica todo.',
     'No firmes ni te despidas (la firma va aparte). No empieces con el saludo (va aparte).',

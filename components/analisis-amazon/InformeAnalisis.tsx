@@ -100,6 +100,8 @@ const formatoDeDinero = (moneda: 'EUR' | 'MXN') => (n: number | null) =>
   n === null ? '—' : n.toLocaleString(moneda === 'MXN' ? 'es-MX' : 'es-ES', { style: 'currency', currency: moneda, maximumFractionDigits: n >= 100 ? 0 : 2 })
 const useEur = () => formatoDeDinero(useContext(MonedaDelInforme))
 /** Miles con punto también en números de 4 cifras («1.583»), que es-ES deja sin separar. */
+/** El Amazon del informe, como se escribe para el cliente */
+const dominioDe = (m: string | undefined) => (m === 'mx' ? 'Amazon.com.mx' : 'Amazon.es')
 const miles = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 const entero = (n: number | null) => (n === null ? '—' : miles(n))
 /** «+300/mes» con el dato de Amazon «comprados el mes pasado»; «—» si Amazon no lo enseña. */
@@ -758,7 +760,7 @@ function SeccionSeo({ seo }: { seo: Informe['seo'] }) {
 /* Competencia                                                          */
 /* ------------------------------------------------------------------ */
 
-function SeccionCompetencia({ c }: { c: NonNullable<Informe['competencia']> }) {
+function SeccionCompetencia({ c, dominio }: { c: NonNullable<Informe['competencia']>; dominio: string }) {
   const eur = useEur()
   const filas = [...(c.estrella ? [{ p: c.estrella, suyo: true }] : []), ...c.rivales.map((p) => ({ p, suyo: false }))]
   const lider = c.rivales[0]
@@ -776,7 +778,7 @@ function SeccionCompetencia({ c }: { c: NonNullable<Informe['competencia']> }) {
         </Parrafo>
       </Revelar>
       <Revelar className="mt-12">
-        <Ventana titulo={`Ranking de ventas${c.categoria ? ` · ${c.categoria}` : ''} · Amazon.es`}>
+        <Ventana titulo={`Ranking de ventas${c.categoria ? ` · ${c.categoria}` : ''} · ${dominio}`}>
           <div className="space-y-2">
             {filas.map(({ p, suyo }, i) => (
               <Revelar key={p.asin} retraso={i * 90}>
@@ -1321,13 +1323,15 @@ function InformeAnalisisEnSuMoneda({
           <Revelar className="order-1 lg:order-2">
             <Etiqueta>Internacional</Etiqueta>
             <H2>
-              {cifras.mercadosActivos} de 5 mercados
+              {cifras.mercadosActivos} de {informe.paises.length} mercados
               <br />
-              europeos con ventas
+              {informe.mercado === 'mx' ? 'de América' : 'europeos'} con ventas
             </H2>
             <Parrafo>
-              Los mismos productos, con las mismas fichas traducidas, pueden venderse en los cinco grandes mercados europeos de Amazon. Un país cuenta como activo cuando tienes
-              valoraciones de vendedor en él.
+              {informe.mercado === 'mx'
+                ? 'Los mismos productos, con las fichas adaptadas a cada país, pueden venderse en los grandes mercados de Amazon en América: Estados Unidos, Canadá y Brasil. '
+                : 'Los mismos productos, con las mismas fichas traducidas, pueden venderse en los cinco grandes mercados europeos de Amazon. '}
+              Un país cuenta como activo cuando tienes valoraciones de vendedor en él.
             </Parrafo>
             <ul className="mt-7 space-y-3">
               {informe.paises
@@ -1354,7 +1358,7 @@ function InformeAnalisisEnSuMoneda({
           <Etiqueta centro>Catálogo</Etiqueta>
           <H2 centro>Tus productos, uno a uno</H2>
           <Parrafo centro>
-            Los {informe.productos.length} mejor posicionados en Amazon.es, por ranking de ventas. En rojo, lo que no llega al umbral: agotado ≥ {UMBRALES.sinStock} % del tiempo,
+            Los {informe.productos.length} mejor posicionados en {dominioDe(informe.mercado)}, por ranking de ventas. En rojo, lo que no llega al umbral: agotado ≥ {UMBRALES.sinStock} % del tiempo,
             Buy Box &lt; {UMBRALES.buyBox} % o menos de {decimal(UMBRALES.estrellas)} ★
             {informe.puedeEditarFichas
               ? `; en ámbar, menos de ${UMBRALES.fotos} fotos o título de más de ${UMBRALES.titulo} caracteres (la norma de Amazon desde julio de 2026).`
@@ -1390,7 +1394,7 @@ function InformeAnalisisEnSuMoneda({
       </Seccion>
 
       {/* ---------- competencia ---------- */}
-      {informe.competencia && informe.competencia.rivales.length > 0 && <SeccionCompetencia c={informe.competencia} />}
+      {informe.competencia && informe.competencia.rivales.length > 0 && <SeccionCompetencia c={informe.competencia} dominio={dominioDe(informe.mercado)} />}
 
       {/* ---------- píldora SEO ---------- */}
       {informe.puedeEditarFichas && informe.seo.revisados > 0 && <SeccionSeo seo={informe.seo} />}
@@ -1464,7 +1468,7 @@ function InformeAnalisisEnSuMoneda({
             )}
           </Revelar>
           <Revelar retraso={150}>
-            <Ventana titulo="Valoraciones de vendedor · Amazon.es">
+            <Ventana titulo={`Valoraciones de vendedor · ${dominioDe(informe.mercado)}`}>
               <div className="space-y-2">
                 {informe.valoraciones.map((v) => {
                   const mal = (v.numero ?? 0) >= UMBRALES.minValoraciones && (v.negativas ?? 0) >= UMBRALES.negativas
@@ -1551,6 +1555,7 @@ function InformeAnalisisEnSuMoneda({
         <ProgramaSemanal
           contexto="amazon"
           datos={{
+            mexico: informe.mercado === 'mx',
             buyBox: informe.cifras.buyBox,
             productos: informe.cifras.productos,
             seo: informe.seo.revisados > 0 ? { revisados: informe.seo.revisados, fuera: informe.seo.fueraDeNorma } : null,
@@ -1660,8 +1665,8 @@ function InformeAnalisisEnSuMoneda({
           <div>
             <div className="mb-1.5 font-semibold text-white">Cómo se ha hecho este análisis</div>
             <p>
-              Con datos públicos de Amazon recogidos el {fechaLarga(informe.fecha)}: el perfil de vendedor, tu escaparate y las fichas de tus productos en Amazon.es, y tu
-              perfil en Amazon.fr, .it, .de y .co.uk. La Buy Box, las roturas de stock y el ranking son de los últimos 90 días; los días sin stock y las visitas que compran a
+              Con datos públicos de Amazon recogidos el {fechaLarga(informe.fecha)}: el perfil de vendedor, tu escaparate y las fichas de tus productos en {dominioDe(informe.mercado)}, y tu
+              perfil en {informe.mercado === 'mx' ? 'Amazon.com, .ca y .com.br' : 'Amazon.fr, .it, .de y .co.uk'}. La Buy Box, las roturas de stock y el ranking son de los últimos 90 días; los días sin stock y las visitas que compran a
               otro vendedor se calculan a partir de esos porcentajes. No tenemos acceso a tu Seller Central, así que no vemos ventas reales, márgenes ni publicidad.{' '}
               <a href={vendedor.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">
                 Ver tu perfil en Amazon

@@ -142,10 +142,10 @@ function piezasDe(original: InformeDelCorreo): Piezas {
     titular: `Hemos revisado la cuenta de ${inf.vendedor.nombre} en Amazon.`,
     titular2: altas > 0 ? `${altas === 1 ? 'Un punto te está' : `${altas} puntos te están`} costando ventas.` : null,
     kpis: [
-      [miles(inf.cifras.productos), 'productos en España', false],
+      [miles(inf.cifras.productos), `productos en ${inf.mercado === 'mx' ? 'México' : 'España'}`, false],
       [inf.cifras.buyBox === null ? '—' : `${inf.cifras.buyBox} %`, 'Buy Box en tus ofertas', (inf.cifras.buyBox ?? 100) < 60],
       [v12.positivas === null ? '—' : `${v12.positivas} %`, 'positivas · 12 meses', (v12.negativas ?? 0) >= 10 && (v12.numero ?? 0) >= 10],
-      [`${inf.cifras.mercadosActivos} / 5`, 'mercados con ventas', false],
+      [`${inf.cifras.mercadosActivos} / ${inf.paises.length}`, 'mercados con ventas', false],
     ],
     puntos: top.map((o) => ({ cifra: o.cifra, titulo: o.titulo, impacto: o.impacto ?? null, alta: o.prioridad === 'alta' })),
     pieAdelanto: `+ ${inf.productos.length} productos uno a uno${inf.competencia?.rivales.length ? ' · tu competencia directa' : ''}${inf.puedeEditarFichas ? ' · el cambio de SEO de julio de 2026' : ''} · por dónde empezaríamos`,

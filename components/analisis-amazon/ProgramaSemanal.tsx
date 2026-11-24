@@ -26,6 +26,8 @@ export type DatosPrograma = {
   bsr?: { ranking: number; categoria: string | null } | null
   /** Para las tiendas sin Amazon: el precio mediano del producto que más se vende de lo suyo */
   precioMercado?: number | null
+  /** México (amazon.com.mx): pesos y expansión hacia EE. UU., no hacia Europa */
+  mexico?: boolean
 }
 
 const CSS = `
@@ -400,7 +402,7 @@ export function ProgramaSemanal({ datos, contexto }: { datos?: DatosPrograma; co
 
       <div className="ps-rej">
         <Tarjeta num="01 · PRECIOS" ritmo="cada día" titulo="Precios dinámicos" dibujo={<DibujoPrecios calma={calma} />}
-          texto="Tu precio se mueve solo dentro del margen que fijas: gana la Buy Box cuando compensa y no regala ni un euro cuando no.">
+          texto={`Tu precio se mueve solo dentro del margen que fijas: gana la Buy Box cuando compensa y no regala ni un ${d.mexico ? 'peso' : 'euro'} cuando no.`}>
           {typeof d.buyBox === 'number' ? (
             <div className="ps-dato"><Num n={d.buyBox} /><span> % del tiempo con la Buy Box hoy</span></div>
           ) : typeof d.precioMercado === 'number' && d.precioMercado > 0 ? (
@@ -437,7 +439,7 @@ export function ProgramaSemanal({ datos, contexto }: { datos?: DatosPrograma; co
         <span>Registro de Marca</span>
         <span>Fichas y contenido A+</span>
         <span>Logística FBA</span>
-        <span>Expansión europea</span>
+        <span>{d.mexico ? 'Expansión a EE. UU.' : 'Expansión europea'}</span>
       </div>
       <p className="ps-pie">Los dibujos y la tira de arriba ilustran cómo trabajamos; las cifras con borde naranja son las de este análisis.</p>
     </div>
