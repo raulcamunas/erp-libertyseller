@@ -3,7 +3,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { estadoDeEnvios, lineasDeEnvio, sigueVivo } from '@/lib/fba/inbound'
-import { combinarEnvios } from '@/lib/fba/inbound-estados'
+import { combinarEnvios, seguirCerrado } from '@/lib/fba/inbound-estados'
 import { anotarSeguimiento } from '@/lib/fba/seguimiento'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -50,18 +50,43 @@ export async function POST(request: NextRequest) {
 
     const { data, error } = await service
       .from('fba_remesas')
-      .select('id, connection_id, marketplace_id, referencia_envio, estado_amazon')
+      .select('id, connection_id, marketplace_id, referencia_envio, estado_amazon, seguimiento_at')
       .not('connection_id', 'is', null)
       .not('referencia_envio', 'is', null)
     if (error) throw error
 
-    const vivas = ((data ?? []) as Array<{
-      id: string
-      connection_id: string
-      marketplace_id: string
-      referencia_envio: string
-      estado_amazon: string | null
-    }>).filter((r) => sigueVivo(r.estado_amazon))
+    type Fila = { id: string; connection_id: string; marketplace_id: string; referencia_envio: string; estado_amazon: string | null; seguimiento_at: string | null }
+    const todas = (data ?? []) as Fila[]
+    const vivas = todas.filter((r) => sigueVivo(r.estado_amazon))
+
+    // Los cerrados a los que les faltan unidades se siguen mirando (Amazon concilia después de cerrar): ver seguirCerrado
+    const cerrados = todas.filter((r) => r.estado_amazon === 'CLOSED')
+    if (cerrados.length > 0) {
+      const ahora = new Date()
+      const sumas = new Map<string, { enviadas: number; recibidas: number }>()
+      const cierre = new Map<string, string>()
+      for (let i = 0; i < cerrados.length; i += 100) {
+        const ids = cerrados.slice(i, i + 100).map((r) => r.id)
+        const { data: ls } = await service.from('fba_remesa_lineas').select('remesa_id, unidades, unidades_recibidas').in('remesa_id', ids)
+        for (const l of (ls ?? []) as Array<{ remesa_id: string; unidades: number | null; unidades_recibidas: number | null }>) {
+          const s = sumas.get(l.remesa_id) ?? { enviadas: 0, recibidas: 0 }
+          s.enviadas += l.unidades ?? 0
+          s.recibidas += l.unidades_recibidas ?? 0
+          sumas.set(l.remesa_id, s)
+        }
+        const { data: ev } = await service
+          .from('fba_remesa_eventos')
+          .select('remesa_id, visto_at')
+          .in('remesa_id', ids)
+          .eq('estado_amazon', 'CLOSED')
+          .order('visto_at', { ascending: true })
+        for (const e of (ev ?? []) as Array<{ remesa_id: string; visto_at: string }>) if (!cierre.has(e.remesa_id)) cierre.set(e.remesa_id, e.visto_at)
+      }
+      for (const r of cerrados) {
+        const s = sumas.get(r.id)
+        if (s && seguirCerrado({ ...s, cerradoDesde: cierre.get(r.id) ?? null, seguimientoAt: r.seguimiento_at, ahora })) vivas.push(r)
+      }
+    }
 
     // Por (conexión, mercado): las credenciales y el estado se piden una vez por grupo
     const grupos = new Map<string, typeof vivas>()

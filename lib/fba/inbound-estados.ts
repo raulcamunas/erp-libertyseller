@@ -31,6 +31,36 @@ export function sigueVivo(estado: string | null): boolean {
   return !['CLOSED', 'CANCELLED', 'DELETED', 'ERROR'].includes(estado)
 }
 
+/**
+ * ¿SE SIGUE MIRANDO UN ENVÍO YA CERRADO? (24 nov 2026). PURO.
+ *
+ * Amazon da un envío por «Cerrado» y DESPUÉS sigue conciliando: FBA15MS4X7Q2 de Creative Toys se cerró el 22 nov con 1.555 de 1.757
+ * unidades y el 24 ya contaba 1.628 (4O-KBRE-B8Q6 pasó de 108 a 144; IA-AIQW-970Z, de 66 a 84). El ERP dejaba de mirarlo al verlo cerrado y
+ * el CSV para reclamar pedía 202 unidades cuando Amazon ya solo debía 129. Ahora un cerrado se sigue mirando mientras:
+ *
+ *   · le falten unidades (recibidas < enviadas): uno completo ya no va a cambiar,
+ *   · no hayan pasado los 60 días del plazo para reclamar desde que se vio cerrado, y
+ *   · cada 6 horas como mucho: Amazon concilia despacio y cada vistazo son llamadas a su API.
+ */
+export const SEGUIR_CERRADO = { diasDesdeElCierre: 60, horasEntreVistazos: 6 } as const
+
+export function seguirCerrado(p: {
+  enviadas: number
+  recibidas: number
+  /** Cuándo se vio cerrado por primera vez (ISO); null = no consta (remesas viejas, de antes del historial): no se sigue */
+  cerradoDesde: string | null
+  /** El último vistazo (ISO) */
+  seguimientoAt: string | null
+  ahora: Date
+}): boolean {
+  if (!(p.enviadas > p.recibidas)) return false
+  if (!p.cerradoDesde) return false
+  const ms = p.ahora.getTime()
+  if (ms - Date.parse(p.cerradoDesde) > SEGUIR_CERRADO.diasDesdeElCierre * 86_400_000) return false
+  if (p.seguimientoAt && ms - Date.parse(p.seguimientoAt) < SEGUIR_CERRADO.horasEntreVistazos * 3_600_000) return false
+  return true
+}
+
 /** Para la pantalla: el estado en español y de qué color va */
 export const ESTADO_INBOUND_TEXTO: Record<string, { texto: string; tono: 'espera' | 'camino' | 'ok' | 'malo' }> = {
   WORKING: { texto: 'Preparándose', tono: 'espera' },
