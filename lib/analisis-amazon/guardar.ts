@@ -14,7 +14,15 @@ export async function guardarAnalisis(
   v: { lead: string; seller: string },
   informe: InformeAnalisis | InformeSinAmazon,
   fecha: string,
+  /** Rehacer un informe (rehacer.ts): se sobrescribe ESA fila y se conserva su enlace, sea del día que sea */
+  fila?: string,
 ): Promise<{ ok: true } | { ok: false; error: { code?: string; message: string } }> {
+  if (fila) {
+    const { error } = await s.from('analisis_amazon').update({ informe, tipo: informe.tipo }).eq('id', fila).eq('lead_id', v.lead)
+    if (error) return { ok: false, error }
+    const { error: e } = await s.from('cold_leads').update({ analisis_amazon_at: new Date().toISOString() }).eq('id', v.lead)
+    return e ? { ok: false, error: e } : { ok: true }
+  }
   const { data: previo, error: e1 } = await s.from('analisis_amazon').select('id, fecha').eq('lead_id', v.lead).order('fecha', { ascending: false })
   if (e1) return { ok: false, error: e1 }
   const mismoDia = (previo ?? []).find((p: { fecha: string }) => p.fecha === fecha)

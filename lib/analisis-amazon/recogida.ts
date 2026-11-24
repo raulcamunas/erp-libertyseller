@@ -38,6 +38,7 @@ import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon
 import { apuntarEnBitacora, escribirJson, leerJson, type EnCola, type EnColaSinAmazon, type EventoDeBitacora } from './almacen'
 import { FICHERO_URGENTES } from './urgentes-servidor'
 import { pendientesUrgentes, resolverPedidos, type PedidoUrgente } from './urgentes'
+import { FICHERO_REHACER, listaValida, siguienteRehacer, trasRehacer, type PorRehacer } from './rehacer'
 import { COSTE_DE_TIPO, comercialDe, estadoDelTurno, hechosDelTurno, IDS_DEL_ORDEN, idPorNombre, Repartidor, trasHecho, type HechoDelTurno, type TipoDeCola } from './turnos'
 
 /**
@@ -153,7 +154,15 @@ async function hacerAmazon(s: SupabaseClient, clave: string, v: EnCola, clientes
   return { ok: true, nombre: v.tienda, tokens: e.gastado }
 }
 
-export async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnColaSinAmazon, clientes: Clientes, comercialId: string | null): Promise<Hecho & { tokens: number }> {
+export async function hacerSinAmazon(
+  s: SupabaseClient,
+  clave: string,
+  v: EnColaSinAmazon,
+  clientes: Clientes,
+  comercialId: string | null,
+  /** Rehacer en esta fila (rehacer.ts), con su enlace */
+  fila?: string,
+): Promise<Hecho & { tokens: number }> {
   const { data: lead, error } = await s.from('cold_leads').select('id, store_name, web, cif, company, vende_en_amazon, seller_url').eq('id', v.lead).maybeSingle()
   if (error) throw error
   const l = lead as { store_name: string | null; web: string | null; cif: string | null; company: string | null; vende_en_amazon: string | null; seller_url: string | null } | null
@@ -179,7 +188,7 @@ export async function hacerSinAmazon(s: SupabaseClient, clave: string, v: EnCola
   if (!e.marca.productos.length && !e.mercados.length) return { ok: false, saltar: 'nada comparable en Amazon', tokens: e.gastado }
 
   const informe = construirSinAmazon(e, { nombre, web: catalogo.origen, productosWeb: catalogo.productos.length, cif: l.cif, empresa: l.company })
-  const r = await guardarAnalisis(s, { lead: v.lead, seller: SELLER_SIN_AMAZON }, informe, e.fecha)
+  const r = await guardarAnalisis(s, { lead: v.lead, seller: SELLER_SIN_AMAZON }, informe, e.fecha, fila)
   if (!r.ok) {
     if (falta303(r.error)) return { ok: false, parar: 'falta la migración 303', tokens: e.gastado }
     if (r.error.code === '23503') return { ok: false, saltar: 'el lead ya no existe', tokens: e.gastado }
@@ -200,7 +209,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     if (saldo.tokens < necesitaLoSiguiente) return nada(`ningún informe nuevo · esperando saldo de Keepa (${saldo.tokens}/${necesitaLoSiguiente})`)
 
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, focoLeido, urgentesLeidos] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, focoLeido, urgentesLeidos, rehacerLeido] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
@@ -216,7 +225,11 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       leerJson<FocoDeInformes>(s, 'foco.json', {}).catch(() => ({}) as FocoDeInformes),
       // urgentes.json: los que ha pedido un comercial con «Generar informe». Van antes que todo (ver urgentes.ts)
       leerJson<PedidoUrgente[]>(s, FICHERO_URGENTES, []).catch(() => [] as PedidoUrgente[]),
+      // rehacer.json: informes ya hechos que se rehacen en su fila (ver rehacer.ts)
+      leerJson<unknown>(s, FICHERO_REHACER, {}).catch(() => ({})),
     ])
+    let rehacer = listaValida(rehacerLeido)
+    let rehacerCambiado = false
     const ahoraMs = Date.now()
     const foco = focoVigente(focoLeido, ahoraMs)
     const focoVivo = foco?.solo === true && (!foco.hasta || Date.parse(foco.hasta) > ahoraMs)
@@ -263,13 +276,13 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     ].sort((a, b) => (ordenPrio.get(a.v.lead) ?? 0) - (ordenPrio.get(b.v.lead) ?? 0))
     const pendientes = soloPrioridad ? [] : pendientesTodas.filter((v) => !ordenPrio.has(v.lead))
     const pendientesSin = soloPrioridad ? [] : pendientesSinTodas.filter((v) => !ordenPrio.has(v.lead))
-    if (!pendientes.length && !pendientesSin.length && !prioritarios.length && !urgentes.length) {
+    if (!pendientes.length && !pendientesSin.length && !prioritarios.length && !urgentes.length && !rehacer.pendientes.length) {
       await guardarUrgentes(s, resueltos, pedidoPor)
       necesitaLoSiguiente = TOKENS_POR_TIENDA
       return nada(soloPrioridad ? 'foco terminado: no queda nada en prioridad.json (y el resto está parado por foco.json)' : 'cola terminada')
     }
 
-    const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length + urgentes.length
+    const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length + urgentes.length + rehacer.pendientes.length
     const orden = ordenDelFoco ? ordenDelFoco.map((c) => c.id) : IDS_DEL_ORDEN
     const reparto = new Repartidor<EnCola, EnColaSinAmazon>(pendientes, pendientesSin, comercialIdDe, orden)
     let turno = estadoDelTurno(hechosDelTurno(Array.isArray(bitacora) ? bitacora : [], ultimos, INFORMES_PARA_EL_TURNO), orden)
@@ -289,11 +302,47 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       if (saltadosNuevos) await escribirJson(s, 'saltados.json', saltados)
       await apuntarEnBitacora(s, eventos)
       await guardarUrgentes(s, resueltos, pedidoPor)
+      if (rehacerCambiado) await escribirJson(s, FICHERO_REHACER, rehacer)
     }
 
     while (Date.now() < fin) {
-      // Primero lo urgente, luego prioridad.json (ninguno de los dos consume turno), luego el turno
+      // Primero lo urgente, luego lo que se rehace con fase «primero», luego prioridad.json (ninguno consume turno), luego el turno; los
+      // rehechos de fase «mezcla», uno por cada informe nuevo
       const urg = urgentes[0]
+      const nuevo = urg ? null : (prioritarios[0] ?? reparto.siguiente(turno))
+      const reh: PorRehacer | null = urg ? null : siguienteRehacer(rehacer, Boolean(nuevo))
+      if (reh) {
+        const ahoraR = saldo ?? (await saldoKeepa(clave))
+        saldo = null
+        if (ahoraR.tokens < TOKENS_SIN_AMAZON) {
+          motivoDeParar = `esperando saldo de Keepa (${ahoraR.tokens}/${TOKENS_SIN_AMAZON}) para rehacer ${reh.tienda}`
+          break
+        }
+        let motivo: string | null = null
+        try {
+          const { data: l } = await s.from('cold_leads').select('web').eq('id', reh.lead).maybeSingle()
+          const web = (l as { web: string | null } | null)?.web
+          if (!web) motivo = 'el lead no tiene web'
+          else {
+            const r = await hacerSinAmazon(s, clave, { lead: reh.lead, tienda: reh.tienda, web }, clientes, null, reh.fila)
+            tokens += r.tokens
+            if (r.ok) {
+              hechas++
+              nombres.push(`${reh.tienda} (rehecho)`)
+            } else motivo = r.parar ?? r.saltar ?? 'no ha salido'
+          }
+        } catch (e) {
+          if (e instanceof SinTokens) {
+            motivoDeParar = 'Keepa se ha quedado sin saldo a mitad de tienda (se repite en la próxima)'
+            break
+          }
+          motivo = `falla: ${(e as Error).message}`
+          console.warn(`[analisis-keepa] rehacer ${reh.tienda}: ${motivo}`)
+        }
+        rehacer = trasRehacer(rehacer, reh, motivo, new Date().toISOString())
+        rehacerCambiado = true
+        continue
+      }
       const prio = urg ?? prioritarios[0]
       const eleccion = prio ? null : reparto.siguiente(turno)
       if (!prio && !eleccion) break
@@ -321,6 +370,10 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
         if (r.ok) {
           fallos.delete(llave)
           hechas++
+          if (!urg && rehacer.ultimoFueRehacer) {
+            rehacer = { ...rehacer, ultimoFueRehacer: false }
+            rehacerCambiado = true
+          }
           nombres.push(r.nombre)
           if (eleccion) turno = trasHecho(turno, eleccion)
           apuntar(tarea, comercialId, 'hecho', r.tokens)
@@ -360,10 +413,17 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
 
     // Lo que necesitará lo siguiente, para que la próxima pasada sepa sin leer nada si le llega el saldo
     const proxima = urgentes[0] ?? prioritarios[0] ?? reparto.siguiente(turno)
-    necesitaLoSiguiente = proxima ? costeDe(proxima.tipo) : TOKENS_POR_TIENDA
+    const proximoRehecho = urgentes[0] ? null : siguienteRehacer(rehacer, Boolean(proxima))
+    necesitaLoSiguiente = proximoRehecho ? TOKENS_SIN_AMAZON : proxima ? costeDe(proxima.tipo) : TOKENS_POR_TIENDA
 
     const quedan = totalAlEmpezar - hechas
-    const resumen = componerResumen(hechas, nombres, `${quedan} en cola (${pendientes.length} de Amazon, ${pendientesSin.length} sin Amazon)`, tokens, motivoDeParar)
+    const resumen = componerResumen(
+      hechas,
+      nombres,
+      `${quedan} en cola (${pendientes.length} de Amazon, ${pendientesSin.length} sin Amazon${rehacer.pendientes.length ? `, ${rehacer.pendientes.length} por rehacer` : ''})`,
+      tokens,
+      motivoDeParar,
+    )
     return { hechos: hechas, tokens, pendientes: quedan, resumen }
   } finally {
     enMarcha = false
