@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Copy, Eye, FileBarChart, ExternalLink, Mail } from 'lucide-react'
+import { Copy, Eye, FileBarChart, ExternalLink, Loader2, Mail, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { EnviarAnalisisPorCorreo } from './EnviarAnalisisPorCorreo'
 
@@ -25,11 +25,29 @@ type Analisis = {
   baja?: boolean
 }
 
+/** Un «Generar informe» pedido: en cola (puesto y minutos estimados) o que no se pudo (motivo) */
+type Pedido =
+  | { estado: 'pendiente'; puesto: number; minutos: { min: number; max: number } | null; pedidoAt: string }
+  | { estado: 'saltado'; motivo: string; resueltoAt: string | null }
+  | null
+
+const hhmm = (d: Date) => d.toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' })
+
+/** «hacia las 12:48 (unos 9 min)» o «entre las 12:46 y las 13:05» */
+function cuandoEstara(m: { min: number; max: number }): string {
+  const ahora = Date.now()
+  const a = new Date(ahora + m.min * 60_000)
+  const b = new Date(ahora + m.max * 60_000)
+  return m.max - m.min <= 2 ? `hacia las ${hhmm(b)} (unos ${m.max} min)` : `entre las ${hhmm(a)} y las ${hhmm(b)} (${m.min}-${m.max} min)`
+}
+
 const cuando = (iso: string) =>
   new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 export function AnalisisDelLead({ leadId }: { leadId: string }) {
   const [a, setA] = useState<Analisis | null | undefined>(undefined)
+  const [pedido, setPedido] = useState<Pedido>(null)
+  const [pidiendo, setPidiendo] = useState(false)
   const [correo, setCorreo] = useState(false)
   const [vuelta, setVuelta] = useState(0)
 
@@ -38,14 +56,82 @@ export function AnalisisDelLead({ leadId }: { leadId: string }) {
     if (vuelta === 0) setA(undefined)
     fetch(`/api/cold-calling/analisis?lead=${leadId}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { analisis: null }))
-      .then((d: { analisis: Analisis | null }) => vivo && setA(d.analisis))
+      .then((d: { analisis: Analisis | null; pedido?: Pedido }) => {
+        if (!vivo) return
+        setA(d.analisis)
+        setPedido(d.pedido ?? null)
+      })
       .catch(() => vivo && setA(null))
     return () => {
       vivo = false
     }
   }, [leadId, vuelta])
 
-  if (!a) return null
+  // Mientras está en cola, se vuelve a mirar cada minuto: cuando sale, la ficha pasa sola a enseñar el informe
+  const enCola = !a && pedido?.estado === 'pendiente'
+  useEffect(() => {
+    if (!enCola) return
+    const t = setInterval(() => setVuelta((v) => v + 1), 60_000)
+    return () => clearInterval(t)
+  }, [enCola])
+
+  const generar = async () => {
+    setPidiendo(true)
+    try {
+      const r = await fetch(`/api/cold-calling/analisis?lead=${leadId}`, { method: 'POST' })
+      const d = (await r.json().catch(() => ({}))) as { pedido?: Pedido; error?: string }
+      if (!r.ok) {
+        toast.error(d.error ?? 'No se ha podido pedir el informe')
+        if (r.status === 409) setVuelta((v) => v + 1)
+        return
+      }
+      setPedido(d.pedido ?? null)
+      const p = d.pedido
+      toast.success(p?.estado === 'pendiente' && p.minutos ? `Informe en cola: estará ${cuandoEstara(p.minutos)}` : 'Informe en cola: te avisamos en la campana cuando esté')
+    } finally {
+      setPidiendo(false)
+    }
+  }
+
+  if (a === undefined) return null
+  if (!a) {
+    return (
+      <section className="rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-3">
+        <h3 className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--ls-t3)]">
+          <FileBarChart className="h-3.5 w-3.5 text-[#FF6600]" aria-hidden />
+          Análisis de Amazon
+        </h3>
+        {pedido?.estado === 'pendiente' ? (
+          <div className="mt-2 rounded-[6px] border border-[#FF6600]/30 bg-[#FF6600]/10 px-2.5 py-2 text-[12px] leading-snug text-[var(--ls-t2)]">
+            <b className="flex items-center gap-1.5 text-[11.5px] text-[#FF6600]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Generándose · {pedido.puesto === 1 ? 'el primero de la cola' : `puesto ${pedido.puesto} de la cola urgente`}
+            </b>
+            <span className="mt-1 block">
+              {pedido.minutos ? `Estará ${cuandoEstara(pedido.minutos)}.` : 'Estará en unos minutos.'} Te avisamos en la campana y aparece aquí solo.
+            </span>
+          </div>
+        ) : (
+          <>
+            <p className="mt-1.5 text-[11.5px] leading-snug text-[var(--ls-t4)]">
+              {pedido?.estado === 'saltado'
+                ? `La última vez no se pudo sacar: ${pedido.motivo}.`
+                : 'Este lead todavía no tiene informe. Si lo necesitas ya, pídelo: pasa el primero de la cola.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => void generar()}
+              disabled={pidiendo}
+              className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-[6px] bg-[#FF6600] px-2.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {pidiendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Zap className="h-3.5 w-3.5" aria-hidden />}
+              {pedido?.estado === 'saltado' ? 'Volver a intentarlo' : 'Generar informe'}
+            </button>
+          </>
+        )}
+      </section>
+    )
+  }
   const url = `${window.location.origin}/analisis/${a.token}`
 
   return (

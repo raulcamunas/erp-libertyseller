@@ -36,6 +36,8 @@ import { leerCatalogo } from '@/lib/analisis-sin-amazon/catalogo'
 import { estudiarTienda, planDeEstudio } from '@/lib/analisis-sin-amazon/estudio'
 import { construirSinAmazon, SELLER_SIN_AMAZON } from '@/lib/analisis-sin-amazon/construir'
 import { apuntarEnBitacora, escribirJson, leerJson, type EnCola, type EnColaSinAmazon, type EventoDeBitacora } from './almacen'
+import { FICHERO_URGENTES } from './urgentes-servidor'
+import { pendientesUrgentes, resolverPedidos, type PedidoUrgente } from './urgentes'
 import { COSTE_DE_TIPO, comercialDe, estadoDelTurno, hechosDelTurno, IDS_DEL_ORDEN, idPorNombre, Repartidor, trasHecho, type HechoDelTurno, type TipoDeCola } from './turnos'
 
 /**
@@ -77,10 +79,18 @@ let enMarcha = false
  */
 let necesitaLoSiguiente = TOKENS_POR_TIENDA
 
+function costeDe(tipo: TipoDeCola) {
+  return tipo === 'amazon' ? TOKENS_POR_TIENDA : TOKENS_SIN_AMAZON
+}
+
+/** Un comercial ha pedido un informe urgente: la próxima pasada no espera a tener saldo para algo más caro que él */
+export function hayUrgente(tipo: TipoDeCola) {
+  necesitaLoSiguiente = Math.min(necesitaLoSiguiente, costeDe(tipo))
+}
+
 /** ¿Hay una pasada en marcha en este proceso? (para el panel de Informes) */
 export const recogidaEnMarcha = () => enMarcha
 
-const costeDe = (tipo: TipoDeCola) => (tipo === 'amazon' ? TOKENS_POR_TIENDA : TOKENS_SIN_AMAZON)
 
 /**
  * Los últimos informes guardados con el dueño ACTUAL de su lead. Solo de respaldo para el turno (`hechosDelTurno`): manda la bitácora, que
@@ -190,7 +200,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     if (saldo.tokens < necesitaLoSiguiente) return nada(`ningún informe nuevo · esperando saldo de Keepa (${saldo.tokens}/${necesitaLoSiguiente})`)
 
     const s = createServiceClient()
-    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, focoLeido] = await Promise.all([
+    const [cola, colaSin, saltados, hechos, clientes, gente, ultimos, bitacora, prioridad, focoLeido, urgentesLeidos] = await Promise.all([
       leerJson<EnCola[]>(s, 'cola.json', []),
       leerJson<EnColaSinAmazon[]>(s, 'cola-sin-amazon.json', []),
       leerJson<Record<string, string>>(s, 'saltados.json', {}),
@@ -204,6 +214,8 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       leerJson<string[]>(s, 'prioridad.json', []).catch(() => [] as string[]),
       // foco.json: un reparto especial con fecha de caducidad (ver FocoDeInformes). Sin él, o caducado, el reparto de siempre
       leerJson<FocoDeInformes>(s, 'foco.json', {}).catch(() => ({}) as FocoDeInformes),
+      // urgentes.json: los que ha pedido un comercial con «Generar informe». Van antes que todo (ver urgentes.ts)
+      leerJson<PedidoUrgente[]>(s, FICHERO_URGENTES, []).catch(() => [] as PedidoUrgente[]),
     ])
     const ahoraMs = Date.now()
     const foco = focoVigente(focoLeido, ahoraMs)
@@ -212,9 +224,23 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     // Con turnos propios (foco.orden): se reparte con ese orden; a los de México solo les tocan sus leads de prioridad.json. Sin orden: solo prioridad.json
     const ordenDelFoco = focoVivo && Array.isArray(foco.orden) && foco.orden.length ? foco.orden : null
     const soloPrioridad = focoVivo && !ordenDelFoco
+    // Los urgentes: de la cola entera (sin mirar el foco ni saltados.json). Los que ya tienen informe se dan por hechos
+    const resueltos: Array<{ lead: string; hecho: boolean; motivo?: string; at: string }> = []
+    const urgentes: Tarea[] = []
+    for (const p of pendientesUrgentes(Array.isArray(urgentesLeidos) ? urgentesLeidos : [])) {
+      if (hechos.has(p.lead)) {
+        resueltos.push({ lead: p.lead, hecho: true, at: new Date().toISOString() })
+        continue
+      }
+      const v = p.tipo === 'amazon' ? cola.find((c) => c.lead === p.lead) : colaSin.find((c) => c.lead === p.lead)
+      if (!v) resueltos.push({ lead: p.lead, hecho: false, motivo: 'ya no está en la cola: vuelve a pedirlo', at: new Date().toISOString() })
+      else urgentes.push(p.tipo === 'amazon' ? { tipo: 'amazon', v: v as EnCola } : { tipo: 'sin', v: v as EnColaSinAmazon })
+    }
+    const pedidoPor = new Map((Array.isArray(urgentesLeidos) ? urgentesLeidos : []).map((p) => [p.lead, p.por] as const))
     if (!cola.length && !colaSin.length) return nada('no hay cola (cola.json en Storage)')
-    const pendientesTodas = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller])
-    const pendientesSinTodas = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`])
+    const esUrgente = new Set(urgentes.map((t) => t.v.lead))
+    const pendientesTodas = cola.filter((v) => !hechos.has(v.lead) && !saltados[v.seller] && !esUrgente.has(v.lead))
+    const pendientesSinTodas = colaSin.filter((v) => !hechos.has(v.lead) && !saltados[`lead:${v.lead}`] && !esUrgente.has(v.lead))
     // Los prioritarios salen del reparto normal y van delante, en el orden de prioridad.json. Con el foco caducado o con turnos propios, no hay «delante»
     const porNombre = idPorNombre(gente)
     const comercialIdDe = (v: EnCola | EnColaSinAmazon) => comercialDe(v, porNombre)
@@ -237,12 +263,13 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     ].sort((a, b) => (ordenPrio.get(a.v.lead) ?? 0) - (ordenPrio.get(b.v.lead) ?? 0))
     const pendientes = soloPrioridad ? [] : pendientesTodas.filter((v) => !ordenPrio.has(v.lead))
     const pendientesSin = soloPrioridad ? [] : pendientesSinTodas.filter((v) => !ordenPrio.has(v.lead))
-    if (!pendientes.length && !pendientesSin.length && !prioritarios.length) {
+    if (!pendientes.length && !pendientesSin.length && !prioritarios.length && !urgentes.length) {
+      await guardarUrgentes(s, resueltos, pedidoPor)
       necesitaLoSiguiente = TOKENS_POR_TIENDA
       return nada(soloPrioridad ? 'foco terminado: no queda nada en prioridad.json (y el resto está parado por foco.json)' : 'cola terminada')
     }
 
-    const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length
+    const totalAlEmpezar = pendientes.length + pendientesSin.length + prioritarios.length + urgentes.length
     const orden = ordenDelFoco ? ordenDelFoco.map((c) => c.id) : IDS_DEL_ORDEN
     const reparto = new Repartidor<EnCola, EnColaSinAmazon>(pendientes, pendientesSin, comercialIdDe, orden)
     let turno = estadoDelTurno(hechosDelTurno(Array.isArray(bitacora) ? bitacora : [], ultimos, INFORMES_PARA_EL_TURNO), orden)
@@ -261,10 +288,13 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     const guardarLoApuntado = async () => {
       if (saltadosNuevos) await escribirJson(s, 'saltados.json', saltados)
       await apuntarEnBitacora(s, eventos)
+      await guardarUrgentes(s, resueltos, pedidoPor)
     }
 
     while (Date.now() < fin) {
-      const prio = prioritarios[0]
+      // Primero lo urgente, luego prioridad.json (ninguno de los dos consume turno), luego el turno
+      const urg = urgentes[0]
+      const prio = urg ?? prioritarios[0]
       const eleccion = prio ? null : reparto.siguiente(turno)
       if (!prio && !eleccion) break
       const tarea: Tarea = prio ?? (eleccion!.tipo === 'amazon' ? { tipo: 'amazon', v: eleccion!.v as EnCola } : { tipo: 'sin', v: eleccion!.v as EnColaSinAmazon })
@@ -279,8 +309,12 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
       }
       const llave = tarea.tipo === 'amazon' ? tarea.v.seller : `lead:${tarea.v.lead}`
       const comercialId = comercialIdDe(tarea.v)
-      if (prio) prioritarios.shift()
+      if (urg) urgentes.shift()
+      else if (prio) prioritarios.shift()
       else reparto.quitar(eleccion!)
+      const resolver = (hecho: boolean, motivo?: string) => {
+        if (urg) resueltos.push({ lead: urg.v.lead, hecho, motivo, at: new Date().toISOString() })
+      }
       try {
         const r = tarea.tipo === 'amazon' ? await hacerAmazon(s, clave, tarea.v, clientes) : await hacerSinAmazon(s, clave, tarea.v, clientes, comercialId)
         tokens += r.tokens
@@ -290,6 +324,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
           nombres.push(r.nombre)
           if (eleccion) turno = trasHecho(turno, eleccion)
           apuntar(tarea, comercialId, 'hecho', r.tokens)
+          resolver(true)
         } else if (r.parar) {
           await guardarLoApuntado()
           return nada(r.parar, totalAlEmpezar - hechas, tokens)
@@ -298,10 +333,12 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
           saltados[llave] = r.saltar.slice(0, 200)
           saltadosNuevos = true
           apuntar(tarea, comercialId, 'saltado', r.tokens, r.saltar)
+          resolver(false, r.saltar)
         }
       } catch (e) {
         if (e instanceof SinTokens) {
           motivoDeParar = 'Keepa se ha quedado sin saldo a mitad de tienda (se repite en la próxima)'
+          if (urg) urgentes.unshift(urg)
           break
         }
         const n = (fallos.get(llave) ?? 0) + 1
@@ -314,6 +351,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
           saltadosNuevos = true
           fallos.delete(llave)
           apuntar(tarea, comercialId, 'saltado', 0, `falla: ${mensaje}`)
+          resolver(false, `falla: ${mensaje}`)
         }
         break
       }
@@ -321,7 +359,7 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     await guardarLoApuntado()
 
     // Lo que necesitará lo siguiente, para que la próxima pasada sepa sin leer nada si le llega el saldo
-    const proxima = prioritarios[0] ?? reparto.siguiente(turno)
+    const proxima = urgentes[0] ?? prioritarios[0] ?? reparto.siguiente(turno)
     necesitaLoSiguiente = proxima ? costeDe(proxima.tipo) : TOKENS_POR_TIENDA
 
     const quedan = totalAlEmpezar - hechas
@@ -329,5 +367,40 @@ export async function pasadaDeRecogida(): Promise<ResultadoDePasada> {
     return { hechos: hechas, tokens, pendientes: quedan, resumen }
   } finally {
     enMarcha = false
+  }
+}
+
+/**
+ * Apunta en urgentes.json lo resuelto en la pasada (sobre la lista releída: alguien pudo pedir otro mientras tanto) y avisa en la campana a
+ * quien lo pidió y al comercial del lead. Nunca lanza: lo urgente ya está hecho o saltado, y la pasada siguiente lo recoge igual.
+ */
+async function guardarUrgentes(s: SupabaseClient, resueltos: ReadonlyArray<{ lead: string; hecho: boolean; motivo?: string; at: string }>, pedidoPor: ReadonlyMap<string, string | null>) {
+  if (!resueltos.length) return
+  try {
+    const lista = await leerJson<PedidoUrgente[]>(s, FICHERO_URGENTES, [])
+    await escribirJson(s, FICHERO_URGENTES, resolverPedidos(Array.isArray(lista) ? lista : [], resueltos))
+
+    const { data } = await s.from('cold_leads').select('id, store_name, company, assigned_to').in('id', resueltos.map((r) => r.lead))
+    const leads = new Map(((data ?? []) as Array<{ id: string; store_name: string | null; company: string | null; assigned_to: string | null }>).map((l) => [l.id, l] as const))
+    const filas = resueltos.flatMap((r) => {
+      const l = leads.get(r.lead)
+      const nombre = l?.store_name?.trim() || l?.company?.trim() || 'El lead'
+      const para = [...new Set([pedidoPor.get(r.lead) ?? null, l?.assigned_to ?? null].filter((x): x is string => Boolean(x)))]
+      return para.map((user_id) => ({
+        user_id,
+        // El tipo de «ha abierto su análisis»: la campana ya lo lleva a la ficha del lead (sin migración)
+        type: 'analisis_abierto',
+        title: (r.hecho ? `Ya está el informe de ${nombre}` : `No se ha podido sacar el informe de ${nombre}`).slice(0, 100),
+        message: (r.hecho ? 'Lo tienes en su ficha de Cold Calling para abrirlo, copiarlo o mandarlo por correo.' : `Motivo: ${r.motivo ?? 'no se ha podido'}`).slice(0, 260),
+        clave: `analisis_urgente:${r.lead}:${r.at}`,
+        datos: { app: 'analisis', leadId: r.lead },
+      }))
+    })
+    if (filas.length) {
+      const { error } = await s.from('notifications').upsert(filas, { onConflict: 'user_id,clave', ignoreDuplicates: true })
+      if (error) console.warn(`[analisis-keepa] aviso de informe urgente: ${error.message}`)
+    }
+  } catch (e) {
+    console.warn(`[analisis-keepa] no se han podido apuntar los urgentes: ${(e as Error).message}`)
   }
 }

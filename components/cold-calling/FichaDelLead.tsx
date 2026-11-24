@@ -557,8 +557,8 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
           </section>
 
           <aside className="min-w-0 space-y-4">
-            {/* La chuleta y el enlace del análisis de Amazon (migración 303), solo si el lead ya lo tiene */}
-            {lead.analisis_amazon_at && <AnalisisDelLead key={lead.id} leadId={lead.id} />}
+            {/* La chuleta y el enlace del análisis de Amazon (migración 303); sin él, el botón «Generar informe» (pasa el primero de la cola) */}
+            <AnalisisDelLead key={lead.id} leadId={lead.id} />
             <DatosDelLead lead={lead} esAutonomo={esAutonomo} />
             {/* Nota viva del lead. El seguimiento original del Excel está además como primera entrada del historial, así que se puede
                 reescribir esto sin perder lo que ya se había apuntado */}
