@@ -49,6 +49,8 @@ const fecha = (iso: string) => {
 const saludoDe = (inf: InformeDelCorreo, d: Pick<DatosCorreoAnalisis, 'saludo'>) => d.saludo?.trim() || `Hola, equipo de ${inf.vendedor.nombre}:`
 
 const entradillaFija = (inf: InformeDelCorreo) => {
+  if (esSinAmazon(inf) && inf.caso === 'multimarca')
+    return `Hemos buscado en Amazon.es los productos que vendes en tu web${inf.reventa?.marcas.length ? ` (${inf.reventa.marcas.slice(0, 3).join(', ')})` : ''}: ya tienen ficha y se venden. Puedes venderlos tú en esas mismas fichas, sin crear marca. Te lo hemos dejado todo en un análisis.`
   if (esSinAmazon(inf))
     return inf.caso === 'revendida'
       ? `Hemos mirado ${inf.marca.nombre} en Amazon.es: tiene ${miles(inf.marca.modelos)} fichas y las están vendiendo otras tiendas, no tú. Te lo hemos dejado todo en un análisis, con lo que se vende de lo tuyo y contra quién compites.`
@@ -76,6 +78,31 @@ function piezasDe(original: InformeDelCorreo): Piezas {
   const inf = esSinAmazon(original) ? depurar(original) : original
   if (esSinAmazon(inf)) {
     const m = inf.mercados[0]
+    const r = inf.caso === 'multimarca' ? inf.reventa : undefined
+    if (r)
+      return {
+        etiqueta: 'Tu oportunidad en Amazon',
+        titular: inf.titular[0],
+        titular2: inf.titular[1],
+        kpis: [
+          [`${r.encontrados} de ${r.productos.length}`, 'productos tuyos con ficha en Amazon', true],
+          [r.ventasMes ? `+${miles(r.ventasMes)}` : '—', 'uds/mes en esas fichas', false],
+          [r.ofertasMediana ? miles(r.ofertasMediana) : '—', 'tiendas por ficha, de mediana', false],
+          [r.conAmbosPrecios ? `${r.suPrecioCompite} de ${r.conAmbosPrecios}` : miles(inf.catalogo.productos), r.conAmbosPrecios ? 'con tu precio igual o más bajo' : 'productos en tu web', false],
+        ],
+        puntos: r.productos
+          .filter((p) => p.amazon)
+          .slice(0, 3)
+          .map((p, i) => ({
+            cifra: p.amazon?.precio ? `${miles(p.amazon.precio)} €` : '—',
+            titulo: p.titulo,
+            impacto: [p.amazon?.ventasMes ? `+${miles(p.amazon.ventasMes)} uds/mes` : null, p.amazon?.ofertas ? `${p.amazon.ofertas} tiendas la venden` : null, p.precio ? `tú: ${miles(p.precio)} €` : null].filter(Boolean).join(' · ') || null,
+            alta: i === 0,
+          })),
+        pieAdelanto: '+ tus productos ficha a ficha · quién gana hoy la venta · cómo lo haríamos',
+        preheader: `${inf.titular[0]} ${inf.titular[1]} · ${inf.claves.map((c) => `${c.cifra} ${c.titulo}`).join(' · ')}`,
+        pieLegal: `Análisis hecho con datos públicos de Amazon y de tu web del ${fecha(inf.fecha)}.`,
+      }
     return {
       etiqueta: 'Tu oportunidad en Amazon',
       titular: inf.titular[0],
@@ -146,6 +173,7 @@ export function textoCorreoAnalisis(inf: InformeDelCorreo, d: DatosCorreoAnalisi
 }
 
 export function asuntoCorreoAnalisis(inf: InformeDelCorreo): string {
+  if (esSinAmazon(inf) && inf.caso === 'multimarca') return `${inf.vendedor.nombre}: lo que vendes en tu web ya se vende en Amazon`
   if (esSinAmazon(inf))
     return inf.caso === 'revendida' ? `${inf.marca.nombre} ya se vende en Amazon (y no la vendes tú)` : `${inf.vendedor.nombre}: lo que se vende de lo tuyo en Amazon`
   const altas = inf.oportunidades.filter((o) => o.prioridad === 'alta').length

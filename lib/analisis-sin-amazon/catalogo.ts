@@ -5,6 +5,8 @@
  *   1. Shopify `/products.json`: títulos, precios, marca y tipo (público en casi todas las tiendas Shopify).
  *   2. El sitemap de productos de Shopify: todos los títulos, sin precio (desde el portátil, `/products.json` daba 429 y esto no).
  *   3. La portada: los productos con precio que enseñe (enlaces /products/… o JSON-LD Product) y su texto.
+ *   4. El sitemap de cualquier tienda (el de robots.txt): PrestaShop («/48-sony-alpha-a6400.html») y WooCommerce («/producto/…/»). Títulos sacados
+ *      del enlace, sin precio (24 nov 2026: Percy Fotografía, PrestaShop, salía sin catálogo y el informe no sabía qué vendía).
  * Siempre va además la descripción de la portada y un trozo de su texto: con PrestaShop o una web hecha a mano es lo único que hay.
  *
  * Nada de reintentos agresivos: una petición por recurso y fuera. Si la web no contesta, no hay informe.
@@ -148,7 +150,58 @@ export async function leerCatalogo(web: string): Promise<Catalogo | null> {
     for (const [h, precio] of preciosPortada) if (productos.length < 40) productos.push({ titulo: h.replace(/-/g, ' '), precio, enlace: `/products/${h}` })
   }
 
+  if (productos.length < 10) {
+    const vistos = new Set(productos.map((p) => p.titulo.toLowerCase()))
+    for (const p of await productosDelSitemap(origen)) {
+      if (productos.length >= 400) break
+      if (!vistos.has(p.titulo.toLowerCase())) productos.push(p)
+    }
+  }
+
   // Los que tienen precio, primero: son los que sirven para comparar con Amazon
   productos.sort((a, b) => Number(b.precio !== null) - Number(a.precio !== null))
   return { origen, plataforma: shopify ? 'shopify' : 'otra', productos: productos.slice(0, 400), descripcion, titulo, portada }
+}
+
+/** Un enlace de producto de PrestaShop («/48-sony-alpha-ilce-a6400.html», «/camaras/48-sony….html») o WooCommerce («/producto/sony-a6400/») → título */
+export function tituloDeEnlace(url: string): string | null {
+  let ruta: string
+  try {
+    ruta = decodeURIComponent(new URL(url).pathname)
+  } catch {
+    return null
+  }
+  const presta = /\/\d+-([a-z0-9][a-z0-9-]*[a-z0-9])\.html$/i.exec(ruta)?.[1]
+  const woo = /\/(?:producto|product|productos|products)\/([a-z0-9][a-z0-9-]*[a-z0-9])\/?$/i.exec(ruta)?.[1]
+  const slug = presta ?? woo
+  if (!slug || slug.length < 4) return null
+  return slug.replace(/-/g, ' ').slice(0, 140)
+}
+
+/** Los productos del sitemap de la tienda (el que diga robots.txt, o los habituales), siguiendo un índice como mucho a 4 sitemaps */
+async function productosDelSitemap(origen: string): Promise<ProductoDeTienda[]> {
+  const robots = await traer(`${origen}/robots.txt`)
+  const desdeRobots = [...(robots ?? '').matchAll(/^\s*sitemap:\s*(\S+)/gim)].map((m) => m[1])
+  const candidatos = [...new Set([...desdeRobots, `${origen}/sitemap.xml`, `${origen}/sitemap_index.xml`, `${origen}/1_index_sitemap.xml`])].slice(0, 4)
+  const locs = (xml: string) => [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*<\/loc>/gi)].map((m) => entidades(m[1]))
+  const productos: ProductoDeTienda[] = []
+  const vistos = new Set<string>()
+  for (const c of candidatos) {
+    const xml = await traer(c)
+    if (!xml) continue
+    // Un índice: se sigue a sus sitemaps (primero los que parecen de productos)
+    const hijos = /<sitemapindex/i.test(xml) ? locs(xml).sort((a, b) => Number(/product/i.test(b)) - Number(/product/i.test(a))).slice(0, 4) : []
+    const xmls = hijos.length ? await Promise.all(hijos.map((h) => traer(h))) : [xml]
+    for (const x of xmls) {
+      for (const u of locs(x ?? '')) {
+        const t = tituloDeEnlace(u)
+        if (!t || vistos.has(t)) continue
+        vistos.add(t)
+        productos.push({ titulo: t, precio: null, enlace: u.replace(origen, '') })
+        if (productos.length >= 400) return productos
+      }
+    }
+    if (productos.length) return productos
+  }
+  return productos
 }

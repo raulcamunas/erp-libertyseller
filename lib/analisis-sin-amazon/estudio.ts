@@ -21,7 +21,18 @@ type K = any
 export type PlanDeEstudio = {
   marcas: string[]
   busquedas: { tipo: string; termino: string; producto: string; precio: number }[]
+  /** Tienda multimarca: vende sobre todo marcas de otros (Canon, Fujifilm…), no una suya (24 nov 2026, Percy Fotografía) */
+  multimarca?: boolean
+  /** Solo si es multimarca: las marcas que más pesan en su catálogo */
+  marcasAjenas?: string[]
+  /** Solo si es multimarca: productos concretos de su web, de esas marcas, para buscar su ficha en Amazon */
+  productosAjenos?: { titulo: string; marca: string; busqueda: string; precio: number }[]
+  /** Si esos productos salen de su catálogo (true) o, sin catálogo legible, son los modelos típicos de esas marcas (false) */
+  ajenosDeSuWeb?: boolean
 }
+
+/** Un producto de su web (de otra marca) y su ficha en Amazon, si la hay */
+export type AjenoCrudo = { titulo: string; marca: string; busqueda: string; precio: number | null; producto: K | null }
 
 export type LeadDeEstudio = { nombre: string; web: string; cif: string | null; empresa: string | null }
 
@@ -42,6 +53,8 @@ export type EstudioSinAmazon = {
   marca: { total: number; productos: K[]; vendedores: Record<string, K> }
   mercados: MercadoCrudo[]
   gastado: number
+  /** Solo en una tienda multimarca: sus productos y su ficha en Amazon */
+  ajenos?: AjenoCrudo[]
   /** El vendedor de Amazon que ES el lead (mismo CIF o razón social): entonces no hay informe de este tipo */
   propio: { sellerId: string; nombre: string; por: 'CIF' | 'razón social' } | null
 }
@@ -75,6 +88,39 @@ export const palabras = (t: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 4 && !VACIAS.has(w))
+
+/** Productos de su web que se buscan en Amazon si es multimarca (cada uno ~15 tokens: una búsqueda y su ficha) */
+const PRODUCTOS_AJENOS = 6
+
+/**
+ * ¿La ficha de Amazon es ese producto? La marca en el título o en la marca de la ficha, y las piezas del modelo (las que llevan cifras, «12»,
+ * «R50», y las palabras de 4+ letras sin la marca) casi todas en el título: «Instax Mini 12» no es «Instax Mini 11» ni una funda para ella.
+ */
+export function esLaFicha(busqueda: string, marca: string, p: K): boolean {
+  const norm = (t: string) =>
+    String(t ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  const titulo = norm(`${p?.brand ?? ''} ${p?.title ?? ''}`)
+  const enTitulo = new Set(titulo.split(/[^a-z0-9]+/).filter(Boolean))
+  const m = norm(marca).split(/[^a-z0-9]+/).filter(Boolean)
+  if (!m.every((w) => enTitulo.has(w))) return false
+  if (/\b(funda|estuche|carcasa|protector|bolsa|correa)\b/.test(norm(p?.title ?? '').slice(0, 30)) && !/\b(funda|estuche|carcasa|protector|bolsa|correa)\b/.test(norm(busqueda))) return false
+  // Los números del modelo mandan («A6400» = «Alpha 6400», «XF35mm F2» = «XF35mmF2», «f/1.8» = «F1.8»): todos los de la búsqueda, en el título
+  // Con sus decimales: «f/2» no es «f/2.8»
+  const numeros = (t: string) => new Set((t.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.')))
+  const enNumeros = numeros(titulo)
+  const suyos = [...numeros(norm(busqueda))]
+  if (suyos.length && !suyos.every((n) => enNumeros.has(n))) return false
+  // Y las palabras (4+ letras, sin la marca ni lo que lleva cifras), la mitad al menos; sin palabras, con los números basta
+  const palabrasSuyas = norm(busqueda)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !/\d/.test(w) && !m.includes(w))
+  if (!palabrasSuyas.length) return suyos.length > 0
+  const pegado = titulo.replace(/[^a-z0-9]/g, '')
+  return palabrasSuyas.filter((w) => enTitulo.has(w) || pegado.includes(w)).length / palabrasSuyas.length >= 0.5
+}
 
 /** Hasta 2 mercados de 6 productos (13 nov 2026; eran 3 de 8) */
 const MERCADOS = 2
@@ -125,9 +171,30 @@ export async function planDeEstudio(lead: LeadDeEstudio, cat: Catalogo): Promise
         schema: {
           type: 'object',
           additionalProperties: false,
-          required: ['marcas', 'busquedas'],
+          required: ['multimarca', 'marcas', 'marcasAjenas', 'productosAjenos', 'busquedas'],
           properties: {
-            marcas: { type: 'array', items: { type: 'string' }, description: 'Sus marcas PROPIAS tal como saldrían en Amazon (1-2). No las de terceros que revenda.' },
+            multimarca: {
+              type: 'boolean',
+              description: 'true si la tienda vende SOBRE TODO productos de marcas de otros fabricantes (distribuidor o tienda multimarca: una tienda de fotografía que vende Canon y Fujifilm). false si vende sobre todo su propia marca.',
+            },
+            marcas: { type: 'array', items: { type: 'string' }, description: 'Sus marcas PROPIAS tal como saldrían en Amazon (1-2). No las de terceros que revenda. Vacío si es multimarca y no tiene marca propia.' },
+            marcasAjenas: { type: 'array', items: { type: 'string' }, description: 'Solo si es multimarca: las 3-5 marcas de otros que más pesan en su catálogo. Vacío si no.' },
+            productosAjenos: {
+              type: 'array',
+              description:
+                'Solo si es multimarca: hasta 6 productos concretos de su catálogo, de esas marcas (mejor de marcas distintas y con precio conocido). Si no hay catálogo legible, pon igualmente para cada marca ajena 1-2 modelos actuales y populares del tipo que vende la tienda (título = la búsqueda, precio 0). Vacío si no es multimarca.',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['titulo', 'marca', 'busqueda', 'precio'],
+                properties: {
+                  titulo: { type: 'string', description: 'El título tal cual en su web' },
+                  marca: { type: 'string', description: 'La marca del producto' },
+                  busqueda: { type: 'string', description: 'Marca + modelo exacto, como saldría en el título de Amazon (p. ej. «Fujifilm Instax Mini 12»), sin colores ni packs' },
+                  precio: { type: 'number', description: 'Su precio en euros; 0 si no se conoce' },
+                },
+              },
+            },
             busquedas: {
               type: 'array',
               items: {
@@ -150,15 +217,20 @@ export async function planDeEstudio(lead: LeadDeEstudio, cat: Catalogo): Promise
       {
         role: 'system',
         content:
-          'Analizas una tienda online española que no vende en Amazon. Di cuáles son sus marcas propias (casi siempre el nombre de la tienda) y elige los 3 tipos de producto que más pesan en su catálogo y que tienen equivalente claro en amazon.es, con el término que buscaría un comprador. Términos que devuelvan productos equivalentes a los suyos, no accesorios ni recambios. Si hay productos con precio conocido, al menos dos de los tres tipos tienen que ser de esos, con ese producto como representativo y su precio.',
+          'Analizas una tienda online española que no vende en Amazon. Primero decide si es multimarca: si lo que vende son sobre todo productos de marcas de otros fabricantes (una tienda de fotografía con Canon, Fujifilm o Kodak; una ferretería con Bosch y Makita), es multimarca: su nombre NO es una marca de producto, así que no lo pongas en marcas; di las marcas ajenas que más pesan y elige hasta 6 productos concretos suyos de esas marcas para buscarlos en Amazon. Si vende sobre todo su propia marca, no es multimarca: di cuáles son sus marcas propias (casi siempre el nombre de la tienda). En los dos casos elige los 3 tipos de producto que más pesan en su catálogo y que tienen equivalente claro en amazon.es, con el término que buscaría un comprador. Términos que devuelvan productos equivalentes a los suyos, no accesorios ni recambios. Si hay productos con precio conocido, al menos dos de los tres tipos tienen que ser de esos, con ese producto como representativo y su precio.',
       },
       { role: 'user', content: resumen },
     ],
   })
   const plan = JSON.parse(r.choices?.[0]?.message?.content ?? '{}') as PlanDeEstudio
+  const multimarca = plan.multimarca === true
   return {
     marcas: (plan.marcas ?? []).map((m) => String(m).trim()).filter((m) => m.length >= 2).slice(0, 2),
     busquedas: (plan.busquedas ?? []).filter((b) => b?.termino).slice(0, 3),
+    multimarca,
+    marcasAjenas: multimarca ? (plan.marcasAjenas ?? []).map((m) => String(m).trim()).filter((m) => m.length >= 2).slice(0, 5) : [],
+    productosAjenos: multimarca ? (plan.productosAjenos ?? []).filter((p) => p?.busqueda?.trim() && p?.marca?.trim()).slice(0, PRODUCTOS_AJENOS) : [],
+    ajenosDeSuWeb: multimarca && cat.productos.length > 0,
   }
 }
 
@@ -198,7 +270,43 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     marca.total = proporcion < 0.3 ? relevantes.length : Math.round(marca.total * proporcion)
   }
   marca.productos = relevantes
-  const ids = [...new Set(marca.productos.map((p) => p?.stats?.buyBoxSellerId).filter((x) => typeof x === 'string' && !x.startsWith('-')))] as string[]
+  // 1 bis) Tienda multimarca: la ficha en Amazon de productos concretos de su web (de Canon, Fujifilm…)
+  let ajenos: AjenoCrudo[] | undefined
+  if (plan.multimarca && plan.productosAjenos?.length) {
+    const candidatos: Array<{ a: (typeof plan.productosAjenos)[number]; asins: string[] }> = []
+    for (const a of plan.productosAjenos) {
+      let d = await k(finder({ title: a.busqueda, brand: [a.marca.toLowerCase()], current_SALES_gte: 1, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
+      // Sin resultados con el modelo entero («Sony Alpha A6400 16-50mm»): con la marca y el número principal («6400»)
+      const principal = (a.busqueda.match(/\d{2,}/g) ?? []).sort((x, y) => y.length - x.length)[0]
+      if (!(d?.asinList ?? []).length && principal) d = await k(finder({ title: principal, brand: [a.marca.toLowerCase()], current_SALES_gte: 1, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
+      candidatos.push({ a, asins: (d?.asinList ?? []).slice(0, 3) })
+    }
+    const todos = [...new Set(candidatos.flatMap((c) => c.asins))]
+    const fichas = new Map((await productos(todos.slice(0, 18))).map((p) => [String(p?.asin), p] as const))
+    const usadas = new Set<string>()
+    ajenos = candidatos.map(({ a, asins }) => ({
+      titulo: a.titulo,
+      marca: a.marca,
+      busqueda: a.busqueda,
+      precio: a.precio > 0 ? a.precio : null,
+      // De las que casan, la de título más corto: es el producto solo y no un kit que lo lleva («EOS R50 + RF 50mm» no es el objetivo)
+      producto: (() => {
+        const p =
+          asins
+            .map((x) => fichas.get(x))
+            .filter((x) => x && !usadas.has(String(x.asin)) && esLaFicha(a.busqueda, a.marca, x))
+            .sort((x, y) => String(x?.title ?? '').length - String(y?.title ?? '').length)[0] ?? null
+        if (p) usadas.add(String(p.asin))
+        return p
+      })(),
+    }))
+  }
+
+  const ids = [
+    ...new Set(
+      [...marca.productos, ...(ajenos ?? []).map((x) => x.producto).filter(Boolean)].map((p) => p?.stats?.buyBoxSellerId).filter((x) => typeof x === 'string' && !x.startsWith('-')),
+    ),
+  ] as string[]
   if (ids.length) marca.vendedores = (await k(`seller?domain=9&seller=${ids.slice(0, 10).join(',')}`))?.sellers ?? {}
 
   // ¿Alguno de esos vendedores es el propio lead?
@@ -209,7 +317,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     if (cif && cifNormal(v?.vatID) === cif) propio = { sellerId: id, nombre: v?.sellerName ?? id, por: 'CIF' }
     else if (!propio && empresa && empresaNormal(v?.businessName) === empresa) propio = { sellerId: id, nombre: v?.sellerName ?? id, por: 'razón social' }
   }
-  if (propio) return { fecha: hoy(), plan, marca, mercados: [], gastado, propio }
+  if (propio) return { fecha: hoy(), plan, marca, mercados: [], gastado, propio, ajenos }
 
   // 2) Lo que se vende en Amazon de lo suyo
   const marcas = new Set(plan.marcas.map((m) => m.toLowerCase().replace(/[^a-z0-9]/g, '')))
@@ -246,7 +354,8 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
     }
   } else {
     for (const b of plan.busquedas) {
-      if (mercados.length >= MERCADOS) break
+      // Multimarca con sus fichas encontradas: basta un mercado (lo fuerte son sus productos, y así cabe en el saldo de una tienda)
+      if (mercados.length >= (ajenos?.some((x) => x.producto) ? 1 : MERCADOS)) break
       let d = await k(finder({ title: b.termino, monthlySold_gte: 50, singleVariation: true, sort: [['monthlySold', 'desc']], perPage: 50, page: 0 }))
       if ((d?.asinList ?? []).length < 5) d = await k(finder({ title: b.termino, current_SALES_gte: 1, singleVariation: true, sort: [['current_SALES', 'asc']], perPage: 50, page: 0 }))
       const ps = await productos((d?.asinList ?? []).slice(0, 10))
@@ -298,7 +407,7 @@ export async function estudiarTienda(clave: string, lead: LeadDeEstudio, plan: P
   }
 
   const validados = await validarMercados(lead, plan, titulosDeSuWeb, mercados)
-  return { fecha: hoy(), plan, marca, mercados: validados.filter((m) => m.productos.length >= 3), gastado, propio: null }
+  return { fecha: hoy(), plan, marca, mercados: validados.filter((m) => m.productos.length >= 3), gastado, propio: null, ajenos }
 }
 
 /**

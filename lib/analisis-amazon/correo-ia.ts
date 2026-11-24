@@ -77,7 +77,9 @@ function resumenDelInforme(original: InformeDelCorreo): string {
     const m = inf.marca
     return [
       `Tienda online: ${inf.vendedor.nombre} (${inf.vendedor.web}). NO vende en Amazon.`,
-      inf.caso === 'revendida'
+      inf.caso === 'multimarca' && inf.reventa
+        ? `Es una tienda MULTIMARCA: no tiene marca propia, revende ${inf.reventa.marcas.slice(0, 4).join(', ') || 'marcas de otros'}. ${inf.reventa.encontrados} de ${inf.reventa.productos.length} productos suyos ya tienen ficha en Amazon (${inf.reventa.ventasMes} uds/mes publicadas; ${inf.reventa.ofertasMediana ?? '?'} tiendas por ficha de mediana). Puede vender en esas fichas sin crear marca, compitiendo por la venta. Esas marcas NO son su competencia: son lo que vende.`
+        : inf.caso === 'revendida'
         ? `Su marca ${m.nombre} ya tiene ${m.modelos} fichas en Amazon y la venden otras tiendas (${m.vendedores.map((v) => v.nombre).slice(0, 3).join(', ') || 'terceros'}), no él.${m.sinVendedor ? ` ${m.sinVendedor} de ${m.revisadas} fichas revisadas no tienen a nadie vendiéndolas: quien las busca no puede comprar.` : ''}`
         : `Su marca ${m.nombre} no está en Amazon: quien la busca allí compra otra.`,
       ...inf.mercados.map(

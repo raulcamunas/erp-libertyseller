@@ -6,6 +6,9 @@
  *              El gancho: «tu marca ya se vende en Amazon, pero no la vendes tú»; y si hay fichas sin nadie que las venda, que quien
  *              busca su producto allí no lo puede comprar.
  *   ausente    su marca no está. El gancho: lo que ya se compra en Amazon de lo suyo, a qué precio y contra quién.
+ *   multimarca no tiene marca propia: revende marcas de otros (Percy Fotografía: Canon, Fujifilm, Kodak; 24 nov 2026). El gancho: esos mismos
+ *              productos ya tienen ficha en Amazon y se venden; puede vender en esas fichas sin crear nada, compitiendo por la venta.
+ *              Las marcas no son «rivales»: son lo que vende.
  *
  * Nada inventado: cada frase sale de una cifra de Keepa o de su web. Sin promesas de resultados.
  */
@@ -50,11 +53,39 @@ export type MercadoSinAmazon = {
 
 export type Clave = { cifra: string; titulo: string; detalle: string }
 
+/** Un producto de su web (de otra marca) frente a su ficha en Amazon */
+export type ProductoAjeno = {
+  titulo: string
+  marca: string
+  /** Su precio en la web */
+  precio: number | null
+  /** La ficha en Amazon (null: no la hemos encontrado) */
+  amazon: (ProductoMini & { ofertas: number | null; amazonVende: boolean }) | null
+}
+
+export type Reventa = {
+  marcas: string[]
+  /** true: productos de su catálogo; false: no se pudo leer su web y son modelos típicos de las marcas que vende */
+  deSuWeb: boolean
+  productos: ProductoAjeno[]
+  encontrados: number
+  ventasMes: number
+  /** Tiendas que lo ofrecen, de mediana, en las fichas encontradas */
+  ofertasMediana: number | null
+  /** Fichas en las que Amazon no vende (solo tiendas) */
+  sinAmazon: number
+  /** Fichas en las que su precio es igual o más bajo que el de Amazon */
+  suPrecioCompite: number
+  conAmbosPrecios: number
+}
+
 export type InformeSinAmazon = {
   clase: 'sin_amazon'
   version: 1
   fecha: string
-  caso: 'revendida' | 'ausente'
+  caso: 'revendida' | 'ausente' | 'multimarca'
+  /** Solo en una tienda multimarca */
+  reventa?: Reventa
   /** compatibles con el informe de Amazon (ficha de Cold Calling, avisos, baja, correo) */
   tipo: null
   tipoTexto: string
@@ -121,10 +152,45 @@ export type CifrasDelTexto = {
   revisadas: number
   productosWeb: number
   mercados: MercadoSinAmazon[]
+  reventa?: Reventa
+}
+
+/** Los textos de una tienda multimarca: lo que vende en su web ya se vende en Amazon, y puede venderlo en esas mismas fichas */
+function textosMultimarca(d: CifrasDelTexto, r: Reventa): Pick<InformeSinAmazon, 'titular' | 'resumen' | 'claves' | 'guion'> {
+  const marcas = enumerar(r.marcas.slice(0, 3))
+  const ejemplo = [...r.productos].filter((p) => p.amazon).sort((a, b) => (b.amazon?.ventasMes ?? 0) - (a.amazon?.ventasMes ?? 0))[0] ?? null
+  const claves: Clave[] = []
+  if (r.encontrados)
+    claves.push({ cifra: `${r.encontrados} de ${r.productos.length}`, titulo: r.deSuWeb ? 'productos de tu web ya tienen ficha en Amazon' : 'modelos de tus marcas que hemos buscado tienen ficha en Amazon', detalle: 'No hay que crear nada: te pones a vender en la ficha que ya existe.' })
+  if (r.ventasMes > 0) claves.push({ cifra: `+${ent(r.ventasMes)}`, titulo: 'unidades al mes', detalle: 'Lo que Amazon publica que se vende de esas fichas.' })
+  if (r.ofertasMediana)
+    claves.push({ cifra: ent(r.ofertasMediana), titulo: r.ofertasMediana === 1 ? 'tienda vende cada ficha' : 'tiendas venden cada ficha, de mediana', detalle: 'Compiten por la venta con el precio, el stock y el envío.' })
+  if (r.conAmbosPrecios && claves.length < 4)
+    claves.push({ cifra: `${r.suPrecioCompite} de ${r.conAmbosPrecios}`, titulo: 'con tu precio igual o más bajo', detalle: 'Comparando el precio de tu web con el que gana hoy la venta en Amazon.' })
+  else if (r.sinAmazon && claves.length < 4) claves.push({ cifra: ent(r.sinAmazon), titulo: r.sinAmazon === 1 ? 'ficha que Amazon no vende' : 'fichas que Amazon no vende', detalle: 'Ahí solo compiten tiendas como la tuya.' })
+
+  const titular: [string, string] = r.deSuWeb
+    ? ['Lo que vendes en tu web ya se vende en Amazon.', 'Y puedes venderlo tú, en las mismas fichas.']
+    : ['Las marcas que vendes ya se venden en Amazon.', 'Y puedes venderlas tú, en las mismas fichas.']
+  const resumen = `${r.deSuWeb ? (d.productosWeb > 0 ? `Hemos cruzado productos de los ${ent(d.productosWeb)} de tu web` : 'Hemos cruzado productos de tu web') : 'Hemos buscado en Amazon.es modelos de las marcas que vendes'}${marcas ? ` (${marcas})` : ''}${r.deSuWeb ? ' con Amazon.es' : ''}: ${
+    r.encontrados ? `${r.encontrados} de ${r.productos.length} ya tienen ficha${r.ventasMes ? ` y venden más de ${ent(r.ventasMes)} unidades al mes` : ''}` : 'las marcas que vendes están en Amazon'
+  }. No necesitas marca propia para vender allí: te pones en esas fichas y compites por la venta con tu precio y tu stock.`
+
+  const frases = [
+    `He mirado en Amazon ${r.deSuWeb ? 'los productos que vendes en tu web' : 'las marcas que vendes'}${marcas ? `, ${r.deSuWeb ? 'de ' : ''}${marcas}` : ''}: ${r.encontrados ? `${r.encontrados} de ${r.productos.length} ya tienen ficha` : 'esas marcas están todas'}.`,
+    ejemplo?.amazon
+      ? `Por ejemplo, ${ejemplo.amazon.titulo.split(/ [-–|,] /)[0].slice(0, 60)}: ${ejemplo.amazon.precio ? `se vende a ${eur(ejemplo.amazon.precio)}` : 'se vende'}${ejemplo.amazon.ventasMes ? `, más de ${ent(ejemplo.amazon.ventasMes)} al mes` : ''}${ejemplo.amazon.ofertas ? `, y la ofrecen ${ent(ejemplo.amazon.ofertas)} tiendas` : ''}${ejemplo.precio ? `; tú la tienes a ${eur(ejemplo.precio)}` : ''}.`
+      : '',
+    'No hace falta crear fichas ni marca: se vende en las que ya existen, compitiendo por la venta. Algunas marcas piden autorización y lo miramos marca a marca.',
+    '¿Te paso con nuestro equipo de estrategia para verlo con tu catálogo en 20 minutos?',
+  ].filter(Boolean)
+
+  return { titular, resumen, claves: claves.slice(0, 4), guion: { tipo: 'Tienda multimarca: vende marcas de otros', frases } }
 }
 
 export function textosDelInforme(d: CifrasDelTexto): Pick<InformeSinAmazon, 'titular' | 'resumen' | 'claves' | 'guion'> {
   const { caso, marcaNombre, modelos, nombresTerceros, sinVendedor, mercados } = d
+  if (caso === 'multimarca' && d.reventa) return textosMultimarca(d, d.reventa)
   const ventasMes = mercados.reduce((a, m) => a + m.ventasMes, 0)
   const marcasRivales = [...new Set(mercados.flatMap((m) => m.marcas.map((x) => x.marca)))].slice(0, 4)
   const principal = [...mercados].sort((a, b) => b.ventasMes - a.ventasMes || (a.resenasMediana ?? 1e9) - (b.resenasMediana ?? 1e9))[0] ?? null
@@ -219,7 +285,8 @@ export function construirSinAmazon(
         productos: Array.isArray(v?.totalStorefrontAsins) ? v.totalStorefrontAsins[1] ?? null : null,
       }
     })
-  const caso: InformeSinAmazon['caso'] = e.marca.total > 0 && fichas.length > 0 ? 'revendida' : 'ausente'
+  const reventa = e.plan.multimarca && e.ajenos?.length ? construirReventa(e.ajenos, e.plan.marcasAjenas ?? [], vendedores, e.plan.ajenosDeSuWeb !== false) : undefined
+  const caso: InformeSinAmazon['caso'] = reventa ? 'multimarca' : e.marca.total > 0 && fichas.length > 0 ? 'revendida' : 'ausente'
 
   const mercados: MercadoSinAmazon[] = e.mercados.map((m) => {
     const ps = m.productos.map((p) => mini(p, vendedores))
@@ -254,6 +321,7 @@ export function construirSinAmazon(
     revisadas: fichas.length,
     productosWeb: lead.productosWeb,
     mercados,
+    reventa,
   })
 
   return {
@@ -262,7 +330,8 @@ export function construirSinAmazon(
     fecha: e.fecha,
     caso,
     tipo: null,
-    tipoTexto: caso === 'revendida' ? 'Sin Amazon · su marca la venden otros' : 'Sin Amazon · su marca no está',
+    tipoTexto: caso === 'multimarca' ? 'Sin Amazon · tienda multimarca' : caso === 'revendida' ? 'Sin Amazon · su marca la venden otros' : 'Sin Amazon · su marca no está',
+    ...(reventa ? { reventa } : {}),
     vendedor: { nombre: lead.nombre, web: lead.web },
     catalogo: { productos: lead.productosWeb },
     marca: {
@@ -282,6 +351,34 @@ export function construirSinAmazon(
     },
     mercados,
     ...textos,
+  }
+}
+
+/** Sus productos frente a sus fichas de Amazon, con las cifras que usa el texto */
+export function construirReventa(ajenos: NonNullable<EstudioSinAmazon['ajenos']>, marcasAjenas: string[], vendedores: Record<string, K>, deSuWeb = true): Reventa {
+  const productos: ProductoAjeno[] = ajenos.map((a) => {
+    if (!a.producto) return { titulo: a.titulo, marca: a.marca, precio: a.precio, amazon: null }
+    const c: number[] = a.producto?.stats?.current ?? []
+    return {
+      titulo: a.titulo,
+      marca: a.marca,
+      precio: a.precio,
+      amazon: { ...mini(a.producto, vendedores), ofertas: typeof c[11] === 'number' && c[11] > 0 ? c[11] : null, amazonVende: typeof c[0] === 'number' && c[0] > 0 },
+    }
+  })
+  const con = productos.filter((p) => p.amazon)
+  const ambos = con.filter((p) => p.precio && p.amazon?.precio)
+  return {
+    marcas: marcasAjenas.length ? marcasAjenas : [...new Set(ajenos.map((a) => a.marca))],
+    deSuWeb,
+    // Primero las encontradas, de más a menos ventas
+    productos: [...productos].sort((a, b) => Number(!!b.amazon) - Number(!!a.amazon) || (b.amazon?.ventasMes ?? 0) - (a.amazon?.ventasMes ?? 0)),
+    encontrados: con.length,
+    ventasMes: con.reduce((s, p) => s + (p.amazon?.ventasMes ?? 0), 0),
+    ofertasMediana: mediana(con.map((p) => p.amazon?.ofertas ?? 0)),
+    sinAmazon: con.filter((p) => !p.amazon?.amazonVende).length,
+    suPrecioCompite: ambos.filter((p) => (p.precio ?? 0) <= (p.amazon?.precio ?? 0) * 1.01).length,
+    conAmbosPrecios: ambos.length,
   }
 }
 

@@ -9,7 +9,7 @@
  * nosotros → hablar con su comercial. Todas las cifras salen del informe; aquí no se calcula nada que no esté en él salvo sumas.
  */
 import type { ReactNode } from 'react'
-import type { InformeSinAmazon, MercadoSinAmazon, ProductoMini } from '@/lib/analisis-sin-amazon/construir'
+import type { InformeSinAmazon, MercadoSinAmazon, ProductoAjeno, ProductoMini } from '@/lib/analisis-sin-amazon/construir'
 import { cuentaDeMercado, depurar } from '@/lib/analisis-sin-amazon/calidad'
 import { CLIENTES, type ContactoComercial } from './InformeAnalisis'
 import { ProgramaSemanal } from './ProgramaSemanal'
@@ -206,6 +206,32 @@ function Producto({ p, i, verVendedor }: { p: ProductoMini; i: number; verVended
   )
 }
 
+/** Un producto de su web (de otra marca) frente a su ficha en Amazon */
+function Ajeno({ p, i }: { p: ProductoAjeno; i: number }) {
+  const a = p.amazon!
+  const dif = p.precio && a.precio ? Math.round(((p.precio - a.precio) / a.precio) * 100) : null
+  return (
+    <a className="sa-prod" href={`https://www.amazon.es/dp/${a.asin}`} target="_blank" rel="noopener noreferrer">
+      <span className="num">{i + 1}</span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {a.imagen ? <img src={a.imagen} alt="" loading="lazy" /> : <span className="sin" />}
+      <span className="sa-pt">
+        <b>{a.titulo}</b>
+        <small>
+          {p.marca}
+          {a.ofertas ? ` · ${ent(a.ofertas)} ${a.ofertas === 1 ? 'tienda la vende' : 'tiendas la venden'}` : ''}
+          {a.vende ? <> · gana la venta <em>{a.vende}</em></> : <> · <em className="nadie">nadie la vende ahora</em></>}
+          {p.precio ? ` · en tu web ${eur(p.precio)}${dif !== null && Math.abs(dif) >= 1 ? ` (${dif > 0 ? '+' : ''}${dif} %)` : ''}` : ''}
+        </small>
+      </span>
+      <span className="sa-pc">
+        <b>{a.precio ? eur(a.precio) : '—'}</b>
+        <small>{a.ventasMes ? `+${ent(a.ventasMes)} uds/mes` : 'menos de 50/mes'}</small>
+      </span>
+    </a>
+  )
+}
+
 function Mercado({ m, i }: { m: MercadoSinAmazon; i: number }) {
   const suyo = m.suyo?.precio ?? 0
   // La cuenta y sus límites están en lib/analisis-sin-amazon/calidad.ts: solo se compara su precio con el mercado si son de la misma gama, y con precios
@@ -340,6 +366,7 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
   const tel = contacto?.telefono ? (/\+?\d[\d\s]{7,}/.exec(contacto.telefono)?.[0] ?? '').replace(/[^\d+]/g, '') : ''
   const cta = wa ?? (tel ? `tel:${tel}` : 'https://libertyseller.com')
   const revendida = inf.caso === 'revendida'
+  const multimarca = inf.caso === 'multimarca' && inf.reventa ? inf.reventa : null
   const m = inf.marca
   const principal = [...inf.mercados].sort((a, b) => b.ventasMes - a.ventasMes || (a.resenasMediana ?? 1e9) - (b.resenasMediana ?? 1e9))[0] ?? null
   const huecoEnLaMarca = revendida && m.sinVendedor > 0
@@ -375,7 +402,7 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
             </div>
             <p className="sa-par">{inf.resumen}</p>
             <div className="sa-ctas">
-              <a className="sa-cta" href={revendida ? '#marca' : '#mercado'}>
+              <a className="sa-cta" href={revendida || multimarca ? '#marca' : '#mercado'}>
                 Ver lo que hemos encontrado ↓
               </a>
               <a className="sa-cta sec" href={cta} target={wa ? '_blank' : undefined} rel="noopener noreferrer">
@@ -403,8 +430,47 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
       <section className="sa-sec alt" id="marca">
         <div className="sa-ret" />
         <div className="sa-in">
-          <Etiqueta>Tu marca en Amazon hoy</Etiqueta>
-          {revendida ? (
+          <Etiqueta>{multimarca ? 'Tu catálogo en Amazon hoy' : 'Tu marca en Amazon hoy'}</Etiqueta>
+          {multimarca ? (
+            <>
+              <h2>
+                Las marcas que vendes ya están en Amazon. <span className="sa-deg">Y tú puedes venderlas allí.</span>
+              </h2>
+              <p className="sa-par">
+                {multimarca.deSuWeb !== false ? 'Hemos buscado en Amazon.es productos concretos de tu web' : 'Hemos buscado en Amazon.es modelos de las marcas que vendes'}
+                {multimarca.marcas.length ? <>{multimarca.deSuWeb !== false ? ', de ' : ': '}{enumerar(multimarca.marcas.slice(0, 4))}</> : ''}.{' '}
+                {multimarca.encontrados ? (
+                  <>
+                    <b>
+                      {multimarca.encontrados} de {multimarca.productos.length}
+                    </b>{' '}
+                    ya tienen ficha{multimarca.ventasMes ? <> y entre todas venden más de <b>{ent(multimarca.ventasMes)} unidades al mes</b></> : ''}.
+                  </>
+                ) : (
+                  'No hemos encontrado sus fichas exactas, pero esas marcas venden en Amazon.'
+                )}{' '}
+                En Amazon no hace falta tener marca propia ni crear fichas: varias tiendas venden en la misma ficha y la venta se la lleva la mejor oferta (precio, stock y
+                envío). Algunas marcas piden autorización para venderlas; se mira marca a marca.
+              </p>
+              <div className="sa-datos" style={{ margin: '28px 0 20px', maxWidth: 640 }}>
+                <Dato valor={`${multimarca.encontrados} de ${multimarca.productos.length}`} rotulo={multimarca.deSuWeb !== false ? 'productos tuyos con ficha' : 'modelos buscados con ficha'} naranja />
+                <Dato valor={multimarca.ofertasMediana ? ent(multimarca.ofertasMediana) : '—'} rotulo="tiendas por ficha, de mediana" />
+                <Dato
+                  valor={multimarca.conAmbosPrecios ? `${multimarca.suPrecioCompite} de ${multimarca.conAmbosPrecios}` : multimarca.sinAmazon ? ent(multimarca.sinAmazon) : '—'}
+                  rotulo={multimarca.conAmbosPrecios ? 'con tu precio igual o más bajo' : 'fichas que Amazon no vende'}
+                />
+              </div>
+              {multimarca.encontrados > 0 && (
+                <Ventana titulo={`Tus productos en Amazon.es · precio y ventas de hoy`}>
+                  {multimarca.productos
+                    .filter((p) => p.amazon)
+                    .map((p, i) => (
+                      <Ajeno key={p.amazon!.asin + i} p={p} i={i} />
+                    ))}
+                </Ventana>
+              )}
+            </>
+          ) : revendida ? (
             <>
               <h2>
                 {m.nombre} ya está en Amazon. <span className="sa-deg">Y no la vendes tú.</span>
@@ -498,7 +564,9 @@ export function InformeSinAmazon({ informe, contacto }: { informe: InformeSinAma
             <span className="sa-deg">{principal ? `Empezaríamos por ${principal.nombre.toLowerCase()}.` : 'Empezaríamos por lo que más se vende.'}</span>
           </h2>
           <p className="sa-par">
-            {revendida
+            {multimarca
+              ? 'Empezaríamos por los productos de tu web que ya tienen ficha y en los que tu precio compite: sin crear nada, con tu stock, y viendo qué marcas piden autorización. Tu web sigue siendo tuya: Amazon es un canal más.'
+              : revendida
               ? 'Lo primero es recuperar lo que ya es tuyo: tus fichas. Después, ponerlas a vender con tu precio y tu stock, y crecer desde ahí.'
               : 'Pocas fichas, bien hechas, en lo que más se vende. Tu web sigue siendo tuya: Amazon es un canal más, con millones de compradores que ya están buscando lo que vendes.'}
           </p>

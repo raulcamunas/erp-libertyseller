@@ -161,10 +161,23 @@ export function depurar(inf: InformeSinAmazon): InformeSinAmazon & { calidad: Ca
   ]
   const grande = inf.marca.modelos > LIMITES.fichasDeMarcaGrande
   if (grande) motivos.push(`Su marca tiene ${inf.marca.modelos.toLocaleString('es-ES')} fichas en Amazon: es una marca grande o comparte nombre con otra. Confirma que es la suya`)
-  if (!utiles.length) motivos.push(inf.caso === 'revendida' ? 'No hay ningún mercado fiable: solo se enseñan las fichas de su marca' : 'No hay ningún mercado fiable que enseñar')
+  const encontrados = inf.reventa?.encontrados ?? 0
+  if (inf.caso === 'multimarca' && !encontrados) motivos.push('Es una tienda multimarca y no hemos encontrado en Amazon ninguno de sus productos')
+  else if (!utiles.length && inf.caso !== 'multimarca') motivos.push(inf.caso === 'revendida' ? 'No hay ningún mercado fiable: solo se enseñan las fichas de su marca' : 'No hay ningún mercado fiable que enseñar')
 
   const aMirar = vs.some((x) => x.v.estado !== 'dudoso' && x.v.revisar)
-  const nivel: Calidad['nivel'] = !utiles.length && inf.caso === 'ausente' ? 'flojo' : ocultos.length || aMirar || grande || !utiles.length ? 'revisar' : 'bueno'
+  const nivel: Calidad['nivel'] =
+    inf.caso === 'multimarca'
+      ? !encontrados && !utiles.length
+        ? 'flojo'
+        : !encontrados || ocultos.length || aMirar
+          ? 'revisar'
+          : 'bueno'
+      : !utiles.length && inf.caso === 'ausente'
+        ? 'flojo'
+        : ocultos.length || aMirar || grande || !utiles.length
+          ? 'revisar'
+          : 'bueno'
 
   const calidad: Calidad = { nivel, motivos, ocultos, mercadosBuenos: utiles.length }
   const textos = textosDelInforme({
@@ -176,6 +189,7 @@ export function depurar(inf: InformeSinAmazon): InformeSinAmazon & { calidad: Ca
     revisadas: inf.marca.revisadas,
     productosWeb: inf.catalogo.productos,
     mercados: utiles,
+    reventa: inf.reventa,
   })
   // Sin nada oculto se respetan los textos guardados, salvo la chuleta del comercial: se rehace siempre para que los informes ya hechos
   // lleven también las frases de hoy (el comercial pasa al lead a nuestro equipo de estrategia, no se lo explica él)
