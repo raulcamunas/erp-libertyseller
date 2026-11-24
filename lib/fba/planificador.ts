@@ -645,6 +645,10 @@ export const planificarSku: FnPlanificarSku = (e, hoy, plazo, ajustes, medidas, 
   const ventanasBase = [ritmo.r14 !== null ? '14' : null, ritmo.r30 !== null ? '30' : null, ritmo.r90 !== null ? '90' : null].filter(Boolean).join('/')
   const origenVendido = ritmo.origen === 'modelo' && e.modelo
     ? ` (ritmo del modelo ${e.modelo} repartido por tallas)`
+    : ritmo.origen === 'ultimo_periodo' && ritmo.deModelo && e.modelo
+      ? e.vendibles > 0
+        ? ` (ritmo del modelo ${e.modelo} en su último periodo con stock, repartido por tallas)`
+        : ` (ritmo del modelo ${e.modelo} repartido por tallas; esta talla tuvo stock por última vez el ${fechaCorta(ritmo.ultimoPeriodoHasta ?? hoy)})`
     : ritmo.origen === 'ultimo_periodo'
       ? ` (pocos días con stock en 90: ritmo del periodo hasta el ${fechaCorta(ritmo.ultimoPeriodoHasta ?? hoy)})`
       : ventanasBase ? ` (últimos ${ventanasBase} días con stock)` : ''

@@ -339,5 +339,30 @@ console.log('\n=== Perfil de un SKU lanzado hace 7 meses (las semanas sin stock 
   comprobar('con menos de 30 semanas con stock no hay perfil propio', tresMeses === null)
 }
 
+console.log('\n=== 24 nov 2026. Un modelo que se agotó hace poco sigue mandando sobre sus tallas (F0047 BURDEOS de ShoesF) ===')
+{
+  // 4 tallas con 6 pares cada una desde hace 60 días; cada talla vende 1 cada 5 días y se agota hace ~34: 24 pares del modelo, nada en el último mes
+  const movs: MovimientoDiario[] = []
+  const tallas = ['38', '39', '40', '41'].map((t) => {
+    const sku = `F0047-${t}`
+    movs.push(entrada(sku, -60, 6))
+    for (let k = 0; k < 6; k++) movs.push(venta(sku, -59 + k * 5, 1))
+    return sku
+  })
+  const { primeraEntrada: _p, devolucionesVendibles90: _d, mermas90: _m, ...comun } = OPC
+  const m = ritmoPorModelo(
+    tallas.map((sku) => ({ sku, serie: serieDiaria(movs, sku, 0, HOY, HOY), continuidad: true, ventas180: 6 })),
+    { modelo: 'F0047', comun, porSku: Object.fromEntries(tallas.map((sku) => [sku, { primeraEntrada: dia(-60), devolucionesVendibles90: 0, mermas90: 0 }])) },
+  )
+  const propia = ritmoRobusto(serieDiaria(movs, tallas[0], 0, HOY, HOY), { ...OPC, primeraEntrada: dia(-60) })
+  comprobar('la talla suelta, sola, es «último periodo» con confianza baja (6 ventas)', propia.origen === 'ultimo_periodo' && propia.confianza === 'baja', propia)
+  const r = tallas.map((sku) => m.get(sku)!)
+  comprobar('todas las tallas usan el ritmo del modelo', r.every((x) => x.deModelo === true), r.map((x) => x.origen))
+  comprobar('con la confianza del modelo (24 pares en sus días-equivalentes): media, no baja', r.every((x) => x.confianza === 'media'), r.map((x) => x.confianza))
+  comprobar('agotadas: cada talla lleva SU fecha de último stock, para que el planificador pregunte por talla si lleva mucho', r.every((x) => x.origen === 'ultimo_periodo' && x.ultimoPeriodoHasta === propia.ultimoPeriodoHasta), r.map((x) => x.ultimoPeriodoHasta))
+  const suma = r.reduce((a, x) => a + (x.base ?? 0), 0)
+  comprobar('y las cuotas reparten el ritmo entero del modelo (4 × la de una talla)', cerca(suma, 4 * (r[0].base ?? 0), 0.001) && suma > 0, suma)
+}
+
 console.log(`\n${fallos === 0 ? 'TODO OK' : `${fallos} FALLOS`}`)
 process.exit(fallos === 0 ? 0 : 1)

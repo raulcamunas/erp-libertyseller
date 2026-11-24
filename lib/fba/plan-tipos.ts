@@ -72,6 +72,8 @@ export interface RitmoSku {
   confianza: Confianza; origen: 'sku' | 'modelo' | 'ultimo_periodo'
   /** Si el ritmo sale del último periodo con stock (agotado largo): hasta cuándo */
   ultimoPeriodoHasta: string | null
+  /** El ritmo es el del modelo repartido por tallas (con origen 'modelo', o 'ultimo_periodo' si el modelo entero lleva tiempo agotado) */
+  deModelo?: boolean
   pedidoGrande: boolean; serieDeStockFiable: boolean; anclajeEstimado: boolean
   tasaDevolucionVendible: number   // 0..0,3
   mermaDiaria: number              // ud/día que pasan de vendible a no vendible o se retiran

@@ -45,6 +45,8 @@ export interface MovimientoDiario {
 export const UMBRALES_RITMO = {
   ventanas: [14, 30, 60, 90] as const,
   minDias: { 14: 7, 30: 12, 60: 20, 90: 30 } as Record<number, number>,
+  /** Lo mínimo de días-equivalentes en 90 para el ritmo de 90 días de un MODELO (todas sus tallas juntas) */
+  minDiasModelo90: 14,
   pesos: { 14: 0.3, 30: 0.4, 90: 0.3 } as Record<number, number>,
   /** r14 entra como mucho a 2 × r90 */
   r14TopeSobreR90: 2,
@@ -528,6 +530,8 @@ interface Extra {
   /** Para la frase del modelo */
   etiquetaDias: 'días con stock' | 'días-equivalentes'
   ventas180?: number
+  /** Es la serie de un MODELO (todas sus tallas juntas): la confianza se mide con sus días-equivalentes y sus ventas (24 nov 2026) */
+  modelo?: boolean
 }
 
 function pesoDeSerie(serie: SerieSku, primeraEntrada: string | null): Array<number | null> {
@@ -624,7 +628,10 @@ function calcular(sp: SeriePonderada, op: OpcionesRitmo, extra: Extra): RitmoSku
       s += recortadas[i]
     }
     diasCon[w] = d
-    r[w] = d >= U.minDias[w] && d > 0 ? s / d : null
+    // Un modelo junta todas sus tallas: con 14 días-equivalentes en 90 ya tiene sus 90 días (una talla suelta necesita 30). Si no, se iba a su
+    // «último periodo con stock» hacia atrás y mezclaba meses viejos con un lanzamiento reciente (725A BURDEOS de Cobo)
+    const minimo = extra.modelo && w === 90 ? U.minDiasModelo90 : U.minDias[w]
+    r[w] = d >= minimo && d > 0 ? s / d : null
   }
   const diasConStock90 = redondea(diasCon[90], 1)
 
@@ -647,6 +654,7 @@ function calcular(sp: SeriePonderada, op: OpcionesRitmo, extra: Extra): RitmoSku
   let ultimoPeriodoHasta: string | null = null
   let indicesBase: number[] = []
   let diasUltimo = 0
+  let ventasUltimo = 0
   if (base === null) {
     let d = 0
     let s = 0
@@ -666,6 +674,7 @@ function calcular(sp: SeriePonderada, op: OpcionesRitmo, extra: Extra): RitmoSku
       origen = 'ultimo_periodo'
       indicesBase = idx
       diasUltimo = d
+      ventasUltimo = ventasP
     } else {
       ultimoPeriodoHasta = null
     }
@@ -677,10 +686,14 @@ function calcular(sp: SeriePonderada, op: OpcionesRitmo, extra: Extra): RitmoSku
   const C = U.confianza
   let confianza: Confianza
   if (base === null) confianza = 'sin_datos'
-  else if (origen === 'ultimo_periodo') confianza = 'baja'
+  // Un modelo que ha vendido bastante en su último periodo con stock (≥ 21 días-equivalentes y ≥ 15 ud) no es un dato flojo: es que se ha
+  // agotado hace poco. Para una talla suelta sigue siendo baja
+  else if (origen === 'ultimo_periodo') confianza = extra.modelo && diasUltimo >= C.media.dias && ventasUltimo >= C.alta.ventas ? 'media' : 'baja'
   else if (diasConStock90 < C.sinDatos.dias || ventas90 < C.sinDatos.ventas) confianza = 'sin_datos'
   else if (pedidoGrande && fueraDelPico90 < U.pedidoGrandeMinFuera) confianza = 'sin_datos'
-  else if (soloR90) confianza = 'baja'
+  // «Solo hay 90 días» rebaja a una talla (sus 14/30 días no llegan), pero un modelo con sus días-equivalentes y sus ventas se mide por ellos:
+  // F0047 BURDEOS de ShoesF, 36 pares en 33 días-equivalentes, salía «baja» porque se agotó en las últimas semanas
+  else if (soloR90 && !extra.modelo) confianza = 'baja'
   else if (diasConStock90 >= C.alta.dias && ventas90 >= C.alta.ventas) confianza = 'alta'
   else if (diasConStock90 >= C.media.dias && ventas90 >= C.media.ventas) confianza = 'media'
   else confianza = 'baja'
@@ -866,17 +879,26 @@ export function ritmoPorModelo(
       anclajeEstimado: activas.some((t) => t.serie.anclajeEstimado),
     },
     { ...opciones.comun, primeraEntrada: null, devolucionesVendibles90: sumaPor('devolucionesVendibles90'), mermas90: sumaPor('mermas90'), mermasRecurrentes90: recurrentesModelo },
-    { etiquetaDias: 'días-equivalentes', ventas180: totalVentas },
+    { etiquetaDias: 'días-equivalentes', ventas180: totalVentas, modelo: true },
   )
 
-  const modeloVale = ritmoModelo.base !== null && (ritmoModelo.confianza === 'alta' || ritmoModelo.confianza === 'media')
+  // Cuándo manda el modelo (24 nov 2026): siempre que tenga ritmo y su confianza no sea PEOR que la de la talla, salvo que la talla tenga la suya
+  // alta. Antes solo mandaba con confianza media o alta del modelo, y una talla con 5 ventas en 90 días se quedaba con su ritmo suelto (o el de
+  // su último periodo con stock) aunque el modelo tuviera 36: en ShoesF, 135 de 413 tallas
+  const rango = (c: Confianza) => ORDEN_CONFIANZA.indexOf(c)
+  const delPeriodo = ritmoModelo.origen === 'ultimo_periodo'
   for (const t of activas) {
     const propio = propios.get(t.sku)!
-    if (!modeloVale || propio.confianza === 'alta') {
+    const modeloVale = ritmoModelo.base !== null && ritmoModelo.confianza !== 'sin_datos' && rango(ritmoModelo.confianza) >= rango(propio.confianza)
+    // Una talla con sus propias ventanas de 14/30/90 días (confianza media o más) no se pisa con el ritmo de un periodo VIEJO del modelo: 725A BURDEOS
+    // de Cobo salió el 3 nov y vendió 9 pares en 7 días; el periodo del modelo hacia atrás lo diluía con meses flojos
+    const periodoViejoContraVentanas = delPeriodo && propio.origen === 'sku' && rango(propio.confianza) >= rango('media')
+    if (!modeloVale || propio.confianza === 'alta' || periodoViejoContraVentanas) {
       salida.set(t.sku, propio)
       continue
     }
     const q = cuota.get(t.sku) ?? 0
+    const tallaAgotada = propio.origen === 'ultimo_periodo' && propio.ultimoPeriodoHasta !== null
     const escala = (x: number | null) => (x === null ? null : redondea(x * q, 4))
     const tasa = ritmoModelo.tasaDevolucionVendible
     const merma = propio.mermaDiaria
@@ -884,7 +906,7 @@ export function ritmoPorModelo(
     const ventasTalla180 = t.ventas180
     const explicacion = q === 0
       ? `La talla ${tallaDeSku(t.sku)} no ha vendido en 180 días: cuota 0 en el reparto del modelo ${opciones.modelo}`
-      : `Ritmo del modelo ${opciones.modelo} repartido por tallas: ${num(ritmoModelo.base!, 2)} ud/día del modelo × cuota ${num(q * 100, 1)} % (${num(ventasTalla180, 0)} de ${num(totalVentas, 0)} ud en 180 días) = ${num(ritmoModelo.base! * q, 2)} ud/día`
+      : `Ritmo del modelo ${opciones.modelo}${delPeriodo ? ` en su último periodo con stock (hasta el ${fechaCorta(ritmoModelo.ultimoPeriodoHasta!)})` : ''}${tallaAgotada ? ` (esta talla, sin stock desde el ${fechaCorta(propio.ultimoPeriodoHasta!)})` : ''} repartido por tallas: ${num(ritmoModelo.base!, 2)} ud/día del modelo × cuota ${num(q * 100, 1)} % (${num(ventasTalla180, 0)} de ${num(totalVentas, 0)} ud en 180 días) = ${num(ritmoModelo.base! * q, 2)} ud/día`
     salida.set(t.sku, {
       ...propio,
       base: escala(ritmoModelo.base),
@@ -897,8 +919,12 @@ export function ritmoPorModelo(
       ventas180: ventasTalla180,
       tendencia: ritmoModelo.tendencia,
       confianza: ritmoModelo.confianza,
-      origen: 'modelo',
-      ultimoPeriodoHasta: null,
+      // Agotada: con la fecha en que ESTA talla tuvo stock por última vez (o, si la talla no la tiene, la del modelo). El planificador pregunta
+      // «¿se repone?» por talla si lleva más de 76 días sin stock: en ShoesF, 7 tallas de 8674 OCEANO agotadas desde julio no se proponen a ciegas
+      // porque la 44 tuviera stock hasta el 26 oct
+      origen: tallaAgotada || delPeriodo ? 'ultimo_periodo' : 'modelo',
+      ultimoPeriodoHasta: tallaAgotada ? propio.ultimoPeriodoHasta : delPeriodo ? ritmoModelo.ultimoPeriodoHasta : null,
+      deModelo: true,
       pedidoGrande: propio.pedidoGrande || ritmoModelo.pedidoGrande,
       tasaDevolucionVendible: tasa,
       consumoNeto: previsto === null ? null : redondea(previsto * (1 - tasa) + merma, 4),
