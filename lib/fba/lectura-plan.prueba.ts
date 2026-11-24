@@ -61,8 +61,7 @@ console.log('\n=== lo nuevo: las cuentas con stock en Amazon, tengan remesas o n
   ok('una conexión sin mercado no se puede leer y se salta', !p.some((x) => x.conexion === 'portico'))
   ok('las cuentas con remesas no se duplican como «con stock»', p.filter((x) => x.conexion === 'cobo').length === 1 && p.filter((x) => x.conexion === 'shoesf').length === 1)
   ok('las nuevas no tienen remesa más antigua: la primera lectura será de 90 días', p.filter((x) => !x.conRemesas).every((x) => x.primera === null))
-  ok('primero las que tienen remesas, en su orden de siempre…', ids(p.slice(0, 2)) === 'cobo@ES shoesf@ES', ids(p))
-  ok('…y después las demás de la más atrasada a la más al día: Creative Toys (nunca leída), Argi (13/10), Yolanda (14/10)', ids(p.slice(2)) === 'creative@ES argi@ES yolanda@ES', ids(p.slice(2)))
+  ok('todas en un solo orden, de la más atrasada a la más al día: Creative Toys (nunca), Argi (13/10), ShoesF y Yolanda (14/10, primero la de remesas), Cobo (19/10)', ids(p) === 'creative@ES argi@ES shoesf@ES yolanda@ES cobo@ES', ids(p))
 }
 
 console.log('\n=== seguir mirando lo que ya se leía ===')
@@ -97,6 +96,21 @@ console.log('\n=== duplicados y mercados ===')
   ok('una conexión repetida se lee una vez', p.length === 1)
   const q = planDeLectura({ remesas: [remesa('x', '2026-01-01', FR)], conexiones: [conexion('x', true, ES)], leidoHasta: new Map() })
   ok('una cuenta con remesas en un mercado y stock en el suyo de siempre se lee en los dos', ids(q) === `x@${FR} x@ES`, ids(q))
+}
+
+console.log('\n=== 24 nov 2026: una cuenta con remesas ya no se queda fuera todas las noches ===')
+{
+  // Lo que pasaba: las con remesas iban primero en orden fijo y Portico, la última, no cabía nunca
+  const remesas = [remesa('cobo', '2026-01-01'), remesa('shoesf', '2026-02-01'), remesa('portico', '2026-09-01')]
+  const leidoHasta = leido([['cobo', ES, '2026-11-23'], ['shoesf', ES, '2026-11-23'], ['portico', ES, '2026-11-20']])
+  const p = planDeLectura({ remesas, conexiones: [], leidoHasta })
+  ok('la más atrasada va primero aunque su remesa sea la más reciente', ids(p) === 'portico@ES cobo@ES shoesf@ES', ids(p))
+  const q = planDeLectura({ remesas, conexiones: [conexion('yolanda', true)], leidoHasta: leido([['cobo', ES, '2026-11-23'], ['shoesf', ES, '2026-11-23'], ['portico', ES, '2026-11-20'], ['yolanda', ES, '2026-11-06']]) })
+  ok('y una sin remesas muy atrasada pasa delante de las con remesas al día', ids(q) === 'yolanda@ES portico@ES cobo@ES shoesf@ES', ids(q))
+  const r = planDeLectura({ remesas, conexiones: [], leidoHasta: leido([['cobo', ES, '2026-11-24'], ['shoesf', ES, '2026-11-23'], ['portico', ES, '2026-11-24']]), hoy: '2026-11-24' })
+  ok('lo ya leído hoy no se vuelve a leer en la pasada de la tarde', ids(r) === 'shoesf@ES', ids(r))
+  const nunca = planDeLectura({ remesas: [remesa('nueva', '2026-11-01')], conexiones: [], leidoHasta: new Map(), hoy: '2026-11-24' })
+  ok('lo que no se ha leído nunca se lee aunque haya `hoy`', nunca.length === 1)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

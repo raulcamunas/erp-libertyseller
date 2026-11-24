@@ -24,17 +24,20 @@
  *     vendido todo es justo el que más conviene seguir mirando).
  *
  *
- * ============ EL ORDEN ============
+ * ============ EL ORDEN (24 nov 2026) ============
  *
- * La pasada tiene un presupuesto de tiempo y las cuentas se leen una detrás de otra. Lo que
- * no cabe se salta, así que el orden decide quién se queda sin leer:
+ * La pasada tiene un presupuesto de tiempo (~1 min por cuenta) y las cuentas se leen una detrás de otra. Lo que no cabe se salta,
+ * así que el orden decide quién se queda sin leer.
  *
- *   1. Primero las cuentas CON remesas, como siempre, de la remesa más antigua a la más
- *      reciente: son las que tienen envíos en marcha y las que ya se leían.
- *   2. Después las demás, de la MÁS ATRASADA a la más al día (las que no se han leído nunca,
- *      primero). Así, si una noche no da tiempo para todas, la que se queda fuera es la que
- *      menos lo necesita y a la siguiente noche le toca antes. Con un orden fijo, la última
- *      de la lista se quedaría sin leer para siempre.
+ * Antes iban primero TODAS las cuentas con remesas, en un orden FIJO (de la remesa más antigua a la más reciente), y solo
+ * las demás se ordenaban por atraso. Con 15 lecturas y sitio para 9, las últimas con remesas se quedaban fuera TODAS las
+ * noches: Portico (EE. UU.) llevaba desde el 20 nov, Yolanda España desde el 6. Ahora hay UN solo orden:
+ *
+ *   1. De la MÁS ATRASADA a la más al día (las que no se han leído nunca, primero).
+ *   2. A igual atraso, primero la que tiene remesas; después, la de la remesa más antigua; y por último, por nombre.
+ *
+ * Y lo que ya está leído hoy (`hoy`) no se vuelve a leer: la pasada se lanza varias veces al día (lib/sistema/cron.ts) y
+ * las de después de la primera solo leen lo que se quedó fuera.
  */
 
 export interface UnidadDeLectura {
@@ -67,6 +70,8 @@ export function planDeLectura(entrada: {
   conexiones: ConexionParaLeer[]
   /** `conexion|mercado` → hasta cuándo se leyó. Lo que no esté, o esté a null, no se ha leído nunca */
   leidoHasta: ReadonlyMap<string, string | null>
+  /** 'YYYY-MM-DD' en España: lo leído ya hasta hoy se salta. Sin él, no se salta nada */
+  hoy?: string
 }): UnidadDeLectura[] {
   /* ---------- 1) las cuentas con remesas ---------- */
   const conRemesas = new Map<string, UnidadDeLectura>()
@@ -76,10 +81,6 @@ export function planDeLectura(entrada: {
     if (!u) conRemesas.set(k, { conexion: r.conexion, mercado: r.mercado, primera: r.fechaEnvio, conRemesas: true })
     else if (u.primera === null || r.fechaEnvio < u.primera) u.primera = r.fechaEnvio
   }
-  const primeras = [...conRemesas.entries()]
-    .sort(([ka, a], [kb, b]) => (a.primera ?? '').localeCompare(b.primera ?? '') || ka.localeCompare(kb))
-    .map(([, u]) => u)
-
   /* ---------- 2) las demás con algo que leer ---------- */
   const extras = new Map<string, UnidadDeLectura>()
   for (const c of entrada.conexiones) {
@@ -89,10 +90,15 @@ export function planDeLectura(entrada: {
     if (!c.conStockFba && !entrada.leidoHasta.has(k)) continue
     extras.set(k, { conexion: c.id, mercado: c.mercado, primera: null, conRemesas: false })
   }
-  const resto = [...extras.entries()]
-    // '' pesa menos que cualquier fecha: lo que no se ha leído nunca va primero
-    .sort(([ka], [kb]) => (entrada.leidoHasta.get(ka) ?? '').localeCompare(entrada.leidoHasta.get(kb) ?? '') || ka.localeCompare(kb))
+  const atraso = (k: string) => entrada.leidoHasta.get(k) ?? '' // '' pesa menos que cualquier fecha: lo que no se ha leído nunca va primero
+  return [...conRemesas.entries(), ...extras.entries()]
+    .filter(([k]) => !entrada.hoy || atraso(k) < entrada.hoy)
+    .sort(
+      ([ka, a], [kb, b]) =>
+        atraso(ka).localeCompare(atraso(kb)) ||
+        Number(b.conRemesas) - Number(a.conRemesas) ||
+        (a.primera ?? '').localeCompare(b.primera ?? '') ||
+        ka.localeCompare(kb)
+    )
     .map(([, u]) => u)
-
-  return [...primeras, ...resto]
 }

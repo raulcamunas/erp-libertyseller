@@ -147,14 +147,15 @@ export const TAREAS_CRON = [
      * está en los almacenes de Amazon sin recorrer el catálogo entero. Para
      * ShoesF son 1.756 referencias en vez de 42.737.
      *
-     * Una vez al día y de madrugada porque el libro mayor es histórico, no stock
-     * vivo: pedirlo más a menudo no trae nada nuevo y cada pasada gasta una ficha
-     * de createReport, que se repone una vez por minuto.
+     * Cada 4 horas (24 nov 2026; antes una vez al día). Una pasada cabe ~9 cuentas en sus 10 minutos y ya hay 15:
+     * las que no cabían esperaban al día siguiente y, con el orden de antes, siempre eran las mismas (Portico
+     * llevaba desde el 20 nov). Ahora la primera del día lee las más atrasadas y las de después solo lo que se
+     * quedó fuera: lo ya leído hoy se salta (lib/fba/lectura-plan.ts), así que el resto de pasadas no gasta nada.
      */
     id: 'fba-remesas',
     nombre: 'Remesas a FBA',
     ruta: '/api/fba/cron-remesas',
-    cadaMinutos: 1440,
+    cadaMinutos: 240,
     que:
       'Trae el libro mayor de inventario de cada cuenta con remesas —entradas, ventas, ' +
       'devoluciones y mermas— y refresca el stock que Amazon tiene en sus almacenes. Es lo que ' +

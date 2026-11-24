@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       candidatas.push({ id: c.id, mercado, conStockFba })
     }
 
-    const unidades = planDeLectura({ remesas: remesasParaLeer, conexiones: candidatas, leidoHasta })
+    const unidades = planDeLectura({ remesas: remesasParaLeer, conexiones: candidatas, leidoHasta, hoy: diaEnEspana() })
 
     const resultados: Array<Record<string, unknown>> = []
 
