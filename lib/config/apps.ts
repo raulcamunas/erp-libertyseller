@@ -977,18 +977,19 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
   {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
-    description: 'Teléfonos, remesas a FBA, Growth Partner, Amazon API e informes de marketing',
+    description: 'Teléfonos, Growth Partner, Amazon API e informes de marketing',
     icon: Wrench,
-    apps: ['telefonos', 'remesas', 'growth', 'amazon-api', 'marketing-ads', 'trafico'],
+    apps: ['telefonos', 'growth', 'amazon-api', 'marketing-ads', 'trafico'],
     despuesDe: 'correo',
   },
   {
     // Lo que usa quien lleva las cuentas de los clientes (lib/cuentas/acceso.ts). Va antes que el resto de herramientas: es su trabajo diario
     id: 'gestion-de-cuentas',
     name: 'Gestión de cuentas',
-    description: 'Cuentas de clientes, PPC, SEO de fichas y Cumplimiento',
+    // Remesas a FBA vive aquí desde el 24 nov 2026 (Raúl): es parte del día a día de quien lleva la cuenta
+    description: 'Cuentas de clientes, Remesas a FBA, PPC, SEO de fichas y Cumplimiento',
     icon: BriefcaseBusiness,
-    apps: ['cuentas', 'marketing-test', 'seo-test', 'cumplimiento'],
+    apps: ['cuentas', 'remesas', 'marketing-test', 'seo-test', 'cumplimiento'],
     despuesDe: 'correo',
   },
   {
