@@ -2,7 +2,7 @@
 
 import { useRef } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Clock3, Loader2, Plus, RefreshCw, Table2, WifiOff } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardList, Clock3, Loader2, Plus, RefreshCw, Table2, WifiOff } from 'lucide-react'
 import { haceCuanto } from '@/lib/agenda/memoria'
 import { BOTON, COLOR_ESTADO, PANTALLA, TEXTO, TITULO } from '@/lib/estilo/denso'
 import { RelojesDeLaAgenda } from './RelojesDeLaAgenda'
@@ -142,6 +142,10 @@ export function BarraDeAgenda({
               <span className="hidden sm:inline">Mi disponibilidad</span>
             </button>
           )}
+          <Link href="/dashboard/agenda/preparar" className={botonSecundario} title="Prepara el guion de una cita y sácalo en una hoja para imprimir">
+            <ClipboardList className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Preparador de reuniones</span>
+          </Link>
           <Link href="/dashboard/agenda/desglose" className={botonSecundario}>
             <Table2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Desglose de citas</span>
