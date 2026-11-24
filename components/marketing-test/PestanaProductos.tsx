@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { AVISO, BOTON, CAMPO, COLOR_ESTADO, TABLA, TEXTO, TIPO, TITULO } from '@/lib/estilo/denso'
@@ -304,6 +304,12 @@ const tieneValoresDeRelleno = (f: Form) => num(f.comisionPct) === 15 && (num(f.t
 function Editor({ perfilId, form, cambiar, guardar, cancelar, ocupado, moneda }: { perfilId: string; form: Form; cambiar: (f: Form) => void; guardar: () => void; cancelar: () => void; ocupado: boolean; moneda: string | null }) {
   const [amazon, setAmazon] = useState<EstadoAmazon | null>(null)
   const [aMano, setAMano] = useState(false)
+  // El editor se pinta arriba de la pestaña: al pulsar el lápiz de un producto del final de la lista se abría fuera de la vista y parecía que el
+  // botón no hacía nada (24 nov 2026). Se lleva la página hasta él al abrirlo
+  const caja = useRef<HTMLElement>(null)
+  useEffect(() => {
+    caja.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
   const m = useMemo(
     () => margenDe({ precio: num(form.precio), ivaPct: num(form.ivaPct) ?? 21, costeProducto: num(form.costeProducto), comisionPct: num(form.comisionPct) ?? 15, tarifaFba: num(form.tarifaFba) ?? 0, otrosCostes: num(form.otrosCostes) ?? 0 }),
     [form]
@@ -357,7 +363,7 @@ function Editor({ perfilId, form, cambiar, guardar, cancelar, ocupado, moneda }:
   const conValor = (s: string, sufijo = '', decimales = 2) => (num(s) == null ? '—' : `${fmt(num(s), decimales)}${sufijo}`)
 
   return (
-    <section className={TARJETA.base}>
+    <section ref={caja} className={`${TARJETA.base} scroll-mt-24`}>
       <header className={TARJETA.cabecera}>
         <h2 className={TITULO.seccion}>{form.id ? 'Editar producto' : 'Nuevo producto'}</h2>
         {form.titulo && <span className={`${TIPO.xs} ${TEXTO.t3} ml-2 min-w-0 truncate`}>{form.titulo}</span>}
