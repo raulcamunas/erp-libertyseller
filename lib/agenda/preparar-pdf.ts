@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
-import { LOGO_ALTO_PX, LOGO_ANCHO_PX, logoPng } from '@/lib/fba/excel/logo-marca'
+import { LOGO_ALTO_PX, LOGO_ANCHO_PX } from '@/lib/fba/excel/logo-marca'
+import { logoClaroPng } from './logo-claro'
 import { COLOR } from '@/lib/fba/excel/marca'
 import { soportado } from '@/lib/fba/informe-pedido-pdf'
 import { fuentesDeMarca } from '@/lib/fba/pdf/fuentes-marca'
@@ -150,16 +151,16 @@ interface Limites {
 /** Maqueta toda la hoja. Devuelve dónde acaba lo impreso (antes del recuadro de notas a mano) */
 function maquetar(h: Hoja, d: HojaDeReunion, lim: Limites): number {
   const f = d.ficha
-  /* ---------- banda ---------- */
+  /* ---------- cabecera en BLANCO (24 nov 2026, Raúl: la banda negra gastaba mucha tinta al imprimir): filo naranja arriba, logo para fondo claro y filete ---------- */
   const altoBanda = 31
-  h.rect(0, 0, ANCHO, altoBanda, C.banda)
   h.rect(0, 0, ANCHO, 1.6, C.naranja)
-  if (h.pintar) h.doc.addImage(logoPng(), 'PNG', M, 7, 40, (40 * LOGO_ALTO_PX) / LOGO_ANCHO_PX)
-  h.fuente('cuerpo', 7, C.apagado)
+  if (h.pintar) h.doc.addImage(logoClaroPng(), 'PNG', M, 7, 40, (40 * LOGO_ALTO_PX) / LOGO_ANCHO_PX)
+  h.fuente('cuerpo', 7, C.discreto)
   h.texto('PREPARACIÓN DE REUNIÓN · USO INTERNO', ANCHO - M, 9.5, { align: 'right', espaciado: 0.3 })
-  h.fuente('titulo', 15.5, C.blanco)
+  h.fuente('titulo', 15.5, C.tinta)
   h.texto(h.recortar(f.nombre, UTIL), M, 20.5)
-  h.fuente('cuerpo', 8.5, C.claro)
+  h.raya(M, altoBanda - 0.5, ANCHO - M, altoBanda - 0.5, C.naranja, 0.5)
+  h.fuente('cuerpo', 8.5, C.etiqueta)
   const vende = f.vendeEnAmazon === 'si' ? 'Vende en Amazon' : f.vendeEnAmazon === 'no' ? 'No vende en Amazon' : 'Amazon sin comprobar'
   const sub = [cuandoEs(f.inicio, f.fin), f.comercial ? `con ${f.comercial}` : null, vende, f.empresa && f.empresa !== f.nombre ? f.empresa : null].filter(Boolean).join('  ·  ')
   h.texto(h.recortar(sub, UTIL), M, 26.5)
