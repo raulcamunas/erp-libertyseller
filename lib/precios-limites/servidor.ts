@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { AmazonApiError } from '@/lib/amazon/errors'
-import { fetchOfertas, fijarLimitesPrecio } from '@/lib/amazon/sp-api'
+import { fetchOfertas, fijarLimitesPrecio, updatePrice } from '@/lib/amazon/sp-api'
 import { AMAZON_MARKETPLACES } from '@/lib/types/amazon'
 import { huellaDe, registrarEvento } from '@/lib/plataforma/eventos'
 import { diagnosticar, tieneError, type Alcance } from './diagnostico'
@@ -391,4 +391,71 @@ export async function corregir(args: {
   }
 
   return { simulado: simular, batchId, resultados, abortReason }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cambiar el precio (Cumplimiento → «Errores de precio»)              */
+/* ------------------------------------------------------------------ */
+
+export interface ResultadoCambioPrecio {
+  estado: 'aceptado' | 'invalido' | 'error'
+  mensaje: string | null
+  precioAntes: number | null
+  precioNuevo: number
+  minimoAntes: number | null
+  maximoAntes: number | null
+  /** El límite que se ha movido para que el precio nuevo quepa (null = no se tocó) */
+  minimoNuevo: number | null
+  maximoNuevo: number | null
+}
+
+/**
+ * CAMBIA EL PRECIO DE UN LISTING. ESCRIBE en la tienda del cliente; lo pide una persona desde la pantalla, de uno en uno.
+ *
+ * Vuelve a leer la oferta (el precio se mueve solo) y, si el precio nuevo se sale de los límites, mueve el límite roto AL PRECIO NUEVO en el mismo envío (si no, Amazon
+ * volvería a ocultar la oferta por error de precio). Si cabe, solo cambia el precio. Queda constancia como evento, igual que los límites.
+ */
+export async function cambiarPrecio(args: { clientId: string; connectionId: string; marketplaceId: string; sku: string; precio: number; userId: string | null }): Promise<ResultadoCambioPrecio | { error: string; status: number }> {
+  const { connectionId, marketplaceId, sku } = args
+  const precio = Math.round(args.precio * 100) / 100
+  if (!(precio > 0) || precio > 100_000) return { error: 'Ese precio no es válido.', status: 400 }
+  const resueltas = await connectionCredentials(connectionId)
+  if (!resueltas) return { error: 'Esa cuenta ya no está conectada.', status: 404 }
+  if (resueltas.connection.status !== 'activa' || !resueltas.connection.is_active) return { error: 'Esta cuenta no está activa, así que no se puede escribir en ella.', status: 400 }
+  const service = createServiceClient()
+  const { data: espejo } = await service.from('amazon_listings').select('product_type, fulfillment_channel_code').eq('connection_id', connectionId).eq('marketplace_id', marketplaceId).eq('sku', sku).maybeSingle()
+  const e = espejo as { product_type: string | null; fulfillment_channel_code: string | null } | null
+  if (!e?.product_type) return { error: 'No conocemos el tipo de producto de este listing y Amazon lo exige en cada cambio. Refresca el catálogo del cliente.', status: 409 }
+  const { ofertas } = await fetchOfertas(resueltas.credentials, { marketplaceId, skus: [sku] })
+  const o = ofertas[0]
+  if (!o) return { error: 'Amazon ya no devuelve este listing.', status: 404 }
+  const moneda = o.moneda ?? AMAZON_MARKETPLACES.find((m) => m.id === marketplaceId)?.currency ?? 'EUR'
+  const target = { sku, marketplaceId, productType: e.product_type, fulfillmentChannelCode: e.fulfillment_channel_code }
+  const c = (n: number) => Math.round(n * 100)
+  const minimoNuevo = o.precioMinimo != null && c(precio) < c(o.precioMinimo) ? precio : null
+  const maximoNuevo = o.precioMaximo != null && c(precio) > c(o.precioMaximo) ? precio : null
+  const base = { precioAntes: o.precio, precioNuevo: precio, minimoAntes: o.precioMinimo, maximoAntes: o.precioMaximo, minimoNuevo, maximoNuevo }
+  let res: Awaited<ReturnType<typeof updatePrice>>
+  try {
+    res = minimoNuevo != null || maximoNuevo != null
+      ? await fijarLimitesPrecio(resueltas.credentials, target, { precio, currency: moneda, minimo: minimoNuevo, maximo: maximoNuevo })
+      : await updatePrice(resueltas.credentials, target, { price: precio, currency: moneda })
+  } catch (error) {
+    const humano = error instanceof AmazonApiError ? error.humanMessage : null
+    return { ...base, estado: 'error', mensaje: humano ?? (error instanceof Error ? error.message : 'Error desconocido') }
+  }
+  if (res.status === 'aceptado') {
+    await registrarEvento({
+      tipo: 'limites_precio',
+      severidad: 'info',
+      clientId: args.clientId,
+      connectionId,
+      marketplaceId,
+      huella: huellaDe('limites_precio', connectionId, marketplaceId, randomUUID()),
+      createdBy: args.userId,
+      mensaje: `Precio cambiado desde Cumplimiento: ${sku} de ${o.precio ?? '—'} a ${precio} ${moneda}` + (minimoNuevo != null ? ` (mínimo ${o.precioMinimo} → ${minimoNuevo})` : '') + (maximoNuevo != null ? ` (máximo ${o.precioMaximo} → ${maximoNuevo})` : ''),
+      detalle: { sku, ...base },
+    }).catch((err: unknown) => console.error('Cumplimiento: registrar el cambio de precio:', err instanceof Error ? err.message : err))
+  }
+  return { ...base, estado: res.status, mensaje: res.message }
 }

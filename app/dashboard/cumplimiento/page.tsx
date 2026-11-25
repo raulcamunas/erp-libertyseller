@@ -55,7 +55,7 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
   // la cabecera y las pestañas se quedaban quietas (~330 px de 740) y el contenido bajaba en una caja de 375 px; deslizar sobre la cabecera no movía nada
   return (
     <div className="flex flex-col md:h-[var(--alto-util)] lg:h-[calc(100vh-4rem)] min-w-0">
-      <CumplimientoApp clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'hoy'} />
+      <CumplimientoApp clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'bloqueos'} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ClipboardCheck, LayoutDashboard, ListChecks, ListTodo, RefreshCw, TriangleAlert } from 'lucide-react'
+import { ClipboardCheck, LayoutDashboard, ListChecks, ListTodo, RefreshCw, ShieldX, TriangleAlert } from 'lucide-react'
 import { BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
 import { bandera } from '@/components/marketing-test/piezas'
 import { TableroCumplimiento } from '@/components/growth/cumplimiento/TableroCumplimiento'
@@ -16,9 +16,11 @@ import { PanelCorregir, type ObjetivoDeCorreccion, type TareaACorregir } from '.
 import { PestanaPanel } from './PestanaPanel'
 import { PestanaIncidencias } from './PestanaIncidencias'
 import { PestanaHoy, tareasPendientes } from './PestanaHoy'
+import { PestanaBloqueos } from './PestanaBloqueos'
 
 const PESTANAS = [
-  // La primera y la de por defecto: lo que hay que hacer hoy. El panel es para ver cómo va; esta, para trabajar
+  // La primera y la de por defecto (Raúl, 25 nov 2026): lo que deja listings sin vender. Cumplimiento es que lo que se puede vender esté activo
+  { id: 'bloqueos', nombre: 'No se venden', icono: ShieldX },
   { id: 'hoy', nombre: 'Hoy', icono: ListTodo },
   { id: 'panel', nombre: 'Panel', icono: LayoutDashboard },
   { id: 'incidencias', nombre: 'Incidencias', icono: TriangleAlert },
@@ -36,7 +38,7 @@ export const TODOS = 'todos'
 export function CumplimientoApp({ clientes, clienteInicial, cuentaInicial, pestana }: { clientes: ClienteDeBarra[]; clienteInicial: string; cuentaInicial: string | null; pestana: string }) {
   const [clienteSlug, setClienteSlug] = useState(clienteInicial)
   const [cuentaId, setCuentaId] = useState<string | null>(cuentaInicial)
-  const [activa, setActiva] = useState<IdPestana>(PESTANAS.some((p) => p.id === pestana) ? (pestana as IdPestana) : 'hoy')
+  const [activa, setActiva] = useState<IdPestana>(PESTANAS.some((p) => p.id === pestana) ? (pestana as IdPestana) : 'bloqueos')
   // Con qué filtros se abre la lista al llegar desde una tarea de «Hoy» o un código de «Incidencias» (null = los de siempre)
   const [filtroListings, setFiltroListings] = useState<Partial<FiltrosCumplimiento> | null>(null)
   const [colapsada, setColapsada] = useState(false)
@@ -203,6 +205,8 @@ function Cuerpo({
               descripcion={panel.faltaMigracion ? 'Sin ella no se pueden sacar las cifras del panel. La pestaña «Listings» sí funciona.' : panel.error}
               accion={panel.faltaMigracion ? { texto: 'Ir a Listings', onClick: () => irA('listings') } : { texto: 'Volver a intentarlo', icono: RefreshCw, onClick: () => void recargar() }}
             />
+          ) : activa === 'bloqueos' ? (
+            <PestanaBloqueos key={`${cliente.slug}|${mercado}`} cliente={cliente.slug} mercado={mercado} todos={mercado === TODOS} />
           ) : activa === 'hoy' ? (
             <PestanaHoy
               panel={panel}

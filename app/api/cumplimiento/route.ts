@@ -3,6 +3,8 @@ import { errorResponse, fail } from '@/lib/amazon/api'
 import { filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplimiento/consulta'
 import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
+import { bloqueosDeCliente } from '@/lib/cumplimiento/bloqueos-servidor'
+import { cambiarPrecio, corregir as corregirLimites, leer as leerPrecios, resolverConexion } from '@/lib/precios-limites/servidor'
 import {
   hayRevisionEnCurso,
   lanzarRevisionManual,
@@ -25,6 +27,10 @@ import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
  *   corregir-preparar / corregir-validar / corregir-enviar   el panel «Corregir» de una incidencia (correccion-servidor.ts).
  *             ENVIAR ESCRIBE EN LA FICHA DEL CLIENTE: solo tras validar los mismos cambios, y queda registrado (migración 313).
  *   correcciones  las últimas correcciones enviadas del cliente.
+ *   bloqueos      lo que impide vender, agrupado (lib/cumplimiento/bloqueos*.ts). Solo lee.
+ *   precios-leer  precio, mínimo y máximo de AHORA de unos SKU con error de precio (lee Amazon).
+ *   precio-ajustar  ESCRIBE: el límite roto pasa a valer el precio (lib/precios-limites, la misma regla que Growth).
+ *   precio-cambiar  ESCRIBE: un precio nuevo para un SKU; si se sale de los límites, el límite roto se mueve con él.
  *
  * EL CLIENTE LLEGA COMO SLUG Y SE TRADUCE AQUÍ. Nunca llega una conexión ni un
  * identificador de cuenta: las consultas salen de las conexiones de ese cliente, así
@@ -55,6 +61,8 @@ export async function POST(request: NextRequest) {
       pagina?: number
       mercado?: string
       sku?: string
+      skus?: unknown
+      precio?: unknown
       codigo?: string
       atributos?: unknown
       formulario?: unknown
@@ -101,6 +109,38 @@ export async function POST(request: NextRequest) {
       const r = await revisarUnSku(cliente.amazonClientId, mercado, sku)
       if (!r.ok) return fail(409, r.error)
       return NextResponse.json({ ok: true, encontrado: r.encontrado })
+    }
+
+    if (body.accion === 'bloqueos') {
+      const mercado = filtrosValidos({ mercado: body.mercado }).mercado
+      const r = await bloqueosDeCliente(cliente.amazonClientId, mercado === 'todos' ? null : mercado)
+      if (!r.ok) return fail(409, r.error)
+      return NextResponse.json(r)
+    }
+
+    if (body.accion === 'precios-leer' || body.accion === 'precio-ajustar' || body.accion === 'precio-cambiar') {
+      const mercado = typeof body.mercado === 'string' ? body.mercado : ''
+      if (!/^[A-Z0-9]{8,16}$/.test(mercado)) return fail(400, 'Falta el país.')
+      const conexion = await resolverConexion(cliente.amazonClientId, mercado)
+      if ('error' in conexion) return fail(conexion.status, conexion.error)
+      if (body.accion === 'precio-cambiar') {
+        const sku = typeof body.sku === 'string' ? body.sku.trim() : ''
+        const precio = Number(body.precio)
+        if (!sku || sku.length > 200) return fail(400, 'Listing no válido.')
+        const r = await cambiarPrecio({ clientId: cliente.amazonClientId, connectionId: conexion.connectionId, marketplaceId: mercado, sku, precio, userId: session.userId })
+        if ('error' in r) return fail(r.status, r.error)
+        return NextResponse.json({ ok: true, ...r })
+      }
+      const skus = Array.isArray(body.skus) ? [...new Set(body.skus.filter((x): x is string => typeof x === 'string' && x.trim().length > 0 && x.length <= 200))].slice(0, 200) : []
+      if (skus.length === 0) return fail(400, 'Faltan los listings.')
+      if (body.accion === 'precios-leer') {
+        const r = await leerPrecios(conexion.connectionId, mercado, skus)
+        if ('error' in r) return fail(r.status, r.error)
+        return NextResponse.json({ ok: true, ...r })
+      }
+      const r = await corregirLimites({ clientId: cliente.amazonClientId, connectionId: conexion.connectionId, marketplaceId: mercado, skus, simular: false, userId: session.userId })
+      if ('error' in r) return fail(r.status, r.error)
+      return NextResponse.json({ ok: true, ...r })
     }
 
     if (body.accion === 'correcciones') {
