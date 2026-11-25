@@ -43,7 +43,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
     )
 
   return (
-    <div className="flex max-w-[1720px] flex-col gap-3 pb-8">
+    <div className="flex flex-col gap-3 pb-8">
       <div className="flex flex-wrap items-center gap-2">
         <SelectorDeProducto productos={datos.productos} datos={datos} asin={asin} setAsin={setAsin} />
         {ficha && <span className="text-[11.5px] text-[var(--ls-t4)]">Leída de Amazon {haceCuanto(Date.parse(ficha.leidaAt))}{ficha.sku ? ` · SKU ${ficha.sku}` : ''}</span>}
