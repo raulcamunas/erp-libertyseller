@@ -14,7 +14,9 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  RotateCcw,
   Search,
+  Trash2,
   Wrench,
   XCircle,
 } from 'lucide-react'
@@ -97,6 +99,11 @@ const GRAVEDADES: Array<{ id: FiltroGravedad; rotulo: string; ayuda: string }> =
     id: 'menores',
     rotulo: 'Solo avisos menores',
     ayuda: 'Listings que solo tienen avisos que no cambian nada en la venta: recomendaciones de Amazon, cambios rechazados que dejan la ficha como estaba, errores internos',
+  },
+  {
+    id: 'descartados',
+    rotulo: 'Descartados',
+    ayuda: 'Los quitados del seguimiento (no los tenemos o no se pueden recuperar): no salen en ninguna otra parte ni cuentan. Desde aquí se recuperan',
   },
 ]
 
@@ -257,6 +264,24 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
       await Promise.all([cargarFilas(filtrosRef.current, 0, false), refrescarResumen(filtrosRef.current.mercado)])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se ha podido revisar el listing')
+    } finally {
+      setRevisando(null)
+    }
+  }
+
+  async function descartar(f: FilaCumplimiento, quitar: boolean) {
+    if (quitar && !window.confirm(`¿Eliminar ${f.sku} (${nombreMarketplace(f.marketplace_id)}) del seguimiento?\n\nDeja de salir en la lista y de contar en las cifras, el panel y «Hoy». Se puede recuperar desde «Descartados».`)) return
+    const k = claveFila(f)
+    setRevisando(k)
+    setNota(null)
+    setError(null)
+    try {
+      await llamar(quitar ? 'descartar' : 'recuperar', { mercado: f.marketplace_id, sku: f.sku })
+      setFilas((prev) => prev.filter((x) => claveFila(x) !== k))
+      setNota(quitar ? `${f.sku} ya no se sigue. Está en «Descartados» por si hay que recuperarlo.` : `${f.sku} vuelve al seguimiento; la próxima revisión dirá cómo está en Amazon.`)
+      void refrescarResumen(filtrosRef.current.mercado)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se ha podido cambiar el seguimiento')
     } finally {
       setRevisando(null)
     }
@@ -537,7 +562,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
       ) : filas.length === 0 && !cargando ? (
         <Vacio
           icono={<CheckCircle2 />}
-          titulo={filtros.gravedad === 'atencion' ? 'Nada que atender con estos filtros' : filtros.gravedad === 'menores' ? 'Ningún listing con solo avisos menores' : 'Ningún listing con estos filtros'}
+          titulo={filtros.gravedad === 'atencion' ? 'Nada que atender con estos filtros' : filtros.gravedad === 'menores' ? 'Ningún listing con solo avisos menores' : filtros.gravedad === 'descartados' ? 'Ningún listing quitado del seguimiento' : 'Ningún listing con estos filtros'}
         >
           {r.revisados < r.total
             ? 'Ojo: solo se ha revisado una parte del catálogo, así que esto no quiere decir que el resto esté bien.'
@@ -573,6 +598,8 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
                       revisando={revisando === k}
                       alAbrir={() => alternar(k)}
                       alRevisar={() => void revisarUno(f)}
+                      descartada={filtros.gravedad === 'descartados'}
+                      alDescartar={() => void descartar(f, filtros.gravedad !== 'descartados')}
                       alCorregir={alCorregir ? (i) => alCorregir(f, i) : undefined}
                     />
                   )
@@ -616,6 +643,8 @@ function FilaLista({
   revisando,
   alAbrir,
   alRevisar,
+  descartada,
+  alDescartar,
   alCorregir,
 }: {
   f: FilaCumplimiento
@@ -624,6 +653,9 @@ function FilaLista({
   revisando: boolean
   alAbrir: () => void
   alRevisar: () => void
+  /** En la vista «Descartados»: el botón recupera en vez de quitar */
+  descartada: boolean
+  alDescartar: () => void
   alCorregir?: (i: Incidencia) => void
 }) {
   const ficha = estadoDeFicha(f.estado)
@@ -689,7 +721,7 @@ function FilaLista({
           </span>
         </td>
         <td className={TABLA.celda}>{f.tema ? ROTULO_TEMA[f.tema].corto : <span className={TEXTO.t4}>—</span>}</td>
-        <td className={`${TABLA.celda} ${TEXTO.t3}`}>{f.desde ? hace(f.desde) : '—'}</td>
+        <td className={`${TABLA.celda} ${TEXTO.t3}`}>{descartada && f.descartado_at ? `quitado ${hace(f.descartado_at)}` : f.desde ? hace(f.desde) : '—'}</td>
         <td className={TABLA.celda} onClick={(e) => e.stopPropagation()}>
           <span className="inline-flex items-center gap-[2px]">
             <button
@@ -701,6 +733,16 @@ function FilaLista({
               onClick={alRevisar}
             >
               {revisando ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            </button>
+            <button
+              type="button"
+              className={BOTON.icono}
+              title={descartada ? 'Volver a seguir este listing' : 'Eliminar del seguimiento (no lo tenemos o no se puede recuperar). Se puede recuperar desde «Descartados»'}
+              aria-label={descartada ? `Recuperar ${f.sku}` : `Eliminar ${f.sku} del seguimiento`}
+              disabled={revisando}
+              onClick={alDescartar}
+            >
+              {descartada ? <RotateCcw className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
             </button>
             {inventario && (
               <a

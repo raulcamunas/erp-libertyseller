@@ -24,6 +24,8 @@ import { conexionesDeCliente } from './conexiones'
 const COLUMNAS =
   'sku, asin, titulo, marketplace_id, estado, en_amazon, errores, avisos, suprimido, tema, temas, ' +
   'desde, incidencias, con_stock, es_padre, revisado_at'
+/** Las columnas de la 341 solo se piden en «Descartados»: sin la migración, el resto de la pantalla sigue funcionando */
+const columnasDe = (f: FiltrosCumplimiento) => (f.gravedad === 'descartados' ? `${COLUMNAS}, descartado_at` : COLUMNAS)
 
 /**
  * Quita lo que rompería un filtro `ilike` de PostgREST: comas, paréntesis, comodines
@@ -46,6 +48,14 @@ export function limpiarBusqueda(q: string): string {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): any {
+  // Los quitados del seguimiento (migración 341): fuera de todo lo demás, solo aquí, para poder recuperarlos
+  if (f.gravedad === 'descartados') {
+    let d = consulta.in('connection_id', connIds).not('descartado_at', 'is', null)
+    if (f.mercado !== 'todos') d = d.eq('marketplace_id', f.mercado)
+    const b = limpiarBusqueda(f.busca)
+    if (b) d = d.or(`sku.ilike.*${b}*,asin.ilike.*${b}*,titulo.ilike.*${b}*`)
+    return d
+  }
   let q = consulta.in('connection_id', connIds).eq('en_amazon', true)
   if (f.mercado !== 'todos') q = q.eq('marketplace_id', f.mercado)
   if (f.gravedad === 'atencion') q = q.or('errores.gt.0,suprimido.eq.true')
@@ -75,7 +85,7 @@ function conFiltros(consulta: any, connIds: string[], f: FiltrosCumplimiento): a
 export function filtrosValidos(x: unknown): FiltrosCumplimiento {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
   const gravedad: FiltrosCumplimiento['gravedad'] =
-    o.gravedad === 'avisos' || o.gravedad === 'todo' || o.gravedad === 'menores' || o.gravedad === 'cualquiera' ? o.gravedad : 'atencion'
+    o.gravedad === 'avisos' || o.gravedad === 'todo' || o.gravedad === 'menores' || o.gravedad === 'cualquiera' || o.gravedad === 'descartados' ? o.gravedad : 'atencion'
   const codigoValido = (c: unknown): c is string => typeof c === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(c)
   const tema = typeof o.tema === 'string' && (TEMAS as readonly string[]).includes(o.tema) ? (o.tema as Tema) : 'todos'
   return {
@@ -277,7 +287,7 @@ export async function paginaDeCliente(
     const desde = Math.max(0, Math.floor(pagina)) * tamano
     // Se pide una de más para saber si hay otra página sin contar todo
     const { data, error } = await ordenado(
-      conFiltros(createServiceClient().from('listing_cumplimiento').select(COLUMNAS), connIds, filtros)
+      conFiltros(createServiceClient().from('listing_cumplimiento').select(columnasDe(filtros)), connIds, filtros)
     ).range(desde, desde + tamano)
     if (error) throw error
 
@@ -308,7 +318,7 @@ export async function todasLasFilas(
     const filas: FilaCumplimiento[] = []
     for (let desde = 0; desde < MAX_FILAS_EXPORTAR; desde += 1000) {
       const { data, error } = await ordenado(
-        conFiltros(service.from('listing_cumplimiento').select(COLUMNAS), connIds, filtros)
+        conFiltros(service.from('listing_cumplimiento').select(columnasDe(filtros)), connIds, filtros)
       ).range(desde, desde + 999)
       if (error) throw error
       const trozo = (data ?? []) as unknown as FilaCumplimiento[]
@@ -320,4 +330,38 @@ export async function todasLasFilas(
     console.error('[cumplimiento] no se ha podido leer para exportar:', e)
     return { error: 'No se ha podido leer la lista.' }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Quitar del seguimiento (migración 341)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * «Eliminar del seguimiento»: listings que no tenemos o que no se pueden recuperar. No borra nada: los marca, y el
+ * trigger de la 341 los deja como fuera de Amazon, así que dejan de salir y de contar en todas partes. `recuperar`
+ * quita la marca; la revisión siguiente vuelve a decir si Amazon lo tiene.
+ */
+export async function descartarListing(
+  amazonClientId: string,
+  mercado: string,
+  sku: string,
+  descartar: boolean,
+  userId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const conexiones = await conexionesDeCliente(amazonClientId)
+  if (conexiones.length === 0) return { ok: false, error: 'Este cliente no tiene ninguna cuenta de Amazon activa.' }
+  const cambios = descartar ? { descartado_at: new Date().toISOString(), descartado_por: userId } : { descartado_at: null, descartado_por: null, en_amazon: true }
+  const { data, error } = await createServiceClient()
+    .from('listing_cumplimiento')
+    .update(cambios)
+    .in('connection_id', conexiones.map((c) => c.id))
+    .eq('marketplace_id', mercado)
+    .eq('sku', sku)
+    .select('id')
+  if (error) {
+    if (isMissingSchema(error) || /descartado/.test(error.message ?? '')) return { ok: false, error: 'Falta lanzar la migración 341 (cumplimiento_descartados) en el editor SQL de Supabase.' }
+    throw error
+  }
+  if (!data?.length) return { ok: false, error: 'Ese listing ya no está en la revisión.' }
+  return { ok: true }
 }

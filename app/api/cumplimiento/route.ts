@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail } from '@/lib/amazon/api'
-import { filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplimiento/consulta'
+import { descartarListing, filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplimiento/consulta'
 import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
 import { bloqueosDeCliente } from '@/lib/cumplimiento/bloqueos-servidor'
@@ -24,6 +24,7 @@ import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
  *   filas     una página de la lista, con los filtros elegidos.
  *   ahora     lanza una revisión del cliente y CONTESTA EN SEGUIDA.
  *   sku       vuelve a mirar UN listing, tras arreglarlo en Seller Central.
+ *   descartar / recuperar   quita un listing del seguimiento (no lo tenemos o no se puede recuperar) o lo devuelve. Migración 341.
  *   panel     el panel de la app Cumplimiento: cifras por país, temas, incidencias agrupadas y evolución.
  *   corregir-preparar / corregir-validar / corregir-enviar   el panel «Corregir» de una incidencia (correccion-servidor.ts).
  *             ENVIAR ESCRIBE EN LA FICHA DEL CLIENTE: solo tras validar los mismos cambios, y queda registrado (migración 313).
@@ -111,6 +112,15 @@ export async function POST(request: NextRequest) {
       const r = await revisarUnSku(cliente.amazonClientId, mercado, sku)
       if (!r.ok) return fail(409, r.error)
       return NextResponse.json({ ok: true, encontrado: r.encontrado })
+    }
+
+    if (body.accion === 'descartar' || body.accion === 'recuperar') {
+      const mercado = typeof body.mercado === 'string' ? body.mercado : ''
+      const sku = typeof body.sku === 'string' ? body.sku.trim() : ''
+      if (!/^[A-Z0-9]{8,16}$/.test(mercado) || !sku || sku.length > 200) return fail(400, 'Listing no válido.')
+      const r = await descartarListing(cliente.amazonClientId, mercado, sku, body.accion === 'descartar', session.userId)
+      if (!r.ok) return fail(409, r.error)
+      return NextResponse.json({ ok: true })
     }
 
     if (body.accion === 'salud' || body.accion === 'salud-ahora') {

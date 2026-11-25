@@ -153,6 +153,8 @@ export interface FilaCumplimiento {
   con_stock: boolean
   es_padre: boolean
   revisado_at: string
+  /** Solo en la vista «Descartados» (migración 341): cuándo se quitó del seguimiento */
+  descartado_at?: string | null
 }
 
 /**
@@ -175,7 +177,7 @@ export function estadoDeFicha(estado: readonly string[]): 'comprable' | 'visible
  * Qué listings se enseñan: los que necesitan atención, solo los avisos, todos los que tienen algo que importe, o los
  * que SOLO tienen avisos menores. Con un código elegido se miran todos los que lo tengan (`cualquiera`).
  */
-export type FiltroGravedad = 'atencion' | 'avisos' | 'todo' | 'menores' | 'cualquiera'
+export type FiltroGravedad = 'atencion' | 'avisos' | 'todo' | 'menores' | 'cualquiera' | 'descartados'
 
 export interface FiltrosCumplimiento {
   /** Un marketplace, o 'todos' */
