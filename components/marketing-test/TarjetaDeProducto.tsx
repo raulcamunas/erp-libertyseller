@@ -4,6 +4,7 @@ import { Fragment, useState } from 'react'
 import { ChevronRight, Target } from 'lucide-react'
 import { DetalleDeCampana } from './DetalleDeCampana'
 import { PalabrasDesdeSeo } from './PalabrasDesdeSeo'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { GrupoDeProducto } from '@/lib/ads/productos-agrupar'
 import { serieDiaria, tipoDeCampana, type FilaDiaria, type Totales } from '@/lib/ads/rendimiento-calculo'
@@ -76,7 +77,10 @@ export function TarjetaDeProducto({
   ventaTotal = null,
   sinTacos = null,
   alCambiarEstado,
+  mkt = null,
 }: {
+  /** El marketplace de la cuenta, para la imagen del producto */
+  mkt?: string | null
   /** Una campaña pausada o activada desde su fila */
   alCambiarEstado: (campaignId: string, estado: 'ENABLED' | 'PAUSED') => void
   /** Por qué no hay TACoS en esta cuenta (p. ej. falta la cuenta de vendedor), para decirlo en vez de esconder la cifra */
@@ -128,6 +132,7 @@ export function TarjetaDeProducto({
           <span className={`mt-[1px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--ls-t3)] transition-[transform,background-color] duration-200 group-hover:bg-[var(--ls-sup2)] ${abierto ? 'rotate-90 bg-[var(--ls-sup2)] text-[var(--ls-t1)]' : ''}`}>
             <ChevronRight className="h-4 w-4" />
           </span>
+          {grupo.asin && <ImagenDeProducto asin={grupo.asin} mkt={mkt} lado={48} redondeo={10} className="hidden sm:inline-flex" />}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.012em] text-[var(--ls-t1)]" title={grupo.titulo}>

@@ -11,6 +11,8 @@ import { ivaPorDefecto, margenDeProducto } from '@/lib/ads/margen'
 import { resumenDesdeTitulo } from '@/lib/ads/estructura'
 import { fmt, llamar } from './llamar'
 import type { DatosDeAmazon, FuenteDeDato } from '@/lib/ads/datos-amazon'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
+import { mktDePais } from '@/lib/productos/imagenes'
 
 interface Form {
   id?: string
@@ -165,6 +167,7 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
           <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
             {detectados.map((d) => (
               <div key={d.asin} className="flex items-center gap-3 px-4 py-[8px]">
+                <ImagenDeProducto asin={d.asin} mkt={mktDePais(pais)} lado={36} redondeo={8} />
                 <div className="min-w-0 flex-1">
                   <div className={`${TIPO.s} ${TEXTO.t1} truncate`}>{d.titulo ?? '(no está en el catálogo leído)'}</div>
                   <div className={`${TIPO.xs} ${TEXTO.t3}`}>{d.asin}{d.sku ? ` · ${d.sku}` : ' · sin SKU'}{d.precio != null ? ` · ${fmt(d.precio)}` : ''}</div>
@@ -201,8 +204,13 @@ export function PestanaProductos({ perfilId, pais, moneda }: { perfilId: string;
                   return (
                     <tr key={p.id} className={TABLA.fila}>
                       <td className={TABLA.celda}>
-                        <div className={`${TEXTO.t1} font-medium`}>{p.resumen}{!p.activo && <span className={`${TEXTO.t4} font-normal`}> · inactivo</span>}</div>
-                        <div className={`${TIPO.xs} ${TEXTO.t3}`}>{p.asin} · {p.sku}</div>
+                        <div className="flex items-center gap-3">
+                          <ImagenDeProducto asin={p.asin} mkt={mktDePais(pais)} lado={40} redondeo={8} />
+                          <div className="min-w-0">
+                            <div className={`${TEXTO.t1} font-medium`}>{p.resumen}{!p.activo && <span className={`${TEXTO.t4} font-normal`}> · inactivo</span>}</div>
+                            <div className={`${TIPO.xs} ${TEXTO.t3}`}>{p.asin} · {p.sku}</div>
+                          </div>
+                        </div>
                       </td>
                       <td className={`${TABLA.celda} ${TABLA.numero}`}>{fmt(p.precio)}</td>
                       <td className={`${TABLA.celda} ${TABLA.numero}`}>{p.costeProducto == null ? <span className={TEXTO.t4}>falta</span> : fmt(p.costeProducto)}</td>

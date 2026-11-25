@@ -24,6 +24,7 @@ import { FichaSku } from './FichaSku'
 import { AjusteAlmacenaje, EdadDelStock, EdadDelStockAmazon, GraficoVentas, InsigniaEstadoStock, Kpi, MenuColumnas, NotaDeOrigen } from './piezas'
 import { COLOR_TRAMO, COLOR_TRAMO_AMAZON, calidadDeInventario, din, diasDesde, eurFino, filasDeStock, hace, m3, n0, n1, n2, pct, type FilaStock, type LineaDeStock } from './formato'
 import { useConfirmarPlazos, useInventario, useLeerDeAmazon, useSupuestosAlmacenaje } from './useInventario'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 
 /**
  * LA SECCIÓN «STOCK» DE UN CLIENTE (antes «Panel del cliente»; spec remesas-pro §8, §6.5, D11, D25, D26, D39 y D41).
@@ -185,7 +186,8 @@ function columnasBase(c: Ctx): Columna<FilaStock>[] {
       ordenar: (f) => f.sku.sku,
       ancho: '34%',
       celda: (f) => (
-        <span className="flex min-w-0 max-w-[420px] items-baseline gap-2 overflow-hidden">
+        <span className="flex min-w-0 max-w-[460px] items-center gap-2 overflow-hidden">
+          <ImagenDeProducto asin={f.sku.asin} lado={32} redondeo={7} />
           <span className="shrink-0 font-mono text-[12px] text-[var(--ls-t3)]">{f.sku.sku}</span>
           <span className="truncate font-normal text-[var(--ls-t1)]" title={f.sku.nombre ?? ''}>
             {f.sku.nombre ?? '—'}

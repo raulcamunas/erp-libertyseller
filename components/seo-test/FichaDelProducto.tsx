@@ -43,9 +43,11 @@ export interface FichaDelProductoProps {
   verFicha: (asin: string) => void
   verHoy: () => void
   verCompetencia?: (asin: string) => void
+  /** Dentro del panel del mosaico: sin la fila de «← Todos los productos» (el panel trae su propia cabecera) */
+  enPanel?: boolean
 }
 
-export function FichaDelProducto({ cuentaId, verCompetencia, datos, asin, historial, gastoSemanal, movimientos, tareas, volver, verBusquedas, verBusqueda, verFicha, verHoy }: FichaDelProductoProps) {
+export function FichaDelProducto({ cuentaId, verCompetencia, datos, asin, historial, gastoSemanal, movimientos, tareas, volver, verBusquedas, verBusqueda, verFicha, verHoy, enPanel = false }: FichaDelProductoProps) {
   const producto = datos.productos.find((p) => p.asin === asin)
   const ficha = fichaDe(datos, asin)
   const precio = datos.precios?.[asin] ?? null
@@ -97,7 +99,7 @@ export function FichaDelProducto({ cuentaId, verCompetencia, datos, asin, histor
 
   return (
     <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={enPanel ? 'hidden' : 'flex flex-wrap items-center gap-2'}>
         <button type="button" onClick={volver} className="inline-flex h-[30px] items-center gap-[6px] rounded-[9px] px-2 text-[12.5px] font-medium text-[var(--ls-t2)] hover:bg-[var(--ls-sup2)]">
           <ArrowLeft className="h-[14px] w-[14px]" /> Todos los productos
         </button>

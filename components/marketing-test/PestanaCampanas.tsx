@@ -14,6 +14,7 @@ import { useRendimiento } from './useRendimiento'
 import { DetalleDeCampana } from './DetalleDeCampana'
 import { AvisosDeCuenta } from './AvisosDeCuenta'
 import { useEsEscritorio } from './useEsEscritorio'
+import { mktDePais } from '@/lib/productos/imagenes'
 
 type Fila = FilaDeCampana
 type Orden = 'nombre' | 'presupuesto' | 'gasto' | 'ventas' | 'acos' | 'roas' | 'pedidos' | 'clics' | 'cpc' | 'ctr'
@@ -38,7 +39,7 @@ const valorDe = (f: Fila, o: Orden): number | string => (o === 'nombre' ? f.nomb
  * LAS CAMPAÑAS QUE YA HAY EN LA CUENTA, con sus cifras del periodo: las de la lista en vivo de Amazon (activas, pausadas y archivadas) cruzadas por id con el informe diario. Una campaña sin gasto
  * en el periodo sale con ceros; una con gasto que ya no está en la lista (archivada y fuera de las primeras páginas) sale igualmente, sin estado.
  */
-export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; moneda: string | null; irA: (pestana: string) => void }) {
+export function PestanaCampanas({ perfilId, moneda, irA, pais = null }: { perfilId: string; moneda: string | null; irA: (pestana: string) => void; pais?: string | null }) {
   const [dias, setDias] = useState<Periodo>(14)
   const [filtro, setFiltro] = useState<Filtro>('ENABLED')
   const [busqueda, setBusqueda] = useState('')
@@ -244,6 +245,7 @@ export function PestanaCampanas({ perfilId, moneda, irA }: { perfilId: string; m
           {grupos.map((g) => (
             <TarjetaDeProducto
               key={g.clave}
+              mkt={mktDePais(pais)}
               grupo={g}
               moneda={moneda}
               equilibrio={g.asin ? (conocidos.get(g.asin)?.equilibrio ?? null) : null}

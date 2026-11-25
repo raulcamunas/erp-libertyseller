@@ -14,6 +14,7 @@ import { cx } from '../comun/ui'
 import { fecha, fechaCorta, ritmo as fmtRitmo, unidades } from '../formato'
 import { Dato, GraficoSerie, InsigniaEstadoStock } from './piezas'
 import { COLOR_TRAMO, COLOR_TRAMO_AMAZON, din, eurFino, hace, llegadasAproximadas, m3, n0, n2, pct, type FilaStock } from './formato'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 
 /**
  * LA FICHA DE UN PRODUCTO: TODO LO QUE SE SABE DE UNA REFERENCIA EN AMAZON (spec remesas-pro §8, D38 y D43.1).
@@ -70,7 +71,12 @@ export function FichaSku({ fila, ...resto }: FichaSkuProps) {
     <PanelLateral
       abierto={!!fila}
       onCambio={(a) => !a && resto.onCerrar()}
-      titulo={<span className="font-mono">{f?.sku.sku ?? ''}</span>}
+      titulo={
+        <span className="flex items-center gap-3">
+          {f?.sku.asin && <ImagenDeProducto asin={f.sku.asin} lado={44} redondeo={10} />}
+          <span className="font-mono">{f?.sku.sku ?? ''}</span>
+        </span>
+      }
       descripcion={
         f ? (
           <span>

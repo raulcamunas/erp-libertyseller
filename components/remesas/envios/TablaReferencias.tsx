@@ -11,6 +11,7 @@ import { cx } from '../comun/ui'
 import { decimal, entero, fecha } from '../formato'
 import { ChipRotacion } from './ChipRotacion'
 import { ventasPorSku } from './reglas'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 
 /**
  * REFERENCIAS: TODAS LAS LÍNEAS DEL ENVÍO CON TODAS SUS COLUMNAS.
@@ -174,14 +175,17 @@ export function TablaReferencias({
 }
 
 /** La celda del producto: SKU en mono, nombre y variante. En el móvil, título de la tarjeta */
-export function CeldaProducto({ f }: { f: Pick<FilaProducto, 'sku' | 'nombre' | 'variante'> }) {
+export function CeldaProducto({ f }: { f: Pick<FilaProducto, 'sku' | 'nombre' | 'variante'> & { asin?: string | null } }) {
   return (
+    <span className="flex min-w-0 items-center gap-2">
+    {f.asin !== undefined && <ImagenDeProducto asin={f.asin} lado={32} redondeo={7} />}
     <span className="flex min-w-0 flex-col lg:flex-row lg:items-baseline lg:gap-2">
       <span className="shrink-0 whitespace-nowrap font-mono text-[12px] text-[var(--ls-t3)]">{f.sku}</span>
       <span className="min-w-0 truncate font-normal text-[var(--ls-t1)]" title={f.nombre ?? ''}>
         {f.nombre ?? '—'}
         {f.variante && <span className="ml-2 text-[var(--ls-t4)]">{f.variante}</span>}
       </span>
+    </span>
     </span>
   )
 }

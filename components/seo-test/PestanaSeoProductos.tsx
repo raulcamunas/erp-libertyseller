@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { ArrowRight, Download, Plus, Search, Trash2 } from 'lucide-react'
+import { ArrowRight, Download, LayoutGrid, Plus, Rows3, Search, Trash2 } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { CAJA, Chispa } from '@/components/marketing-test/piezas'
 import { entero, porcentaje } from '@/components/marketing-test/formato'
@@ -20,6 +20,7 @@ import type { ConsultaHistorica } from '@/lib/seo/datos'
 import type { TramoSinVentas } from '@/lib/seo/sin-stock'
 import type { GastoSemanal } from '@/lib/seo/periodo-mostrado'
 import { FichaDelProducto } from './FichaDelProducto'
+import { MosaicoDeProductos } from './MosaicoDeProductos'
 import { leerRevisadas } from './PestanaSeoHoy'
 
 /**
@@ -70,10 +71,27 @@ export function PestanaSeoProductos({
     [datos, movimientos, revisadas, historial?.sinVentas]
   )
   // Gasto PPC de las 4 últimas semanas por producto (null sin Marketing Test)
-  const gasto4 = (asin: string): number | null => {
-    if (!historial?.gastoSemanal) return null
-    const delAsin = historial.gastoSemanal.filter((g) => g.asin === asin).sort((a, b) => b.desde.localeCompare(a.desde)).slice(0, 4)
-    return delAsin.reduce((s, g) => s + g.gasto, 0)
+  const gastoSemanal = historial?.gastoSemanal
+  const gasto4 = useCallback(
+    (asin: string): number | null => {
+      if (!gastoSemanal) return null
+      const delAsin = gastoSemanal.filter((g) => g.asin === asin).sort((a, b) => b.desde.localeCompare(a.desde)).slice(0, 4)
+      return delAsin.reduce((s, g) => s + g.gasto, 0)
+    },
+    [gastoSemanal]
+  )
+  // Mosaico (por defecto) o tabla; se recuerda en este navegador
+  const [vista, setVista] = useState<'mosaico' | 'tabla'>('mosaico')
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem('seo-vista-productos') === 'tabla') setVista('tabla')
+    } catch {}
+  }, [])
+  const cambiarVista = (v: 'mosaico' | 'tabla') => {
+    setVista(v)
+    try {
+      window.localStorage.setItem('seo-vista-productos', v)
+    } catch {}
   }
   const [ocupado, setOcupado] = useState(false)
 
@@ -130,6 +148,16 @@ export function PestanaSeoProductos({
           <Download className="h-[14px] w-[14px]" /> Traer los de Marketing Test
         </button>
         <span className="text-[12px] text-[var(--ls-t4)]">{datos.productos.length} {datos.productos.length === 1 ? 'producto seguido' : 'productos seguidos'}</span>
+        {esOrdenador && datos.productos.length > 0 && (
+          <div className="ml-auto flex rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-[3px]">
+            {(['mosaico', 'tabla'] as const).map((v) => (
+              <button key={v} type="button" onClick={() => cambiarVista(v)} className="inline-flex h-[26px] items-center gap-[5px] rounded-[7px] px-[9px] text-[12px] font-medium transition-colors" style={{ color: vista === v ? 'var(--ls-t1)' : 'var(--ls-t3)', background: vista === v ? 'var(--ls-sup2)' : 'transparent' }}>
+                {v === 'mosaico' ? <LayoutGrid className="h-[13px] w-[13px]" /> : <Rows3 className="h-[13px] w-[13px]" />}
+                {v === 'mosaico' ? 'Mosaico' : 'Tabla'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {anadiendo && <SelectorDelCatalogo cuentaId={cuentaId} cerrar={() => setAnadiendo(false)} hecho={recargar} />}
@@ -138,8 +166,23 @@ export function PestanaSeoProductos({
         <Vacio icono={<Search />} titulo="Todavía no sigues ningún producto en este país">
           Añádelos del catálogo de la cuenta o tráete los mismos que trabajas en Marketing Test. En cuanto haya alguno, el ERP lee su ficha y pide a Amazon las búsquedas donde aparece.
         </Vacio>
-      ) : esOrdenador ? (
+      ) : esOrdenador && vista === 'tabla' ? (
         <TablaDeProductos datos={datos} abrir={setAbierto} quitar={quitar} movimientos={movimientos} tareas={tareas} gasto4={gasto4} conGasto={!!historial?.gastoSemanal} />
+      ) : vista === 'mosaico' || esOrdenador ? (
+        <MosaicoDeProductos
+          cuentaId={cuentaId}
+          datos={datos}
+          movimientos={movimientos}
+          tareas={tareas}
+          gasto4={gasto4}
+          quitar={quitar}
+          historial={historial}
+          verBusquedas={verBusquedas}
+          verBusqueda={verBusqueda}
+          verFicha={verFicha}
+          verHoy={verHoy}
+          verCompetencia={verCompetencia}
+        />
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
           {datos.productos.map((p) => {

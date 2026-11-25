@@ -153,7 +153,7 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
           ) : activa === 'agente' ? (
             <PestanaAgente key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'campanas' ? (
-            <PestanaCampanas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
+            <PestanaCampanas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} pais={cuenta.pais} />
           ) : activa === 'flujo' ? (
             <PestanaFlujo key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'propuestas' ? (

@@ -16,6 +16,7 @@ import { descargarCsv } from '../comun/graficos'
 import { cx } from '../comun/ui'
 import { AjustesSku, guardarAjusteSku } from './AjustesSku'
 import { FILTROS, cajaPorGuardar, contarFiltros, filtrarLineas, ordenPorDefecto, ritmoDe, type FiltroTabla } from './calculos'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 
 /**
  * LA TABLA DEL PLAN CON TODAS LAS REFERENCIAS DEL CLIENTE (spec remesas-pro §1.5, §2.5, §6.5, D2, D3, D13 y D43; paquete C5).
@@ -150,6 +151,8 @@ export function TablaPlanSku({ lineas, ajustes, hoy, moneda, clienteId, clienteN
       className: 'max-w-[220px]',
       celda: (l) => (
         // En una tabla automática el «truncate» de la celda no limita: el ancho máximo va en el contenido
+        <span className="flex min-w-0 items-center gap-2">
+        <ImagenDeProducto asin={l.asin} lado={30} redondeo={7} className="hidden sm:inline-flex" />
         <span className="block min-w-0 lg:max-w-[210px]">
           <span className="block truncate font-semibold text-[var(--ls-t1)]">{l.sku}</span>
           <span className="block truncate text-[11.5px] font-normal text-[var(--ls-t4)]">
@@ -157,6 +160,7 @@ export function TablaPlanSku({ lineas, ajustes, hoy, moneda, clienteId, clienteN
           </span>
           {/* En el móvil el porqué va debajo del nombre (en el ordenador, en la columna Plan) */}
           {l.porque && <span className="mt-[3px] line-clamp-2 whitespace-normal text-[12px] font-normal leading-[1.4] text-[var(--ls-t3)] lg:hidden">{l.porque}</span>}
+        </span>
         </span>
       ),
     },

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { ChevronDown, CircleAlert, CircleCheck, Clock, DownloadCloud, History, Languages, PencilLine, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, X, XCircle } from 'lucide-react'
@@ -72,7 +72,7 @@ const ESTADO: Record<EdicionGuardada['estado'], { texto: string; tono: TonoEstad
  * y dos pasos a propósito: «Validar en Amazon» (VALIDATION_PREVIEW: no cambia nada) y «Aplicar» con confirmación. Cada envío queda apuntado (quién,
  * cuándo, qué dijo Amazon) y, al releer la ficha, se comprueba si de verdad ha quedado.
  */
-export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { cuentaId: string; asin: string; ficha: FichaGuardada; ventana: ReturnType<typeof ventanaDeCambio>; onAplicada?: () => void }) {
+export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desdeElEstudio }: { cuentaId: string; asin: string; ficha: FichaGuardada; ventana: ReturnType<typeof ventanaDeCambio>; onAplicada?: () => void; /** Lo que manda el Estudio de listing («Llevar al editor»): cada `n` nuevo se carga en el editor y se abre */ desdeElEstudio?: { textos: TextosFicha; n: number } | null }) {
   // El «original» es la ficha guardada (hasta 24 h) hasta que se valida: desde ahí, la que Amazon tiene en ese momento
   const [original, setOriginal] = useState<TextosFicha>(() => textosDeFicha(ficha))
   const [vivaLeida, setVivaLeida] = useState(false)
@@ -157,6 +157,26 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
     setValidada(null)
   }
 
+  // El Estudio de listing manda su texto: se carga entero (los campos vacíos se dejan como están en Amazon) y se abre el editor para validar y aplicar
+  const caja = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!desdeElEstudio) return
+    const e = paraEditor(desdeElEstudio.textos)
+    setT({
+      titulo: e.titulo.trim() ? e.titulo : original.titulo,
+      highlights: (e.highlights ?? '').trim() ? e.highlights : original.highlights,
+      bullets: e.bullets.some((b) => b.trim()) ? e.bullets : [...original.bullets],
+      descripcion: original.descripcion,
+      backend: e.backend.trim() ? e.backend : original.backend,
+    })
+    setValidada(null)
+    setRechazo(null)
+    setAbierto(true)
+    toast.success('Texto del estudio cargado en el editor. Valídalo en Amazon y aplícalo.')
+    setTimeout(() => caja.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desdeElEstudio?.n])
+
   /** «Cargar esta versión en el editor» (Historial): lo que había antes de esa edición, solo en sus campos. Luego, el flujo de siempre */
   function cargarVersion(e: EdicionGuardada) {
     const antes = paraEditor(e.antes)
@@ -197,6 +217,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
   const ultimaPendiente = ediciones.find((e) => e.estado === 'enviada')
 
   return (
+    <div ref={caja} className="scroll-mt-4">
     <Tarjeta
       variante={abierto ? 'destacada' : 'normal'}
       acento="seo"
@@ -393,6 +414,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada }: { 
         )}
       </Confirmacion>
     </Tarjeta>
+    </div>
   )
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { CircleAlert, CircleCheck, FileText, Info, Megaphone, TriangleAlert } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { CAJA } from '@/components/marketing-test/piezas'
@@ -15,6 +15,9 @@ import type { DatosSeo } from './useCuentaSeo'
 import { PropuestaConIa } from './PropuestaConIa'
 import { EditorDeFicha } from './EditorDeFicha'
 import { ResultadoDeCambios } from './ResultadoDeCambios'
+import { EstudioDeListing } from './EstudioDeListing'
+import { AvisoDeHighlights, TarjetaDelEstudio } from './TarjetaDelEstudio'
+import type { TextosFicha } from '@/lib/seo/edicion'
 import { HighlightsDeLaFicha } from './HighlightsDeLaFicha'
 import { useDelProducto } from './useDelProducto'
 import type { DatosDePublicidad } from './PestanaSeoBusquedas'
@@ -48,6 +51,11 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
     [ficha, diagnostico]
   )
   const decisiones = useMemo(() => decisionesDe(datos), [datos])
+  const [estudio, setEstudio] = useState(false)
+  const [desdeElEstudio, setDesdeElEstudio] = useState<{ textos: TextosFicha; n: number } | null>(null)
+  const [abrirHighlights, setAbrirHighlights] = useState(0)
+  const textosActuales = useMemo<TextosFicha | null>(() => (ficha ? { titulo: ficha.titulo ?? '', highlights: ficha.highlights ?? '', bullets: [...ficha.bullets], descripcion: ficha.descripcion ?? '', backend: ficha.backend ?? '' } : null), [ficha])
+  const mkt = cuentaId.split('~')[1] ?? null
   const ventana = asin ? ventanaDeCambio(datos.cambios ?? [], asin, new Date().toISOString().slice(0, 10)) : null
   const hayBusquedas = (diagnostico?.busquedas.length ?? 0) > 0
 
@@ -75,12 +83,33 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
         </Vacio>
       ) : (
         <>
+          {!ficha.origenHighlights && (
+            <AvisoDeHighlights
+              pegar={() => {
+                setAbrirHighlights((n) => n + 1)
+                setTimeout(() => document.getElementById(`hl-${asin}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
+              }}
+            />
+          )}
+          {asin && textosActuales && <TarjetaDelEstudio textos={textosActuales} busquedas={diagnostico?.busquedas ?? []} abrir={() => setEstudio(true)} asin={asin} mkt={mkt} />}
           <PuertaDeSalida d={diagnostico} hayBusquedas={hayBusquedas} ventana={ventana} />
           {asin && <ResultadoDeCambios key={`resultado-${asin}`} cuentaId={cuentaId} asin={asin} precio={datos.precios?.[asin] ?? null} decisiones={decisiones} />}
           {revision && <RevisionDeNorma incidencias={revision.incidencias} />}
           {(ficha.issues?.length ?? 0) > 0 && <IncidenciasDeAmazon issues={ficha.issues ?? []} />}
           {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={hayBusquedas} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} diagnostico={diagnostico} ventana={ventana} />}
-          {asin && ficha.sku && <EditorDeFicha key={`editor-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} ventana={ventana} onAplicada={recargar ? () => void recargar() : undefined} />}
+          {asin && ficha.sku && <EditorDeFicha key={`editor-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} ventana={ventana} onAplicada={recargar ? () => void recargar() : undefined} desdeElEstudio={desdeElEstudio} />}
+          {asin && textosActuales && (
+            <EstudioDeListing
+              abierto={estudio}
+              cerrar={() => setEstudio(false)}
+              asin={asin}
+              mkt={mkt}
+              nombre={datos.productos.find((x) => x.asin === asin)?.nombre || ficha.titulo || asin}
+              inicial={textosActuales}
+              busquedas={diagnostico?.busquedas ?? []}
+              llevarAlEditor={ficha.sku ? (textos) => setDesdeElEstudio((x) => ({ textos, n: (x?.n ?? 0) + 1 })) : undefined}
+            />
+          )}
 
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
             <div className="flex min-w-0 flex-col gap-3">
@@ -102,7 +131,11 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
                 </p>
               </Bloque>
               <Bloque titulo="Item Highlights" medida={ficha.highlights ? `${[...ficha.highlights].length} / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres` : `— / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres`} lleno={ficha.highlights ? [...ficha.highlights].length / LIMITE_HIGHLIGHTS_CARACTERES : 0} alerta={[...(ficha.highlights ?? '')].length > LIMITE_HIGHLIGHTS_CARACTERES} copiar={ficha.highlights ?? undefined}>
-                {asin && <HighlightsDeLaFicha key={`hl-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} recargar={recargar} />}
+                {asin && (
+                  <div id={`hl-${asin}`} className="scroll-mt-6">
+                    <HighlightsDeLaFicha key={`hl-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} recargar={recargar} abrir={abrirHighlights} />
+                  </div>
+                )}
               </Bloque>
               <Bloque titulo="Viñetas (bullets)" medida={`${ficha.bullets.length} de 5 · ${entero(m?.bulletsBytes ?? 0)} / ${entero(LIMITE_BULLETS_BYTES)} bytes`} lleno={(m?.bulletsBytes ?? 0) / LIMITE_BULLETS_BYTES} alerta={ficha.bullets.length < 5 || (m?.bulletsBytes ?? 0) > LIMITE_BULLETS_BYTES} copiar={ficha.bullets.join('\n')}>
                 {ficha.bullets.length === 0 ? (

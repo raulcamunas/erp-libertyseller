@@ -22,6 +22,7 @@ import { VistaPlan } from './plan/VistaPlan'
 import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
 import { TableroClientes, type ModoTablero } from './tablero/TableroClientes'
+import { MercadoDeImagenes } from '@/components/productos/ImagenDeProducto'
 
 /**
  * REMESAS A FBA · LA CARCASA (spec remesas-pro §1.2-§1.4 y §11 D25, D37, D38, D39, D41).
@@ -292,6 +293,7 @@ export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel
   const clienteTraer = clienteDe(trayendoDe)
 
   return (
+    <MercadoDeImagenes.Provider value="A1RKKUPIHCS9HS">
     <MotionConfig reducedMotion="user">
       <div className="fba-cockpit flex min-w-0 flex-col pb-8 print:pb-0">
         <CabeceraRemesas
@@ -451,6 +453,7 @@ export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel
         )}
       </div>
     </MotionConfig>
+    </MercadoDeImagenes.Provider>
   )
 }
 

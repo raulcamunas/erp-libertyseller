@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Info, Pencil } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
@@ -13,13 +13,16 @@ import { llamar } from '@/components/marketing-test/llamar'
  * los pega aquí (migración 334): el ERP los usa como parte de la ficha en las recomendaciones (qué palabras faltan, Helium 10, la propuesta con IA). Si un día
  * Amazon los devuelve, mandan los de Amazon.
  */
-export function HighlightsDeLaFicha({ cuentaId, asin, ficha, recargar }: { cuentaId: string; asin: string; ficha: FichaGuardada; recargar?: () => void | Promise<unknown> }) {
+export function HighlightsDeLaFicha({ cuentaId, asin, ficha, recargar, abrir }: { cuentaId: string; asin: string; ficha: FichaGuardada; recargar?: () => void | Promise<unknown>; /** Cada número nuevo abre el cuadro para pegarlos (el aviso de arriba de la pestaña Ficha) */ abrir?: number }) {
   const manual = ficha.highlightsManual ?? null
   const deAmazon = ficha.origenHighlights === 'amazon'
   const [editando, setEditando] = useState(false)
   const [texto, setTexto] = useState(manual?.texto ?? '')
   const [guardando, setGuardando] = useState(false)
   const largo = [...texto.trim()].length
+  useEffect(() => {
+    if (abrir) setEditando(true)
+  }, [abrir])
 
   async function guardar(valor: string) {
     setGuardando(true)
