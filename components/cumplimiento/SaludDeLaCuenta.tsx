@@ -141,7 +141,9 @@ function TarjetaDeSalud({ s, conPais, actualizar, pidiendo }: { s: SaludParaPant
 
 function Metrica({ m, i }: { m: MetricaDeSalud; i: number }) {
   const mal = m.estado === 'mal'
-  const color = mal ? COLOR_ESTADO.rojo : m.estado === 'bien' ? COLOR_ESTADO.verde : 'var(--ls-t3)'
+  // Amazon a veces la da por buena aunque no llegue al objetivo que él mismo pone (entregas a tiempo al 89 % con objetivo del 97 %): en ámbar, para no engañar
+  const noLlega = m.valor != null && m.objetivo != null && (m.sentido === 'menos' ? m.valor >= m.objetivo : m.sentido === 'mas' ? m.valor < m.objetivo : false)
+  const color = mal ? COLOR_ESTADO.rojo : noLlega ? COLOR_ESTADO.ambar : m.estado === 'bien' ? COLOR_ESTADO.verde : 'var(--ls-t3)'
   // La barra: cuánto del objetivo se gasta (en las de «menos de») o se cumple (en las de «más de»)
   const lleno = m.valor == null || m.objetivo == null ? 0 : m.sentido === 'menos' ? Math.min(1, m.valor / Math.max(m.objetivo, 0.0001)) : Math.min(1, m.valor)
   return (
