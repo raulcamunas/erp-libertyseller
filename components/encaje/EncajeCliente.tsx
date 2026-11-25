@@ -274,6 +274,13 @@ export function EncajeCliente({
                           setCajas((prev) => meterPendientes(prev, lineas, c.numero, sku))
                           setActiva(c.numero)
                         }}
+                        onAnadirUnidades={(sku, n) => {
+                          setCajas((prev) => {
+                            const ya = prev.find((x) => x.numero === c.numero)?.contenido.find((y) => y.sku === sku)?.unidades ?? 0
+                            return ponerUnidades(prev, lineas, c.numero, sku, ya + n)
+                          })
+                          setActiva(c.numero)
+                        }}
                         onMeterPendientes={() => {
                           setCajas((prev) => meterTodoLoPendiente(prev, lineas, c.numero))
                           setActiva(c.numero)

@@ -32,6 +32,7 @@ export function TarjetaCaja({
   onMedida,
   onUnidades,
   onAnadirReferencia,
+  onAnadirUnidades,
   onMeterPendientes,
   onQuitar,
   onNuevaIgual,
@@ -50,6 +51,8 @@ export function TarjetaCaja({
   onMedida: (campo: CampoDeMedida, valor: number | null) => void
   onUnidades: (sku: string, unidades: number) => void
   onAnadirReferencia: (sku: string) => void
+  /** Clientes con catálogo (ShoesF): añadir N unidades de un SKU elegido por REF, color y talla, como en su Excel */
+  onAnadirUnidades?: (sku: string, unidades: number) => void
   onMeterPendientes: () => void
   onQuitar: () => void
   onNuevaIgual: () => void
@@ -195,14 +198,27 @@ export function TarjetaCaja({
             >
               <GripVertical className={cx('h-4 w-4 shrink-0 text-[#B8AE9F]', editable ? 'cursor-grab' : 'opacity-0')} aria-hidden />
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[13px] font-semibold text-[#141414]">{x.sku}</span>
-                  {l?.variante && <span className="text-[11.5px] text-[#5E5852]">{l.variante}</span>}
-                </div>
-                {l?.nombre && (
-                  <div className="truncate text-[11.5px] text-[#8C857C]" title={l.nombre}>
-                    {l.nombre}
-                  </div>
+                {l?.modelo ? (
+                  <>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-[13px] font-semibold text-[#141414]">{l.modelo.ref}</span>
+                      <span className="text-[12.5px] font-medium text-[#5E5852]">{l.modelo.color}</span>
+                      <span className="rounded-md bg-[#F7F5F2] px-1.5 text-[12px] font-semibold text-[#141414]">Talla {l.modelo.talla}</span>
+                    </div>
+                    <div className="truncate text-[11px] text-[#B8AE9F]">{x.sku}</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-[13px] font-semibold text-[#141414]">{x.sku}</span>
+                      {l?.variante && <span className="text-[11.5px] text-[#5E5852]">{l.variante}</span>}
+                    </div>
+                    {l?.nombre && (
+                      <div className="truncate text-[11.5px] text-[#8C857C]" title={l.nombre}>
+                        {l.nombre}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               <Contador valor={x.unidades} maximo={maximoEnCaja(lineas, cajas, caja.numero, x.sku)} editable={editable} etiqueta={x.sku} onCambio={(n) => onUnidades(x.sku, n)} />
@@ -257,17 +273,25 @@ export function TarjetaCaja({
           )}
           {pendientesEnTotal === 0 && <span className="text-[12.5px] text-[#2F9657]">No queda nada por encajar</span>}
 
-          {eligiendo && (
-            <SelectorDeReferencia
-              lineas={lineas}
-              resumen={resumen}
-              onElegir={(sku) => {
-                onAnadirReferencia(sku)
-                setEligiendo(false)
-              }}
-              onCerrar={() => setEligiendo(false)}
-            />
-          )}
+          {eligiendo &&
+            (lineas.some((l) => l.modelo) && onAnadirUnidades ? (
+              <SelectorPorModelo
+                lineas={lineas}
+                resumen={resumen}
+                onAnadir={(sku, n) => onAnadirUnidades(sku, n)}
+                onCerrar={() => setEligiendo(false)}
+              />
+            ) : (
+              <SelectorDeReferencia
+                lineas={lineas}
+                resumen={resumen}
+                onElegir={(sku) => {
+                  onAnadirReferencia(sku)
+                  setEligiendo(false)
+                }}
+                onCerrar={() => setEligiendo(false)}
+              />
+            ))}
         </footer>
       )}
     </section>
@@ -424,6 +448,103 @@ function SelectorDeReferencia({ lineas, resumen, onElegir, onCerrar }: { lineas:
         })}
         {opciones.length === 0 && <li className="px-3 py-5 text-center text-[13px] text-[#8C857C]">{t ? 'Ninguna coincide.' : 'No queda nada por encajar.'}</li>}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * AÑADIR COMO EN EL EXCEL (clientes con catálogo: ShoesF): REF → nombre y color → talla → unidades. Solo salen las REF, colores y tallas que van en el envío y aún tienen
+ * unidades por encajar. Se queda abierto para seguir metiendo líneas en la misma caja (como ir rellenando filas de la hoja).
+ */
+function SelectorPorModelo({ lineas, resumen, onAnadir, onCerrar }: { lineas: LineaParaEncajar[]; resumen: ResumenDeEncaje; onAnadir: (sku: string, n: number) => void; onCerrar: () => void }) {
+  const caja = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const fuera = (e: MouseEvent) => {
+      if (caja.current && !caja.current.contains(e.target as Node)) onCerrar()
+    }
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCerrar()
+    }
+    document.addEventListener('mousedown', fuera)
+    document.addEventListener('keydown', tecla)
+    return () => {
+      document.removeEventListener('mousedown', fuera)
+      document.removeEventListener('keydown', tecla)
+    }
+  }, [onCerrar])
+
+  const pendientes = lineas.filter((l) => l.modelo && resumen.porSku[l.sku].restantes > 0)
+  const sinModelo = lineas.filter((l) => !l.modelo && resumen.porSku[l.sku].restantes > 0)
+  const [ref, setRef] = useState('')
+  const [color, setColor] = useState('')
+  const [sku, setSku] = useState('')
+  const [unidades, setUnidades] = useState('')
+  const refs = [...new Set(pendientes.map((l) => l.modelo!.ref))].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }))
+  const colores = [...new Set(pendientes.filter((l) => l.modelo!.ref === ref).map((l) => l.modelo!.color))].sort((a, b) => a.localeCompare(b, 'es'))
+  const tallas = pendientes.filter((l) => l.modelo!.ref === ref && l.modelo!.color === color)
+  // Con una sola opción, se elige sola
+  useEffect(() => {
+    if (!ref && refs.length === 1) setRef(refs[0])
+  }, [ref, refs])
+  useEffect(() => {
+    if (ref && !color && colores.length === 1) setColor(colores[0])
+  }, [ref, color, colores])
+  const falta = sku ? resumen.porSku[sku]?.restantes ?? 0 : 0
+  const n = Math.floor(Number(unidades))
+  const valido = !!sku && n > 0 && n <= falta
+
+  const SEL = 'h-10 w-full rounded-lg border border-[#E5E1DB] bg-[#FFFFFF] px-2.5 text-[13.5px] text-[#141414] outline-none focus:border-[#F26212] disabled:bg-[#F7F5F2] disabled:text-[#B8AE9F]'
+  return (
+    <div ref={caja} onClick={(e) => e.stopPropagation()} className="absolute left-3 right-3 top-full z-20 mt-1 rounded-xl border border-[#E5E1DB] bg-[#FFFFFF] p-3 shadow-[0_16px_40px_-14px_rgba(20,20,20,0.4)] sm:right-auto sm:w-[520px]">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1.4fr_0.8fr_0.8fr]">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#8C857C]">REF</span>
+          <select autoFocus value={ref} onChange={(e) => { setRef(e.target.value); setColor(''); setSku(''); setUnidades('') }} className={SEL}>
+            <option value="">Elige…</option>
+            {refs.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#8C857C]">Nombre y color</span>
+          <select value={color} disabled={!ref} onChange={(e) => { setColor(e.target.value); setSku(''); setUnidades('') }} className={SEL}>
+            <option value="">Elige…</option>
+            {colores.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#8C857C]">Talla</span>
+          <select value={sku} disabled={!color} onChange={(e) => { setSku(e.target.value); setUnidades(String(resumen.porSku[e.target.value]?.restantes ?? '')) }} className={SEL}>
+            <option value="">Elige…</option>
+            {tallas.map((l) => <option key={l.sku} value={l.sku}>{l.modelo!.talla} (faltan {resumen.porSku[l.sku].restantes})</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#8C857C]">Unidades</span>
+          <input value={unidades} disabled={!sku} inputMode="numeric" onChange={(e) => setUnidades(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && valido) { onAnadir(sku, n); setSku(''); setUnidades('') } }} className={SEL} />
+        </label>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={!valido}
+          onClick={() => {
+            onAnadir(sku, n)
+            setSku('')
+            setUnidades('')
+          }}
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-[#141414] px-3.5 text-[13px] font-medium text-[#FFFFFF] transition hover:bg-[#F26212] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Plus className="h-4 w-4" /> Añadir a la caja
+        </button>
+        {sku && n > falta && <span className="text-[12px] text-[#C23B3B]">Solo faltan {falta} de esa talla.</span>}
+        <span className="ml-auto text-[11.5px] text-[#8C857C]">Se queda abierto para seguir añadiendo líneas</span>
+        <button type="button" onClick={onCerrar} className="h-9 rounded-lg px-3 text-[13px] text-[#5E5852] hover:bg-[#F7F5F2]">Cerrar</button>
+      </div>
+      {sinModelo.length > 0 && (
+        <p className="mt-2 text-[11.5px] text-[#8C857C]">
+          {sinModelo.length} {sinModelo.length === 1 ? 'referencia no está' : 'referencias no están'} en el catálogo por REF y color: añádelas desde la lista de la izquierda (por su SKU).
+        </p>
+      )}
     </div>
   )
 }

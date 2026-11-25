@@ -20,6 +20,8 @@ export interface LineaParaEncajar {
   referencia: string | null
   /** Las unidades que se declararon al montar el envío: las que tienen que acabar en alguna caja */
   unidades: number
+  /** Cómo lo conoce el cliente, de su catálogo (fba_catalogo, migración 226): REF, nombre y color, y talla. Así encaja por modelo-color como en su Excel (ShoesF). null si no está */
+  modelo?: { ref: string; color: string; talla: string } | null
 }
 
 export interface CajaEnEdicion {

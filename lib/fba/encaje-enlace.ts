@@ -272,7 +272,7 @@ const fechaCorta = (f: string) => (/^\d{4}-\d{2}-\d{2}/.test(f) ? `${f.slice(8, 
 
 /** Lo que la página necesita para pintarse: qué hay que encajar y qué lleva ya encajado */
 export async function datosParaEncajar(r: Extract<ResolucionDeEnlace, { ok: true }>, service: ClienteDeBase = createServiceClient()): Promise<DatosDeEncaje> {
-  const lineas = await lineasDeLaRemesa(r.remesa.id, service)
+  const lineas = await lineasDeLaRemesa(r.remesa.id, service, r.remesa.clienteId)
   const { cajas, version } = await cajasDeRemesa(r.remesa.id, service)
   return {
     version,
@@ -287,12 +287,36 @@ export async function datosParaEncajar(r: Extract<ResolucionDeEnlace, { ok: true
   }
 }
 
-async function lineasDeLaRemesa(remesaId: string, service: ClienteDeBase): Promise<LineaParaEncajar[]> {
+async function lineasDeLaRemesa(remesaId: string, service: ClienteDeBase, clienteId?: string): Promise<LineaParaEncajar[]> {
   const { data, error } = await service.from('fba_remesa_lineas').select('sku, unidades, nombre, variante, referencia').eq('remesa_id', remesaId)
   if (error) throw error
-  return ((data ?? []) as Array<{ sku: string; unidades: number; nombre: string | null; variante: string | null; referencia: string | null }>)
-    .map((l) => ({ sku: l.sku, nombre: l.nombre, variante: l.variante, referencia: l.referencia, unidades: l.unidades }))
+  const filas = (data ?? []) as Array<{ sku: string; unidades: number; nombre: string | null; variante: string | null; referencia: string | null }>
+  const modelos = clienteId ? await modelosDelCatalogo(clienteId, filas.map((l) => l.sku), service) : new Map<string, NonNullable<LineaParaEncajar['modelo']>>()
+  return filas
+    .map((l) => ({ sku: l.sku, nombre: l.nombre, variante: l.variante, referencia: l.referencia, unidades: l.unidades, ...(modelos.has(l.sku.toUpperCase()) ? { modelo: modelos.get(l.sku.toUpperCase()) } : {}) }))
     .sort((a, b) => a.sku.localeCompare(b.sku, 'es', { numeric: true, sensitivity: 'base' }))
+}
+
+/**
+ * REF, nombre y color y talla de cada SKU, del catálogo del cliente (fba_catalogo: el FBASKU es el SKU de la remesa). Con esto el cliente encaja por modelo-color, como en su Excel.
+ * Si la tabla no está o falla, nada: se encaja por SKU como siempre.
+ */
+async function modelosDelCatalogo(clienteId: string, skus: readonly string[], service: ClienteDeBase): Promise<Map<string, NonNullable<LineaParaEncajar['modelo']>>> {
+  const salida = new Map<string, NonNullable<LineaParaEncajar['modelo']>>()
+  const lista = [...new Set(skus.map((s) => s.trim()).filter(Boolean))]
+  try {
+    for (let i = 0; i < lista.length; i += 150) {
+      const { data, error } = await service.from('fba_catalogo').select('fbasku, ref, nombre, talla').eq('client_id', clienteId).in('fbasku', lista.slice(i, i + 150))
+      if (error) throw error
+      for (const r of (data ?? []) as Array<{ fbasku: string | null; ref: string | null; nombre: string | null; talla: string | null }>) {
+        if (!r.fbasku || !r.ref?.trim() || !r.nombre?.trim() || !r.talla?.trim()) continue
+        salida.set(r.fbasku.trim().toUpperCase(), { ref: r.ref.trim(), color: r.nombre.trim().toUpperCase(), talla: r.talla.trim() })
+      }
+    }
+  } catch (e) {
+    console.error('Encaje: modelos del catálogo:', e instanceof Error ? e.message : e)
+  }
+  return salida
 }
 
 /* ------------------------------------------------------------------ */
