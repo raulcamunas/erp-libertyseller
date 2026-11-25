@@ -33,7 +33,12 @@ const ORDENES: Array<{ id: Orden; texto: string }> = [
   { id: 'ppc', texto: 'Más gasto PPC' },
 ]
 
-const pct = (x: number | null | undefined, d = 1) => (x == null ? '—' : `${(x * 100).toLocaleString('es-ES', { maximumFractionDigits: d, minimumFractionDigits: x < 0.01 && x > 0 ? 2 : 0 })} %`)
+// Por debajo del 1 % se enseñan 2 decimales (0,35 %) para no ver «0 %»; el máximo nunca puede quedar por debajo del mínimo (RangeError y la pestaña entera caía)
+const pct = (x: number | null | undefined, d = 1) => {
+  if (x == null) return '—'
+  const min = x < 0.01 && x > 0 ? 2 : 0
+  return `${(x * 100).toLocaleString('es-ES', { minimumFractionDigits: min, maximumFractionDigits: Math.max(d, min) })} %`
+}
 
 interface Fila {
   id: string
