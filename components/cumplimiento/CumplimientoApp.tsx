@@ -17,6 +17,7 @@ import { PestanaPanel } from './PestanaPanel'
 import { PestanaIncidencias } from './PestanaIncidencias'
 import { PestanaHoy, tareasPendientes } from './PestanaHoy'
 import { PestanaBloqueos } from './PestanaBloqueos'
+import { SaludDeLaCuenta } from './SaludDeLaCuenta'
 
 const PESTANAS = [
   // La primera y la de por defecto (Raúl, 25 nov 2026): lo que deja listings sin vender. Cumplimiento es que lo que se puede vender esté activo
@@ -206,7 +207,10 @@ function Cuerpo({
               accion={panel.faltaMigracion ? { texto: 'Ir a Listings', onClick: () => irA('listings') } : { texto: 'Volver a intentarlo', icono: RefreshCw, onClick: () => void recargar() }}
             />
           ) : activa === 'bloqueos' ? (
-            <PestanaBloqueos key={`${cliente.slug}|${mercado}`} cliente={cliente.slug} mercado={mercado} todos={mercado === TODOS} />
+            <div className="flex flex-col gap-3">
+              <SaludDeLaCuenta key={`salud-${cliente.slug}|${mercado}`} cliente={cliente.slug} mercado={mercado} />
+              <PestanaBloqueos key={`${cliente.slug}|${mercado}`} cliente={cliente.slug} mercado={mercado} todos={mercado === TODOS} />
+            </div>
           ) : activa === 'hoy' ? (
             <PestanaHoy
               panel={panel}

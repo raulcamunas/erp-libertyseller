@@ -50,7 +50,7 @@ const GRUPO_DE_ACCION: Partial<Record<IdAccion, GrupoDeBloqueo>> = {
 }
 
 /** Los códigos de Amazon de error de precio (medidos en las cuentas el 25 nov 2026): por si llegan sin el tema «precio» */
-export const CODIGOS_DE_PRECIO: ReadonlySet<string> = new Set(['18155', '19038', '18555', '18701', '18639', '100019'])
+export const CODIGOS_DE_PRECIO: ReadonlySet<string> = new Set(['18155', '19037', '19038', '18555', '18701', '18639', '100019'])
 
 /** Un plazo de Amazon más lejano que esto no es urgente */
 export const DIAS_DE_RIESGO = 60

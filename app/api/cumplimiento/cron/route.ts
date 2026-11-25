@@ -4,6 +4,7 @@ import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { FALTA_MIGRACION_CUMPLIMIENTO, hayTablaCumplimiento } from '@/lib/cumplimiento/esquema'
 import { revisarTodos } from '@/lib/cumplimiento/revisar'
 import { fotoDelDiaSiFalta } from '@/lib/cumplimiento/panel'
+import { avanzarSaludDeTodas } from '@/lib/cumplimiento/salud-servidor'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 
 /**
@@ -47,6 +48,11 @@ export async function POST(request: NextRequest) {
       console.error('[cumplimiento] foto del día:', e)
       return 'fallida' as const
     })
+    // La salud de la cuenta (informe de rendimiento de Amazon, una vez al día por cuenta y país, en pasos). Si falla, lo demás sigue valiendo
+    const salud = await avanzarSaludDeTodas(40_000).catch((e) => {
+      console.error('[cumplimiento] salud de la cuenta:', e)
+      return null
+    })
     // Solo cifras de trabajo: este registro lo ve todo el mundo que mire Sistema y
     // aquí no se mezcla nada de ningún cliente con nada de otro.
     return {
@@ -58,7 +64,8 @@ export async function POST(request: NextRequest) {
         // en los listings limpios (o no lo está mandando nunca): hay que mirarlo.
         (r.sinCampo ? `, ${r.sinCampo} sin el campo de incidencias` : '') +
         (r.errores ? `, ${r.errores} cuentas con error` : '') +
-        (foto === 'hecha' ? ', foto del día guardada' : foto === 'fallida' ? ', la foto del día ha fallado' : ''),
+        (foto === 'hecha' ? ', foto del día guardada' : foto === 'fallida' ? ', la foto del día ha fallado' : '') +
+        (salud && !salud.sinMigracion && (salud.pedidos || salud.listos || salud.errores) ? `; salud de la cuenta: ${salud.pedidos} pedidos, ${salud.listos} leídos${salud.errores ? `, ${salud.errores} con error` : ''}` : ''),
     }
   })
   return NextResponse.json({ ok: true, ...salida })

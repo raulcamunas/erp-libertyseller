@@ -4,6 +4,7 @@ import { filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplim
 import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
 import { bloqueosDeCliente } from '@/lib/cumplimiento/bloqueos-servidor'
+import { pedirSaludDeCliente, saludDeCliente } from '@/lib/cumplimiento/salud-servidor'
 import { cambiarPrecio, corregir as corregirLimites, leer as leerPrecios, resolverConexion } from '@/lib/precios-limites/servidor'
 import {
   hayRevisionEnCurso,
@@ -28,6 +29,7 @@ import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
  *             ENVIAR ESCRIBE EN LA FICHA DEL CLIENTE: solo tras validar los mismos cambios, y queda registrado (migración 313).
  *   correcciones  las últimas correcciones enviadas del cliente.
  *   bloqueos      lo que impide vender, agrupado (lib/cumplimiento/bloqueos*.ts). Solo lee.
+ *   salud / salud-ahora  la salud de la cuenta (informe de rendimiento de Amazon, migración 339); «ahora» lo pide a Amazon en ese momento (solo lee de Amazon).
  *   precios-leer  precio, mínimo y máximo de AHORA de unos SKU con error de precio (lee Amazon).
  *   precio-ajustar  ESCRIBE: el límite roto pasa a valer el precio (lib/precios-limites, la misma regla que Growth).
  *   precio-cambiar  ESCRIBE: un precio nuevo para un SKU; si se sale de los límites, el límite roto se mueve con él.
@@ -109,6 +111,14 @@ export async function POST(request: NextRequest) {
       const r = await revisarUnSku(cliente.amazonClientId, mercado, sku)
       if (!r.ok) return fail(409, r.error)
       return NextResponse.json({ ok: true, encontrado: r.encontrado })
+    }
+
+    if (body.accion === 'salud' || body.accion === 'salud-ahora') {
+      const mercado = filtrosValidos({ mercado: body.mercado }).mercado
+      const m = mercado === 'todos' ? null : mercado
+      if (body.accion === 'salud-ahora') await pedirSaludDeCliente(cliente.amazonClientId, m)
+      const salud = await saludDeCliente(cliente.amazonClientId, m)
+      return NextResponse.json({ ok: true, disponible: salud !== null, salud: salud ?? [] })
     }
 
     if (body.accion === 'bloqueos') {
