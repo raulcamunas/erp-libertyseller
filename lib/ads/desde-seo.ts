@@ -5,6 +5,7 @@
  *   · INFRAEXPUESTA: te compran más que a la media cuando te ven, pero te ven poco → exposición con publicidad (lo primero).
  *   · TE COMPRAN SIN EXACTA: ya tienes 2 compras o más en esa búsqueda y no hay keyword EXACTA en las campañas del producto → EXACTA DOMINIO.
  *   · EMPUJAR: «falta visibilidad», ya está entera en el título (el trabajo de SEO está hecho) y sigue saliendo poco → EXACTA para empujarla.
+ *   · ATAQUE DE MARCA: lleva la marca de un competidor (lib/seo/marcas.ts). No es del producto ni va en la ficha; si se puja, en una campaña aparte de ataque de marca.
  * Nunca salen las que SEO descarta (ruido, otro precio, ajenas o «¿ajena?»), ni las ASIN, ni las que se compran poco en todo Amazon.
  */
 
@@ -12,7 +13,7 @@ import type { ConsultaGuardada } from '@/lib/seo/datos'
 import { normalizar } from '@/lib/seo/cobertura'
 import { esDelProducto, type BusquedaDiagnosticada } from '@/lib/seo/embudo'
 
-export type MotivoDesdeSeo = 'infraexpuesta' | 'te-compran' | 'empujar'
+export type MotivoDesdeSeo = 'infraexpuesta' | 'te-compran' | 'empujar' | 'ataque-marca'
 
 export interface PalabraDesdeSeo {
   consulta: string
@@ -35,7 +36,9 @@ export interface PalabraDesdeSeo {
 }
 
 export const MAX_DESDE_SEO = 25
-const ORDEN: Record<MotivoDesdeSeo, number> = { infraexpuesta: 0, 'te-compran': 1, empujar: 2 }
+const ORDEN: Record<MotivoDesdeSeo, number> = { infraexpuesta: 0, 'te-compran': 1, empujar: 2, 'ataque-marca': 3 }
+/** Como mucho estas de marca ajena (van al final y no quitan sitio a las del producto) */
+export const MAX_ATAQUE_MARCA = 8
 
 const esAsin = (t: string) => /^b0[a-z0-9]{8}$/i.test(t.trim())
 const pct = (x: number | null) => (x == null ? '—' : `${(x * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`)
@@ -49,9 +52,20 @@ export function palabrasDesdeSeo(
 ): PalabraDesdeSeo[] {
   const vistas = new Set<string>()
   const salida: PalabraDesdeSeo[] = []
+  const deMarca: PalabraDesdeSeo[] = []
   for (const b of busquedas) {
     const f = b.fila
     const k = normalizar(f.consulta)
+    if (b.veredicto.tipo === 'ajena' && b.veredicto.marca && k && !vistas.has(k) && (f.comprasTotal ?? 0) > 0 && !keywords.exactas.has(k)) {
+      vistas.add(k)
+      deMarca.push({
+        consulta: f.consulta, volumen: f.volumen, comprasMercado: f.comprasTotal, comprasAsin: f.comprasAsin, cuotaImpresiones: f.cuotaImpresiones, cuotaCompras: f.cuotaCompras,
+        enExacta: false, enOtraConcordancia: keywords.otras.has(k), enTitulo: false, motivo: 'ataque-marca',
+        porque: `Lleva «${b.veredicto.marca}», una marca de la competencia (${(f.comprasTotal ?? 0).toLocaleString('es-ES')} compras en Amazon).`,
+        accion: 'Nunca en la ficha. Si se quiere pujar, en una campaña aparte de ataque de marca (o atacando los ASIN de esa marca), con su propio presupuesto.',
+      })
+      continue
+    }
     if (!k || vistas.has(k) || esAsin(k) || !esDelProducto(b)) continue
     if ((f.comprasTotal ?? 0) <= 0) continue
     const enExacta = keywords.exactas.has(k)
@@ -89,5 +103,6 @@ export function palabrasDesdeSeo(
     vistas.add(k)
     salida.push(p)
   }
-  return salida.sort((a, b) => ORDEN[a.motivo] - ORDEN[b.motivo] || (b.comprasMercado ?? 0) - (a.comprasMercado ?? 0)).slice(0, max)
+  const delProducto = salida.sort((a, b) => ORDEN[a.motivo] - ORDEN[b.motivo] || (b.comprasMercado ?? 0) - (a.comprasMercado ?? 0)).slice(0, max)
+  return [...delProducto, ...deMarca.sort((a, b) => (b.comprasMercado ?? 0) - (a.comprasMercado ?? 0)).slice(0, MAX_ATAQUE_MARCA)]
 }

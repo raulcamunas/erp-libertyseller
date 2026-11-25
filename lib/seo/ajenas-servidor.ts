@@ -7,12 +7,15 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { claveDeBusqueda } from './embudo'
+import { marcasParaDiagnostico } from './marcas-servidor'
 
 export interface DecisionesGuardadas {
   ajenas: string[]
   nuestras: string[]
   /** ¿Está la migración 333? Sin ella, el botón no se puede usar */
   disponible: boolean
+  /** Las marcas de la competencia en uso (migración 338; [] sin ella): el diagnóstico descarta las búsquedas que las llevan */
+  marcas: Array<{ clave: string; texto: string; origen: string }>
 }
 
 export class FaltaMigracion333 extends Error {
@@ -23,6 +26,7 @@ export class FaltaMigracion333 extends Error {
 
 /** Las búsquedas decididas en una cuenta y país (normalizadas). Vacías si falta la migración 333 */
 export async function decisionesDeBusquedas(connectionId: string, marketplaceId: string): Promise<DecisionesGuardadas> {
+  const marcas = await marcasParaDiagnostico({ connectionId, marketplaceId }).catch((e) => (console.error('SEO: marcas de la competencia:', e instanceof Error ? e.message : e), []))
   const ajenas: string[] = []
   const nuestras: string[] = []
   for (let i = 0; i < 20_000; i += 1000) {
@@ -34,13 +38,13 @@ export async function decisionesDeBusquedas(connectionId: string, marketplaceId:
       .order('consulta', { ascending: true })
       .range(i, i + 999)
     if (error) {
-      if (isMissingSchema(error)) return { ajenas: [], nuestras: [], disponible: false }
+      if (isMissingSchema(error)) return { ajenas: [], nuestras: [], disponible: false, marcas }
       throw error
     }
     for (const r of (data ?? []) as Array<{ consulta: string; decision: string }>) (r.decision === 'ajena' ? ajenas : nuestras).push(r.consulta)
     if (!data || data.length < 1000) break
   }
-  return { ajenas, nuestras, disponible: true }
+  return { ajenas, nuestras, disponible: true, marcas }
 }
 
 /** Guarda (o cambia) la decisión sobre una búsqueda */

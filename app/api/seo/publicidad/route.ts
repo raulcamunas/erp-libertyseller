@@ -5,11 +5,14 @@ import { consultasGuardadas, fichasGuardadas } from '@/lib/seo/datos'
 import { keywordsDelAsin, perfilesAdsDe, terminosDeAdsDelAsin } from '@/lib/seo/publicidad'
 import { busquedasSinExacta, terminosQueFaltanEnLaFicha } from '@/lib/seo/publicidad-calculo'
 import { abrirCuentaSeo, errorDeRutaSeo } from '@/lib/seo/ruta'
+import { decisionesDeBusquedas } from '@/lib/seo/ajenas-servidor'
+import { diagnosticarTodas, esDelProducto } from '@/lib/seo/embudo'
 
 /**
  * SEO TEST · LO QUE DICE MARKETING TEST DE UN PRODUCTO. Solo administradores. Solo LEE (de la base del ERP; nada de Amazon Ads se escribe desde aquí).
  *
- *   GET ?cuenta=&asin=   → {hayMarketingTest, campanas, vendePorPublicidad: términos con pedidos que faltan en la ficha, sinExacta: búsquedas que venden sin keyword EXACTA}
+ *   GET ?cuenta=&asin=   → {hayMarketingTest, campanas, vendePorPublicidad: términos con pedidos que faltan en la ficha, sinExacta: búsquedas DEL PRODUCTO que venden sin keyword EXACTA,
+ *                          deMarcaAjena: las que llevan una marca de la competencia (solo para un ataque de marca en PPC; nunca para la ficha)}
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -33,11 +36,17 @@ export async function GET(request: NextRequest) {
     const ficha = fichas.find((f) => f.asin === asin) ?? null
     const delMes = mes.filter((c) => c.asin === asin)
     const consultas = delMes.length > 0 ? delMes : semana.filter((c) => c.asin === asin)
+    // Solo las búsquedas DEL producto: fuera ruido, otro precio, ajenas y las de marcas de la competencia (esas, aparte)
+    const decisiones = await decisionesDeBusquedas(a.connectionId, a.marketplaceId).catch(() => ({ ajenas: [] as string[], nuestras: [] as string[], marcas: [] as Array<{ clave: string; texto: string; origen: string }> }))
+    const { busquedas } = diagnosticarTodas(consultas, null, { ficha, ...decisiones })
+    const delProducto = busquedas.filter(esDelProducto).map((b) => b.fila)
+    const deMarca = busquedas.filter((b) => b.veredicto.tipo === 'ajena' && b.veredicto.marca).map((b) => b.fila)
     return NextResponse.json({
       hayMarketingTest: true,
       campanas: keywords.campanas,
       vendePorPublicidad: terminosQueFaltanEnLaFicha(terminos, ficha),
-      sinExacta: keywords.campanas > 0 ? busquedasSinExacta(consultas, keywords.exactas, keywords.otras) : [],
+      sinExacta: keywords.campanas > 0 ? busquedasSinExacta(delProducto, keywords.exactas, keywords.otras) : [],
+      deMarcaAjena: keywords.campanas > 0 ? busquedasSinExacta(deMarca, keywords.exactas, keywords.otras, 10) : [],
     })
   } catch (error) {
     return errorDeRutaSeo(error, 'SEO: cruzar con Marketing Test')

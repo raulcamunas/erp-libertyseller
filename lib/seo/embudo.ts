@@ -35,6 +35,7 @@
  */
 
 import { normalizar, palabras, type TextosDeFicha } from './cobertura'
+import { marcaEnBusqueda } from './marcas'
 
 export type Etapa = 'impresiones' | 'clics' | 'carrito' | 'compra'
 
@@ -88,8 +89,8 @@ export type Veredicto =
   | { tipo: 'lider'; motivo: string }
   /** No se ha podido juzgar ningún escalón y no hay ni un carrito ni una compra propios: no se sabe nada (y puede ser de otro producto) */
   | { tipo: 'sin-datos'; motivo: string }
-  /** El SEO ha dicho que no es nuestro producto (lista por cuenta y país, migración 333): no se trabaja */
-  | { tipo: 'ajena'; motivo: string }
+  /** El SEO ha dicho que no es nuestro producto (lista por cuenta y país, migración 333), o lleva la marca de la competencia (`marca`, migración 338): no se trabaja */
+  | { tipo: 'ajena'; motivo: string; marca?: string }
 
 /**
  * LOS UMBRALES, TODOS ESTIMACIONES (sin fuente primaria; revisarlos tras un trimestre con datos propios). Se pueden cambiar por llamada con `ContextoDeEmbudo.umbrales`.
@@ -296,6 +297,8 @@ export type FichaParaAjenas = TextosDeFicha & { highlights?: string | null }
 export interface DecisionesDeBusquedas {
   ajenas?: readonly string[]
   nuestras?: readonly string[]
+  /** Las marcas de la competencia de la cuenta y país (lib/seo/marcas.ts; ya sin las desactivadas ni la propia). Una búsqueda que lleva una es 'ajena' con su `marca` */
+  marcas?: ReadonlyArray<{ clave: string; texto: string; origen?: string }>
 }
 
 export interface OpcionesDeDiagnostico extends DecisionesDeBusquedas {
@@ -345,9 +348,21 @@ export function diagnosticarTodas<T extends FilaDeEmbudo>(filas: readonly T[], p
   const nuestras = new Set((opciones.nuestras ?? []).map(claveDeBusqueda))
   const comunes = palabrasComunes(filas.map((f) => f.consulta ?? ''))
   const enFicha = opciones.ficha ? palabrasDeLaFicha(opciones.ficha) : null
+  // Las marcas que cuentan para ESTE producto: fuera las que se llaman como sus palabras comunes (si no vienen a mano) y las que ya están en su ficha (una funda «para iphone» no es de Apple)
+  const marcas = (opciones.marcas ?? []).filter((m) => {
+    const rs = palabras(m.clave)
+    if (rs.length === 0) return false
+    if (m.origen !== 'manual' && rs.every((r) => comunes.has(r))) return false
+    return !(enFicha && rs.every((r) => enFicha.has(r)))
+  })
   const busquedas = filas.map((fila) => {
     const clave = claveDeBusqueda(fila.consulta ?? '')
-    const veredicto: Veredicto = ajenas.has(clave) ? { tipo: 'ajena', motivo: 'Marcada como «No es nuestro producto»: no se trabaja en la ficha. Valora negativizarla en PPC.' } : diagnosticar(fila, contexto)
+    const marca = marcas.length && !ajenas.has(clave) && !nuestras.has(clave) ? marcaEnBusqueda(fila.consulta ?? '', marcas) : null
+    const veredicto: Veredicto = ajenas.has(clave)
+      ? { tipo: 'ajena', motivo: 'Marcada como «No es nuestro producto»: no se trabaja en la ficha. Valora negativizarla en PPC.' }
+      : marca
+        ? { tipo: 'ajena', marca: marca.texto, motivo: `Lleva «${marca.texto}», una marca de la competencia: no va en la ficha. En publicidad, como mucho en una campaña de ataque de marca.` }
+        : diagnosticar(fila, contexto)
     const posibleAjena = puedeSerAjena(fila, veredicto) && !nuestras.has(clave) && enFicha != null && tienePalabraAjena(fila.consulta ?? '', comunes, enFicha)
     return { fila, veredicto, impacto: impactoDe(fila, veredicto), compras: veredicto.tipo === 'ajena' ? 0 : comprasEnJuego(fila), posibleAjena }
   })

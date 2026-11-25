@@ -12,7 +12,7 @@ import { isMissingSchema } from '@/lib/plataforma/eventos'
 const DIA = 86_400_000
 const VIGENCIA_MS = 30 * DIA
 const VIGENCIA_SIN_IMAGEN_MS = 7 * DIA
-const memoria = new Map<string, { url: string | null; at: number }>()
+const memoria = new Map<string, { url: string | null; marca?: string | null; at: number }>()
 const clave = (m: string, a: string) => `${m}|${a}`
 
 /** Una conexión de vendedor activa en ese país (la que se pida, si vale) */
@@ -24,6 +24,13 @@ async function conexionPara(marketplaceId: string, preferida?: string | null): P
   return validas.find((f) => f.id === preferida)?.id ?? validas[0]?.id ?? null
 }
 
+function marcaDe(item: Record<string, unknown>, marketplaceId: string): string | null {
+  const res = (item.summaries ?? []) as Array<{ marketplaceId?: string; brand?: string; brandName?: string }>
+  const r = res.find((x) => x.marketplaceId === marketplaceId) ?? res[0]
+  const m = (r?.brand ?? r?.brandName ?? '').trim()
+  return m ? m.slice(0, 80) : null
+}
+
 function principalDe(item: Record<string, unknown>, marketplaceId: string): string | null {
   const grupos = (item.images ?? []) as Array<{ marketplaceId?: string; images?: Array<{ variant?: string; link?: string; height?: number; width?: number }> }>
   const grupo = grupos.find((g) => g.marketplaceId === marketplaceId) ?? grupos[0]
@@ -32,24 +39,58 @@ function principalDe(item: Record<string, unknown>, marketplaceId: string): stri
   return mejor?.link ?? null
 }
 
-export async function imagenesDe(marketplaceId: string, asinsCrudos: readonly string[], opciones: { connectionId?: string | null } = {}): Promise<Record<string, string | null>> {
-  const asins = [...new Set(asinsCrudos.map((a) => a.trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 200)
-  const salida: Record<string, string | null> = {}
+export interface DatoDeCatalogo {
+  url: string | null
+  marca: string | null
+}
+
+/** Las marcas de unos ASIN (catálogo de Amazon, con la misma caché que las imágenes). null si Amazon no la da */
+export async function marcasDe(marketplaceId: string, asins: readonly string[], opciones: { connectionId?: string | null; necesitaMarca?: boolean } = {}): Promise<Record<string, string | null>> {
+  const d = await datosDeCatalogo(marketplaceId, asins, { ...opciones, necesitaMarca: true })
+  return Object.fromEntries(Object.entries(d).map(([a, x]) => [a, x.marca]))
+}
+
+export async function imagenesDe(marketplaceId: string, asins: readonly string[], opciones: { connectionId?: string | null } = {}): Promise<Record<string, string | null>> {
+  const d = await datosDeCatalogo(marketplaceId, asins, opciones)
+  return Object.fromEntries(Object.entries(d).map(([a, x]) => [a, x.url]))
+}
+
+/**
+ * La imagen y la marca de unos ASIN. De la caché si está vigente (y, si se pide la marca, si la caché ya la tiene: las filas de antes de la migración 338 no la llevan); si no, del catálogo.
+ */
+export async function datosDeCatalogo(marketplaceId: string, asinsCrudos: readonly string[], opciones: { connectionId?: string | null; necesitaMarca?: boolean } = {}): Promise<Record<string, DatoDeCatalogo>> {
+  const asins = [...new Set(asinsCrudos.map((a) => a.trim().toUpperCase()).filter((a) => /^[A-Z0-9]{10}$/.test(a)))].slice(0, 400)
+  const salida: Record<string, DatoDeCatalogo> = {}
   if (asins.length === 0) return salida
   const ahora = Date.now()
   const vigente = (url: string | null, at: number) => ahora - at < (url ? VIGENCIA_MS : VIGENCIA_SIN_IMAGEN_MS)
   const service = createServiceClient()
 
   let conTabla = true
-  const { data, error } = await service.from('producto_imagenes').select('asin, url, leida_at').eq('marketplace_id', marketplaceId).in('asin', asins)
-  if (error) {
-    if (!isMissingSchema(error)) throw error
-    conTabla = false
+  let conMarca = true
+  const filas: Array<{ asin: string; url: string | null; leida_at: string; marca?: string | null; marca_leida?: boolean }> = []
+  for (let i = 0; i < asins.length; i += 150) {
+    const trozo = asins.slice(i, i + 150)
+    let r = await service.from('producto_imagenes').select('asin, url, leida_at, marca, marca_leida').eq('marketplace_id', marketplaceId).in('asin', trozo)
+    if (r.error && isMissingSchema(r.error)) {
+      conMarca = false
+      r = (await service.from('producto_imagenes').select('asin, url, leida_at').eq('marketplace_id', marketplaceId).in('asin', trozo)) as typeof r
+    }
+    if (r.error) {
+      if (!isMissingSchema(r.error)) throw r.error
+      conTabla = false
+      break
+    }
+    filas.push(...((r.data ?? []) as typeof filas))
   }
-  for (const f of (data ?? []) as Array<{ asin: string; url: string | null; leida_at: string }>) if (vigente(f.url, Date.parse(f.leida_at))) salida[f.asin] = f.url
+  for (const f of filas) {
+    if (!vigente(f.url, Date.parse(f.leida_at))) continue
+    if (opciones.necesitaMarca && !f.marca_leida) continue
+    salida[f.asin] = { url: f.url, marca: f.marca ?? null }
+  }
   for (const a of asins) {
     const m = memoria.get(clave(marketplaceId, a))
-    if (!(a in salida) && m && vigente(m.url, m.at)) salida[a] = m.url
+    if (!(a in salida) && m && vigente(m.url, m.at) && (!opciones.necesitaMarca || m.marca !== undefined)) salida[a] = { url: m.url, marca: m.marca ?? null }
   }
 
   const faltan = asins.filter((a) => !(a in salida))
@@ -57,30 +98,30 @@ export async function imagenesDe(marketplaceId: string, asinsCrudos: readonly st
   const conexion = await conexionPara(marketplaceId, opciones.connectionId)
   const resuelta = conexion ? await connectionCredentials(conexion) : null
   if (!resuelta) {
-    for (const a of faltan) salida[a] = null
+    for (const a of faltan) salida[a] = { url: null, marca: null }
     return salida
   }
-  const nuevas: Array<{ marketplace_id: string; asin: string; url: string | null; leida_at: string }> = []
+  const nuevas: Array<Record<string, unknown>> = []
   for (let i = 0; i < faltan.length; i += 20) {
     const tanda = faltan.slice(i, i + 20)
     try {
       const { data: r } = await spApiRequest<{ items?: Array<Record<string, unknown>> }>(resuelta.credentials, 'searchCatalogItems', {
         method: 'GET',
         path: '/catalog/2022-04-01/items',
-        query: { identifiers: tanda, identifiersType: 'ASIN', marketplaceIds: [marketplaceId], includedData: ['images'], pageSize: 20 },
+        query: { identifiers: tanda, identifiersType: 'ASIN', marketplaceIds: [marketplaceId], includedData: ['images', 'summaries'], pageSize: 20 },
       })
-      const porAsin = new Map<string, string | null>()
-      for (const item of r.items ?? []) if (typeof item.asin === 'string') porAsin.set(item.asin, principalDe(item, marketplaceId))
+      const porAsin = new Map<string, DatoDeCatalogo>()
+      for (const item of r.items ?? []) if (typeof item.asin === 'string') porAsin.set(item.asin, { url: principalDe(item, marketplaceId), marca: marcaDe(item, marketplaceId) })
       for (const a of tanda) {
-        const url = porAsin.get(a) ?? null
-        salida[a] = url
-        memoria.set(clave(marketplaceId, a), { url, at: ahora })
-        nuevas.push({ marketplace_id: marketplaceId, asin: a, url, leida_at: new Date(ahora).toISOString() })
+        const d = porAsin.get(a) ?? { url: null, marca: null }
+        salida[a] = d
+        memoria.set(clave(marketplaceId, a), { url: d.url, marca: d.marca, at: ahora })
+        nuevas.push({ marketplace_id: marketplaceId, asin: a, url: d.url, leida_at: new Date(ahora).toISOString(), ...(conMarca ? { marca: d.marca, marca_leida: true } : {}) })
       }
     } catch (e) {
       // Un fallo de Amazon no rompe la pantalla: sin imagen esta vez, y no se guarda (se vuelve a pedir la próxima)
-      console.error('Imágenes de producto:', e instanceof Error ? e.message : e)
-      for (const a of tanda) salida[a] = null
+      console.error('Catálogo de producto:', e instanceof Error ? e.message : e)
+      for (const a of tanda) salida[a] = { url: null, marca: null }
     }
   }
   if (conTabla && nuevas.length > 0) {

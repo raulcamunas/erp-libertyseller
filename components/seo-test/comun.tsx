@@ -169,8 +169,8 @@ export function diagnosticoDe(datos: DatosSeo, asin: string, periodo?: 'MONTH' |
 }
 
 /** Las búsquedas decididas a mano en la cuenta (migración 333), para pasarlas al diagnóstico */
-export function decisionesDe(datos: DatosSeo): { ajenas: string[]; nuestras: string[] } {
-  return { ajenas: datos.decisiones?.ajenas ?? [], nuestras: datos.decisiones?.nuestras ?? [] }
+export function decisionesDe(datos: DatosSeo): { ajenas: string[]; nuestras: string[]; marcas: Array<{ clave: string; texto: string; origen: string }> } {
+  return { ajenas: datos.decisiones?.ajenas ?? [], nuestras: datos.decisiones?.nuestras ?? [], marcas: datos.decisiones?.marcas ?? [] }
 }
 
 /** El color y el texto corto de cada veredicto */
@@ -191,7 +191,7 @@ export function estiloDeVeredicto(v: Veredicto): { texto: string; color: string;
     case 'sin-datos':
       return { texto: 'Pocos datos', color: 'var(--ls-t4)', pista: 'Sales tan poco que no se puede juzgar' }
     case 'ajena':
-      return { texto: 'No es tuya', color: 'var(--ls-t4)', pista: 'Marcada como otro producto' }
+      return v.marca ? { texto: `Marca: ${v.marca}`, color: COLOR_ESTADO.magenta, pista: 'Marca de la competencia: no va en la ficha; en PPC, como mucho, ataque de marca' } : { texto: 'No es tuya', color: 'var(--ls-t4)', pista: 'Marcada como otro producto' }
   }
 }
 

@@ -8,7 +8,7 @@ import { entero } from '@/components/marketing-test/formato'
 import { Vacio } from '@/components/plataforma/comun'
 import { tareasDeLaCuenta, type Tarea } from '@/lib/seo/tareas'
 import type { Gravedad } from '@/lib/seo/norma'
-import { BotonCopiar, DeslizableEnMovil, fichaDe, IrA, nombreDe, SELECT_PEQUENO, TiraDeCifrasSeo } from './comun'
+import { BotonCopiar, DeslizableEnMovil, fichaDe, IrA, nombreDe, SELECT_PEQUENO, TiraDeCifrasSeo, decisionesDe } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { movimientosDe, type Movimientos } from '@/lib/seo/movimientos'
 import type { ConsultaHistorica } from '@/lib/seo/datos'
@@ -83,6 +83,7 @@ export function PestanaSeoHoy({
         evolucion: datos.evolucion,
         precios: datos.precios,
         cambios: datos.cambios,
+        ...decisionesDe(datos),
       }, { movimientos, sinVentas: historial?.sinVentas ?? null }),
     [datos, movimientos, historial?.sinVentas]
   )

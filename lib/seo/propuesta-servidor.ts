@@ -135,15 +135,16 @@ export async function proponerFicha(c: { connectionId: string; marketplaceId: st
   const pais = AMAZON_MARKETPLACES.find((m) => m.id === c.marketplaceId)?.countryCode ?? c.marketplaceId
   const idioma = IDIOMA_DE_MARKETPLACE[c.marketplaceId]?.nombre ?? 'el idioma del marketplace'
   const perfiles = await perfilesAdsDe(c.clientId, pais).catch(() => [])
-  const marcasAjenas = marcasAjenasDe(await marcasDeRivales(c, asin), ficha.titulo)
+  // Las marcas de la competencia: las de los rivales seguidos y las de la lista de la cuenta (migración 338)
+  const decisiones = await decisionesDeBusquedas(c.connectionId, c.marketplaceId).catch(() => ({ ajenas: [] as string[], nuestras: [] as string[], marcas: [] as Array<{ clave: string; texto: string; origen: string }> }))
+  const marcasAjenas = marcasAjenasDe([...(await marcasDeRivales(c, asin)), ...decisiones.marcas.map((m) => m.texto)], ficha.titulo)
   // Fuera lo que lleva una marca de un rival ANTES de pedir nada (fallo 13): la IA no puede proponer lo que no ve
   const ads = sinMarcasAjenas(terminosQueFaltanEnLaFicha(await terminosDeAdsDelAsin(perfiles, asin).catch(() => []), ficha, 40), (t) => t.termino, marcasAjenas).quedan.slice(0, 20)
 
   // Paso 2 y 3 del SOP: diagnosticar el embudo y descartar antes de elegir (ruido y búsquedas que compran a otro precio no llegan a la IA como candidatas)
   const precioListing = (await preciosDeListings(c.connectionId, c.marketplaceId, [asin]).catch(() => ({}) as Record<string, number | null>))[asin] ?? null
   // Las búsquedas que pueden ser de otro producto («lego», «murdoku»…) o marcadas como ajenas no llegan a la IA como candidatas
-  const decisiones = await decisionesDeBusquedas(c.connectionId, c.marketplaceId).catch(() => ({ ajenas: [], nuestras: [] }))
-  const { contexto, busquedas } = diagnosticarTodas(consultas, precioListing, { ficha, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras })
+  const { contexto, busquedas } = diagnosticarTodas(consultas, precioListing, { ficha, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras, marcas: decisiones.marcas })
   const producto = embudoDelProducto(busquedas, contexto)
   const v = producto.veredicto
   const embudo = !v ? null : v.tipo === 'fuga' ? `Se pierde en ${NOMBRE_DE_ETAPA[v.etapa].toLowerCase()} (${RESPONSABLE[v.etapa].quien}): ${v.motivo}` : v.motivo

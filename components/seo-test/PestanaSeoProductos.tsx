@@ -65,7 +65,7 @@ export function PestanaSeoProductos({
   const tareas = useMemo(
     () =>
       tareasDeLaCuenta(
-        { hoy: new Date().toISOString().slice(0, 10), lectura: datos.lectura, productos: datos.productos, fichas: datos.fichas, consultas: datos.consultas, evolucion: datos.evolucion, precios: datos.precios, cambios: datos.cambios },
+        { hoy: new Date().toISOString().slice(0, 10), lectura: datos.lectura, productos: datos.productos, fichas: datos.fichas, consultas: datos.consultas, evolucion: datos.evolucion, precios: datos.precios, cambios: datos.cambios, ...decisionesDe(datos) },
         { movimientos, sinVentas: historial?.sinVentas ?? null }
       ).filter((t) => !revisadas[t.id]),
     [datos, movimientos, revisadas, historial?.sinVentas]

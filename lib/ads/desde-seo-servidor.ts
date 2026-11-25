@@ -29,7 +29,7 @@ export async function desdeSeo(cuenta: CuentaDeAnunciante & { clienteAmazonId: s
     consultasGuardadas(seo.connectionId, seo.marketplaceId, 'MONTH'),
     preciosDeListings(seo.connectionId, seo.marketplaceId, [a]).catch(() => ({}) as Record<string, number | null>),
     fichasGuardadas(seo.connectionId, seo.marketplaceId).catch(() => []),
-    decisionesDeBusquedas(seo.connectionId, seo.marketplaceId).catch(() => ({ ajenas: [] as string[], nuestras: [] as string[] })),
+    decisionesDeBusquedas(seo.connectionId, seo.marketplaceId).catch(() => ({ ajenas: [] as string[], nuestras: [] as string[], marcas: [] as Array<{ clave: string; texto: string; origen: string }> })),
     keywordsDelAsin([cuenta.id], a),
   ])
   let periodo: 'MONTH' | 'WEEK' = 'MONTH'
@@ -40,7 +40,7 @@ export async function desdeSeo(cuenta: CuentaDeAnunciante & { clienteAmazonId: s
   }
   if (filas.length === 0) return { estado: 'sin-busquedas', periodo: null, palabras: [] }
   const ficha = fichas.find((f) => f.asin.toUpperCase() === a) ?? null
-  const { busquedas } = diagnosticarTodas(filas, (precios as Record<string, number | null>)[a] ?? null, { ficha, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras })
+  const { busquedas } = diagnosticarTodas(filas, (precios as Record<string, number | null>)[a] ?? null, { ficha, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras, marcas: decisiones.marcas })
   const enTitulo = (consulta: string) => {
     if (!ficha) return false
     const c = coberturaDe(consulta, ficha)

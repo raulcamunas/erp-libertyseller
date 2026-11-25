@@ -14,6 +14,7 @@ import { trozosNuevos } from '@/lib/seo/propuesta'
 import { SelectorDeProducto, useEsOrdenador } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { useDelProducto } from './useDelProducto'
+import { MarcasDeLaCompetencia } from './MarcasDeLaCompetencia'
 
 interface DatosRivales {
   rivales: Rival[]
@@ -31,7 +32,7 @@ const precio = (n: number | null | undefined, moneda?: string | null) => (n == n
  * LA COMPETENCIA QUE SE SIGUE CADA DÍA: el alta de ASIN rivales (a mano, desde el Top 3 de Brand Analytics o desde el Cerebro), el feed de lo que han
  * cambiado esta semana (ideas para nuestras fichas) y, por rival, su línea de tiempo con el antes y el después resaltados.
  */
-export function PestanaSeoCompetencia({ cuentaId, datos, asin, setAsin, irAProductos }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void }) {
+export function PestanaSeoCompetencia({ cuentaId, datos, asin, setAsin, irAProductos, recargarCuenta }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void; /** Para que las búsquedas se vuelvan a juzgar con la lista de marcas nueva */ recargarCuenta?: () => void }) {
   const r = useDelProducto<DatosRivales>(`/api/seo/rivales?cuenta=${encodeURIComponent(cuentaId)}`)
   const top = useDelProducto<{ filas: FilaCompetencia[]; sinMigracion?: boolean }>(asin ? `/api/seo/competencia?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const helium = useDelProducto<DatosDeHelium>(asin ? `/api/seo/helium?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
@@ -151,6 +152,7 @@ export function PestanaSeoCompetencia({ cuentaId, datos, asin, setAsin, irAProdu
 
   return (
     <div className="flex flex-col gap-4 pb-8">
+      <MarcasDeLaCompetencia cuentaId={cuentaId} alCambiar={recargarCuenta} />
       <div className="flex flex-wrap items-center gap-2">
         <SelectorDeProducto productos={datos.productos} datos={datos} asin={asin} setAsin={setAsin} />
         <Boton className="ml-auto" variante="secundario" icono={Camera} cargando={fotografiando} disabled={rivales.length === 0} onClick={fotografiar}>

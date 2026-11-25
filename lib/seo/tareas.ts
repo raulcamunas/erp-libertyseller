@@ -75,6 +75,8 @@ export interface EntradaDeTareas {
   /** Las búsquedas decididas a mano en la cuenta y país (migración 333) */
   ajenas?: readonly string[]
   nuestras?: readonly string[]
+  /** Las marcas de la competencia (migración 338): las búsquedas que las llevan no se trabajan en la ficha */
+  marcas?: ReadonlyArray<{ clave: string; texto: string; origen?: string }>
 }
 
 export interface OpcionesDeTareas {
@@ -172,7 +174,7 @@ export function palabrasQuePesan(diagnosticadas: ReadonlyArray<BusquedaDiagnosti
 /** TODAS LAS TAREAS DE LA CUENTA Y PAÍS, de la más urgente a la menos */
 export function tareasDeLaCuenta(e: EntradaDeTareas, opciones: OpcionesDeTareas = {}): Tarea[] {
   const tareas: Tarea[] = []
-  const decisiones = { ajenas: e.ajenas, nuestras: e.nuestras }
+  const decisiones = { ajenas: e.ajenas, nuestras: e.nuestras, marcas: e.marcas }
   const nombreDe = (p: ProductoSeguido, f: FichaGuardada | null) => (p.nombre || f?.titulo || p.asin).slice(0, 80)
 
   for (const p of e.productos) {

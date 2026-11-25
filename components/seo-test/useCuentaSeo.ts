@@ -37,7 +37,7 @@ export interface DatosSeo {
   /** Las fichas cambiadas en Amazon desde aquí (la ventana de 30 días del SOP) */
   cambios?: Array<{ asin: string; aplicadaAt: string }>
   /** Las búsquedas marcadas a mano en la cuenta y país (migración 333): «No es nuestro producto» y «Sí es nuestro». Sin la migración, listas vacías y `disponible: false` */
-  decisiones?: { ajenas: string[]; nuestras: string[]; disponible: boolean }
+  decisiones?: { ajenas: string[]; nuestras: string[]; disponible: boolean; /** Las marcas de la competencia en uso (migración 338) */ marcas?: Array<{ clave: string; texto: string; origen: string }> }
 }
 
 // Cada 15 s (antes 8): cada pregunta da un paso de lectura en el servidor y la base va justa

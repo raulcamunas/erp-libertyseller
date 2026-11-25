@@ -30,6 +30,8 @@ export interface DatosDePublicidad {
   campanas: number
   vendePorPublicidad: Array<{ termino: string; pedidos: number; ventas: number; clics: number; gasto: number; faltan: string[] }>
   sinExacta: BusquedaSinExacta[]
+  /** Las que llevan una marca de la competencia: nunca para la ficha; en PPC, como mucho, ataque de marca (sin la migración 338, vacío) */
+  deMarcaAjena?: BusquedaSinExacta[]
 }
 
 /**
@@ -459,7 +461,7 @@ function SinExacta({ publicidad }: { publicidad: DatosDePublicidad | null }) {
     <section className={CAJA.base}>
       <header className={`${CAJA.cabecera} flex-wrap`}>
         <Megaphone className="h-[14px] w-[14px] shrink-0 text-[var(--ls-t3)]" />
-        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Búsquedas que venden sin keyword EXACTA en Marketing Test</h3>
+        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Búsquedas del producto que venden sin keyword EXACTA en Marketing Test</h3>
         <span className="ml-auto text-[11.5px] text-[var(--ls-t4)]">{publicidad.campanas} campañas del producto · solo sugerencias</span>
       </header>
       {/* En el móvil la búsqueda va en su línea y las cifras debajo: con los tres anchos fijos (310 px) en la misma fila, el texto se quedaba en 0 px */}
@@ -476,6 +478,21 @@ function SinExacta({ publicidad }: { publicidad: DatosDePublicidad | null }) {
               <span className="ml-auto whitespace-nowrap text-right text-[11.5px] tabular-nums text-[var(--ls-t3)] sm:ml-0 sm:w-[80px]" title="Tu cuota de compras en esa búsqueda">{porcentaje(b.cuotaCompras)}</span>
             </div>
           ))}
+        </div>
+      )}
+      {(publicidad.deMarcaAjena?.length ?? 0) > 0 && (
+        <div className="border-t border-[var(--ls-linea)] px-4 py-[10px]">
+          <div className="text-[12px] font-semibold" style={{ color: COLOR_ESTADO.magenta }}>
+            Llevan una marca de la competencia: no van en la ficha
+          </div>
+          <p className="mt-[2px] text-[11.5px] text-[var(--ls-t4)]">Si se quiere pujar por ellas, en una campaña aparte de ataque de marca (o atacando el ASIN del competidor), nunca mezcladas con las del producto.</p>
+          <div className="mt-2 flex flex-wrap gap-[6px]">
+            {publicidad.deMarcaAjena!.map((b) => (
+              <span key={b.consulta} className="rounded-full border border-[var(--ls-linea)] px-[9px] py-[2px] text-[11.5px] text-[var(--ls-t2)]" title={`${entero(b.comprasTotal)} compras en Amazon`}>
+                {b.consulta} <span className="tabular-nums text-[var(--ls-t4)]">{entero(b.comprasTotal)}</span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </section>

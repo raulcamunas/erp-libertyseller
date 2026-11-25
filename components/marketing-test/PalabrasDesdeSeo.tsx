@@ -16,6 +16,7 @@ const MOTIVO: Record<MotivoDesdeSeo, { texto: string; color: string; pista: stri
   infraexpuesta: { texto: 'Infraexpuesta', color: COLOR_ESTADO.violeta, pista: 'Convierte de sobra y sale poco: darle exposición con publicidad' },
   'te-compran': { texto: 'Te compran sin EXACTA', color: COLOR_ESTADO.verde, pista: 'Ya vende ahí y no tiene keyword EXACTA' },
   empujar: { texto: 'Empujar', color: COLOR_ESTADO.azul, pista: 'Ya está en el título y sigue saliendo poco' },
+  'ataque-marca': { texto: 'Ataque de marca', color: COLOR_ESTADO.magenta, pista: 'Marca de la competencia: nunca en la ficha; solo en una campaña aparte de ataque de marca' },
 }
 
 const pct = (x: number | null) => (x == null ? '—' : `${(x * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`)
@@ -46,7 +47,7 @@ export function PalabrasDesdeSeo({ perfilId, asin }: { perfilId: string; asin: s
   }
 
   const palabras = datos?.palabras ?? []
-  const sinExacta = palabras.filter((p) => !p.enExacta).map((p) => p.consulta)
+  const sinExacta = palabras.filter((p) => !p.enExacta && p.motivo !== 'ataque-marca').map((p) => p.consulta)
 
   return (
     <div className="border-t border-[var(--ls-linea)] px-4 py-3 md:pl-[60px]">

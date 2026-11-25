@@ -216,10 +216,10 @@ export async function seoDeCliente(amazonClientId: string, hoy = Date.now()): Pr
         preciosDeListings(connectionId, marketplaceId, productos.map((p) => p.asin)).catch(() => ({})),
         cambiosAplicados(connectionId, marketplaceId).catch(() => []),
         propuestasSeoPendientes(connectionId, marketplaceId).catch(() => 0),
-        decisionesDeBusquedas(connectionId, marketplaceId).catch(() => ({ ajenas: [], nuestras: [] })),
+        decisionesDeBusquedas(connectionId, marketplaceId).catch(() => ({ ajenas: [] as string[], nuestras: [] as string[], marcas: [] as Array<{ clave: string; texto: string; origen: string }> })),
       ])
       const lectura = { acceso: estado?.acceso ?? 'desconocido', mesOk: estado?.mes_ok ?? null, semanaOk: estado?.semana_ok ?? null, fichaLeidaAt: estado?.ficha_leida_at ?? null } as const
-      const tareas = tareasDeLaCuenta({ hoy: fecha(hoy), lectura, productos, fichas, consultas: { MONTH: mes, WEEK: semana }, evolucion, precios, cambios, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras })
+      const tareas = tareasDeLaCuenta({ hoy: fecha(hoy), lectura, productos, fichas, consultas: { MONTH: mes, WEEK: semana }, evolucion, precios, cambios, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras, marcas: decisiones.marcas })
       // El vigía: solo existe si la 304 está lanzada (las fichas traen entonces la clave tituloCambiadoAt, aunque sea null)
       const conVigia = fichas.some((f) => 'tituloCambiadoAt' in f)
       const corteVigia = hoy - 14 * DIA
