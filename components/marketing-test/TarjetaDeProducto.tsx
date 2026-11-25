@@ -3,6 +3,7 @@
 import { Fragment, useState } from 'react'
 import { ChevronRight, Target } from 'lucide-react'
 import { DetalleDeCampana } from './DetalleDeCampana'
+import { PalabrasDesdeSeo } from './PalabrasDesdeSeo'
 import { COLOR_ESTADO, TEXTO, TIPO } from '@/lib/estilo/denso'
 import type { GrupoDeProducto } from '@/lib/ads/productos-agrupar'
 import { serieDiaria, tipoDeCampana, type FilaDiaria, type Totales } from '@/lib/ads/rendimiento-calculo'
@@ -225,6 +226,7 @@ export function TarjetaDeProducto({
         )}
       </button>
 
+      {abierto && grupo.asin && <PalabrasDesdeSeo perfilId={perfilId} asin={grupo.asin} />}
       {abierto && (
         <div className="overflow-x-auto border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-bg)_60%,var(--ls-sup))]">
           <table className="w-full border-separate border-spacing-0 text-[12.5px]">

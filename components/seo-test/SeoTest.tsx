@@ -16,6 +16,7 @@ import { PestanaSeoFicha } from './PestanaSeoFicha'
 import { PestanaSeoHelium } from './PestanaSeoHelium'
 import { PestanaSeoCompetencia } from './PestanaSeoCompetencia'
 import { useHistorial } from './useHistorial'
+import { GuiaDeEtiquetas } from './GuiaDeEtiquetas'
 
 const PESTANAS = [
   { id: 'hoy', texto: 'Qué hacer hoy', icono: ListChecks },
@@ -168,6 +169,7 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
         acciones={
           <>
             {datos && <EstadoDeBrandAnalytics lectura={datos.lectura} hayProductos={productos.length > 0} />}
+            <GuiaDeEtiquetas />
             <Boton variante="secundario" icono={RefreshCw} cargando={datos?.lectura.sincronizando} onClick={actualizar} title="Volver a leer la ficha y pedir el informe a Amazon">
               Actualizar
             </Boton>

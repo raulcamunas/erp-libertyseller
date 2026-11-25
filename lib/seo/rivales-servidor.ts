@@ -66,7 +66,7 @@ const COLUMNAS_FOTO = 'competidor_id, fecha, titulo, bullets, imagenes, marca, b
 /** Los rivales de una cuenta con su última foto y la serie de 30 días. null si falta la migración 312 */
 export async function rivalesDe(c: Cuenta): Promise<{ rivales: Rival[]; cambios: CambioGuardado[] } | null> {
   const service = createServiceClient()
-  const { data, error } = await service.from('seo_competidores').select('id, asin_rival, asin_propio, nombre, origen, activo, foto_at, error').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).order('created_at', { ascending: true }).limit(300)
+  const { data, error } = await service.from('seo_competidores').select('id, asin_rival, asin_propio, nombre, origen, activo, foto_at, error').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).order('created_at', { ascending: true }).limit(MAX_RIVALES_POR_CUENTA)
   if (error) {
     if (isMissingSchema(error)) return null
     throw error
@@ -107,9 +107,15 @@ export async function rivalesDe(c: Cuenta): Promise<{ rivales: Rival[]; cambios:
   const porId = new Map(rivales.map((r) => [r.id, r]))
   const cambios: CambioGuardado[] = []
   if (ids.length > 0) {
-    const { data: cs, error: e } = await service.from('seo_competidores_cambios').select('id, competidor_id, fecha, detectado_at, campo, antes, despues, magnitud, resumen').in('competidor_id', ids.slice(0, 300)).order('detectado_at', { ascending: false }).limit(300)
-    if (e) throw e
-    for (const x of (cs ?? []) as Array<Record<string, unknown>>) {
+    // Por lotes de 100 (500 identificadores en un solo .in() alargan demasiado la URL) y después los 300 más recientes de todos
+    const todos: Array<Record<string, unknown>> = []
+    for (const lote of enTrozos(ids, 100)) {
+      const { data: cs, error: e } = await service.from('seo_competidores_cambios').select('id, competidor_id, fecha, detectado_at, campo, antes, despues, magnitud, resumen').in('competidor_id', lote).order('detectado_at', { ascending: false }).limit(300)
+      if (e) throw e
+      todos.push(...((cs ?? []) as Array<Record<string, unknown>>))
+    }
+    todos.sort((a, b) => String(b.detectado_at).localeCompare(String(a.detectado_at)))
+    for (const x of todos.slice(0, 300)) {
       const r = porId.get(String(x.competidor_id))
       cambios.push({ id: String(x.id), competidorId: String(x.competidor_id), asinRival: r?.asinRival ?? '', nombre: r?.nombre ?? r?.ultima?.titulo ?? null, fecha: String(x.fecha), detectadoAt: String(x.detectado_at), campo: x.campo as CampoRival, antes: x.antes, despues: x.despues, magnitud: Number(x.magnitud ?? 0), resumen: (x.resumen as string | null) ?? null })
     }
@@ -117,7 +123,7 @@ export async function rivalesDe(c: Cuenta): Promise<{ rivales: Rival[]; cambios:
   return { rivales, cambios }
 }
 
-const MAX_RIVALES_POR_CUENTA = 150
+const MAX_RIVALES_POR_CUENTA = 500
 
 export async function altaRivales(c: Cuenta, e: { asins: string[]; asinPropio: string | null; origen: Rival['origen']; userId: string }): Promise<number> {
   const service = createServiceClient()

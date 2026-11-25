@@ -10,10 +10,11 @@ import { bytesDe, coberturaDe, LIMITE_BACKEND_BYTES, LIMITE_BULLETS_BYTES, LIMIT
 import { esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
 import { revisarFicha, type Gravedad } from '@/lib/seo/norma'
 import { palabrasQuePesan, ventanaDeCambio } from '@/lib/seo/tareas'
-import { BotonCopiar, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun'
+import { BotonCopiar, decisionesDe, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { PropuestaConIa } from './PropuestaConIa'
 import { EditorDeFicha } from './EditorDeFicha'
+import { ResultadoDeCambios } from './ResultadoDeCambios'
 import { HighlightsDeLaFicha } from './HighlightsDeLaFicha'
 import { useDelProducto } from './useDelProducto'
 import type { DatosDePublicidad } from './PestanaSeoBusquedas'
@@ -46,6 +47,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
         : [],
     [ficha, diagnostico]
   )
+  const decisiones = useMemo(() => decisionesDe(datos), [datos])
   const ventana = asin ? ventanaDeCambio(datos.cambios ?? [], asin, new Date().toISOString().slice(0, 10)) : null
   const hayBusquedas = (diagnostico?.busquedas.length ?? 0) > 0
 
@@ -74,6 +76,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
       ) : (
         <>
           <PuertaDeSalida d={diagnostico} hayBusquedas={hayBusquedas} ventana={ventana} />
+          {asin && <ResultadoDeCambios key={`resultado-${asin}`} cuentaId={cuentaId} asin={asin} precio={datos.precios?.[asin] ?? null} decisiones={decisiones} />}
           {revision && <RevisionDeNorma incidencias={revision.incidencias} />}
           {(ficha.issues?.length ?? 0) > 0 && <IncidenciasDeAmazon issues={ficha.issues ?? []} />}
           {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={hayBusquedas} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} diagnostico={diagnostico} ventana={ventana} />}

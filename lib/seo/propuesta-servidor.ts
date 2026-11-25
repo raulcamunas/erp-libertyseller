@@ -84,7 +84,7 @@ export async function propuestasDe(connectionId: string, marketplaceId: string, 
 export async function marcasDeRivales(c: { connectionId: string; marketplaceId: string }, asin: string): Promise<string[]> {
   try {
     const service = createServiceClient()
-    const { data, error } = await service.from('seo_competidores').select('id').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).or(`asin_propio.eq.${asin},asin_propio.is.null`).limit(300)
+    const { data, error } = await service.from('seo_competidores').select('id').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).or(`asin_propio.eq.${asin},asin_propio.is.null`).limit(500)
     if (error) throw error
     const ids = ((data ?? []) as Array<{ id: string }>).map((r) => r.id)
     const marcas = new Set<string>()

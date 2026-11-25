@@ -101,6 +101,8 @@ function finDelPeriodo(desde: string, periodo: 'MONTH' | 'WEEK'): string {
 /** Con 3 días o más sin ventas en el periodo de la caída, la explicación es el stock (o la ficha caída), no el SEO */
 const DIAS_SIN_VENTAS_EXPLICAN = 3
 export const DIAS_PARA_JUZGAR = 21
+/** Hasta cuántos días después del cambio sale la tarea de mirar su resultado */
+export const DIAS_PARA_MIRAR_RESULTADO = 45
 
 const fechaLarga = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' })
 const sumarDias = (d: string, n: number) => new Date(Date.parse(`${d.slice(0, 10)}T00:00:00Z`) + n * DIA).toISOString().slice(0, 10)
@@ -192,7 +194,22 @@ export function tareasDeLaCuenta(e: EntradaDeTareas, opciones: OpcionesDeTareas 
       tareas.push({ id: `${p.asin}:sin-busquedas`, asin: p.asin, tipo: 'datos', gravedad: 'info', titulo: `${nombre}: Amazon no da búsquedas de este ASIN`, detalle: 'Brand Analytics no tiene búsquedas de este producto ni en el último mes ni en la última semana: producto nuevo, sin tráfico o de una marca que no es del cliente.', accion: 'Si vende, comprueba que la marca está en el Brand Registry del cliente.', quien: 'Quien lleva la cuenta', impacto: 0, compras: 0, ir: 'busquedas' })
 
     // ---------- la ventana de cambio ----------
-    if (ventana && (ventana.bloqueada || !ventana.juzgable))
+    // Ya se puede juzgar (21 días) y hace menos de 45: toca mirar el resultado (pestaña Ficha → «Resultado de los cambios de ficha», lib/seo/resultado-cambio.ts)
+    if (ventana && ventana.juzgable && e.hoy < sumarDias(ventana.ultimo, DIAS_PARA_MIRAR_RESULTADO))
+      tareas.push({
+        id: `${p.asin}:resultado:${ventana.ultimo}`,
+        asin: p.asin,
+        tipo: 'ventana',
+        gravedad: 'atencion',
+        titulo: `${nombre}: toca mirar el resultado del cambio del ${fechaLarga(ventana.ultimo)}`,
+        detalle: 'Han pasado los 21 días del SOP. El ERP compara las 3 semanas de antes con las 3 de después con las mismas búsquedas y dice si mejoró, empeoró o no se puede atribuir.',
+        accion: `Pestaña Ficha → «Resultado de los cambios de ficha». Si empeora, mira qué búsquedas salieron y valora volver a la versión anterior.${ventana.bloqueada ? ` El título no se vuelve a tocar hasta el ${fechaLarga(ventana.puedeDesde)}.` : ''}`,
+        quien: 'SEO',
+        impacto: 0,
+        compras: 0,
+        ir: 'ficha',
+      })
+    else if (ventana && (ventana.bloqueada || !ventana.juzgable))
       tareas.push({
         id: `${p.asin}:ventana:${ventana.ultimo}`,
         asin: p.asin,
