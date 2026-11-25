@@ -8,6 +8,7 @@ import { Vacio } from '@/components/plataforma/comun'
 import { NOMBRE_DE_ETAPA, RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
 import { ventanaDeCambio } from '@/lib/seo/tareas'
 import { marcaDelTitulo } from '@/lib/seo/marcas'
+import { urlProducto } from '@/lib/cumplimiento/enlaces'
 import { decisionesDe, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { PropuestaConIa } from './PropuestaConIa'
@@ -57,6 +58,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
         <>
           {!ficha.origenHighlights && (
             <AvisoDeHighlights
+              urlAmazon={mkt && asin ? urlProducto(mkt, asin) : null}
               pegar={() => {
                 setAbrirHighlights((n) => n + 1)
                 setTimeout(() => document.getElementById(`hl-${asin}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)

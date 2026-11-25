@@ -88,7 +88,9 @@ export function CabeceraDeModulo({ icono: Icono, titulo, subtitulo, acento, acci
         style={{ ['--ls-acento' as string]: color }}
       >
         {/* El halo del acento detrás del icono: profundidad sin ruido */}
-        <div aria-hidden className="pointer-events-none absolute -left-10 -top-16 h-48 w-72 rounded-full blur-3xl" style={{ background: `radial-gradient(closest-side, ${mezcla(color, 16)}, transparent)` }} />
+        {/* Sin `blur` y sin salirse de la caja: el desenfoque pasaba por fuera y el borde de la zona con scroll lo cortaba en seco (una mancha recortada). El degradado
+            radial ya se apaga solo antes de su borde */}
+        <div aria-hidden className="pointer-events-none absolute -left-4 -top-6 h-44 w-80" style={{ background: `radial-gradient(closest-side, ${mezcla(color, 14)}, transparent)` }} />
 
         {migas && migas.length > 0 && (
           <nav aria-label="Migas" className="relative mb-2 flex min-w-0 items-center gap-1 text-[12px] text-[var(--ls-t4)]">

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { ChevronDown, CircleAlert, CircleCheck, Clock, DownloadCloud, History, Languages, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, X, XCircle } from 'lucide-react'
+import { ChevronDown, CircleAlert, CircleCheck, Clock, DownloadCloud, ExternalLink, History, Languages, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, X, XCircle } from 'lucide-react'
 import { Boton, Confirmacion, Insignia, LineaDeTiempo, mezcla, ACENTO, type Hito } from '@/components/ui-ls'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import { bloqueosDeEdicion, camposCambiados, medidasDeEdicion, MAX_VINETAS, NOMBRE_DE_CAMPO, normalizarTexto, valorDeCampo, vinetasQueSalen, type CampoFicha, type TextosFicha } from '@/lib/seo/edicion'
@@ -12,6 +12,7 @@ import type { FichaGuardada } from '@/lib/seo/datos'
 import { trozosNuevos } from '@/lib/seo/propuesta'
 import type { ventanaDeCambio } from '@/lib/seo/tareas'
 import { useDelProducto } from './useDelProducto'
+import { urlProducto } from '@/lib/cumplimiento/enlaces'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { AnilloDePuntuacion } from './TarjetaDelEstudio'
 import { puntuarListing, type BloqueDePuntuacion } from '@/lib/seo/puntuacion'
@@ -249,6 +250,7 @@ export function EditorDeFicha({
   }
 
   /** «Enviar a Amazon»: valida (sin guardar nada) y, si Amazon lo acepta, pide la confirmación */
+  const urlAmazon = mkt ? urlProducto(mkt, asin) : null
   const [enviarTrasValidar, setEnviarTrasValidar] = useState(false)
   useEffect(() => {
     if (!enviarTrasValidar) return
@@ -298,6 +300,11 @@ export function EditorDeFicha({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {urlAmazon && (
+            <a href={urlAmazon} target="_blank" rel="noreferrer" className="inline-flex h-[34px] items-center gap-[6px] rounded-[10px] border border-[var(--ls-linea)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" title="Abrir el listing en Amazon (para ver o copiar lo que tiene, como los Item Highlights)">
+              <ExternalLink className="h-[14px] w-[14px]" /> Ver en Amazon
+            </a>
+          )}
           <Boton variante="fantasma" icono={RotateCcw} disabled={campos.length === 0} onClick={() => { setT({ ...original, bullets: [...original.bullets] }); setValidada(null); setRechazo(null) }}>
             Deshacer
           </Boton>
@@ -332,6 +339,11 @@ export function EditorDeFicha({
             <Campo etiqueta="Item Highlights" medida={medidas[1]} cambiado={campos.includes('highlights')}>
               <textarea value={t.highlights ?? ''} onChange={(e) => cambiar('highlights', e.target.value.replace(/\n/g, ' '))} onFocus={enfocar('highlights')} rows={2} className={CAMPO} placeholder="Lo que no cabe en el título (formato, cantidad, material). Se indexa como el título." />
               <Avisos lista={avisos.highlights} />
+              {urlAmazon && !ficha.origenHighlights && (
+                <a href={urlAmazon} target="_blank" rel="noreferrer" className="inline-flex w-fit items-center gap-1 text-[11.5px] font-medium text-[var(--ls-acc)] hover:underline">
+                  <ExternalLink className="h-3 w-3" /> Abrir el listing en Amazon para copiar sus Item Highlights
+                </a>
+              )}
               {extraHighlights}
             </Campo>
             <Campo etiqueta="Viñetas" medida={medidas[2]} cambiado={campos.includes('bullets')}>

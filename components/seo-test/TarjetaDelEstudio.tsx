@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ClipboardPaste, TriangleAlert } from 'lucide-react'
+import { ClipboardPaste, ExternalLink, TriangleAlert } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 
 export const colorDePuntuacion = (n: number) => (n >= 90 ? COLOR_ESTADO.verde : n >= 70 ? '#a3d65c' : n >= 50 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo)
@@ -25,13 +25,18 @@ export function AnilloDePuntuacion({ valor, lado = 44, grosor = 5 }: { valor: nu
 }
 
 /** El aviso de arriba de la pestaña Ficha cuando no hay Item Highlights guardados (ni de Amazon ni puestos a mano) */
-export function AvisoDeHighlights({ pegar }: { pegar: () => void }) {
+export function AvisoDeHighlights({ pegar, urlAmazon }: { pegar: () => void; /** El listing en la tienda de su país (amazon.es/dp/…): para abrirlo y copiar los highlights */ urlAmazon?: string | null }) {
   return (
     <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex flex-wrap items-center gap-3 rounded-[14px] border px-4 py-3" style={{ borderColor: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 40%, transparent)`, background: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 9%, transparent)` }}>
       <TriangleAlert className="h-[18px] w-[18px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
       <div className="min-w-0 flex-1 text-[12.5px] leading-[1.5] text-[var(--ls-t2)]">
         <b className="text-[var(--ls-t1)]">No están guardados los Item Highlights de este producto.</b> Amazon todavía no deja leerlos por la API para este tipo de producto. Si el producto los tiene en Seller Central, pégalos aquí para que cuenten en el SEO (búsquedas cubiertas, puntuación y propuesta con IA).
       </div>
+      {urlAmazon && (
+        <a href={urlAmazon} target="_blank" rel="noreferrer" className="inline-flex h-[32px] shrink-0 items-center gap-[6px] rounded-[9px] border px-3 text-[12.5px] font-semibold transition-colors hover:bg-[var(--ls-sup2)]" style={{ borderColor: `color-mix(in srgb, ${COLOR_ESTADO.ambar} 50%, transparent)`, color: COLOR_ESTADO.ambar }}>
+          <ExternalLink className="h-[14px] w-[14px]" /> Ver el listing en Amazon
+        </a>
+      )}
       <button type="button" onClick={pegar} className="inline-flex h-[32px] shrink-0 items-center gap-[6px] rounded-[9px] px-3 text-[12.5px] font-semibold transition-[filter] hover:brightness-110" style={{ color: '#1a1205', background: COLOR_ESTADO.ambar }}>
         <ClipboardPaste className="h-[14px] w-[14px]" /> Pegarlos ahora
       </button>
