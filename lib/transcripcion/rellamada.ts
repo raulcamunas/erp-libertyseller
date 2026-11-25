@@ -1,5 +1,5 @@
 import { diaCorto, diaDeMadrid, diaHabilDesde, diasEntre, esDia } from '@/lib/correo/secuencias/fechas'
-import { COLD_STATUS_LABELS, type ColdLeadStatus } from '@/lib/types/cold-leads'
+import { COLD_STATUS_LABELS, type ColdLeadStatus, estaCerrado } from '@/lib/types/cold-leads'
 import { ESTADOS_QUE_SE_PUEDEN_TOCAR, MAX_DIAS_DE_RELLAMADA, diaConAnio, fechaCuadraConLaFrase, fraseDiceCuando, fraseEstaEnElTexto } from '@/lib/rellamada/reglas'
 import type { PeticionDeRellamada } from './tipos'
 
@@ -88,7 +88,7 @@ export function decidirRellamadaDeLlamada(e: EntradaDeRellamada): DecisionDeRell
   if (lead.assignedTo !== null && lead.assignedTo !== e.comercialId) {
     return no('otra_persona', `En una llamada del ${cuandoFue} el cliente pidió que le llamen el ${cuando} (${dicho}), pero el lead es de otra persona: no se ha tocado.`)
   }
-  if (lead.status === 'no_interesa' || lead.status === 'cita_cualificada') {
+  if (estaCerrado(lead.status) || lead.status === 'cita_cualificada') {
     return no('estado', `En la llamada del ${cuandoFue} el cliente pidió que le llamen el ${cuando} (${dicho}), pero el lead está en «${etiquetaDeEstado(lead.status)}»: no se ha cambiado.`)
   }
   if (lead.nextCallDate !== null && lead.nextCallDate === fecha && lead.status === 'programado') return no('ya_estaba')

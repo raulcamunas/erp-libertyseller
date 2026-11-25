@@ -34,8 +34,8 @@ const ok = (n: string, bien: boolean, d = '') => {
 
 console.log('\n=== las cajas ===')
 {
-  ok('son siete, como los siete estados de siempre: la fila de chips mide lo mismo', CAJAS_DEL_CICLO.length === COLD_STATUSES.length)
-  ok('Sin contactar, Fase 2, Fase 3, No responde, En seguimiento, Cita agendada y No le interesa, en ese orden', CAJAS_DEL_CICLO.join(',') === 'pendiente,fase_2,fase_3,no_responde,seguimiento,cita_cualificada,no_interesa')
+  ok('tantas cajas como estados (ocho, con «Descalificado»): la fila de chips mide lo mismo', CAJAS_DEL_CICLO.length === COLD_STATUSES.length)
+  ok('Sin contactar, Fase 2, Fase 3, No responde, En seguimiento, Cita agendada, No le interesa y Descalificado, en ese orden', CAJAS_DEL_CICLO.join(',') === 'pendiente,fase_2,fase_3,no_responde,seguimiento,cita_cualificada,no_interesa,descalificado')
   ok('no hay «No contesta», «Rellamada programada» ni «Info enviada» (la fase y «En seguimiento» las sustituyen)', !CAJAS_DEL_CICLO.includes('no_contesta' as CajaDelCiclo) && !CAJAS_DEL_CICLO.includes('programado' as CajaDelCiclo) && !CAJAS_DEL_CICLO.includes('email_enviado' as CajaDelCiclo))
   ok('las tres nuevas son Fase 2, Fase 3 y No responde', ESTADOS_SOLO_DEL_CICLO.join(',') === 'fase_2,fase_3,no_responde')
   ok('las fases son tres: f2, f3 y sin_respuesta (la Fase 1 es «Sin contactar»: no tiene fase propia)', FASES_DEL_CICLO.join(',') === 'f2,f3,sin_respuesta' && faseValida('f2') && faseValida('f3') && faseValida('sin_respuesta') && !faseValida('f1') && !faseValida(null) && !faseValida(2))
@@ -45,16 +45,16 @@ console.log('\n=== en qué caja cae cada lead: todas las combinaciones ===')
 {
   const fases: Array<FaseDelCiclo | null> = [null, 'f2', 'f3', 'sin_respuesta']
   const esperada = (estado: ColdLeadStatus, fase: FaseDelCiclo | null): CajaDelCiclo => {
-    if (estado === 'seguimiento' || estado === 'cita_cualificada' || estado === 'no_interesa') return estado
+    if (estado === 'seguimiento' || estado === 'cita_cualificada' || estado === 'no_interesa' || estado === 'descalificado') return estado
     if (estado === 'programado' || estado === 'email_enviado') return 'seguimiento'
     return fase === 'f2' ? 'fase_2' : fase === 'f3' ? 'fase_3' : fase === 'sin_respuesta' ? 'no_responde' : 'pendiente'
   }
   let mal = ''
   for (const s of COLD_STATUSES) for (const f of fases) if (cajaDelCiclo({ status: s, ciclo_fase: f }) !== esperada(s, f)) mal += ` ${s}/${f}`
-  ok('las 28 combinaciones (7 estados × 4 fases) caen donde toca', mal === '', mal)
+  ok('las 32 combinaciones (8 estados × 4 fases) caen donde toca', mal === '', mal)
   const todas = new Set<CajaDelCiclo>()
   for (const s of COLD_STATUSES) for (const f of fases) todas.add(cajaDelCiclo({ status: s, ciclo_fase: f }))
-  ok('y no queda ninguna caja sin lead posible, ni un lead fuera de las siete', todas.size === 7 && [...todas].every((c) => CAJAS_DEL_CICLO.includes(c)))
+  ok('y no queda ninguna caja sin lead posible, ni un lead fuera de las ocho', todas.size === 8 && [...todas].every((c) => CAJAS_DEL_CICLO.includes(c)))
 
   ok('un estado del ritmo con fase manda la fase: «No contesta» en Fase 2 es Fase 2', cajaDelCiclo({ status: 'no_contesta', ciclo_fase: 'f2' }) === 'fase_2' && cajaDelCiclo({ status: 'pendiente', ciclo_fase: 'f3' }) === 'fase_3')
   ok('pero un estado que no es del ritmo manda sobre la fase: si alguien ya habló, no es «Fase 2» aunque la fase siga puesta', cajaDelCiclo({ status: 'seguimiento', ciclo_fase: 'f2' }) === 'seguimiento' && cajaDelCiclo({ status: 'no_interesa', ciclo_fase: 'sin_respuesta' }) === 'no_interesa')

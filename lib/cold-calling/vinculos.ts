@@ -1,3 +1,4 @@
+import { estaCerrado } from '@/lib/types/cold-leads'
 import { claveDeTelefono, clavesDeTelefonos } from '@/lib/rendimiento/telefonos'
 
 /**
@@ -75,7 +76,7 @@ export function indiceDeTelefonos(leads: readonly LeadParaVincular[]): IndiceDeT
  *   3. y a igualdad, el de id menor, para que el orden de lectura de la base no cambie el resultado.
  */
 export function elegirLead(candidatos: readonly LeadParaVincular[]): LeadParaVincular {
-  const abierto = (l: LeadParaVincular) => (l.status === 'no_interesa' ? 1 : 0)
+  const abierto = (l: LeadParaVincular) => (estaCerrado(l.status) ? 1 : 0)
   const toque = (l: LeadParaVincular) => (l.last_contacted_at ? Date.parse(l.last_contacted_at) : Number.NEGATIVE_INFINITY)
   return [...candidatos].sort((a, b) => abierto(a) - abierto(b) || toque(b) - toque(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
 }

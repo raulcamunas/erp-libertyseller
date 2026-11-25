@@ -1,4 +1,4 @@
-import { CalendarClock, CheckCircle2, Circle, Flame, Mail, PhoneForwarded, PhoneMissed, PhoneOff, XCircle, type LucideIcon } from 'lucide-react'
+import { CalendarClock, CheckCircle2, Circle, Flame, Mail, PhoneForwarded, PhoneMissed, PhoneOff, XCircle, type LucideIcon, UserX } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { ventasCompactas } from '@/lib/cold-calling/cifras'
 import { estadoVisible, type EstadoVisible } from '@/lib/cold-calling/ciclo'
@@ -25,6 +25,7 @@ export const ESTADO_VISUAL: Record<EstadoVisible, { icono: LucideIcon; tono: Ton
   seguimiento: { icono: Flame, tono: 'naranja' },
   cita_cualificada: { icono: CheckCircle2, tono: 'verde' },
   no_interesa: { icono: XCircle, tono: 'rojo' },
+  descalificado: { icono: UserX, tono: 'gris' },
   // Las tres cajas que solo existen en una lista de ciclo (lib/cold-calling/ciclo.ts): una rellamada en cian y en violeta, y el «no contesta» de siempre en ámbar
   fase_2: { icono: PhoneForwarded, tono: 'cian' },
   fase_3: { icono: PhoneForwarded, tono: 'violeta' },

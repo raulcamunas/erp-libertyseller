@@ -50,6 +50,7 @@ export const ICONO_ESTADO: Record<ColdLeadStatus, LucideIcon> = {
   seguimiento: TrendingUp,
   cita_cualificada: CalendarCheck2,
   no_interesa: Ban,
+  descalificado: Ban,
 }
 
 export function colorEstado(estado: ColdLeadStatus): string {

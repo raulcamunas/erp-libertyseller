@@ -37,7 +37,7 @@ export type LeadParaCorreo = {
 export type NotaParaCorreo = { kind: string; body: string; occurred_at: string }
 
 export function situacionDelLead(lead: LeadParaCorreo, notas: NotaParaCorreo[]): Situacion {
-  if (lead.status === 'no_interesa') return 'no_interesa'
+  if (lead.status === 'no_interesa' || lead.status === 'descalificado') return 'no_interesa'
   const hablado =
     ['seguimiento', 'cita_cualificada', 'programado', 'email_enviado'].includes(lead.status ?? '') ||
     notas.some((n) => n.kind === 'llamada' && !/no contesta|sin respuesta|buz[oó]n|no responde/i.test(n.body))

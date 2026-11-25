@@ -1,4 +1,4 @@
-import { anadirEmail, anadirTelefono, emailsDelLead, normalizarEmail, normalizarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
+import { anadirEmail, anadirTelefono, emailsDelLead, normalizarEmail, normalizarTelefono, quitarEmail, quitarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
 
 let fallos = 0
 const ok = (n: string, bien: boolean, d = '') => {
@@ -78,6 +78,20 @@ console.log('\n=== añadir un correo ===')
   ok('repetido contra los extra', !enExtra.ok && enExtra.motivo === 'repetido')
   const malo = anadirEmail({ email: null, emails_extra: null }, 'no-es-un-correo')
   ok('inválido', !malo.ok && malo.motivo === 'invalido')
+}
+
+console.log('\n=== quitar un teléfono o un correo ===')
+{
+  const lead = { phone: '962 20 13 88', telefonos_extra: '+34 600112233; 611 22 33 44', email: 'info@animaliaweb.es', emails_extra: 'info@animalialolleria.com; ventas@x.es' }
+  const a = quitarTelefono(lead, '+34962201388')
+  ok('quitar el principal (escrito de otra forma): sube el siguiente', a?.phone === '+34 600112233' && a?.telefonos_extra === '611 22 33 44', JSON.stringify(a))
+  const b = quitarTelefono(lead, '611223344')
+  ok('quitar uno extra', b?.phone === '962 20 13 88' && b?.telefonos_extra === '+34 600112233', JSON.stringify(b))
+  ok('el que no está: null', quitarTelefono(lead, '+34 699999999') === null)
+  ok('quitar el único deja vacío', JSON.stringify(quitarTelefono({ phone: '600112233', telefonos_extra: null }, '600112233')) === JSON.stringify({ phone: null, telefonos_extra: null }))
+  const c = quitarEmail(lead, 'INFO@animaliaweb.es')
+  ok('quitar el correo principal: sube el siguiente', c?.email === 'info@animalialolleria.com' && c?.emails_extra === 'ventas@x.es', JSON.stringify(c))
+  ok('el correo que no está: null', quitarEmail(lead, 'otro@x.es') === null)
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

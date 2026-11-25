@@ -150,7 +150,7 @@ export function estadoArg(args: Record<string, unknown>): ColdLeadStatus | undef
 const ESQUEMA_ESTADO = {
   type: 'string',
   enum: [...COLD_STATUSES],
-  description: 'Estado del lead: pendiente = Sin contactar · no_contesta = No contesta · programado = Rellamada programada · email_enviado = Info enviada · seguimiento = En seguimiento · cita_cualificada = Cita agendada · no_interesa = No le interesa.',
+  description: 'Estado del lead: pendiente = Sin contactar · no_contesta = No contesta · programado = Rellamada programada · email_enviado = Info enviada · seguimiento = En seguimiento · cita_cualificada = Cita agendada · no_interesa = No le interesa · descalificado = Descalificado (no encaja).',
 }
 const ESQUEMA_COMERCIAL = { type: 'string', description: 'El comercial al que está asignado el lead: su nombre (o parte), su correo o su id. rendimiento_equipo los lista.' }
 const ESQUEMA_LISTA = { type: 'string', description: 'La lista de origen del lead, tal como sale en cold_resumen (por_lista), por ejemplo «1a lista» o «No Amazon V1». Distingue mayúsculas de acentos: cópiala tal cual.' }
@@ -460,7 +460,7 @@ export const coldBuscarLeads: Herramienta<ContextoMcp> = {
       q = q.or(`store_name.ilike.${pat},company.ilike.${pat},email.ilike.${pat},phone.ilike.${pat},web.ilike.${pat}`)
     }
     if (rellamada) {
-      q = q.neq('status', 'no_interesa')
+      q = q.not('status', 'in', '(no_interesa,descalificado)')
       if (rellamada === 'vencidas') q = q.lt('next_call_date', hoy)
       else if (rellamada === 'hoy') q = q.eq('next_call_date', hoy)
       else if (rellamada === 'hasta_hoy') q = q.lte('next_call_date', hoy)

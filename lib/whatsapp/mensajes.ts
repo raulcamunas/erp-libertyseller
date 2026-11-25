@@ -82,7 +82,7 @@ export function situacionDelLead(estado: string | null | undefined): SituacionDe
 }
 
 /** A un lead que ha dicho que no se le deja de escribir: el botón no se ofrece */
-export const LEAD_SIN_WHATSAPP: ReadonlySet<string> = new Set(['no_interesa'])
+export const LEAD_SIN_WHATSAPP: ReadonlySet<string> = new Set(['no_interesa', 'descalificado'])
 
 /**
  * Los mensajes que se ofrecen en una situación: los guardados (en el orden en que vienen) o, si no hay ninguno, el de serie. Un mensaje

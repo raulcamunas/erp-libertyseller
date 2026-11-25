@@ -44,6 +44,8 @@ export interface FilaDeResumen {
   seguimiento: number
   cita_cualificada: number
   no_interesa: number
+  /** Migración 340: las listas que cuenta la base de antes no lo traen (sale en 0) */
+  descalificado?: number
   vende: number
   no_vende: number
   sin_comprobar: number
@@ -260,11 +262,11 @@ export function resumirLeads(leads: readonly LeadParaResumir[]): FilaDeResumen[]
     const clave = JSON.stringify([lista, l.assigned_to, l.tipo_lead])
     let f = grupos.get(clave)
     if (!f) {
-      f = { lista, dueno: l.assigned_to, tipo_lead: l.tipo_lead, total: 0, pendiente: 0, no_contesta: 0, programado: 0, email_enviado: 0, seguimiento: 0, cita_cualificada: 0, no_interesa: 0, vende: 0, no_vende: 0, sin_comprobar: 0, llamados: 0, intentos: 0, ultimo_contacto: null }
+      f = { lista, dueno: l.assigned_to, tipo_lead: l.tipo_lead, total: 0, pendiente: 0, no_contesta: 0, programado: 0, email_enviado: 0, seguimiento: 0, cita_cualificada: 0, no_interesa: 0, descalificado: 0, vende: 0, no_vende: 0, sin_comprobar: 0, llamados: 0, intentos: 0, ultimo_contacto: null }
       grupos.set(clave, f)
     }
     f.total++
-    f[l.status]++
+    f[l.status] = (f[l.status] ?? 0) + 1
     f[l.vende_en_amazon === 'vende' ? 'vende' : l.vende_en_amazon === 'no_vende' ? 'no_vende' : 'sin_comprobar']++
     const intentos = l.call_attempts ?? 0
     if (intentos > 0) f.llamados++

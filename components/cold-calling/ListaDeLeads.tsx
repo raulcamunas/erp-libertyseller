@@ -5,7 +5,7 @@ import { fechaDeRellamada } from '@/lib/cold-calling/cartera'
 import { diaConSemana, vencimientoDe, etiquetaDeVencimiento } from '@/lib/cold-calling/fechas'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { cajaDelCiclo, enCiclo, esCajaDeFase, estadoVisible, etiquetaDeEstadoVisible } from '@/lib/cold-calling/ciclo'
-import { esPartner, type ColdLead } from '@/lib/types/cold-leads'
+import { esPartner, type ColdLead, estaCerrado } from '@/lib/types/cold-leads'
 import { Esqueleto } from '@/components/rendimiento/ui'
 import { MarcaDeFestivo } from './Festivos'
 import { MarcaDeHoraMexico } from './HoraMexico'
@@ -40,7 +40,7 @@ interface PropsDeFila {
 export const FilaDeLead = memo(function FilaDeLead({ lead, activa, hoy, diaFestivos, mostrarLista, onSeleccionar, entrada }: PropsDeFila) {
   const fecha = fechaDeRellamada(lead)
   const vencimiento = vencimientoDe(fecha, hoy)
-  const cerrado = lead.status === 'no_interesa'
+  const cerrado = estaCerrado(lead.status)
 
   // Un lead en Fase 2, Fase 3 o «No responde» dice también cuántos días faltan para su rellamada («en 3 d»): la jornada es limpiar lo que toca, pero se ve lo que viene. En las demás listas, solo hoy, mañana y atrasada
   const enFase = enCiclo(lead) && esCajaDeFase(cajaDelCiclo(lead))

@@ -34,7 +34,7 @@ export const DIAS_LABORABLES_DE_FASE_3 = 3
 export const FASE_DE_LA_CAJA: Readonly<Record<EstadoSoloDelCiclo, FaseDelCiclo>> = { fase_2: 'f2', fase_3: 'f3', no_responde: 'sin_respuesta' }
 
 /** Los estados con los que no se puede pulsar una fase: el lead ya está resuelto (con cita o descartado) */
-export const ESTADOS_QUE_NO_ADMITEN_FASE: readonly ColdLeadStatus[] = ['cita_cualificada', 'no_interesa']
+export const ESTADOS_QUE_NO_ADMITEN_FASE: readonly ColdLeadStatus[] = ['cita_cualificada', 'no_interesa', 'descalificado']
 
 /** El día que resulta de contar `n` días laborables a partir de `desde` (sin contarlo): lunes a viernes, saltando los festivos del lugar */
 export function sumarDiasLaborables(desde: string, n: number, lugar: Lugar | null | undefined): string {
@@ -75,7 +75,7 @@ export interface CambioAlPulsarFase {
 export function motivoQueBloqueaLaFase(lead: Pick<LeadParaPulsarFase, 'status' | 'ciclo_vuelta'>): string | null {
   if (!enCiclo(lead)) return null
   if (lead.status === 'cita_cualificada') return 'Este lead ya tiene una cita agendada: no se pasa de fase.'
-  if (lead.status === 'no_interesa') return 'Este lead está marcado «No le interesa»: no se pasa de fase.'
+  if (lead.status === 'no_interesa' || lead.status === 'descalificado') return `Este lead está marcado «${lead.status === 'no_interesa' ? 'No le interesa' : 'Descalificado'}»: no se pasa de fase.`
   return null
 }
 

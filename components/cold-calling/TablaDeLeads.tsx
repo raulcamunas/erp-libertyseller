@@ -11,7 +11,7 @@ import { diaConSemana, vencimientoDe } from '@/lib/cold-calling/fechas'
 import { CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
-import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, esPartner, esTiendaOnline, formatRevenue, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
+import { AVISO_VENTAS_ESTIMADAS, COLD_STATUSES, esPartner, esTiendaOnline, formatRevenue, formatVentasEstimadas, type ColdLead, type ColdLeadStatus, type ColdNoteKind, estaCerrado } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { MarcaDeFestivo } from './Festivos'
@@ -292,7 +292,7 @@ export function TablaDeLeads({ leads, currentUserId, currentUser, puedeVerTodos,
                       disabled={!puedeEditar}
                       aria-label={`Rellamar a ${l.store_name} el`}
                       onChange={(e) => void patch(l.id, { next_call_date: e.target.value || null })}
-                      className={`${CELDA.editable} [color-scheme:dark] [.light_&]:[color-scheme:light] ${l.next_call_date ? '' : 'text-transparent hover:text-[var(--ls-t3)] focus:text-[var(--ls-t1)]'} ${venc?.tipo === 'atrasada' && l.status !== 'no_interesa' ? '!text-[var(--ls-e-ambar)]' : ''}`}
+                      className={`${CELDA.editable} [color-scheme:dark] [.light_&]:[color-scheme:light] ${l.next_call_date ? '' : 'text-transparent hover:text-[var(--ls-t3)] focus:text-[var(--ls-t1)]'} ${venc?.tipo === 'atrasada' && !estaCerrado(l.status) ? '!text-[var(--ls-e-ambar)]' : ''}`}
                     />
                   </td>
 

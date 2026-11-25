@@ -9,7 +9,7 @@ import { dominioDeWeb, urlSegura, valoracionDe } from '@/lib/cold-calling/partne
 import { CELDA, COLOR_ESTADO, TABLA } from '@/lib/estilo/denso'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/supabase/get-user-profile'
-import { COLD_STATUSES, COLD_STATUS_LABELS, type ColdLead, type ColdLeadStatus, type ColdNoteKind } from '@/lib/types/cold-leads'
+import { COLD_STATUSES, COLD_STATUS_LABELS, type ColdLead, type ColdLeadStatus, type ColdNoteKind, estaCerrado } from '@/lib/types/cold-leads'
 import { DatosDelLead } from './DatosDelLead'
 import { HistorialDelLead } from './HistorialDelLead'
 import { CeldaEditable } from './TablaDeLeads'
@@ -260,7 +260,7 @@ export function TablaDePartners({ leads, currentUserId, currentUser, puedeVerTod
                       disabled={!puedeEditar}
                       aria-label={`Rellamar a ${l.store_name} el`}
                       onChange={(e) => void patch(l.id, { next_call_date: e.target.value || null })}
-                      className={`${CELDA.editable} [color-scheme:dark] [.light_&]:[color-scheme:light] ${l.next_call_date ? '' : 'text-transparent hover:text-[var(--ls-t3)] focus:text-[var(--ls-t1)]'} ${venc?.tipo === 'atrasada' && l.status !== 'no_interesa' ? '!text-[var(--ls-e-ambar)]' : ''}`}
+                      className={`${CELDA.editable} [color-scheme:dark] [.light_&]:[color-scheme:light] ${l.next_call_date ? '' : 'text-transparent hover:text-[var(--ls-t3)] focus:text-[var(--ls-t1)]'} ${venc?.tipo === 'atrasada' && !estaCerrado(l.status) ? '!text-[var(--ls-e-ambar)]' : ''}`}
                     />
                   </td>
 

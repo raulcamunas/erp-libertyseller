@@ -113,3 +113,24 @@ export function anadirEmail(lead: Pick<ContactosDeLead, 'email' | 'emails_extra'
   const extra = [(lead.emails_extra ?? '').trim(), nuevo].filter(Boolean).join('; ')
   return { ok: true, campos: { emails_extra: extra }, valor: nuevo }
 }
+
+/**
+ * Qué campos cambiar para QUITAR un teléfono del lead (uno que ya no existe, de otra persona, mal apuntado). Se quita por su clave (el mismo número escrito de otra forma
+ * también sale) y lo que queda se reparte como siempre: el primero en `phone`, el resto en `telefonos_extra`. null si no estaba.
+ */
+export function quitarTelefono(lead: Pick<ContactosDeLead, 'phone' | 'telefonos_extra'>, telefono: string): CamposDeContacto | null {
+  const quitar = claveDeTelefono(telefono) ?? `texto:${telefono.trim()}`
+  const todos = telefonosDelLead(lead)
+  const quedan = todos.filter((t) => (claveDeTelefono(t) ?? `texto:${t.trim()}`) !== quitar)
+  if (quedan.length === todos.length) return null
+  return { phone: quedan[0] ?? null, telefonos_extra: quedan.length > 1 ? quedan.slice(1).join('; ') : null }
+}
+
+/** Qué campos cambiar para QUITAR un correo del lead. Lo que queda: el primero en `email`, el resto en `emails_extra`. null si no estaba */
+export function quitarEmail(lead: Pick<ContactosDeLead, 'email' | 'emails_extra'>, correo: string): CamposDeContacto | null {
+  const quitar = correo.trim().toLowerCase()
+  const todos = emailsDelLead(lead)
+  const quedan = todos.filter((e) => e.toLowerCase() !== quitar)
+  if (quedan.length === todos.length) return null
+  return { email: quedan[0] ?? null, emails_extra: quedan.length > 1 ? quedan.slice(1).join('; ') : null }
+}

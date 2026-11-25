@@ -141,6 +141,7 @@ const ESTADO_EN_CLARO: Record<ColdLeadStatus, string> = {
   seguimiento: 'en seguimiento: hay interés y se está trabajando',
   cita_cualificada: 'cita agendada conseguida',
   no_interesa: 'marcado como «No le interesa»',
+  descalificado: 'descalificado: no es lo que buscamos (no encaja)',
 }
 
 /* ------------------------------------------------------------------ */
@@ -364,8 +365,8 @@ export function avisosDelLead(lead: DatosDeLead): string[] {
         (comprobado ? ' Lo hemos comprobado: puedes decir que todavía no venden en Amazon.' : ' No lo afirmes como un dato («veo que no vendéis en Amazon»): no hay certeza de que no estén ya.')
     )
   }
-  if (lead.status === 'no_interesa') {
-    avisos.push('- Este lead consta como «No le interesa»: salvo que las notas digan lo contrario, escribe SOLO dos o tres líneas amables, sin vender nada y dejando la puerta abierta.')
+  if (lead.status === 'no_interesa' || lead.status === 'descalificado') {
+    avisos.push('- Este lead consta como «No le interesa» o descalificado: salvo que las notas digan lo contrario, escribe SOLO dos o tres líneas amables, sin vender nada y dejando la puerta abierta.')
   }
   if (lead.status === 'cita_cualificada') {
     avisos.push('- Consta una cita agendada: si las notas la confirman, el correo es para confirmarla o prepararla, no para vender desde cero.')

@@ -1,6 +1,6 @@
 import { CAJAS_DEL_CICLO, cajaDelCiclo, enCiclo, esListaDeCiclo, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { contarPrioridadesDe } from '@/lib/cold-calling/partners'
-import { COLD_STATUSES, esPartner, esTiendaOnline, facturacionEnEuros, pesoOrden, type ColdLead, type ColdSort } from '@/lib/types/cold-leads'
+import { COLD_STATUSES, esPartner, esTiendaOnline, facturacionEnEuros, pesoOrden, type ColdLead, type ColdSort, estaCerrado } from '@/lib/types/cold-leads'
 
 /**
  * LA CARTERA DE COLD CALLING: FILTRAR, ORDENAR, CONTAR Y SACAR LAS RELLAMADAS.
@@ -83,7 +83,7 @@ export function cuantosFiltros(f: FiltrosDeCartera): number {
 export const listaDe = (lead: Pick<ColdLead, 'source_list'>): string => lead.source_list || NOMBRE_DE_LISTA_SIN_ORIGEN
 
 /** La fecha de rellamada que cuenta: un lead cerrado ya no tiene ninguna */
-export const fechaDeRellamada = (lead: Pick<ColdLead, 'next_call_date' | 'status'>): string | null => (lead.status === 'no_interesa' ? null : lead.next_call_date || null)
+export const fechaDeRellamada = (lead: Pick<ColdLead, 'next_call_date' | 'status'>): string | null => (estaCerrado(lead.status) ? null : lead.next_call_date || null)
 
 /* ------------------------------------------------------------------ */
 /* El peso y el texto de búsqueda se calculan UNA vez por lead         */

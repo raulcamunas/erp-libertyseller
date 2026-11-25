@@ -11,6 +11,8 @@ export type ColdLeadStatus =
   | 'seguimiento'
   | 'cita_cualificada'
   | 'no_interesa'
+  /** No encaja: no es lo que buscamos (no es una tienda, demasiado pequeño, datos falsos…). Cerrado como «No le interesa», pero no es un rechazo (migración 340) */
+  | 'descalificado'
 
 export type ColdNoteKind = 'llamada' | 'email' | 'whatsapp' | 'linkedin' | 'nota'
 
@@ -151,6 +153,10 @@ export interface ColdLeadNote {
   author?: CalendarPerson | null
 }
 
+/** Los estados CERRADOS: no se llama, no se escribe y no entran en secuencias ni en el ciclo. «No le interesa» (rechazo) y «Descalificado» (no encaja) */
+export const ESTADOS_CERRADOS: ReadonlySet<ColdLeadStatus> = new Set<ColdLeadStatus>(['no_interesa', 'descalificado'])
+export const estaCerrado = (status: string | null | undefined): boolean => ESTADOS_CERRADOS.has(status as ColdLeadStatus)
+
 /** Orden del embudo: de lo que no se ha tocado a lo cerrado o descartado */
 export const COLD_STATUSES: ColdLeadStatus[] = [
   'pendiente',
@@ -160,6 +166,7 @@ export const COLD_STATUSES: ColdLeadStatus[] = [
   'seguimiento',
   'cita_cualificada',
   'no_interesa',
+  'descalificado',
 ]
 
 export const COLD_STATUS_LABELS: Record<ColdLeadStatus, string> = {
@@ -171,6 +178,7 @@ export const COLD_STATUS_LABELS: Record<ColdLeadStatus, string> = {
   // «Agendada» y no «cualificada»: en Cold Calling solo se sabe que hay una cita. Cualificada o no cualificada es lo que ponen DESPUÉS los managers que hacen la reunión (Agenda y CRM)
   cita_cualificada: 'Cita agendada',
   no_interesa: 'No le interesa',
+  descalificado: 'Descalificado',
 }
 
 /** Qué significa cada estado, para que nadie dude al elegir */
@@ -181,7 +189,8 @@ export const COLD_STATUS_HINTS: Record<ColdLeadStatus, string> = {
   email_enviado: 'Pidió la información por correo y se la mandamos',
   seguimiento: 'Muestra interés, hay que insistir',
   cita_cualificada: 'Sesión de consultoría agendada (después el manager la marca como cualificada o no)',
-  no_interesa: 'Descartado: no quiere, ya tiene agencia o no encaja',
+  no_interesa: 'Descartado: no quiere o ya tiene agencia',
+  descalificado: 'No es lo que buscamos: no es una tienda, es demasiado pequeño, datos falsos o no encaja',
 }
 
 /**
@@ -198,6 +207,7 @@ export const COLD_STATUS_DOTS: Record<ColdLeadStatus, string> = {
   seguimiento: '#F97316',
   cita_cualificada: '#22C55E',
   no_interesa: '#EF4444',
+  descalificado: '#94A3B8',
 }
 
 export const COLD_STATUS_CLASSES: Record<ColdLeadStatus, string> = {
@@ -208,6 +218,7 @@ export const COLD_STATUS_CLASSES: Record<ColdLeadStatus, string> = {
   seguimiento: 'bg-orange-500/20 text-orange-300 border-orange-500/35',
   cita_cualificada: 'bg-green-500/20 text-green-300 border-green-500/35',
   no_interesa: 'bg-red-500/20 text-red-300 border-red-500/35',
+  descalificado: 'bg-slate-500/20 text-slate-300 border-slate-500/35',
 }
 
 export const COLD_NOTE_LABELS: Record<ColdNoteKind, string> = {

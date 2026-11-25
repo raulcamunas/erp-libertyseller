@@ -1,6 +1,6 @@
 import { diaCorto, diaDeMadrid } from '@/lib/correo/secuencias/fechas'
 import { esRechazo } from '@/lib/correo/ia-ejemplos'
-import { COLD_STATUS_LABELS, type ColdLeadStatus } from '@/lib/types/cold-leads'
+import { COLD_STATUS_LABELS, type ColdLeadStatus, estaCerrado } from '@/lib/types/cold-leads'
 import { diaConAnio, fraseEstaEnElTexto, normalizar } from '@/lib/rellamada/reglas'
 import type { LeadParaRellamada } from './rellamada'
 import type { ResumenGenerado } from './tipos'
@@ -78,7 +78,7 @@ export function decidirCierreDeLlamada(e: EntradaDeRechazo): DecisionDeRechazo {
   const cuandoFue = Number.isFinite(llamada) ? diaCorto(diaDeMadrid(llamada)) : 'esa llamada'
   if (!e.lead) return no('sin_lead')
   const lead = e.lead
-  if (lead.status === 'no_interesa') return no('ya_cerrado')
+  if (estaCerrado(lead.status)) return no('ya_cerrado')
 
   // 2. Sus palabras: están en la llamada y dicen que no
   const frase = resumen.rechazo?.frase.trim() ?? ''

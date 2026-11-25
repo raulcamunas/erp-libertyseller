@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { clavesDelLead } from '@/lib/cold-calling/vinculos'
 import { diaConSemana, haceCuanto, sumarDias } from '@/lib/cold-calling/fechas'
 import { BOTON, CAMPO, COLOR_ESTADO } from '@/lib/estilo/denso'
-import { emailsDelLead, normalizarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
+import { emailsDelLead, normalizarTelefono, quitarEmail, quitarTelefono, telefonosDelLead } from '@/lib/cold-calling/contactos'
 import { CAJAS_DEL_CICLO, cajaDelCiclo, camposDeCicloAlCambiarEstado, enCiclo, esCajaDeFase, estadoAlElegirCaja, etiquetaDeEstadoVisible, pistaDeEstadoVisible, type EstadoSoloDelCiclo, type EstadoVisible } from '@/lib/cold-calling/ciclo'
 import { cambioAlPulsarFase, motivoQueBloqueaLaFase } from '@/lib/cold-calling/ciclo-manual'
 import { urlSegura } from '@/lib/cold-calling/partners'
@@ -171,6 +171,14 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
     [supabase, lead.id, onPatched]
   )
 
+  /** Quitar un teléfono o un correo que ya no vale (lo puede hacer cualquiera que pueda editar el lead). Lo que queda se reparte como siempre */
+  async function quitarContacto(tipo: 'telefono' | 'correo', valor: string) {
+    const campos = tipo === 'telefono' ? quitarTelefono(lead, valor) : quitarEmail(lead, valor)
+    if (!campos) return
+    if (!window.confirm(`¿Quitar ${tipo === 'telefono' ? 'el teléfono' : 'el correo'} ${valor} de este lead?`)) return
+    if (await patch(campos as Partial<ColdLead>)) toast.success(`${tipo === 'telefono' ? 'Teléfono' : 'Correo'} quitado.`)
+  }
+
   /** Cambiar el estado deja constancia de cuándo se tocó por última vez */
   const ponerEstado = (estado: ColdLeadStatus) => {
     // En un lead del ciclo, pasarlo a «En seguimiento», «Cita agendada»… (o volver a «Sin contactar») lo saca de su fase: lo hace siempre una persona, nunca el sistema
@@ -321,8 +329,8 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
             const iconoDeCopiar = copiado === 'telefono' ? <Check className="rend-pop h-3.5 w-3.5 text-[var(--ls-e-verde)]" aria-hidden /> : <Copy className="h-3.5 w-3.5 text-[var(--ls-t4)] transition-colors group-hover:text-[var(--ls-t1)]" aria-hidden />
             if (!marcable) {
               return (
+                <span key={t} className="inline-flex h-8 items-stretch overflow-hidden rounded-[8px]">
                 <button
-                  key={t}
                   type="button"
                   onClick={() => copiar(t, 'telefono')}
                   title={esAutonomo ? 'Autónomo: no se llama en frío' : 'Copiar el teléfono'}
@@ -332,6 +340,12 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
                   {t}
                   {iconoDeCopiar}
                 </button>
+                {canEdit && (
+                  <button type="button" onClick={() => void quitarContacto('telefono', t)} title="Quitar este teléfono" aria-label={`Quitar el teléfono ${t}`} className="inline-flex w-7 items-center justify-center ml-1 rounded-[8px] border border-[var(--ls-linea2)] text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-e-rojo)]">
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                )}
+                </span>
               )
             }
             // Un vendedor de México con el teléfono de Zadarma encendido (su lista «Vendedores México» abierta): se llama desde el propio ERP, con el número de México
@@ -370,14 +384,26 @@ export function FichaDelLead({ lead: delaLista, currentUser, canEdit, onPatched,
                 >
                   {iconoDeCopiar}
                 </button>
+                {canEdit && (
+                  <button type="button" onClick={() => void quitarContacto('telefono', t)} title="Quitar este teléfono" aria-label={`Quitar el teléfono ${t}`} className="inline-flex w-7 items-center justify-center border-l border-[var(--ls-linea2)] text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup3)] hover:text-[var(--ls-e-rojo)]">
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                )}
               </span>
             )
           })}
           {correos.map((correo) => (
             // Lleva a Correo con el mensaje ya abierto y dirigido a él. Cold Calling se queda donde está (lib/correo/peticiones.ts)
-            <button key={correo} type="button" onClick={() => escribirAlLead(lead, correo)} title={`Escribir a ${correo}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px]`}>
-              <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{correo}</span>
-            </button>
+            <span key={correo} className="inline-flex items-stretch">
+              <button type="button" onClick={() => escribirAlLead(lead, correo)} title={`Escribir a ${correo}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 max-w-[240px] !px-2.5 !text-[12px] ${canEdit ? '!rounded-r-none' : ''}`}>
+                <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{correo}</span>
+              </button>
+              {canEdit && (
+                <button type="button" onClick={() => void quitarContacto('correo', correo)} title="Quitar este correo" aria-label={`Quitar el correo ${correo}`} className={`${BOTON.base} ${BOTON.secundario} !h-8 !w-7 !rounded-l-none !border-l-0 !px-0 text-[var(--ls-t4)] hover:!text-[var(--ls-e-rojo)]`}>
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              )}
+            </span>
           ))}
           {correos.length > 0 && !esSocio && (
             // Abre el mismo mensaje y la IA ya está escribiendo el borrador con los datos y el historial del lead (sin facturación). Se edita antes de enviar.

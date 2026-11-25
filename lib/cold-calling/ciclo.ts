@@ -30,8 +30,8 @@ export const FASES_DEL_CICLO: readonly FaseDelCiclo[] = ['f2', 'f3', 'sin_respue
 export const faseValida = (fase: unknown): fase is FaseDelCiclo => typeof fase === 'string' && (FASES_DEL_CICLO as readonly string[]).includes(fase)
 
 /** Las siete cajas de una lista de ciclo, en el orden en que se pintan: las mismas siete que tiene el panel de siempre, para que la fila de chips mida lo mismo */
-export type CajaDelCiclo = 'pendiente' | 'fase_2' | 'fase_3' | 'no_responde' | 'seguimiento' | 'cita_cualificada' | 'no_interesa'
-export const CAJAS_DEL_CICLO: readonly CajaDelCiclo[] = ['pendiente', 'fase_2', 'fase_3', 'no_responde', 'seguimiento', 'cita_cualificada', 'no_interesa']
+export type CajaDelCiclo = 'pendiente' | 'fase_2' | 'fase_3' | 'no_responde' | 'seguimiento' | 'cita_cualificada' | 'no_interesa' | 'descalificado'
+export const CAJAS_DEL_CICLO: readonly CajaDelCiclo[] = ['pendiente', 'fase_2', 'fase_3', 'no_responde', 'seguimiento', 'cita_cualificada', 'no_interesa', 'descalificado']
 
 /** Las tres cajas que solo existen en una lista de ciclo */
 export type EstadoSoloDelCiclo = 'fase_2' | 'fase_3' | 'no_responde'
@@ -63,6 +63,7 @@ export function cajaDelCiclo(lead: DelCiclo): CajaDelCiclo {
     case 'seguimiento':
     case 'cita_cualificada':
     case 'no_interesa':
+    case 'descalificado':
       return lead.status
     case 'programado':
     case 'email_enviado':

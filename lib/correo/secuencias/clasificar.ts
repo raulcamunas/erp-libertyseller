@@ -1,4 +1,4 @@
-import { COLD_STATUS_LABELS, type ColdLeadStatus } from '@/lib/types/cold-leads'
+import { COLD_STATUS_LABELS, type ColdLeadStatus, estaCerrado } from '@/lib/types/cold-leads'
 import { esRechazo, limpiarCuerpo, sinDatosDeContacto } from '../ia-ejemplos'
 import { COMO_SACAR_EL_DIA, ESTADOS_QUE_SE_PUEDEN_TOCAR, MAX_DIAS_DE_RELLAMADA, diaConAnio, fechaCuadraConLaFrase, normalizar } from '@/lib/rellamada/reglas'
 import { CLASES_DE_RESPUESTA, CONFIANZAS, esClaseDeRespuesta, esConfianza, type AccionConUnaRespuesta, type ClaseDeRespuesta, type Confianza } from './clases'
@@ -246,7 +246,7 @@ export function decidir(c: ClasificacionValidada, lead: DatosDelLeadParaDecidir,
     case 'baja': {
       const esBaja = c.clase === 'baja'
       // Ya está cerrado: no hay nada que hacer ni que contar
-      if (lead.status === 'no_interesa') return hecho({ accion: 'ninguna', estadoNuevo: null, fecha: null, nota: null })
+      if (estaCerrado(lead.status)) return hecho({ accion: 'ninguna', estadoNuevo: null, fecha: null, nota: null })
       // La baja se toma en serio con confianza media: seguir escribiendo a quien pidió que no se le escriba es lo que no se puede hacer
       const segura = c.confianza === 'alta' || (esBaja && c.confianza === 'media')
       if (!segura) return revisar(`La IA cree que ${esBaja ? 'pide que no se le escriba más' : 'no le interesa'}${ev}, pero no está segura: no se ha cambiado nada. Revísalo.`)
@@ -269,7 +269,7 @@ export function decidir(c: ClasificacionValidada, lead: DatosDelLeadParaDecidir,
       if (c.confianza === 'baja') return revisar(`Parece que pide que se le escriba más adelante${ev}, pero la IA no está segura: no se ha cambiado nada. Revísalo.`)
       const cuando = `${diaConAnio(dia, ctx.hoy)}${c.fechaPorDefecto ? ' (no daba fecha: se ha puesto a 30 días)' : ''}`
       if (deOtraPersona) return revisar(`Pide que se le escriba más adelante${ev}, pero el lead es de otra persona: no se ha tocado. Fecha sugerida: ${cuando}.`)
-      if (lead.status === 'no_interesa' || lead.status === 'cita_cualificada') return revisar(`Pide que se le escriba más adelante${ev}, pero el lead está en «${etiquetaDeEstado(lead.status)}»: no se ha cambiado. Fecha sugerida: ${cuando}.`)
+      if (estaCerrado(lead.status) || lead.status === 'cita_cualificada') return revisar(`Pide que se le escriba más adelante${ev}, pero el lead está en «${etiquetaDeEstado(lead.status)}»: no se ha cambiado. Fecha sugerida: ${cuando}.`)
       if (!ctx.rellamada) return revisar(`Pide que se le escriba más adelante${ev}. La rellamada automática está apagada en Ajustes: ponla tú a mano (fecha sugerida: ${cuando}).`)
       // Si ya lo lleva una persona («En seguimiento») solo se pone la fecha: el estado es suyo
       const soloFecha = !sePuedeTocar
@@ -291,7 +291,7 @@ export function decidir(c: ClasificacionValidada, lead: DatosDelLeadParaDecidir,
       const pide = `Pide que se le contacte el ${diaConAnio(dia, ctx.hoy)}${ev}`
       if (c.confianza === 'baja') return revisar(frase(base, `Parece pedir un día concreto${ev}, pero la IA no está segura de cuál: no se ha puesto ninguna rellamada. Revísalo`))
       if (deOtraPersona) return revisar(frase(base, `${pide}, pero el lead es de otra persona: no se ha tocado`))
-      if (lead.status === 'no_interesa' || lead.status === 'cita_cualificada') return revisar(frase(base, `${pide}, pero el lead está en «${etiquetaDeEstado(lead.status)}»: no se ha cambiado`))
+      if (estaCerrado(lead.status) || lead.status === 'cita_cualificada') return revisar(frase(base, `${pide}, pero el lead está en «${etiquetaDeEstado(lead.status)}»: no se ha cambiado`))
       if (!ctx.rellamada) return revisar(frase(base, `${pide}. La rellamada automática está apagada en Ajustes: ponla tú a mano`))
       const soloFecha = !sePuedeTocar
       return hecho({

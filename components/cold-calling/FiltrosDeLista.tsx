@@ -68,6 +68,7 @@ const NOMBRE_CORTO: Record<EstadoVisible, string> = {
   seguimiento: 'Seguimiento',
   cita_cualificada: 'Cita',
   no_interesa: 'No interesa',
+  descalificado: 'Descalificado',
   // Las tres cajas de una lista de ciclo (lib/cold-calling/ciclo.ts): más cortas que «Sin contactar», así que caben donde cabe la que más
   fase_2: 'Fase 2',
   fase_3: 'Fase 3',
