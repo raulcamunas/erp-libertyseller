@@ -12,12 +12,17 @@ import { decisionesDeBusquedas } from '@/lib/seo/ajenas-servidor'
 import { keywordsDelAsin } from '@/lib/seo/publicidad'
 import { marketplaceDePais, type CuentaDeAnunciante } from './cuenta'
 import { palabrasDesdeSeo, type PalabraDesdeSeo } from './desde-seo'
+import { cosechaDesdeSeo } from './cosecha-seo'
+import { heliumDe } from '@/lib/seo/helium-servidor'
+import { marcaEnBusqueda } from '@/lib/seo/marcas'
 
 export interface DesdeSeo {
   /** 'ok' | sin cuenta de vendedor en ese país | el producto no se sigue en SEO */
   estado: 'ok' | 'sin-cuenta' | 'sin-busquedas'
   periodo: 'MONTH' | 'WEEK' | null
   palabras: PalabraDesdeSeo[]
+  /** El Cerebro de Helium 10 del producto (el mismo que SEO) y sus palabras con volumen que no están en las campañas. null = no hay Cerebro subido */
+  helium?: { subidoAt: string; palabras: number; candidatas: Array<{ keyword: string; volumen: number | null; rangoOrganico: number | null }> } | null
 }
 
 export async function desdeSeo(cuenta: CuentaDeAnunciante & { clienteAmazonId: string | null }, asin: string): Promise<DesdeSeo> {
@@ -38,7 +43,7 @@ export async function desdeSeo(cuenta: CuentaDeAnunciante & { clienteAmazonId: s
     periodo = 'WEEK'
     filas = (await consultasGuardadas(seo.connectionId, seo.marketplaceId, 'WEEK')).filter((f) => f.asin.toUpperCase() === a)
   }
-  if (filas.length === 0) return { estado: 'sin-busquedas', periodo: null, palabras: [] }
+  if (filas.length === 0) return { estado: 'sin-busquedas', periodo: null, palabras: [], helium: await heliumParaPpc(seo, a, keywords, decisiones.marcas) }
   const ficha = fichas.find((f) => f.asin.toUpperCase() === a) ?? null
   const { busquedas } = diagnosticarTodas(filas, (precios as Record<string, number | null>)[a] ?? null, { ficha, ajenas: decisiones.ajenas, nuestras: decisiones.nuestras, marcas: decisiones.marcas })
   const enTitulo = (consulta: string) => {
@@ -46,5 +51,26 @@ export async function desdeSeo(cuenta: CuentaDeAnunciante & { clienteAmazonId: s
     const c = coberturaDe(consulta, ficha)
     return c.titulo || c.highlights
   }
-  return { estado: 'ok', periodo, palabras: palabrasDesdeSeo(busquedas, keywords, enTitulo) }
+  return { estado: 'ok', periodo, palabras: palabrasDesdeSeo(busquedas, keywords, enTitulo), helium: await heliumParaPpc(seo, a, keywords, decisiones.marcas) }
+}
+
+/** Lo de Helium 10 que mira PPC: el Cerebro guardado del producto y sus palabras con volumen que no están en ninguna campaña (las que el agente prueba en la AMPLIA) */
+async function heliumParaPpc(seo: { connectionId: string; marketplaceId: string }, asin: string, keywords: { exactas: ReadonlySet<string>; otras: ReadonlySet<string> }, marcas: ReadonlyArray<{ clave: string; texto: string }>): Promise<DesdeSeo['helium']> {
+  try {
+    const h = await heliumDe(seo, asin)
+    const cerebro = h.importaciones.find((i) => i.tipo === 'cerebro' || i.tipo === 'magnet')
+    if (!cerebro) return null
+    const candidatas = cosechaDesdeSeo({
+      seo: [],
+      helium: h.palabras.map((p) => ({ keyword: p.keyword, volumen: p.volumen, rangoOrganico: p.rangoOrganico, oportunidad: p.oportunidad, decision: p.decision })),
+      exactas: keywords.exactas,
+      cualquiera: new Set([...keywords.exactas, ...keywords.otras]),
+      bloqueadas: new Set(),
+      esDeMarca: (t) => marcaEnBusqueda(t, marcas) !== null,
+    })
+    const porKw = new Map(h.palabras.map((p) => [p.keyword, p]))
+    return { subidoAt: cerebro.subidoAt, palabras: cerebro.filas, candidatas: candidatas.map((c) => ({ keyword: c.termino, volumen: c.volumen, rangoOrganico: porKw.get(c.termino)?.rangoOrganico ?? null })) }
+  } catch {
+    return null
+  }
 }

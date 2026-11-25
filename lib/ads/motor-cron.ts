@@ -28,6 +28,7 @@ import { generarPropuestasDePujaYPresupuesto } from './motor-pujas'
 import { inicioDelDiaEnEspana, motorTieneTrabajo, tocaGenerar } from './motor-calculo'
 import { ajustesParaPujas } from './agente/ajustes-servidor'
 import { AGENTE, type AjustesDelAgenteParaPujas } from './agente/tipos'
+import { cosecharDesdeSeo } from './cosecha-seo-servidor'
 
 /** null = sin comprobar; false = sin la columna generado_at (migración 311) */
 let hayGeneradoAt: boolean | null = null
@@ -124,9 +125,11 @@ export interface DependenciasDeGenerar {
   generarPropuestasDePujaYPresupuesto: typeof generarPropuestasDePujaYPresupuesto
   caducarPujasViejasDelMotor: typeof caducarPujasViejasDelMotor
   marcarGenerado: typeof marcarGenerado
+  /** La cosecha desde SEO y Helium 10 (lib/ads/cosecha-seo-servidor.ts). Opcional para las pruebas */
+  cosecharDesdeSeo?: typeof cosecharDesdeSeo
 }
 
-const DEPENDENCIAS: DependenciasDeGenerar = { generarPropuestas, ajustesParaPujas, generarPropuestasDePujaYPresupuesto, caducarPujasViejasDelMotor, marcarGenerado }
+const DEPENDENCIAS: DependenciasDeGenerar = { generarPropuestas, ajustesParaPujas, generarPropuestasDePujaYPresupuesto, caducarPujasViejasDelMotor, marcarGenerado, cosecharDesdeSeo }
 
 export interface ResultadoDeGenerar {
   resumen: ResumenDeGeneracion
@@ -152,6 +155,18 @@ export async function generarDelMotor(cuenta: CuentaParaSincronizar, modo: ModoD
   if (resumen.omitido === 'apagado') return { resumen, fase3: null, nuevas, errores }
   let ajustes: AjustesDelAgenteParaPujas | undefined
   let sinPujasHoy = false
+  if (modo === 'agente' && deps.cosecharDesdeSeo) {
+    // Lo que SEO (Brand Analytics) y el Cerebro de Helium 10 dicen que hay que probar, y no está en las campañas: cosechas que el agente aplica solo (Raúl, 25 nov 2026: sin aprobaciones).
+    // Si falla, lo demás sigue: se dice en el registro
+    try {
+      const r = await deps.cosecharDesdeSeo(cuenta)
+      nuevas += r.nuevas
+    } catch (e) {
+      const texto = e instanceof Error ? e.message : String(e)
+      console.error(`[ads] cosecha desde SEO de ${cuenta.id}:`, texto)
+      errores.push(`cosecha desde SEO: ${texto.slice(0, 140)}`)
+    }
+  }
   if (modo === 'agente') {
     // Las de otra generación fuera ANTES de generar (si no, siguen bloqueando su segmentación y se aplicarían con métricas viejas). Si falla, se sigue: decidirPropuesta las caduca igual a las 36 h
     try {

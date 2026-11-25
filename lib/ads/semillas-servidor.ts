@@ -15,6 +15,7 @@ import { clasificarCerebro } from './semillas-ia'
 import type { FilaCerebro, FilaGrabber } from './helium10'
 import type { Rol } from './estructura'
 import { competenciaDe, consultasGuardadas, cuentasSeoDeClientes, fichasGuardadas, preciosDeListings } from '@/lib/seo/datos'
+import { guardarImportacion, ultimoCerebro } from '@/lib/seo/helium-servidor'
 import { diagnosticarTodas, esRelevante } from '@/lib/seo/embudo'
 
 export interface Propuesta {
@@ -26,7 +27,7 @@ export interface Propuesta {
 export async function proponerSemillas(
   cuenta: CuentaDeAnunciante & { clienteAmazonId: string | null },
   producto: ProductoDeAds,
-  opciones: { pujaBase: number; cerebro?: readonly FilaCerebro[]; grabber?: readonly FilaGrabber[]; marca?: string | null }
+  opciones: { pujaBase: number; cerebro?: readonly FilaCerebro[]; grabber?: readonly FilaGrabber[]; marca?: string | null; userId?: string | null; ficheroCerebro?: string | null }
 ): Promise<Propuesta> {
   const fuentes: Propuesta['fuentes'] = []
   const asin = producto.asin.toUpperCase()
@@ -86,11 +87,30 @@ export async function proponerSemillas(
   const descripcion = [titulo, producto.titulo, producto.resumen, ...deCampanas].filter(Boolean).join(' ')
   const listas: Semilla[][] = [semillasDeLaCuenta({ asin, propios, terminos, busquedas, competencia, pujaBase: opciones.pujaBase, cvr, descripcion })]
 
-  if (opciones.cerebro?.length) {
-    const r = await clasificarCerebro({ titulo, detalles }, opciones.cerebro)
+  // UN SOLO CEREBRO POR PRODUCTO, para SEO y PPC: si se sube aquí, se guarda en SEO (pestaña Helium 10); si no se sube, se usa el que ya está guardado
+  let cerebro = opciones.cerebro
+  let cerebroGuardado: string | null = null
+  try {
+    const mkt = marketplaceDePais(cuenta.pais)
+    const seo = cuenta.clienteAmazonId && mkt ? ((await cuentasSeoDeClientes([cuenta.clienteAmazonId])).get(cuenta.clienteAmazonId) ?? []).find((c) => c.marketplaceId === mkt) : undefined
+    if (seo && cerebro?.length && opciones.userId) {
+      await guardarImportacion(seo, { asin, tipo: 'cerebro', fichero: opciones.ficheroCerebro ?? 'Subido desde Marketing Test', filas: cerebro.map((f) => ({ keyword: f.keyword, volumen: f.volumen, cerebroIq: f.cerebroIq ?? null, tendencia: f.tendencia ?? null, competidores: f.competidores, densidad: f.densidad, pujaSugerida: f.pujaSugerida, rangoOrganico: f.rankingOrganico, rangoPatrocinado: f.rangoPatrocinado ?? null, rangosRivales: f.rangosRivales ?? {} })), asinsRivales: [], userId: opciones.userId })
+    } else if (seo && !cerebro?.length) {
+      const g = await ultimoCerebro(seo, asin)
+      if (g && g.filas.length) {
+        cerebro = g.filas
+        cerebroGuardado = new Date(g.subidoAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+      }
+    }
+  } catch (e) {
+    console.error('Semillas: el Cerebro guardado en SEO:', e instanceof Error ? e.message : e)
+  }
+
+  if (cerebro?.length) {
+    const r = await clasificarCerebro({ titulo, detalles }, cerebro)
     if (r.ok) {
       listas.push(semillasDeCerebro({ ...r.resultado, negativas: r.resultado.negativas.filter((n) => !describeElProducto(n.texto, descripcion)) }, opciones.pujaBase))
-      fuentes.push({ fuente: 'Cerebro (Helium 10)', estado: 'ok', detalle: `${opciones.cerebro.length} keywords leídas: ${r.resultado.frase.length} a frase, ${r.resultado.exacta.length} a exacta y ${r.resultado.negativas.length} negativas (las ha clasificado la IA leyendo la ficha: revísalas)` })
+      fuentes.push({ fuente: 'Cerebro (Helium 10)', estado: 'ok', detalle: `${cerebroGuardado ? `El Cerebro guardado en SEO (subido el ${cerebroGuardado}): ` : ''}${cerebro.length} keywords leídas: ${r.resultado.frase.length} a frase, ${r.resultado.exacta.length} a exacta y ${r.resultado.negativas.length} negativas (las ha clasificado la IA leyendo la ficha: revísalas)` })
     } else fuentes.push({ fuente: 'Cerebro (Helium 10)', estado: 'error', detalle: r.error })
   }
   if (opciones.grabber?.length) {

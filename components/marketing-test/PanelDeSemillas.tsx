@@ -43,7 +43,7 @@ export function PanelDeSemillas({ perfilId, productoId, pujaBase, moneda }: { pe
     try {
       const r = await llamar<{ semillas: Semilla[]; fuentes: Array<{ fuente: string; estado: string; detalle: string }> }>('/api/ads/cuenta/semillas', {
         metodo: 'POST',
-        cuerpo: { perfilId, productoId, accion: 'proponer', pujaBase, cerebro: cerebro?.filas, grabber: grabber?.filas },
+        cuerpo: { perfilId, productoId, accion: 'proponer', pujaBase, cerebro: cerebro?.filas, ficheroCerebro: cerebro?.nombre, grabber: grabber?.filas },
       })
       setPropuesta(r)
       setMarcadas(new Set(r.semillas.map((s) => s.id)))
@@ -95,11 +95,11 @@ export function PanelDeSemillas({ perfilId, productoId, pujaBase, moneda }: { pe
       </header>
       <div className={`${TARJETA.cuerpo} flex flex-col gap-3`}>
         <p className={`${TIPO.s} ${TEXTO.t2}`}>
-          Con qué arrancan las campañas del producto. El ERP lo propone con tus términos de búsqueda y con Brand Analytics; si subes los CSV de Helium 10, la IA clasifica las keywords de Cerebro leyendo la ficha y el ASIN Grabber dice a qué competencia atacar. Revisa la lista, desmarca lo que no sea del producto y aplícalo <strong>antes de activar</strong> las campañas.
+          Con qué arrancan las campañas del producto. El ERP lo propone con tus términos de búsqueda y con Brand Analytics; el Cerebro de Helium 10 guardado del producto (el mismo que usa SEO) lo clasifica la IA leyendo la ficha, y el ASIN Grabber dice a qué competencia atacar. Si subes un Cerebro nuevo aquí, se guarda también para SEO. Revisa la lista, desmarca lo que no sea del producto y aplícalo <strong>antes de activar</strong> las campañas.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <label className={`${BOTON.base} ${BOTON.secundario} cursor-pointer`}>
-            <FileUp className="h-3 w-3" /> {cerebro ? `Cerebro: ${cerebro.filas.length}` : 'Subir Cerebro (CSV)'}
+            <FileUp className="h-3 w-3" /> {cerebro ? `Cerebro: ${cerebro.filas.length}` : 'Subir un Cerebro nuevo (CSV)'}
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => void subir(e.target.files?.[0], 'cerebro')} />
           </label>
           <label className={`${BOTON.base} ${BOTON.secundario} cursor-pointer`}>

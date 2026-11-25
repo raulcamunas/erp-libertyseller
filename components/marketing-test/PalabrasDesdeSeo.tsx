@@ -54,7 +54,7 @@ export function PalabrasDesdeSeo({ perfilId, asin }: { perfilId: string; asin: s
       <div className="flex flex-wrap items-center gap-2">
         <SearchCheck className="h-[14px] w-[14px]" style={{ color: COLOR_ESTADO.azul }} />
         <span className="text-[13px] font-semibold text-[var(--ls-t1)]">Desde SEO</span>
-        <span className="text-[11.5px] text-[var(--ls-t4)]">Búsquedas de Brand Analytics que la publicidad puede aprovechar{datos?.periodo ? ` · ${datos.periodo === 'MONTH' ? 'último mes' : 'última semana'}` : ''}</span>
+        <span className="text-[11.5px] text-[var(--ls-t4)]" title="En las cuentas con el agente en marcha, las que no tienen keyword EXACTA las mete él solo en la EXACTA del producto, con sus frenos de siempre">Búsquedas de Brand Analytics que la publicidad puede aprovechar (con el agente, se meten solas){datos?.periodo ? ` · ${datos.periodo === 'MONTH' ? 'último mes' : 'última semana'}` : ''}</span>
         {sinExacta.length > 1 && (
           <button type="button" onClick={() => copiar(sinExacta.join('\n'), '__todas')} className="ml-auto inline-flex items-center gap-1 rounded-[7px] border border-[var(--ls-linea)] px-2 py-[3px] text-[11.5px] font-medium text-[var(--ls-t2)] hover:text-[var(--ls-t1)]">
             {copiada === '__todas' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} Copiar las {sinExacta.length} sin EXACTA
@@ -109,6 +109,31 @@ export function PalabrasDesdeSeo({ perfilId, asin }: { perfilId: string; asin: s
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {datos && datos.estado !== 'sin-cuenta' && datos.helium !== undefined && (
+        <div className="mt-3 border-t border-[var(--ls-linea)] pt-3">
+          <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-semibold text-[var(--ls-t1)]">
+            Helium 10
+            <span className="text-[11.5px] font-normal text-[var(--ls-t4)]">
+              {datos.helium
+                ? `Cerebro del ${new Date(datos.helium.subidoAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })} · ${datos.helium.palabras.toLocaleString('es-ES')} palabras · el mismo que usa SEO`
+                : 'Sin Cerebro de este producto: súbelo en SEO → Helium 10 (o en Crear campañas) y sirve para los dos'}
+            </span>
+          </div>
+          {datos.helium && datos.helium.candidatas.length > 0 && (
+            <>
+              <p className="mt-1 text-[11.5px] text-[var(--ls-t4)]">El agente las prueba solo en la campaña AMPLIA (en frase y con la puja de partida) porque tienen volumen, son del producto y no están en ninguna campaña. Si gastan sin vender, el motor las baja y las pausa.</p>
+              <div className="mt-2 flex flex-wrap gap-[6px]">
+                {datos.helium.candidatas.map((c) => (
+                  <span key={c.keyword} className="inline-flex items-center gap-1 rounded-full border px-[9px] py-[2px] text-[11.5px]" style={{ borderColor: `color-mix(in srgb, ${COLOR_ESTADO.violeta} 40%, transparent)`, color: COLOR_ESTADO.violeta }} title={c.rangoOrganico ? `Posición orgánica ${c.rangoOrganico}` : 'No aparece en el orgánico'}>
+                    {c.keyword} <span className="tabular-nums opacity-70">{(c.volumen ?? 0).toLocaleString('es-ES')}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          {datos.helium && datos.helium.candidatas.length === 0 && <p className="mt-1 text-[11.5px] text-[var(--ls-t4)]">Las palabras con volumen del Cerebro ya están en las campañas (o son de otro producto o de una marca de la competencia).</p>}
         </div>
       )}
     </div>

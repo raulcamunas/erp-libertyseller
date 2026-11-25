@@ -18,6 +18,8 @@ import { AvisoDeHighlights } from './TarjetaDelEstudio'
 import { HighlightsDeLaFicha } from './HighlightsDeLaFicha'
 import { useDelProducto } from './useDelProducto'
 import type { DatosDePublicidad } from './PestanaSeoBusquedas'
+import type { DatosDeHelium } from '@/lib/seo/helium-servidor'
+import { marcaEnBusqueda } from '@/lib/seo/marcas'
 
 /**
  * LA FICHA DE UN PRODUCTO, EN UN SOLO PANEL (Raúl, 25 nov 2026: «que se vea casi todo en una misma página y se pueda editar en tiempo real»):
@@ -27,10 +29,23 @@ import type { DatosDePublicidad } from './PestanaSeoBusquedas'
  *   · debajo, la propuesta con IA y el resultado de los cambios ya aplicados.
  */
 export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, recargar }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void; recargar?: () => void | Promise<unknown> }) {
+  const helium = useDelProducto<DatosDeHelium>(asin ? `/api/seo/helium?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const publicidad = useDelProducto<DatosDePublicidad>(asin ? `/api/seo/publicidad?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const ficha = asin ? fichaDe(datos, asin) : null
   const diagnostico = useMemo(() => (asin ? diagnosticoDe(datos, asin) : null), [datos, asin])
   const decisiones = useMemo(() => decisionesDe(datos), [datos])
+  // Las palabras del Cerebro de Helium 10 (el mismo que usa PPC) con volumen, del producto y sin marcas de la competencia, para meterlas en la ficha con un clic
+  const deHelium = useMemo(() => {
+    if (!helium.datos) return undefined
+    const cerebro = helium.datos.importaciones.find((i) => i.tipo === 'cerebro' || i.tipo === 'magnet')
+    if (!cerebro) return null
+    const palabras = (helium.datos?.palabras ?? [])
+      .filter((p) => p.decision !== 'ajena' && (p.volumen ?? 0) >= 100 && !marcaEnBusqueda(p.keyword, decisiones.marcas))
+      .sort((a, b) => (b.volumen ?? 0) - (a.volumen ?? 0))
+      .slice(0, 14)
+      .map((p) => ({ keyword: p.keyword, volumen: p.volumen }))
+    return { subidoAt: cerebro.subidoAt, palabras }
+  }, [helium.datos, decisiones])
   const [abrirHighlights, setAbrirHighlights] = useState(0)
   const mkt = cuentaId.split('~')[1] ?? null
   const ventana = asin ? ventanaDeCambio(datos.cambios ?? [], asin, new Date().toISOString().slice(0, 10)) : null
@@ -78,6 +93,7 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
               busquedas={diagnostico?.busquedas ?? []}
               marca={marcaDelTitulo(ficha.titulo)}
               publicidad={publicidad.datos?.hayMarketingTest ? publicidad.datos.vendePorPublicidad : undefined}
+              helium={deHelium}
               extraHighlights={
                 ficha.origenHighlights !== 'amazon' ? (
                   <div id={`hl-${asin}`} className="scroll-mt-6">

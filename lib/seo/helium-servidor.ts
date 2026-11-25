@@ -12,6 +12,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import type { TextosDeFicha } from './cobertura'
 import { cruzarConBrandAnalytics, juntarImportaciones, type KeywordCruzada, type KeywordH10 } from './helium'
+import type { FilaCerebro } from '@/lib/ads/helium10'
 
 export type TipoImportacion = 'cerebro' | 'magnet' | 'keyword_tracker'
 
@@ -174,4 +175,24 @@ export async function heliumDe(c: { connectionId: string; marketplaceId: string 
     }
   }
   return { importaciones, palabras, busquedasBA: consultas.length }
+}
+
+/**
+ * EL ÚLTIMO CEREBRO (o Magnet) GUARDADO DE UN PRODUCTO, con la forma que usa Marketing Test (lib/ads/helium10.ts → FilaCerebro). Así un solo Cerebro por producto vale para SEO y
+ * para PPC: se sube una vez (desde cualquiera de los dos) y los dos lo leen. null sin la migración 312 o si nunca se ha subido.
+ */
+export async function ultimoCerebro(c: { connectionId: string; marketplaceId: string }, asin: string): Promise<{ subidoAt: string; fichero: string | null; filas: FilaCerebro[] } | null> {
+  const { data, error } = await createServiceClient().from('seo_helium_importaciones').select('id, fichero, subido_at').eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('asin', asin).in('tipo', ['cerebro', 'magnet']).order('subido_at', { ascending: false }).limit(1)
+  if (error) {
+    if (isMissingSchema(error)) return null
+    throw error
+  }
+  const fila = ((data ?? []) as Array<{ id: string; fichero: string | null; subido_at: string }>)[0]
+  if (!fila) return null
+  const ks = await keywordsDe(fila.id)
+  return {
+    subidoAt: fila.subido_at,
+    fichero: fila.fichero,
+    filas: ks.map((k) => ({ keyword: k.keyword, volumen: k.volumen, competidores: k.competidores, densidad: k.densidad, pujaSugerida: k.pujaSugerida, rankingOrganico: k.rangoOrganico, cerebroIq: k.cerebroIq, tendencia: k.tendencia, rangoPatrocinado: k.rangoPatrocinado, rangosRivales: k.rangosRivales })),
+  }
 }

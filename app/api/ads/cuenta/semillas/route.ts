@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       if (!(pujaBase >= 0.02)) return fail(400, 'Falta la puja base.')
       const cerebro = Array.isArray(body.cerebro) ? (body.cerebro as FilaCerebro[]).filter((f) => typeof f?.keyword === 'string').slice(0, 3000) : undefined
       const grabber = Array.isArray(body.grabber) ? (body.grabber as FilaGrabber[]).filter((f) => typeof f?.asin === 'string').slice(0, 500) : undefined
-      const r = await proponerSemillas(a.cuenta, producto, { pujaBase, cerebro, grabber, marca: typeof body.marca === 'string' ? body.marca : null })
+      const r = await proponerSemillas(a.cuenta, producto, { pujaBase, cerebro, grabber, marca: typeof body.marca === 'string' ? body.marca : null, userId: a.sesion.userId, ficheroCerebro: typeof body.ficheroCerebro === 'string' ? body.ficheroCerebro.slice(0, 200) : null })
       return NextResponse.json(r)
     }
     if (body.accion === 'aplicar') {

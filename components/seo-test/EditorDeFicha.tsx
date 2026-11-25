@@ -13,6 +13,7 @@ import { trozosNuevos } from '@/lib/seo/propuesta'
 import type { ventanaDeCambio } from '@/lib/seo/tareas'
 import { useDelProducto } from './useDelProducto'
 import { urlProducto } from '@/lib/cumplimiento/enlaces'
+import { coberturaDe } from '@/lib/seo/cobertura'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { AnilloDePuntuacion } from './TarjetaDelEstudio'
 import { puntuarListing, type BloqueDePuntuacion } from '@/lib/seo/puntuacion'
@@ -89,6 +90,7 @@ export function EditorDeFicha({
   busquedas,
   marca,
   publicidad,
+  helium,
   extraHighlights,
 }: {
   cuentaId: string
@@ -103,6 +105,8 @@ export function EditorDeFicha({
   marca: string | null
   /** Lo que vende por publicidad y no está en la ficha (Marketing Test) */
   publicidad?: Array<{ termino: string; pedidos: number; faltan: string[] }>
+  /** Las palabras con volumen del Cerebro de Helium 10 del producto (el mismo que usa PPC). null = no hay Cerebro subido */
+  helium?: { subidoAt: string; palabras: Array<{ keyword: string; volumen: number | null }> } | null
   /** Bajo los Item Highlights: guardarlos a mano si Amazon no los da */
   extraHighlights?: React.ReactNode
 }) {
@@ -428,6 +432,37 @@ export function EditorDeFicha({
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {helium !== undefined && (
+              <div>
+                <div className="mb-[6px] text-[12px] font-semibold text-[var(--ls-t1)]">
+                  De Helium 10{' '}
+                  <span className="font-normal text-[var(--ls-t4)]">{helium ? `· Cerebro del ${new Date(helium.subidoAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} (el mismo que usa PPC) · pulsa para meterla` : '· sin Cerebro: súbelo en la pestaña Helium 10 y sirve también para PPC'}</span>
+                </div>
+                {helium && helium.palabras.length > 0 && (
+                  <div className="flex flex-wrap gap-[5px]">
+                    {helium.palabras.map((x) => {
+                      const dentro = coberturaDe(x.keyword, { titulo: t.titulo, bullets: t.bullets, backend: t.backend, highlights: t.highlights ?? null, descripcion: t.descripcion ?? null }).faltan.length === 0
+                      return (
+                        <button
+                          key={x.keyword}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => meterPalabra(x.keyword)}
+                          title={`${(x.volumen ?? 0).toLocaleString('es-ES')} búsquedas al mes (Helium 10)${dentro ? ' · ya está en la ficha' : ''}`}
+                          className="inline-flex items-center gap-1 rounded-full border px-[8px] py-[2px] text-[11.5px] transition-colors"
+                          style={dentro ? { borderColor: mezcla(COLOR_ESTADO.verde, 45), color: COLOR_ESTADO.verde } : { borderColor: mezcla(COLOR_ESTADO.violeta, 40), color: COLOR_ESTADO.violeta }}
+                        >
+                          {dentro ? <CircleCheck className="h-3 w-3" /> : <span className="text-[11px]">+</span>}
+                          {x.keyword}
+                          <span className="text-[9.5px] tabular-nums opacity-70">{(x.volumen ?? 0) >= 1000 ? `${Math.round((x.volumen ?? 0) / 100) / 10}k` : x.volumen}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
