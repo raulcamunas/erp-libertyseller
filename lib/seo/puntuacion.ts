@@ -3,11 +3,13 @@
  *
  * Seis bloques que suman 100. Cada uno dice cuánto lleva, cuánto le falta y QUÉ hacer para llegar al máximo:
  *   · Norma 2026 (25): título ≤ 75 caracteres sin símbolos, precio ni lenguaje promocional (10); 5 viñetas y ≤ 1.000 bytes (8); backend ≤ 249 bytes, sin repetir lo de arriba ni comas (7).
- *   · Búsquedas en el título (30): las 20 búsquedas DEL producto que más compras mueven, enteras en el título o en los Item Highlights (lo que más indexa), pesadas por sus compras.
+ *   · Búsquedas en el título (25): las 20 búsquedas DEL producto que más compras mueven, enteras en el título o en los Item Highlights (lo que más indexa), pesadas por sus compras.
+ *   · Orden del título (10): la marca delante (3), la búsqueda que más vende al principio, en los primeros 45 caracteres (4), y las palabras que pesan ordenadas de más a
+ *     menos compras (3). Es lo que pide el SOP: marca → término con más demanda → nicho → atributo → variante (y lo que lee el comprador en el móvil, los primeros caracteres).
  *   · Búsquedas en la ficha (15): las 40 primeras, enteras en ALGÚN sitio (título, highlights, viñetas, descripción o backend), pesadas por compras.
  *   · Palabras que pesan (15): las 15 palabras con más compras detrás, en alguna parte; las 5 primeras cuentan doble si están en el título.
  *   · Item Highlights (5): puestos y ≤ 125 caracteres.
- *   · Aprovechar el sitio (10): título de 60 caracteres o más (3), backend de 180 bytes o más (4), viñetas de 150 bytes de media o más (3).
+ *   · Aprovechar el sitio (5): título de 60 caracteres o más (2), backend de 180 bytes o más (2), viñetas de 150 bytes de media o más (1).
  *
  * Sin búsquedas de Brand Analytics, los tres bloques de búsquedas no se pueden medir: se puntúa sobre lo que queda y se escala a 100 (y se dice).
  * «Del producto» = lo que SEO no descarta (ni ruido, ni otro precio, ni ajenas: lib/seo/embudo.ts).
@@ -18,7 +20,7 @@ import { bytesDe, caracteresDe, coberturaDe, LIMITE_BACKEND_BYTES, LIMITE_BULLET
 import { esDelProducto, type BusquedaDiagnosticada } from './embudo'
 import { backendRepetido, PROHIBIDOS_TITULO, promocionalesEn, repetidasEnTitulo } from './norma'
 
-export type IdBloque = 'norma' | 'titulo' | 'ficha' | 'palabras' | 'highlights' | 'sitio'
+export type IdBloque = 'norma' | 'titulo' | 'orden' | 'ficha' | 'palabras' | 'highlights' | 'sitio'
 
 export interface Comprobacion {
   texto: string
@@ -67,7 +69,7 @@ const PRECIO = /\d+([.,]\d+)?\s?(€|eur|euros|\$|usd)\b/i
 const redondear = (x: number) => Math.round(x * 10) / 10
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x))
 
-export function puntuarListing(entrada: Omit<TextosDeFicha, 'descripcion'> & { descripcion?: string | null }, diagnosticadas: ReadonlyArray<BusquedaDiagnosticada<ConsultaGuardada>>): PuntuacionDeListing {
+export function puntuarListing(entrada: Omit<TextosDeFicha, 'descripcion'> & { descripcion?: string | null }, diagnosticadas: ReadonlyArray<BusquedaDiagnosticada<ConsultaGuardada>>, opciones: { marca?: string | null } = {}): PuntuacionDeListing {
   const f: TextosDeFicha = { ...entrada, descripcion: entrada.descripcion ?? null }
   const titulo = f.titulo ?? ''
   const highlights = f.highlights ?? ''
@@ -141,19 +143,19 @@ export function puntuarListing(entrada: Omit<TextosDeFicha, 'descripcion'> & { d
     return { consulta: d.fila.consulta, compras: d.fila.comprasTotal ?? 0, volumen: d.fila.volumen, enTitulo: cob.titulo || cob.highlights, enFicha: cob.faltan.length === 0, faltan: cob.faltan }
   })
 
-  // Título (30)
+  // Título (25)
   {
     const top = busquedas.slice(0, 20)
     const total = top.reduce((s, b) => s + b.compras, 0)
     const dentro = top.filter((b) => b.enTitulo).reduce((s, b) => s + b.compras, 0)
-    const p = total > 0 ? (dentro / total) * 30 : 0
+    const p = total > 0 ? (dentro / total) * 25 : 0
     const fuera = top.filter((b) => !b.enTitulo)
     const mejor = fuera[0]
     bloques.push({
       id: 'titulo',
       nombre: 'Búsquedas en el título',
       puntos: redondear(p),
-      maximo: 30,
+      maximo: 25,
       medible: !sinBusquedas,
       siguiente: sinBusquedas ? null : mejor ? `Mete «${mejor.consulta}» entera en el título o en los Item Highlights (${mejor.compras.toLocaleString('es-ES')} compras en Amazon).` : null,
       comprobaciones: top.slice(0, 8).map((b) => ({ texto: b.consulta, ok: b.enTitulo })),
@@ -215,6 +217,56 @@ export function puntuarListing(entrada: Omit<TextosDeFicha, 'descripcion'> & { d
       comprobaciones: palabras.slice(0, 10).map((x) => ({ texto: x.palabra, ok: !!x.donde })),
     })
   }
+  // Orden del título (10): marca delante, la búsqueda que más vende al principio y las palabras que pesan de más a menos
+  {
+    const palabrasT = tokens(titulo)
+    const raices = palabrasT.map((x) => x.raiz)
+    const marca = opciones.marca ? tokens(opciones.marca).map((x) => x.raiz) : []
+    const c: Comprobacion[] = []
+    let p = 0
+    let siguiente: string | null = null
+    // a) La marca, delante
+    if (marca.length === 0) p += 3
+    else {
+      const delante = marca.every((r, i) => raices[i] === r)
+      c.push({ texto: 'La marca, lo primero del título', ok: delante })
+      if (delante) p += 3
+      else siguiente = `Empieza el título por la marca («${opciones.marca}»).`
+    }
+    // b) La búsqueda que más vende, entera en los primeros 45 caracteres
+    const principal = busquedas[0]
+    if (!principal || sinBusquedas) p += 4
+    else {
+      const inicio = titulo.slice(0, 45)
+      const cabeza = coberturaDe(principal.consulta, { ...f, titulo: inicio, highlights: null, bullets: [], backend: '', descripcion: null }).titulo
+      c.push({ texto: `«${principal.consulta}» al principio del título`, ok: cabeza })
+      if (cabeza) p += 4
+      else if (principal.enTitulo) {
+        p += 2
+        siguiente ??= `Adelanta «${principal.consulta}»: es la búsqueda que más vende (${principal.compras.toLocaleString('es-ES')} compras) y tiene que leerse en los primeros caracteres.`
+      } else siguiente ??= `Pon «${principal.consulta}» al principio del título: es la búsqueda que más vende (${principal.compras.toLocaleString('es-ES')} compras).`
+    }
+    // c) Las palabras que pesan, de más a menos compras (las 6 primeras que estén en el título)
+    const posicion = (r: string) => raices.indexOf(r)
+    const enTitulo = palabras.filter((x) => posicion(x.raiz) >= 0).slice(0, 6)
+    let pares = 0
+    let malos = 0
+    let peor: [PalabraDelEstudio, PalabraDelEstudio] | null = null
+    for (let i = 0; i < enTitulo.length; i++)
+      for (let j = i + 1; j < enTitulo.length; j++) {
+        pares++
+        // enTitulo va de más a menos compras: la de i debería ir antes que la de j
+        if (posicion(enTitulo[i].raiz) > posicion(enTitulo[j].raiz) && enTitulo[i].compras > enTitulo[j].compras * 1.5) {
+          malos++
+          if (!peor) peor = [enTitulo[i], enTitulo[j]]
+        }
+      }
+    const bienOrdenado = pares === 0 || malos === 0
+    c.push({ texto: 'Las palabras que más venden, antes', ok: bienOrdenado })
+    p += pares === 0 ? 3 : 3 * (1 - malos / pares)
+    if (peor) siguiente ??= `Pon «${peor[0].palabra}» (${peor[0].compras.toLocaleString('es-ES')} compras) antes que «${peor[1].palabra}» (${peor[1].compras.toLocaleString('es-ES')}).`
+    bloques.push({ id: 'orden', nombre: 'Orden del título', puntos: redondear(p), maximo: 10, medible: titulo.trim().length > 0, siguiente: titulo.trim() ? siguiente : null, comprobaciones: c })
+  }
   // Item Highlights (5)
   {
     const cars = caracteresDe(highlights)
@@ -229,7 +281,7 @@ export function puntuarListing(entrada: Omit<TextosDeFicha, 'descripcion'> & { d
       comprobaciones: [{ texto: highlights.trim() ? `${cars} de ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres` : 'Sin Item Highlights', ok }],
     })
   }
-  // Aprovechar el sitio (10)
+  // Aprovechar el sitio (5)
   {
     const cars = caracteresDe(titulo)
     const bytesK = bytesDe(backend)
@@ -239,13 +291,13 @@ export function puntuarListing(entrada: Omit<TextosDeFicha, 'descripcion'> & { d
       { texto: `Backend de 180 bytes o más (${bytesK})`, ok: bytesK >= 180 && bytesK <= LIMITE_BACKEND_BYTES },
       { texto: `Viñetas de 150 bytes de media o más (${Math.round(media)})`, ok: media >= 150 },
     ]
-    const p = (c[0].ok ? 3 : clamp(cars / 60, 0, 1) * 2) + (c[1].ok ? 4 : clamp(bytesK / 180, 0, 1) * 3) + (c[2].ok ? 3 : clamp(media / 150, 0, 1) * 2)
+    const p = (c[0].ok ? 2 : clamp(cars / 60, 0, 1) * 1.5) + (c[1].ok ? 2 : clamp(bytesK / 180, 0, 1) * 1.5) + (c[2].ok ? 1 : clamp(media / 150, 0, 1) * 0.7)
     const primero = c.find((x) => !x.ok)
     bloques.push({
       id: 'sitio',
       nombre: 'Aprovechar el sitio',
       puntos: redondear(p),
-      maximo: 10,
+      maximo: 5,
       medible: true,
       siguiente: !primero ? null : primero === c[0] ? 'Alarga el título hasta 60–75 caracteres con otra búsqueda del producto.' : primero === c[1] ? `Añade ${Math.max(0, 180 - bytesK)} bytes al backend: sinónimos, plurales y búsquedas que no caben arriba.` : 'Alarga las viñetas (unos 200 bytes cada una) con el beneficio delante.',
       comprobaciones: c,

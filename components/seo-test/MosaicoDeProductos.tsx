@@ -368,7 +368,7 @@ function PanelDeProducto({
                     )}
                   </div>
                   <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }} className="mt-3 flex flex-wrap gap-2">
-                    <BotonPanel icono={FileText} onClick={() => { cerrar(); acciones.verFicha(f.asin) }}>Ficha y estudio</BotonPanel>
+                    <BotonPanel icono={FileText} onClick={() => { cerrar(); acciones.verFicha(f.asin) }}>Editar la ficha</BotonPanel>
                     <BotonPanel icono={Search} onClick={() => { cerrar(); acciones.verBusquedas(f.asin) }}>Búsquedas</BotonPanel>
                     {acciones.verCompetencia && <BotonPanel icono={Radar} onClick={() => { cerrar(); acciones.verCompetencia?.(f.asin) }}>Competencia</BotonPanel>}
                     <button type="button" onClick={() => { cerrar(); quitar(f.id, f.nombre) }} className="inline-flex h-[30px] items-center gap-[6px] rounded-[9px] px-2 text-[12px] text-[var(--ls-t4)] transition-colors hover:text-[var(--ls-t1)]" title="Dejar de seguir">

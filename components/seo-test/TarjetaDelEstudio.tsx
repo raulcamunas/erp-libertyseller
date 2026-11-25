@@ -1,14 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { ClipboardPaste, TriangleAlert, Wand2 } from 'lucide-react'
+import { ClipboardPaste, TriangleAlert } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { puntuarListing } from '@/lib/seo/puntuacion'
-import type { ConsultaGuardada } from '@/lib/seo/datos'
-import type { BusquedaDiagnosticada } from '@/lib/seo/embudo'
-import type { TextosFicha } from '@/lib/seo/edicion'
-import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 
 export const colorDePuntuacion = (n: number) => (n >= 90 ? COLOR_ESTADO.verde : n >= 70 ? '#a3d65c' : n >= 50 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo)
 
@@ -27,40 +21,6 @@ export function AnilloDePuntuacion({ valor, lado = 44, grosor = 5 }: { valor: nu
         {valor}
       </span>
     </span>
-  )
-}
-
-/** La entrada al Estudio de listing en la pestaña Ficha: la nota de la ficha de Amazon y lo que más sumaría */
-export function TarjetaDelEstudio({ textos, busquedas, abrir, asin, mkt }: { textos: TextosFicha; busquedas: ReadonlyArray<BusquedaDiagnosticada<ConsultaGuardada>>; abrir: () => void; asin: string; mkt: string | null }) {
-  const p = useMemo(() => puntuarListing(textos, busquedas), [textos, busquedas])
-  return (
-    <motion.button
-      type="button"
-      onClick={abrir}
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.995 }}
-      className="group relative flex w-full items-center gap-4 overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4 text-left transition-[border-color,box-shadow] hover:border-[var(--ls-linea2)] hover:shadow-[var(--ls-sombra-2)]"
-    >
-      <span aria-hidden className="pointer-events-none absolute -left-10 -top-16 h-40 w-40 rounded-full opacity-20 blur-3xl transition-opacity group-hover:opacity-35" style={{ background: colorDePuntuacion(p.total) }} />
-      <ImagenDeProducto asin={asin} mkt={mkt} lado={56} redondeo={12} className="hidden sm:inline-flex" />
-      <AnilloDePuntuacion valor={p.total} lado={60} grosor={6} />
-      <span className="relative min-w-0 flex-1">
-        <span className="flex items-center gap-2 text-[14px] font-semibold text-[var(--ls-t1)]">
-          <Wand2 className="h-[15px] w-[15px]" style={{ color: 'var(--ls-acc)' }} /> Estudio de listing
-          <span className="text-[12px] font-normal text-[var(--ls-t4)]">puntuación SEO de la ficha actual</span>
-        </span>
-        <span className="mt-1 block text-[12.5px] leading-[1.45] text-[var(--ls-t3)]">
-          {p.siguientes.length > 0 ? (
-            <>
-              Lo que más suma: <span className="text-[var(--ls-t2)]">{p.siguientes[0].texto}</span> <span className="font-semibold" style={{ color: COLOR_ESTADO.verde }}>+{p.siguientes[0].puntos}</span>
-            </>
-          ) : (
-            'La ficha está al máximo según las búsquedas de Brand Analytics.'
-          )}
-        </span>
-      </span>
-      <span className="relative hidden h-[34px] shrink-0 items-center rounded-[10px] bg-[var(--ls-acc-relleno)] px-3 text-[12.5px] font-semibold text-[var(--ls-acc-tinta)] sm:inline-flex">Abrir el estudio</span>
-    </motion.button>
   )
 }
 

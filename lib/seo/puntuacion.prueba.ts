@@ -34,5 +34,18 @@ ok('siguientes ordenados por puntos', larga.siguientes.length > 0 && larga.sigui
 const sinBA = puntuarListing({ titulo: 'Cobo Zapatillas de Casa Mujer y Hombre para Estar por Casa, Suela Goma', bullets: vinetas, descripcion: null, backend: 'pantuflas chanclas invierno abiertas cerradas comodas calentitas lana borreguito talla grande mayores ancianos regalo madre padre abuela ortopedicas memory foam suaves calidas', highlights: 'Plantilla viscoelástica' }, [])
 ok('sin búsquedas: se escala a 100 con lo medible', sinBA.sinBusquedas && sinBA.total >= 95, String(sinBA.total))
 
+console.log('\n=== orden del título ===')
+{
+  const vin = Array(5).fill('Suela de goma antideslizante que agarra en cualquier suelo de la casa, con plantilla acolchada que no se deforma con el uso diario y lavable a máquina.')
+  const base = { bullets: vin, descripcion: null, backend: '', highlights: '' }
+  const orden = (titulo: string) => puntuarListing({ ...base, titulo }, busq, { marca: 'Cobo' }).bloques.find((x) => x.id === 'orden')!
+  const bueno = orden('Cobo Zapatillas Casa Mujer, Zapatillas Estar por Casa y Hombre')
+  ok('marca delante y búsqueda principal al principio: casi todo', bueno.puntos >= 9, `${bueno.puntos} ${bueno.siguiente}`)
+  const sinMarca = orden('Zapatillas Casa Mujer Cobo, Estar por Casa y Hombre')
+  ok('sin la marca delante: lo pide', sinMarca.siguiente?.includes('marca') === true && sinMarca.puntos < bueno.puntos, sinMarca.siguiente ?? '')
+  const tarde = orden('Cobo Pantuflas Cómodas Lavables de Invierno con Suela, Zapatillas Casa Mujer')
+  ok('la búsqueda principal al final: pide adelantarla', tarde.siguiente?.includes('Adelanta') === true || tarde.siguiente?.includes('principio') === true, tarde.siguiente ?? '')
+}
+
 console.log(fallos ? `\n${fallos} FALLOS` : '\nTodo bien')
 process.exit(fallos ? 1 : 0)

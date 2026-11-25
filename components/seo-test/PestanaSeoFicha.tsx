@@ -1,60 +1,36 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { CircleAlert, CircleCheck, FileText, Info, Megaphone, TriangleAlert } from 'lucide-react'
+import { CircleAlert, CircleCheck, FileText, Info, TriangleAlert } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { CAJA } from '@/components/marketing-test/piezas'
-import { entero, haceCuanto } from '@/components/marketing-test/formato'
+import { haceCuanto } from '@/components/marketing-test/formato'
 import { Vacio } from '@/components/plataforma/comun'
-import { bytesDe, coberturaDe, LIMITE_BACKEND_BYTES, LIMITE_BULLETS_BYTES, LIMITE_HIGHLIGHTS_CARACTERES, LIMITE_TITULO_CARACTERES, normalizar } from '@/lib/seo/cobertura'
-import { esRelevante, NOMBRE_DE_ETAPA, RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
-import { revisarFicha, type Gravedad } from '@/lib/seo/norma'
-import { palabrasQuePesan, ventanaDeCambio } from '@/lib/seo/tareas'
-import { BotonCopiar, decisionesDe, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun'
+import { NOMBRE_DE_ETAPA, RESPONSABLE, RESPONSABLE_INFRAEXPUESTA } from '@/lib/seo/embudo'
+import { ventanaDeCambio } from '@/lib/seo/tareas'
+import { marcaDelTitulo } from '@/lib/seo/marcas'
+import { decisionesDe, diagnosticoDe, fichaDe, SelectorDeProducto } from './comun'
 import type { DatosSeo } from './useCuentaSeo'
 import { PropuestaConIa } from './PropuestaConIa'
 import { EditorDeFicha } from './EditorDeFicha'
 import { ResultadoDeCambios } from './ResultadoDeCambios'
-import { EstudioDeListing } from './EstudioDeListing'
-import { AvisoDeHighlights, TarjetaDelEstudio } from './TarjetaDelEstudio'
-import type { TextosFicha } from '@/lib/seo/edicion'
+import { AvisoDeHighlights } from './TarjetaDelEstudio'
 import { HighlightsDeLaFicha } from './HighlightsDeLaFicha'
 import { useDelProducto } from './useDelProducto'
 import type { DatosDePublicidad } from './PestanaSeoBusquedas'
 
-const COLOR_GRAVEDAD: Record<Gravedad, string> = { grave: COLOR_ESTADO.rojo, atencion: COLOR_ESTADO.ambar, info: COLOR_ESTADO.azul }
-
 /**
- * LA FICHA DE UN PRODUCTO, REVISADA CONTRA EL SOP Y CONTRA LO QUE LA GENTE BUSCA:
- *   · arriba, la «puerta de salida» del SOP (si el embudo dice que se pierde en clics, carrito o compra, reescribir la ficha no es lo primero) y la revisión de la norma de 2026 con los recuentos
- *     calculados (título 75, Item Highlights 125, viñetas 1.000 bytes, backend 249 bytes);
- *   · la propuesta de ficha con IA (que solo llega a Amazon con el OK de una persona);
- *   · el título, las viñetas y el backend tal cual están en Amazon, con lo que se gasta en balde;
- *   · las palabras que pesan en búsquedas DEL producto (sin ruido ni falsos amigos) y dónde está cada una, las búsquedas que venden y no están, y lo que vende por publicidad y la ficha no dice.
+ * LA FICHA DE UN PRODUCTO, EN UN SOLO PANEL (Raúl, 25 nov 2026: «que se vea casi todo en una misma página y se pueda editar en tiempo real»):
+ *   · arriba, el aviso de Item Highlights sin guardar y la «puerta de salida» del SOP (si el embudo dice que se pierde en clics, carrito o compra, reescribir la ficha no es lo primero);
+ *   · el EDITOR (EditorDeFicha): los campos con lo que falla justo debajo y, al lado, la puntuación de 0 a 100, las palabras que pesan, las búsquedas y lo que dice Amazon, todo
+ *     recalculado con cada tecla; «Enviar a Amazon» valida (sin guardar) y pide confirmación;
+ *   · debajo, la propuesta con IA y el resultado de los cambios ya aplicados.
  */
 export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, recargar }: { cuentaId: string; datos: DatosSeo; asin: string | null; setAsin: (a: string) => void; irAProductos: () => void; recargar?: () => void | Promise<unknown> }) {
   const publicidad = useDelProducto<DatosDePublicidad>(asin ? `/api/seo/publicidad?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}` : null)
   const ficha = asin ? fichaDe(datos, asin) : null
   const diagnostico = useMemo(() => (asin ? diagnosticoDe(datos, asin) : null), [datos, asin])
-  const revision = useMemo(() => (ficha ? revisarFicha(ficha) : null), [ficha])
-  const pesan = useMemo(() => (diagnostico ? palabrasQuePesan(diagnostico.busquedas, ficha, 30).filter((p) => !p.enTitulo).slice(0, 15) : []), [diagnostico, ficha])
-  const sinCubrir = useMemo(
-    () =>
-      ficha && diagnostico
-        ? diagnostico.busquedas
-            .filter((d) => esRelevante(d.veredicto) && (d.fila.comprasTotal ?? 0) > 0)
-            .map((d) => ({ ...d.fila, cob: coberturaDe(d.fila.consulta, ficha) }))
-            .filter((c) => c.cob.faltan.length > 0)
-            .sort((a, b) => (b.comprasTotal ?? 0) - (a.comprasTotal ?? 0))
-            .slice(0, 12)
-        : [],
-    [ficha, diagnostico]
-  )
   const decisiones = useMemo(() => decisionesDe(datos), [datos])
-  const [estudio, setEstudio] = useState(false)
-  const [desdeElEstudio, setDesdeElEstudio] = useState<{ textos: TextosFicha; n: number } | null>(null)
   const [abrirHighlights, setAbrirHighlights] = useState(0)
-  const textosActuales = useMemo<TextosFicha | null>(() => (ficha ? { titulo: ficha.titulo ?? '', highlights: ficha.highlights ?? '', bullets: [...ficha.bullets], descripcion: ficha.descripcion ?? '', backend: ficha.backend ?? '' } : null), [ficha])
   const mkt = cuentaId.split('~')[1] ?? null
   const ventana = asin ? ventanaDeCambio(datos.cambios ?? [], asin, new Date().toISOString().slice(0, 10)) : null
   const hayBusquedas = (diagnostico?.busquedas.length ?? 0) > 0
@@ -66,12 +42,8 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
       </Vacio>
     )
 
-  const titulo = ficha?.titulo ?? ''
-  const m = revision?.medidas
-  const repetidas = new Set((m?.backendRepetidas ?? []).map((w) => normalizar(w)))
-
   return (
-    <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
+    <div className="flex max-w-[1720px] flex-col gap-3 pb-8">
       <div className="flex flex-wrap items-center gap-2">
         <SelectorDeProducto productos={datos.productos} datos={datos} asin={asin} setAsin={setAsin} />
         {ficha && <span className="text-[11.5px] text-[var(--ls-t4)]">Leída de Amazon {haceCuanto(Date.parse(ficha.leidaAt))}{ficha.sku ? ` · SKU ${ficha.sku}` : ''}</span>}
@@ -91,151 +63,32 @@ export function PestanaSeoFicha({ cuentaId, datos, asin, setAsin, irAProductos, 
               }}
             />
           )}
-          {asin && textosActuales && <TarjetaDelEstudio textos={textosActuales} busquedas={diagnostico?.busquedas ?? []} abrir={() => setEstudio(true)} asin={asin} mkt={mkt} />}
           <PuertaDeSalida d={diagnostico} hayBusquedas={hayBusquedas} ventana={ventana} />
-          {asin && <ResultadoDeCambios key={`resultado-${asin}`} cuentaId={cuentaId} asin={asin} precio={datos.precios?.[asin] ?? null} decisiones={decisiones} />}
-          {revision && <RevisionDeNorma incidencias={revision.incidencias} />}
-          {(ficha.issues?.length ?? 0) > 0 && <IncidenciasDeAmazon issues={ficha.issues ?? []} />}
-          {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={hayBusquedas} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} diagnostico={diagnostico} ventana={ventana} />}
-          {asin && ficha.sku && <EditorDeFicha key={`editor-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} ventana={ventana} onAplicada={recargar ? () => void recargar() : undefined} desdeElEstudio={desdeElEstudio} />}
-          {asin && textosActuales && (
-            <EstudioDeListing
-              abierto={estudio}
-              cerrar={() => setEstudio(false)}
+          {asin && ficha.sku ? (
+            <EditorDeFicha
+              key={`editor-${asin}`}
+              cuentaId={cuentaId}
               asin={asin}
               mkt={mkt}
-              nombre={datos.productos.find((x) => x.asin === asin)?.nombre || ficha.titulo || asin}
-              inicial={textosActuales}
+              ficha={ficha}
+              ventana={ventana}
+              onAplicada={recargar ? () => void recargar() : undefined}
               busquedas={diagnostico?.busquedas ?? []}
-              llevarAlEditor={ficha.sku ? (textos) => setDesdeElEstudio((x) => ({ textos, n: (x?.n ?? 0) + 1 })) : undefined}
-            />
-          )}
-
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-            <div className="flex min-w-0 flex-col gap-3">
-              <Bloque titulo="Título" medida={`${m?.tituloCaracteres ?? 0} / ${LIMITE_TITULO_CARACTERES} caracteres`} lleno={(m?.tituloCaracteres ?? 0) / LIMITE_TITULO_CARACTERES} alerta={(m?.tituloCaracteres ?? 0) > LIMITE_TITULO_CARACTERES} copiar={titulo}>
-                <p className="text-[13.5px] leading-[1.5] text-[var(--ls-t1)]">
-                  {titulo ? (
-                    <>
-                      {[...titulo].slice(0, LIMITE_TITULO_CARACTERES).join('')}
-                      {/* Lo que pasa de 75: lo que Amazon recorta o reescribe */}
-                      {[...titulo].length > LIMITE_TITULO_CARACTERES && (
-                        <span className="rounded-[3px] px-[1px]" style={{ color: COLOR_ESTADO.rojo, background: `color-mix(in srgb, ${COLOR_ESTADO.rojo} 12%, transparent)` }} title="Lo que pasa de 75 caracteres">
-                          {[...titulo].slice(LIMITE_TITULO_CARACTERES).join('')}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-[var(--ls-t4)]">Sin título</span>
-                  )}
-                </p>
-              </Bloque>
-              <Bloque titulo="Item Highlights" medida={ficha.highlights ? `${[...ficha.highlights].length} / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres` : `— / ${LIMITE_HIGHLIGHTS_CARACTERES} caracteres`} lleno={ficha.highlights ? [...ficha.highlights].length / LIMITE_HIGHLIGHTS_CARACTERES : 0} alerta={[...(ficha.highlights ?? '')].length > LIMITE_HIGHLIGHTS_CARACTERES} copiar={ficha.highlights ?? undefined}>
-                {asin && (
+              marca={marcaDelTitulo(ficha.titulo)}
+              publicidad={publicidad.datos?.hayMarketingTest ? publicidad.datos.vendePorPublicidad : undefined}
+              extraHighlights={
+                ficha.origenHighlights !== 'amazon' ? (
                   <div id={`hl-${asin}`} className="scroll-mt-6">
                     <HighlightsDeLaFicha key={`hl-${asin}`} cuentaId={cuentaId} asin={asin} ficha={ficha} recargar={recargar} abrir={abrirHighlights} />
                   </div>
-                )}
-              </Bloque>
-              <Bloque titulo="Viñetas (bullets)" medida={`${ficha.bullets.length} de 5 · ${entero(m?.bulletsBytes ?? 0)} / ${entero(LIMITE_BULLETS_BYTES)} bytes`} lleno={(m?.bulletsBytes ?? 0) / LIMITE_BULLETS_BYTES} alerta={ficha.bullets.length < 5 || (m?.bulletsBytes ?? 0) > LIMITE_BULLETS_BYTES} copiar={ficha.bullets.join('\n')}>
-                {ficha.bullets.length === 0 ? (
-                  <p className="text-[12.5px] text-[var(--ls-t4)]">Sin viñetas.</p>
-                ) : (
-                  <ul className="flex flex-col gap-[6px]">
-                    {ficha.bullets.map((b, i) => (
-                      <li key={i} className="flex gap-2 text-[12.5px] leading-[1.5] text-[var(--ls-t2)]">
-                        <span className="mt-[7px] h-[5px] w-[5px] shrink-0 rounded-full bg-[var(--ls-t4)]" />
-                        <span className="min-w-0 flex-1">{b}</span>
-                        <span className="shrink-0 text-[10.5px] tabular-nums text-[var(--ls-t4)]" title="Bytes de esta viñeta (lo ideal, unos 200)">{bytesDe(b)} B</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Bloque>
-              <Bloque titulo="Palabras clave ocultas (backend)" medida={`${m?.backendBytes ?? 0} / ${LIMITE_BACKEND_BYTES} bytes`} lleno={(m?.backendBytes ?? 0) / LIMITE_BACKEND_BYTES} alerta={(m?.backendBytes ?? 0) > LIMITE_BACKEND_BYTES} copiar={ficha.backend ?? ''}>
-                {ficha.backend ? (
-                  <p className="font-mono text-[12px] leading-[1.6] text-[var(--ls-t2)]">
-                    {ficha.backend.split(/(\s+)/).map((w, i) =>
-                      repetidas.has(normalizar(w)) ? (
-                        <span key={i} className="line-through decoration-[1.5px]" style={{ color: COLOR_ESTADO.ambar }} title="Ya está en el título o en las viñetas (o repetida): gasta bytes sin sumar">
-                          {w}
-                        </span>
-                      ) : (
-                        <span key={i}>{w}</span>
-                      )
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-[12px] text-[var(--ls-t4)]">Vacío: son 249 bytes gratis para búsquedas que no caben arriba.</p>
-                )}
-                {(m?.backendDesperdiciado ?? 0) > 0 && <p className="mt-2 text-[11.5px]" style={{ color: COLOR_ESTADO.ambar }}>Tachado: {m?.backendDesperdiciado} bytes en palabras que ya están arriba. Amazon indexa palabras sueltas: repetir no suma.</p>}
-                {(m?.backendBytes ?? 0) > LIMITE_BACKEND_BYTES && <p className="mt-2 text-[11.5px]" style={{ color: COLOR_ESTADO.rojo }}>Pasa de {LIMITE_BACKEND_BYTES} bytes: Amazon ignora el backend ENTERO.</p>}
-              </Bloque>
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-3">
-              <section className={CAJA.base}>
-                <header className={`${CAJA.cabecera} justify-between`}>
-                  <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Palabras que pesan y no están en el título</h3>
-                  {pesan.length > 0 && <BotonCopiar texto={pesan.map((p) => p.palabra).join(' ')} compacto />}
-                </header>
-                <div className={CAJA.cuerpo}>
-                  {!hayBusquedas ? (
-                    <p className="text-[12px] text-[var(--ls-t4)]">Llega con el informe de Brand Analytics.</p>
-                  ) : pesan.length === 0 ? (
-                    <p className="text-[12.5px]" style={{ color: COLOR_ESTADO.verde }}>Las palabras de las búsquedas del producto ya están en el título.</p>
-                  ) : (
-                    <div className="flex flex-col gap-[6px]">
-                      {pesan.map((p) => {
-                        const donde = p.enBullets ? 'en viñetas' : p.enBackend ? 'en backend' : 'en ninguna parte'
-                        return (
-                          <div key={p.palabra} className="flex items-center gap-2">
-                            <span className="shrink-0 rounded-[6px] bg-[var(--ls-sup2)] px-[7px] py-[2px] text-[12.5px] font-medium text-[var(--ls-t1)]">{p.palabra}</span>
-                            <span className="min-w-0 flex-1 text-[11px] text-[var(--ls-t4)]">
-                              {entero(p.compras)} compras · {entero(p.volumen)} búsquedas · en {p.busquedas} {p.busquedas === 1 ? 'búsqueda' : 'búsquedas'}
-                            </span>
-                            <span className="ml-auto shrink-0 whitespace-nowrap text-[11px]" style={{ color: p.enBullets || p.enBackend ? 'var(--ls-t3)' : COLOR_ESTADO.ambar }}>
-                              {donde}
-                            </span>
-                          </div>
-                        )
-                      })}
-                      <p className="mt-1 text-[11px] text-[var(--ls-t4)]">Solo de búsquedas del producto: sin ruido ni falsos amigos por precio. Antes de meter una, comprueba que describe el producto (SOP, paso 3).</p>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className={CAJA.base}>
-                <header className={CAJA.cabecera}>
-                  <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Búsquedas que venden y no están en la ficha</h3>
-                </header>
-                <div className={CAJA.cuerpo}>
-                  {sinCubrir.length === 0 ? (
-                    <p className="text-[12.5px] text-[var(--ls-t3)]">{!hayBusquedas ? 'Llega con el informe de Brand Analytics.' : 'Ninguna: las búsquedas del producto con compras tienen todas sus palabras en algún sitio de la ficha.'}</p>
-                  ) : (
-                    <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
-                      {sinCubrir.map((c) => (
-                        <div key={c.consulta} className="flex items-center gap-2 py-[7px]">
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]">{c.consulta}</div>
-                            <div className="text-[11px] text-[var(--ls-t4)]">
-                              {entero(c.comprasTotal)} compras en Amazon · tú {entero(c.comprasAsin)}
-                            </div>
-                          </div>
-                          <span className="text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>
-                            falta: {c.cob.faltan.join(', ')}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <VendePorPublicidad publicidad={publicidad.datos} />
-            </div>
-          </div>
+                ) : undefined
+              }
+            />
+          ) : (
+            <p className="rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-3 text-[12.5px] text-[var(--ls-t3)]">Este producto no tiene SKU apuntado: sin él no se puede editar la ficha desde aquí.</p>
+          )}
+          {asin && <PropuestaConIa key={asin} cuentaId={cuentaId} asin={asin} hayBusquedas={hayBusquedas} hayFicha={!!ficha.titulo} mejoras={!!datos.lectura.mejoras} diagnostico={diagnostico} ventana={ventana} />}
+          {asin && <ResultadoDeCambios key={`resultado-${asin}`} cuentaId={cuentaId} asin={asin} precio={datos.precios?.[asin] ?? null} decisiones={decisiones} />}
         </>
       )}
     </div>
@@ -277,116 +130,6 @@ function PuertaDeSalida({ d, hayBusquedas, ventana }: { d: ReturnType<typeof dia
   )
 }
 
-/** Lo que incumple la norma de 2026, de lo más grave a lo menos, con qué hacer. Sin nada, una línea verde */
-function RevisionDeNorma({ incidencias }: { incidencias: ReturnType<typeof revisarFicha>['incidencias'] }) {
-  const graves = incidencias.filter((i) => i.gravedad === 'grave').length
-  return (
-    <section className={CAJA.base}>
-      <header className={CAJA.cabecera}>
-        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Norma de 2026</h3>
-        <span className="text-[11.5px] text-[var(--ls-t4)]">título 75 · Item Highlights 125 · viñetas 1.000 bytes · backend 249 bytes · recuentos calculados</span>
-        {incidencias.length > 0 && (
-          <span className="ml-auto text-[11.5px] font-medium" style={{ color: graves > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }}>
-            {graves > 0 ? `${graves} ${graves === 1 ? 'incumplimiento' : 'incumplimientos'}` : `${incidencias.length} ${incidencias.length === 1 ? 'mejora' : 'mejoras'}`}
-          </span>
-        )}
-      </header>
-      {incidencias.length === 0 ? (
-        <p className={`${CAJA.cuerpo} flex items-center gap-2 text-[12.5px]`} style={{ color: COLOR_ESTADO.verde }}>
-          <CircleCheck className="h-[14px] w-[14px]" /> Cumple las reglas de 2026 en título, viñetas y backend.
-        </p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-[var(--ls-linea)]">
-          {incidencias.map((i) => (
-            <li key={i.id} className="flex items-start gap-3 px-4 py-[9px]">
-              <span className="mt-[6px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: COLOR_GRAVEDAD[i.gravedad] }} />
-              <div className="min-w-0 text-[12.5px] leading-[1.5]">
-                <div className="text-[var(--ls-t1)]">{i.texto}</div>
-                <div className="text-[var(--ls-t3)]">{i.accion}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
 
-/** Términos que han traído pedidos en las campañas de Marketing Test del producto y cuyas palabras no están en la ficha */
-function VendePorPublicidad({ publicidad }: { publicidad: DatosDePublicidad | null }) {
-  if (!publicidad || !publicidad.hayMarketingTest) return null
-  return (
-    <section className={CAJA.base}>
-      <header className={CAJA.cabecera}>
-        <Megaphone className="h-[14px] w-[14px] text-[var(--ls-t3)]" />
-        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Vende por publicidad y no está en la ficha</h3>
-      </header>
-      <div className={CAJA.cuerpo}>
-        {publicidad.vendePorPublicidad.length === 0 ? (
-          <p className="text-[12.5px] text-[var(--ls-t3)]">{publicidad.campanas === 0 ? 'Este producto no tiene campañas en Marketing Test (o aún no se han leído sus términos).' : 'Nada: lo que convierte en publicidad ya está en la ficha.'}</p>
-        ) : (
-          <div className="flex flex-col divide-y divide-[var(--ls-linea)]">
-            {publicidad.vendePorPublicidad.map((t) => (
-              <div key={t.termino} className="flex items-center gap-2 py-[7px]">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]">{t.termino}</div>
-                  <div className="text-[11px] text-[var(--ls-t4)]">
-                    {entero(t.pedidos)} {t.pedidos === 1 ? 'pedido' : 'pedidos'} por publicidad · {entero(t.clics)} clics
-                  </div>
-                </div>
-                <span className="text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>
-                  falta: {t.faltan.join(', ')}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-        <p className="mt-2 text-[11px] text-[var(--ls-t4)]">Términos de búsqueda de las campañas de Marketing Test del producto. La propuesta con IA los tiene en cuenta.</p>
-      </div>
-    </section>
-  )
-}
 
-function Bloque({ titulo, medida, lleno, alerta, copiar, children }: { titulo: string; medida: string; lleno: number; alerta: boolean; copiar?: string; children: React.ReactNode }) {
-  return (
-    <section className={CAJA.base}>
-      <header className={`${CAJA.cabecera} justify-between`}>
-        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">{titulo}</h3>
-        <div className="flex min-w-0 items-center gap-2">
-          {/* La barra, desde sm: en el móvil quitaba sitio al título y la medida partía en dos líneas */}
-          <div className="hidden h-[5px] w-[80px] shrink-0 overflow-hidden rounded-full bg-[var(--ls-sup2)] sm:block">
-            <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(lleno > 0 ? 2 : 0, lleno * 100))}%`, background: alerta ? COLOR_ESTADO.ambar : COLOR_ESTADO.verde }} />
-          </div>
-          <span className="text-right text-[11px] tabular-nums" style={{ color: alerta ? COLOR_ESTADO.ambar : 'var(--ls-t4)' }}>{medida}</span>
-          {copiar != null && <BotonCopiar texto={copiar} compacto />}
-        </div>
-      </header>
-      <div className={CAJA.cuerpo}>{children}</div>
-    </section>
-  )
-}
 
-/** Lo que Amazon dice que le pasa al listing (includedData=issues, migración 312): suprimido, falta un atributo, imagen rechazada… */
-function IncidenciasDeAmazon({ issues }: { issues: NonNullable<ReturnType<typeof fichaDe>>['issues'] & object }) {
-  const graves = issues.filter((i) => (i.severity ?? '').toUpperCase() === 'ERROR').length
-  return (
-    <section className={CAJA.base}>
-      <header className={CAJA.cabecera}>
-        <TriangleAlert className="h-[14px] w-[14px]" style={{ color: graves > 0 ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }} />
-        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Lo que dice Amazon de este listing</h3>
-        <span className="ml-auto text-[11.5px] text-[var(--ls-t4)]">{issues.length} {issues.length === 1 ? 'aviso' : 'avisos'}{graves > 0 ? ` · ${graves} ${graves === 1 ? 'error' : 'errores'}` : ''}</span>
-      </header>
-      <ul className="flex flex-col divide-y divide-[var(--ls-linea)]">
-        {issues.slice(0, 10).map((i, k) => (
-          <li key={k} className="flex items-start gap-3 px-4 py-[9px] text-[12.5px] leading-[1.5]">
-            <span className="mt-[6px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: (i.severity ?? '').toUpperCase() === 'ERROR' ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }} />
-            <div className="min-w-0">
-              <div className="text-[var(--ls-t1)]">{i.message}</div>
-              {i.atributos.length > 0 && <div className="text-[var(--ls-t4)]">{i.atributos.join(', ')}{i.code ? ` · código ${i.code}` : ''}</div>}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}

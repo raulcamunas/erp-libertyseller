@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { ChevronDown, CircleAlert, CircleCheck, Clock, DownloadCloud, History, Languages, PencilLine, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, X, XCircle } from 'lucide-react'
-import { Boton, Confirmacion, Insignia, LineaDeTiempo, Tarjeta, mezcla, ACENTO, type Hito } from '@/components/ui-ls'
+import { ChevronDown, CircleAlert, CircleCheck, Clock, DownloadCloud, History, Languages, RotateCcw, Send, ShieldCheck, Sparkles, TriangleAlert, X, XCircle } from 'lucide-react'
+import { Boton, Confirmacion, Insignia, LineaDeTiempo, mezcla, ACENTO, type Hito } from '@/components/ui-ls'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
 import { bloqueosDeEdicion, camposCambiados, medidasDeEdicion, MAX_VINETAS, NOMBRE_DE_CAMPO, normalizarTexto, valorDeCampo, vinetasQueSalen, type CampoFicha, type TextosFicha } from '@/lib/seo/edicion'
 import type { EdicionGuardada } from '@/lib/seo/edicion-servidor'
@@ -12,6 +12,12 @@ import type { FichaGuardada } from '@/lib/seo/datos'
 import { trozosNuevos } from '@/lib/seo/propuesta'
 import type { ventanaDeCambio } from '@/lib/seo/tareas'
 import { useDelProducto } from './useDelProducto'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
+import { AnilloDePuntuacion } from './TarjetaDelEstudio'
+import { puntuarListing, type BloqueDePuntuacion } from '@/lib/seo/puntuacion'
+import { avisosPorCampo, type AvisoDeCampo } from '@/lib/seo/diagnostico-campos'
+import type { BusquedaDiagnosticada } from '@/lib/seo/embudo'
+import type { ConsultaGuardada } from '@/lib/seo/datos'
 
 type Issue = { message?: string; code?: string; severity?: string }
 
@@ -72,11 +78,36 @@ const ESTADO: Record<EdicionGuardada['estado'], { texto: string; tono: TonoEstad
  * y dos pasos a propósito: «Validar en Amazon» (VALIDATION_PREVIEW: no cambia nada) y «Aplicar» con confirmación. Cada envío queda apuntado (quién,
  * cuándo, qué dijo Amazon) y, al releer la ficha, se comprueba si de verdad ha quedado.
  */
-export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desdeElEstudio }: { cuentaId: string; asin: string; ficha: FichaGuardada; ventana: ReturnType<typeof ventanaDeCambio>; onAplicada?: () => void; /** Lo que manda el Estudio de listing («Llevar al editor»): cada `n` nuevo se carga en el editor y se abre */ desdeElEstudio?: { textos: TextosFicha; n: number } | null }) {
+export function EditorDeFicha({
+  cuentaId,
+  asin,
+  mkt,
+  ficha,
+  ventana,
+  onAplicada,
+  busquedas,
+  marca,
+  publicidad,
+  extraHighlights,
+}: {
+  cuentaId: string
+  asin: string
+  mkt: string | null
+  ficha: FichaGuardada
+  ventana: ReturnType<typeof ventanaDeCambio>
+  onAplicada?: () => void
+  /** Las búsquedas del producto, diagnosticadas: con ellas se puntúa en vivo */
+  busquedas: ReadonlyArray<BusquedaDiagnosticada<ConsultaGuardada>>
+  /** La marca del producto (para el orden del título) */
+  marca: string | null
+  /** Lo que vende por publicidad y no está en la ficha (Marketing Test) */
+  publicidad?: Array<{ termino: string; pedidos: number; faltan: string[] }>
+  /** Bajo los Item Highlights: guardarlos a mano si Amazon no los da */
+  extraHighlights?: React.ReactNode
+}) {
   // El «original» es la ficha guardada (hasta 24 h) hasta que se valida: desde ahí, la que Amazon tiene en ese momento
   const [original, setOriginal] = useState<TextosFicha>(() => textosDeFicha(ficha))
   const [vivaLeida, setVivaLeida] = useState(false)
-  const [abierto, setAbierto] = useState(false)
   const [t, setT] = useState<TextosFicha>(original)
   const [validando, setValidando] = useState(false)
   const [validada, setValidada] = useState<{ id: string | null; huella: string; campos: CampoFicha[]; avisos: string[]; issues: Issue[]; ventanaCerrada: boolean } | null>(null)
@@ -98,7 +129,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desd
   }, [ficha])
 
   const campos = useMemo(() => camposCambiados(original, t), [original, t])
-  const { bloqueos, incidencias } = useMemo(() => bloqueosDeEdicion(t, campos), [t, campos])
+  const { bloqueos } = useMemo(() => bloqueosDeEdicion(t, campos), [t, campos])
   const medidas = useMemo(() => medidasDeEdicion(t), [t])
   const huella = JSON.stringify(t)
   // Si se toca algo después de validar, hay que volver a validar
@@ -157,26 +188,6 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desd
     setValidada(null)
   }
 
-  // El Estudio de listing manda su texto: se carga entero (los campos vacíos se dejan como están en Amazon) y se abre el editor para validar y aplicar
-  const caja = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!desdeElEstudio) return
-    const e = paraEditor(desdeElEstudio.textos)
-    setT({
-      titulo: e.titulo.trim() ? e.titulo : original.titulo,
-      highlights: (e.highlights ?? '').trim() ? e.highlights : original.highlights,
-      bullets: e.bullets.some((b) => b.trim()) ? e.bullets : [...original.bullets],
-      descripcion: original.descripcion,
-      backend: e.backend.trim() ? e.backend : original.backend,
-    })
-    setValidada(null)
-    setRechazo(null)
-    setAbierto(true)
-    toast.success('Texto del estudio cargado en el editor. Valídalo en Amazon y aplícalo.')
-    setTimeout(() => caja.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desdeElEstudio?.n])
-
   /** «Cargar esta versión en el editor» (Historial): lo que había antes de esa edición, solo en sus campos. Luego, el flujo de siempre */
   function cargarVersion(e: EdicionGuardada) {
     const antes = paraEditor(e.antes)
@@ -193,7 +204,6 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desd
     setT(nuevo)
     setValidada(null)
     setRechazo(null)
-    setAbierto(true)
     if (vacios.length > 0) toast.info(`Antes de ese cambio ${nombres(vacios)} estaba vacío: desde el ERP no se deja un campo vacío. Si hace falta, bórralo en Seller Central.`)
     else toast.success('Versión cargada en el editor. Valídala en Amazon antes de aplicarla.')
   }
@@ -216,169 +226,314 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desd
   const ediciones = historial.datos?.ediciones ?? []
   const ultimaPendiente = ediciones.find((e) => e.estado === 'enviada')
 
+  // EN VIVO: la puntuación y lo que falla en cada campo se recalculan con cada tecla
+  const puntuacion = useMemo(() => puntuarListing(t, busquedas, { marca }), [t, busquedas, marca])
+  const base = useMemo(() => puntuarListing(original, busquedas, { marca }).total, [original, busquedas, marca])
+  const avisos = useMemo(() => avisosPorCampo({ ...t, descripcion: t.descripcion ?? null }, puntuacion), [t, puntuacion])
+
+  // Dónde está el cursor: una palabra pulsada a la derecha se mete ahí
+  const foco = useRef<{ campo: 'titulo' | 'highlights' | 'backend' | 'descripcion' | number; el: HTMLTextAreaElement } | null>(null)
+  const enfocar = (campo: 'titulo' | 'highlights' | 'backend' | 'descripcion' | number) => (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    foco.current = { campo, el: e.currentTarget }
+  }
+  function meterPalabra(palabra: string) {
+    const f = foco.current ?? { campo: 'backend' as const, el: null as unknown as HTMLTextAreaElement }
+    const valor = typeof f.campo === 'number' ? t.bullets[f.campo] ?? '' : ((t[f.campo] as string | null | undefined) ?? '')
+    const pos = f.el && document.activeElement === f.el ? f.el.selectionStart : valor.length
+    const antes = valor.slice(0, pos)
+    const despues = valor.slice(pos)
+    const nuevo = `${antes}${antes && !/\s$/.test(antes) ? ' ' : ''}${palabra}${despues && !/^\s/.test(despues) ? ' ' : ''}${despues}`
+    if (typeof f.campo === 'number') cambiar('bullets', t.bullets.map((x, k) => (k === f.campo ? nuevo : x)))
+    else cambiar(f.campo, nuevo)
+    toast.success(`«${palabra}» añadida ${typeof f.campo === 'number' ? `a la viñeta ${f.campo + 1}` : f.campo === 'titulo' ? 'al título' : f.campo === 'highlights' ? 'a los Item Highlights' : f.campo === 'descripcion' ? 'a la descripción' : 'al backend'}.`)
+  }
+
+  /** «Enviar a Amazon»: valida (sin guardar nada) y, si Amazon lo acepta, pide la confirmación */
+  const [enviarTrasValidar, setEnviarTrasValidar] = useState(false)
+  useEffect(() => {
+    if (!enviarTrasValidar) return
+    if (vigente?.id) {
+      setEnviarTrasValidar(false)
+      setConfirmar(true)
+    } else if (rechazo || (vigente && !vigente.id)) setEnviarTrasValidar(false)
+  }, [enviarTrasValidar, vigente, rechazo])
+  async function enviarAAmazon() {
+    if (vigente?.id) return setConfirmar(true)
+    setEnviarTrasValidar(true)
+    await validar()
+  }
+
+  const ZONA = { titulo: 'título', highlights: 'highlights', bullets: 'viñetas', backend: 'backend', descripcion: 'descripción' } as const
+  const [verDescripcion, setVerDescripcion] = useState(false)
+  const [verCambios, setVerCambios] = useState(false)
+  const delta = puntuacion.total - base
+
   return (
-    <div ref={caja} className="scroll-mt-4">
-    <Tarjeta
-      variante={abierto ? 'destacada' : 'normal'}
-      acento="seo"
-      icono={PencilLine}
-      titulo="Editar la ficha en Amazon"
-      subtitulo="Validas en Amazon sin cambiar nada y aplicas con tu confirmación. Queda apuntado quién y cuándo."
-      acciones={
-        <Boton variante={abierto ? 'fantasma' : 'secundario'} tamano="sm" icono={abierto ? XCircle : PencilLine} onClick={() => setAbierto((v) => !v)}>
-          {abierto ? 'Cerrar' : 'Editar'}
-        </Boton>
-      }
-    >
+    <section className="relative overflow-hidden rounded-[18px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+      {/* Cabecera: la nota en vivo, lo que ha cambiado y el botón de enviar */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ls-linea)] px-4 py-3">
+        <ImagenDeProducto asin={asin} mkt={mkt} lado={44} redondeo={10} />
+        <AnilloDePuntuacion valor={puntuacion.total} lado={52} grosor={6} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-[14px] font-semibold text-[var(--ls-t1)]">
+            Editor SEO de la ficha
+            <AnimatePresence mode="popLayout">
+              {delta !== 0 && (
+                <motion.span key={delta} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="rounded-full px-[7px] py-[1px] text-[11px] font-semibold tabular-nums" style={{ color: delta > 0 ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo, background: mezcla(delta > 0 ? COLOR_ESTADO.verde : COLOR_ESTADO.rojo, 14) }}>
+                  {delta > 0 ? '+' : ''}
+                  {delta} sobre la de Amazon
+                </motion.span>
+              )}
+            </AnimatePresence>
+            {campos.length > 0 && <Insignia tono="azul" tamano="sm">{campos.length} {campos.length === 1 ? 'campo cambiado' : 'campos cambiados'}</Insignia>}
+          </div>
+          <div className="text-[12px] text-[var(--ls-t4)]">
+            {puntuacion.siguientes[0] ? (
+              <>
+                Lo que más suma: <span className="text-[var(--ls-t2)]">{puntuacion.siguientes[0].texto}</span> <b style={{ color: COLOR_ESTADO.verde }}>+{puntuacion.siguientes[0].puntos}</b>
+              </>
+            ) : (
+              'Escribe y la nota se mueve al momento. Nada llega a Amazon hasta que pulses «Enviar a Amazon».'
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Boton variante="fantasma" icono={RotateCcw} disabled={campos.length === 0} onClick={() => { setT({ ...original, bullets: [...original.bullets] }); setValidada(null); setRechazo(null) }}>
+            Deshacer
+          </Boton>
+          <Boton variante="primario" icono={Send} cargando={validando} disabled={!!bilingue || campos.length === 0 || bloqueos.length > 0} onClick={() => void enviarAAmazon()} title={bloqueos[0] ?? 'Valida en Amazon (sin guardar nada) y, si lo acepta, pide confirmación'}>
+            Enviar a Amazon
+          </Boton>
+        </div>
+      </div>
+
       {ultimaPendiente && (
-        <p className="mb-3 flex items-start gap-2 rounded-[10px] px-3 py-2 text-[12.5px]" style={{ color: COLOR_ESTADO.ambar, background: mezcla(COLOR_ESTADO.ambar, 10) }}>
+        <p className="flex items-start gap-2 px-4 py-2 text-[12.5px]" style={{ color: COLOR_ESTADO.ambar, background: mezcla(COLOR_ESTADO.ambar, 8) }}>
           <Clock className="mt-[2px] h-[13px] w-[13px] shrink-0" /> Hay un cambio enviado el {new Date(ultimaPendiente.enviadaAt ?? ultimaPendiente.createdAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} esperando a verse en la ficha. Se comprueba solo cada 20 minutos.
         </p>
       )}
-      <AnimatePresence initial={false}>
-        {abierto && (
-          <motion.div key="editor" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
-            {bilingue ? (
-              <div className="flex items-start gap-3 rounded-[14px] border px-4 py-3 text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.ambar, 40), background: mezcla(COLOR_ESTADO.ambar, 6) }}>
-                <Languages className="mt-[2px] h-[15px] w-[15px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
-                <div className="min-w-0">
-                  <div className="text-[13px] font-semibold text-[var(--ls-t1)]">Esta ficha está en dos idiomas ({bilingue.join(' y ')}) en este país</div>
-                  <div className="mt-[2px] text-[var(--ls-t3)]">Edítala en Seller Central. Desde aquí se mandaría un solo idioma y Amazon borraría el otro. Los textos que ves en la pestaña son los de {bilingue[0]}.</div>
-                </div>
-              </div>
-            ) : (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-              <div className="flex min-w-0 flex-col gap-4">
-                <Campo etiqueta="Título" medida={medidas[0]} cambiado={campos.includes('titulo')}>
-                  <textarea value={t.titulo} onChange={(e) => cambiar('titulo', e.target.value)} rows={2} className={CAMPO} />
-                </Campo>
-                <Campo etiqueta="Item Highlights" medida={medidas[1]} cambiado={campos.includes('highlights')} ayuda="Lo que no cabe en el título (formato, cantidad, duración). Se indexa como el título. Si el tipo de producto no lo admite, Amazon no lo recibe y se avisa.">
-                  <textarea value={t.highlights ?? ''} onChange={(e) => cambiar('highlights', e.target.value)} rows={2} className={CAMPO} placeholder="Opcional" />
-                </Campo>
-                <Campo etiqueta="Viñetas" medida={medidas[2]} cambiado={campos.includes('bullets')} ayuda="Cinco, con un beneficio concreto delante. Solo se mandan si las cambias, y entonces todas: sustituyen a las que haya.">
-                  <div className="flex flex-col gap-2">
-                    {original.bullets.filter((b) => normalizarTexto(b)).length > MAX_VINETAS && (
-                      <p className="flex items-start gap-2 rounded-[10px] px-3 py-2 text-[12px] leading-[1.45]" style={{ color: COLOR_ESTADO.ambar, background: mezcla(COLOR_ESTADO.ambar, 10) }}>
-                        <TriangleAlert className="mt-[2px] h-[13px] w-[13px] shrink-0" />
-                        <span>
-                          Esta ficha tiene {original.bullets.filter((b) => normalizarTexto(b)).length} viñetas y el ERP trabaja con {MAX_VINETAS}. Si solo cambias otros campos, las viñetas no se tocan. Para cambiarlas, quita antes a mano las que sobren (×){vinetasLlenas > MAX_VINETAS ? `: sobran ${vinetasLlenas - MAX_VINETAS}.` : '.'}
-                        </span>
-                      </p>
-                    )}
-                    {t.bullets.map((b, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <span className="mt-[11px] w-4 shrink-0 text-right text-[11px] tabular-nums text-[var(--ls-t4)]">{i + 1}</span>
-                        <textarea value={b} onChange={(e) => cambiar('bullets', t.bullets.map((x, k) => (k === i ? e.target.value : x)))} rows={3} className={CAMPO} />
-                        {t.bullets.length > MAX_VINETAS && (
-                          <button type="button" aria-label={`Quitar la viñeta ${i + 1}`} title="Quitar esta viñeta" onClick={() => cambiar('bullets', t.bullets.filter((_, k) => k !== i))} className="mt-[6px] grid h-[28px] w-[28px] shrink-0 place-items-center rounded-[8px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
-                            <X className="h-[14px] w-[14px]" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </Campo>
-                <Campo etiqueta="Descripción" medida={medidas[3]} cambiado={campos.includes('descripcion')}>
-                  <textarea value={t.descripcion ?? ''} onChange={(e) => cambiar('descripcion', e.target.value)} rows={5} className={CAMPO} />
-                </Campo>
-                <Campo etiqueta="Backend (palabras clave ocultas)" medida={medidas[4]} cambiado={campos.includes('backend')} ayuda="Sin comas y sin repetir lo que ya está arriba. Un byte de más y Amazon ignora el campo entero.">
-                  <textarea value={t.backend} onChange={(e) => cambiar('backend', e.target.value)} rows={3} className={`${CAMPO} font-mono text-[12.5px]`} />
-                </Campo>
-              </div>
 
-              <div className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-24 lg:self-start">
-                <div className="rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-3">
-                  <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-[var(--ls-t1)]">
-                    Antes y después
-                    <span className="ml-auto text-[12px] font-normal text-[var(--ls-t4)]">{campos.length === 0 ? 'sin cambios' : `${campos.length} ${campos.length === 1 ? 'campo' : 'campos'}`}</span>
-                  </div>
-                  <p className="mb-2 text-[11.5px] text-[var(--ls-t4)]">{vivaLeida ? '«Antes» es lo que Amazon tiene ahora mismo (leído al validar).' : `«Antes» es la ficha leída ${new Date(ficha.leidaAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Al validar se compara con la de ahora.`}</p>
-                  {campos.length === 0 ? (
-                    <p className="text-[12.5px] text-[var(--ls-t3)]">Edita a la izquierda: aquí verás lo que entra (verde) y lo que sale (tachado).</p>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {campos.map((c) => (
-                        <Diferencia key={c} campo={c} antes={original} despues={t} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {(bloqueos.length > 0 || incidencias.length > 0) && (
-                  <ul className="flex flex-col gap-[6px] rounded-[14px] border border-[var(--ls-linea)] p-3 text-[12.5px] leading-[1.45]">
-                    {bloqueos.map((b) => (
-                      <li key={b} className="flex items-start gap-2" style={{ color: COLOR_ESTADO.rojo }}>
-                        <XCircle className="mt-[2px] h-[13px] w-[13px] shrink-0" /> {b}
-                      </li>
-                    ))}
-                    {incidencias
-                      .filter((i) => campos.includes(i.campo as CampoFicha))
-                      .slice(0, 6)
-                      .map((i) => (
-                        <li key={i.id} className="flex items-start gap-2 text-[var(--ls-t2)]">
-                          <TriangleAlert className="mt-[2px] h-[13px] w-[13px] shrink-0" style={{ color: i.gravedad === 'grave' ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }} /> {i.resumen}
-                        </li>
-                      ))}
-                  </ul>
-                )}
-
-                {rechazo && (
-                  <div className="rounded-[14px] border px-3 py-[10px] text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.rojo, 40), background: mezcla(COLOR_ESTADO.rojo, 6) }}>
-                    <div className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.rojo }}>
-                      <CircleAlert className="h-[14px] w-[14px]" /> No se ha mandado
-                    </div>
-                    <div className="mt-1 text-[var(--ls-t2)]">{rechazo.motivo}</div>
-                    {rechazo.issues.slice(0, 6).map((i, k) => (
-                      <div key={k} className="text-[12px] text-[var(--ls-t3)]">· {i.message ?? i.code}</div>
-                    ))}
-                    {rechazo.viva && (rechazo.cambiadosEnAmazon?.length ?? 0) > 0 && (
-                      <div className="mt-2">
-                        <Boton variante="secundario" tamano="sm" icono={DownloadCloud} onClick={traerLaViva}>
-                          Traer la ficha de Amazon y mantener mis cambios
-                        </Boton>
-                        <p className="mt-1 text-[11.5px] text-[var(--ls-t4)]">Verás a la derecha qué hay ahora en Amazon y qué lo sustituiría. Luego vuelve a validar.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {vigente && (
-                  <div className="rounded-[14px] border px-3 py-[10px] text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.verde, 40), background: mezcla(COLOR_ESTADO.verde, 6) }}>
-                    <div className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.verde }}>
-                      <ShieldCheck className="h-[14px] w-[14px]" /> Amazon lo acepta (validación sin guardar)
-                    </div>
-                    <div className="mt-1 text-[var(--ls-t2)]">Se mandará: {nombres(vigente.campos)}. El resto de la ficha no se toca.</div>
-                    {[...vigente.avisos, ...vigente.issues.map((i) => i.message ?? '')].filter(Boolean).map((a) => (
-                      <div key={a} className="mt-1 text-[12px] text-[var(--ls-t3)]">· {a}</div>
-                    ))}
-                    {!vigente.id && <div className="mt-1 text-[12px]" style={{ color: COLOR_ESTADO.ambar }}>Para aplicar desde aquí falta lanzar la migración 312 en Supabase (sin ella no se apunta quién cambia la ficha).</div>}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Boton variante={vigente ? 'secundario' : 'primario'} icono={ShieldCheck} cargando={validando} disabled={campos.length === 0 || bloqueos.length > 0} onClick={validar}>
-                    Validar en Amazon
-                  </Boton>
-                  <Boton variante="primario" icono={Send} disabled={!vigente?.id} onClick={() => setConfirmar(true)}>
-                    Aplicar
-                  </Boton>
-                  <Boton variante="fantasma" icono={RotateCcw} disabled={campos.length === 0} onClick={() => { setT({ ...original, bullets: [...original.bullets] }); setValidada(null); setRechazo(null) }}>
-                    Deshacer
-                  </Boton>
-                </div>
-                {ventana?.bloqueada && tocaTitulo && (
-                  <p className="text-[12px] leading-[1.45]" style={{ color: COLOR_ESTADO.ambar }}>
-                    El título se cambió el {ventana.ultimo}: el SOP pide 30 días entre cambios (desde el {ventana.puedeDesde}). Puedes mandarlo igual confirmándolo.
+      {bilingue ? (
+        <div className="m-4 flex items-start gap-3 rounded-[14px] border px-4 py-3 text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.ambar, 40), background: mezcla(COLOR_ESTADO.ambar, 6) }}>
+          <Languages className="mt-[2px] h-[15px] w-[15px] shrink-0" style={{ color: COLOR_ESTADO.ambar }} />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-[var(--ls-t1)]">Esta ficha está en dos idiomas ({bilingue.join(' y ')}) en este país</div>
+            <div className="mt-[2px] text-[var(--ls-t3)]">Edítala en Seller Central. Desde aquí se mandaría un solo idioma y Amazon borraría el otro. Los textos que ves en la pestaña son los de {bilingue[0]}.</div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
+          {/* ---------- los campos, con lo que falla justo debajo ---------- */}
+          <div className="flex min-w-0 flex-col gap-4 p-4">
+            <Campo etiqueta="Título" medida={medidas[0]} cambiado={campos.includes('titulo')}>
+              <textarea value={t.titulo} onChange={(e) => cambiar('titulo', e.target.value.replace(/\n/g, ' '))} onFocus={enfocar('titulo')} rows={2} className={CAMPO} />
+              <Avisos lista={avisos.titulo} />
+            </Campo>
+            <Campo etiqueta="Item Highlights" medida={medidas[1]} cambiado={campos.includes('highlights')}>
+              <textarea value={t.highlights ?? ''} onChange={(e) => cambiar('highlights', e.target.value.replace(/\n/g, ' '))} onFocus={enfocar('highlights')} rows={2} className={CAMPO} placeholder="Lo que no cabe en el título (formato, cantidad, material). Se indexa como el título." />
+              <Avisos lista={avisos.highlights} />
+              {extraHighlights}
+            </Campo>
+            <Campo etiqueta="Viñetas" medida={medidas[2]} cambiado={campos.includes('bullets')}>
+              <div className="flex flex-col gap-[6px]">
+                {original.bullets.filter((b) => normalizarTexto(b)).length > MAX_VINETAS && (
+                  <p className="flex items-start gap-2 rounded-[10px] px-3 py-2 text-[12px] leading-[1.45]" style={{ color: COLOR_ESTADO.ambar, background: mezcla(COLOR_ESTADO.ambar, 10) }}>
+                    <TriangleAlert className="mt-[2px] h-[13px] w-[13px] shrink-0" />
+                    <span>
+                      Esta ficha tiene {original.bullets.filter((b) => normalizarTexto(b)).length} viñetas y el ERP trabaja con {MAX_VINETAS}. Si solo cambias otros campos, las viñetas no se tocan. Para cambiarlas, quita antes a mano las que sobren (×){vinetasLlenas > MAX_VINETAS ? `: sobran ${vinetasLlenas - MAX_VINETAS}.` : '.'}
+                    </span>
                   </p>
                 )}
+                {t.bullets.map((b, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="mt-[9px] w-4 shrink-0 text-right text-[11px] tabular-nums text-[var(--ls-t4)]">{i + 1}</span>
+                    <textarea value={b} onChange={(e) => cambiar('bullets', t.bullets.map((x, k) => (k === i ? e.target.value.replace(/\n/g, ' ') : x)))} onFocus={enfocar(i)} rows={2} className={CAMPO} />
+                    {t.bullets.length > MAX_VINETAS && (
+                      <button type="button" aria-label={`Quitar la viñeta ${i + 1}`} title="Quitar esta viñeta" onClick={() => cambiar('bullets', t.bullets.filter((_, k) => k !== i))} className="mt-[6px] grid h-[28px] w-[28px] shrink-0 place-items-center rounded-[8px] text-[var(--ls-t3)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
+                        <X className="h-[14px] w-[14px]" />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
+              <Avisos lista={avisos.bullets} />
+            </Campo>
+            <Campo etiqueta="Backend (palabras clave ocultas)" medida={medidas[4]} cambiado={campos.includes('backend')}>
+              <textarea value={t.backend} onChange={(e) => cambiar('backend', e.target.value.replace(/\n/g, ' '))} onFocus={enfocar('backend')} rows={2} className={`${CAMPO} font-mono text-[12.5px]`} />
+              <Avisos lista={avisos.backend} />
+            </Campo>
+            <div>
+              <button type="button" onClick={() => setVerDescripcion((v) => !v)} className="flex items-center gap-1 text-[12.5px] font-medium text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" aria-expanded={verDescripcion}>
+                <ChevronDown className="h-[13px] w-[13px] transition-transform" style={{ transform: verDescripcion ? 'rotate(180deg)' : undefined }} /> Descripción ({medidas[3].valor.toLocaleString('es-ES')} / {medidas[3].limite.toLocaleString('es-ES')} {medidas[3].unidad}){campos.includes('descripcion') ? ' · cambiada' : ''}
+              </button>
+              {verDescripcion && (
+                <div className="mt-2">
+                  <textarea value={t.descripcion ?? ''} onChange={(e) => cambiar('descripcion', e.target.value)} onFocus={enfocar('descripcion')} rows={5} className={CAMPO} />
+                </div>
+              )}
             </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
 
-      <Historial ediciones={ediciones} cargando={historial.cargando && !historial.datos} sinMigracion={Boolean(historial.datos?.sinMigracion)} onCargar={bilingue ? undefined : cargarVersion} />
+          {/* ---------- el diagnóstico en vivo, a la derecha y siempre a la vista ---------- */}
+          <aside className="flex min-w-0 flex-col gap-3 border-t border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-sup2)_45%,transparent)] p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto lg:border-l lg:border-t-0">
+            <div className="flex flex-col gap-[7px]">
+              {puntuacion.bloques.map((b, i) => (
+                <BarraDeBloque key={b.id} b={b} i={i} />
+              ))}
+            </div>
+
+            {puntuacion.siguientes.length > 1 && (
+              <div className="rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3">
+                <div className="mb-1 text-[12px] font-semibold text-[var(--ls-t1)]">Lo siguiente</div>
+                {puntuacion.siguientes.map((x) => (
+                  <div key={x.texto} className="flex items-start gap-2 py-[3px] text-[12px] leading-[1.45] text-[var(--ls-t2)]">
+                    <span className="mt-[1px] shrink-0 rounded-full px-[6px] text-[10.5px] font-semibold tabular-nums" style={{ color: COLOR_ESTADO.verde, background: mezcla(COLOR_ESTADO.verde, 13) }}>+{x.puntos}</span>
+                    {x.texto}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {puntuacion.palabras.length > 0 && (
+              <div>
+                <div className="mb-[6px] text-[12px] font-semibold text-[var(--ls-t1)]">
+                  Palabras que pesan <span className="font-normal text-[var(--ls-t4)]">· pulsa una para meterla donde tengas el cursor</span>
+                </div>
+                <div className="flex flex-wrap gap-[5px]">
+                  {puntuacion.palabras.map((x) => (
+                    <button
+                      key={x.raiz}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => meterPalabra(x.palabra)}
+                      title={`${x.compras.toLocaleString('es-ES')} compras detrás${x.donde ? ` · está en ${ZONA[x.donde]}` : ' · no está en ninguna parte'}`}
+                      className="inline-flex items-center gap-1 rounded-full border px-[8px] py-[2px] text-[11.5px] transition-colors"
+                      style={x.donde === 'titulo' || x.donde === 'highlights' ? { borderColor: mezcla(COLOR_ESTADO.verde, 45), color: COLOR_ESTADO.verde, background: mezcla(COLOR_ESTADO.verde, 10) } : x.donde ? { borderColor: mezcla(COLOR_ESTADO.azul, 40), color: COLOR_ESTADO.azul } : { borderColor: 'var(--ls-linea)', color: 'var(--ls-t3)' }}
+                    >
+                      {x.donde ? <CircleCheck className="h-3 w-3" /> : <span className="text-[11px]">+</span>}
+                      {x.palabra}
+                      {x.donde && x.donde !== 'titulo' && <span className="text-[9.5px] opacity-70">{ZONA[x.donde]}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {puntuacion.busquedas.length > 0 && (
+              <div>
+                <div className="mb-[6px] text-[12px] font-semibold text-[var(--ls-t1)]">
+                  Búsquedas del producto <span className="font-normal text-[var(--ls-t4)]">· {puntuacion.busquedas.filter((b) => b.enTitulo).length} en el título · {puntuacion.busquedas.filter((b) => b.enFicha).length} de {puntuacion.busquedas.length} en la ficha</span>
+                </div>
+                <div className="flex flex-col">
+                  {puntuacion.busquedas.slice(0, 10).map((b) => {
+                    const color = b.enTitulo ? COLOR_ESTADO.verde : b.enFicha ? COLOR_ESTADO.azul : 'var(--ls-t4)'
+                    return (
+                      <div key={b.consulta} className="flex items-center gap-2 border-t border-[var(--ls-linea)] py-[4px] text-[12px] first:border-t-0">
+                        <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color }} />
+                        <span className="min-w-0 flex-1 truncate text-[var(--ls-t1)]" title={b.consulta}>{b.consulta}</span>
+                        <span className="shrink-0 text-[11px]" style={{ color }}>{b.enTitulo ? 'título' : b.enFicha ? 'ficha' : `falta: ${b.faltan.join(' ')}`}</span>
+                        <span className="w-[44px] shrink-0 text-right text-[11px] tabular-nums text-[var(--ls-t4)]">{b.compras.toLocaleString('es-ES')}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {(publicidad?.length ?? 0) > 0 && (
+              <div>
+                <div className="mb-[6px] text-[12px] font-semibold text-[var(--ls-t1)]">Vende por publicidad y no está en la ficha</div>
+                {publicidad!.slice(0, 5).map((x) => (
+                  <div key={x.termino} className="flex items-center gap-2 border-t border-[var(--ls-linea)] py-[4px] text-[12px] first:border-t-0">
+                    <span className="min-w-0 flex-1 truncate text-[var(--ls-t1)]">{x.termino}</span>
+                    <span className="shrink-0 text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>falta: {x.faltan.join(' ')}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-[var(--ls-t4)]">{x.pedidos} ped.</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(ficha.issues?.length ?? 0) > 0 && (
+              <div>
+                <div className="mb-[6px] text-[12px] font-semibold text-[var(--ls-t1)]">Lo que dice Amazon de este listing</div>
+                {ficha.issues!.slice(0, 4).map((i, k) => (
+                  <div key={k} className="flex items-start gap-2 py-[3px] text-[11.5px] leading-[1.45] text-[var(--ls-t2)]">
+                    <span className="mt-[5px] h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: i.severity === 'ERROR' ? COLOR_ESTADO.rojo : COLOR_ESTADO.ambar }} />
+                    <span className="line-clamp-2" title={i.message}>{i.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {rechazo && (
+              <div className="rounded-[12px] border px-3 py-[10px] text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.rojo, 40), background: mezcla(COLOR_ESTADO.rojo, 6) }}>
+                <div className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.rojo }}>
+                  <CircleAlert className="h-[14px] w-[14px]" /> No se ha mandado
+                </div>
+                <div className="mt-1 text-[var(--ls-t2)]">{rechazo.motivo}</div>
+                {rechazo.issues.slice(0, 6).map((i, k) => (
+                  <div key={k} className="text-[12px] text-[var(--ls-t3)]">· {i.message ?? i.code}</div>
+                ))}
+                {rechazo.viva && (rechazo.cambiadosEnAmazon?.length ?? 0) > 0 && (
+                  <div className="mt-2">
+                    <Boton variante="secundario" tamano="sm" icono={DownloadCloud} onClick={traerLaViva}>
+                      Traer la ficha de Amazon y mantener mis cambios
+                    </Boton>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {vigente && (
+              <div className="rounded-[12px] border px-3 py-[10px] text-[12.5px] leading-[1.5]" style={{ borderColor: mezcla(COLOR_ESTADO.verde, 40), background: mezcla(COLOR_ESTADO.verde, 6) }}>
+                <div className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.verde }}>
+                  <ShieldCheck className="h-[14px] w-[14px]" /> Amazon lo acepta (validado sin guardar)
+                </div>
+                <div className="mt-1 text-[var(--ls-t2)]">Se mandará: {nombres(vigente.campos)}. El resto de la ficha no se toca.</div>
+                {[...vigente.avisos, ...vigente.issues.map((i) => i.message ?? '')].filter(Boolean).map((a) => (
+                  <div key={a} className="mt-1 text-[12px] text-[var(--ls-t3)]">· {a}</div>
+                ))}
+                {!vigente.id && <div className="mt-1 text-[12px]" style={{ color: COLOR_ESTADO.ambar }}>Para aplicar desde aquí falta lanzar la migración 312 en Supabase.</div>}
+              </div>
+            )}
+
+            {campos.length > 0 && (
+              <div>
+                <button type="button" onClick={() => setVerCambios((v) => !v)} className="flex items-center gap-1 text-[12px] font-medium text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" aria-expanded={verCambios}>
+                  <ChevronDown className="h-[13px] w-[13px] transition-transform" style={{ transform: verCambios ? 'rotate(180deg)' : undefined }} /> Antes y después ({campos.length})
+                </button>
+                {verCambios && (
+                  <div className="mt-2 flex flex-col gap-3">
+                    <p className="text-[11.5px] text-[var(--ls-t4)]">{vivaLeida ? '«Antes» es lo que Amazon tiene ahora mismo (leído al validar).' : `«Antes» es la ficha leída ${new Date(ficha.leidaAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.`}</p>
+                    {campos.map((c) => (
+                      <Diferencia key={c} campo={c} antes={original} despues={t} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {bloqueos.length > 0 && (
+              <ul className="flex flex-col gap-1 text-[12px]">
+                {bloqueos.map((b) => (
+                  <li key={b} className="flex items-start gap-2" style={{ color: COLOR_ESTADO.rojo }}>
+                    <XCircle className="mt-[2px] h-[13px] w-[13px] shrink-0" /> {b}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {ventana?.bloqueada && tocaTitulo && (
+              <p className="text-[12px] leading-[1.45]" style={{ color: COLOR_ESTADO.ambar }}>
+                El título se cambió el {ventana.ultimo}: el SOP pide 30 días entre cambios (desde el {ventana.puedeDesde}). Puedes mandarlo igual confirmándolo.
+              </p>
+            )}
+          </aside>
+        </div>
+      )}
+
+      <div className="border-t border-[var(--ls-linea)] px-4 pb-3">
+        <Historial ediciones={ediciones} cargando={historial.cargando && !historial.datos} sinMigracion={Boolean(historial.datos?.sinMigracion)} onCargar={bilingue ? undefined : cargarVersion} />
+      </div>
 
       <Confirmacion
         abierto={confirmar}
@@ -387,7 +542,7 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desd
           if (!v) setSaltarVentana(false)
         }}
         titulo="¿Cambiar la ficha del cliente en Amazon?"
-        descripcion={`Se mandan ${nombres(camposAMandar)} (lo que Amazon ha validado; el resto de la ficha no se toca). Amazon lo procesa en unos minutos; después el ERP relee la ficha y comprueba que ha quedado.`}
+        descripcion={`Amazon lo ha validado. Se mandan ${nombres(camposAMandar)} (el resto de la ficha no se toca). Amazon lo procesa en unos minutos; después el ERP relee la ficha y comprueba que ha quedado.`}
         palabra={ventana?.bloqueada && tocaTitulo ? 'APLICAR' : null}
         tono="normal"
         textoConfirmar="Sí, cambiar la ficha"
@@ -413,7 +568,37 @@ export function EditorDeFicha({ cuentaId, asin, ficha, ventana, onAplicada, desd
           </label>
         )}
       </Confirmacion>
-    </Tarjeta>
+    </section>
+  )
+}
+
+/** Lo que falla en un campo, justo debajo de él (cambia con cada tecla) */
+function Avisos({ lista }: { lista: AvisoDeCampo[] }) {
+  if (lista.length === 0) return null
+  return (
+    <ul className="mt-[2px] flex flex-col gap-[2px]">
+      {lista.map((a) => (
+        <motion.li key={a.texto} layout initial={{ opacity: 0, y: -3 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-[6px] text-[11.5px] leading-[1.45]" style={{ color: a.tono === 'mal' ? COLOR_ESTADO.rojo : a.tono === 'aviso' ? COLOR_ESTADO.ambar : COLOR_ESTADO.verde }}>
+          {a.tono === 'bien' ? <CircleCheck className="mt-[2px] h-[12px] w-[12px] shrink-0" /> : <TriangleAlert className="mt-[2px] h-[12px] w-[12px] shrink-0" />}
+          <span className={a.tono === 'bien' ? '' : 'text-[var(--ls-t2)]'}>{a.texto}</span>
+        </motion.li>
+      ))}
+    </ul>
+  )
+}
+
+function BarraDeBloque({ b, i }: { b: BloqueDePuntuacion; i: number }) {
+  const parte = b.maximo > 0 ? b.puntos / b.maximo : 0
+  const color = !b.medible ? 'var(--ls-t4)' : parte >= 0.95 ? COLOR_ESTADO.verde : parte >= 0.6 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo
+  return (
+    <div title={b.siguiente ?? 'Al máximo'}>
+      <div className="mb-[3px] flex items-center justify-between text-[11.5px]">
+        <span className="text-[var(--ls-t2)]">{b.nombre}</span>
+        <span className="tabular-nums text-[var(--ls-t3)]">{b.medible ? `${Math.round(b.puntos)} / ${b.maximo}` : 'sin datos'}</span>
+      </div>
+      <div className="h-[5px] overflow-hidden rounded-full bg-[var(--ls-sup3)]">
+        <motion.div className="h-full rounded-full" initial={{ width: 0 }} animate={{ width: `${(b.medible ? parte : 0) * 100}%`, background: color }} transition={{ type: 'spring', stiffness: 170, damping: 24, delay: i * 0.03 }} />
+      </div>
     </div>
   )
 }
