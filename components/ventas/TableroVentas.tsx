@@ -561,34 +561,62 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
 
 /** La minigráfica de la baldosa: área rellena con el color del periodo, que se dibuja al entrar */
 function MiniArea({ valores, color, id, viva }: { valores: number[]; color: string; id: string; viva: boolean }) {
-  const W = 300
-  const H = 48
-  if (valores.length < 2) return <div style={{ height: H }} />
+  // Se dibuja al ancho REAL de la baldosa (nada de estirar el SVG: deformaba el punto y la línea se quedaba corta al animarse)
+  const caja = useRef<HTMLDivElement>(null)
+  const [W, setW] = useState(0)
+  useEffect(() => {
+    const el = caja.current
+    if (!el) return
+    const medir = () => setW(Math.round(el.getBoundingClientRect().width))
+    medir()
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const H = 46
+  const PAD_X = 10
+  const ARRIBA = 6
+  const ABAJO = 4
+  if (valores.length < 2) return <div ref={caja} style={{ height: H }} />
   const max = Math.max(...valores, 1)
-  const pts = valores.map((v, k) => [(k / (valores.length - 1)) * W, H - 6 - (v / max) * (H - 12)] as const)
-  // Curva suave (Catmull-Rom a Bézier)
-  let d = `M ${pts[0][0]} ${pts[0][1]}`
+  const ancho = Math.max(1, W - PAD_X * 2)
+  const y = (v: number) => ARRIBA + (1 - Math.max(0, v) / max) * (H - ARRIBA - ABAJO)
+  const pts = valores.map((v, k) => [PAD_X + (k / (valores.length - 1)) * ancho, y(v)] as const)
+  // Curva suave que no se pasa de los valores (los puntos de control se quedan dentro del alto)
+  const dentro = (v: number) => Math.min(H - ABAJO, Math.max(ARRIBA, v))
+  let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`
   for (let k = 0; k < pts.length - 1; k++) {
     const p0 = pts[k - 1] ?? pts[k]
     const p1 = pts[k]
     const p2 = pts[k + 1]
     const p3 = pts[k + 2] ?? p2
-    d += ` C ${p1[0] + (p2[0] - p0[0]) / 6} ${p1[1] + (p2[1] - p0[1]) / 6}, ${p2[0] - (p3[0] - p1[0]) / 6} ${p2[1] - (p3[1] - p1[1]) / 6}, ${p2[0]} ${p2[1]}`
+    const t = 0.18
+    d += ` C ${(p1[0] + (p2[0] - p0[0]) * t).toFixed(1)} ${dentro(p1[1] + (p2[1] - p0[1]) * t).toFixed(1)}, ${(p2[0] - (p3[0] - p1[0]) * t).toFixed(1)} ${dentro(p2[1] - (p3[1] - p1[1]) * t).toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`
   }
-  const area = `${d} L ${W} ${H} L 0 ${H} Z`
   const ultimo = pts[pts.length - 1]
+  const area = `${d} L ${ultimo[0].toFixed(1)} ${H} L ${pts[0][0].toFixed(1)} ${H} Z`
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-[48px] w-full" aria-hidden>
-      <defs>
-        <linearGradient id={`${id}-f`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={viva ? 0.34 : 0.2} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <motion.path d={area} fill={`url(#${id}-f)`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} />
-      <motion.path d={d} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }} style={{ filter: `drop-shadow(0 0 4px ${color})`, opacity: viva ? 1 : 0.75 }} />
-      <circle cx={ultimo[0] - 1} cy={ultimo[1]} r={3} fill={color} style={{ filter: `drop-shadow(0 0 5px ${color})` }} />
-    </svg>
+    <div ref={caja} style={{ height: H }}>
+      {W > 0 && (
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block overflow-visible" aria-hidden>
+          <defs>
+            <linearGradient id={`${id}-f`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={viva ? 0.28 : 0.16} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+            <clipPath id={`${id}-c`}>
+              <motion.rect x={0} y={-10} height={H + 20} initial={{ width: 0 }} animate={{ width: W }} transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }} />
+            </clipPath>
+          </defs>
+          <g clipPath={`url(#${id}-c)`}>
+            <path d={area} fill={`url(#${id}-f)`} />
+            <path d={d} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" opacity={viva ? 1 : 0.8} />
+          </g>
+          <circle cx={ultimo[0]} cy={ultimo[1]} r={6} fill={color} opacity={0.18} />
+          <circle cx={ultimo[0]} cy={ultimo[1]} r={2.8} fill={color} stroke="var(--ls-sup)" strokeWidth={1.2} />
+        </svg>
+      )}
+    </div>
   )
 }
 

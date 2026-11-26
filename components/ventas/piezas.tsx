@@ -288,7 +288,7 @@ export type Agrupar = 'sku' | 'asin' | 'mercado'
 
 export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar = 'sku', onAbrir, extras }: { filas: readonly FilaPanel[]; ivaPct: Iva; costes: Record<string, number>; titulos: Record<string, { titulo: string | null; asin: string | null }>; buscar: string; agrupar?: Agrupar; onAbrir?: (p: { titulo: string; sub: string; asin: string | null; mkt: string; filas: FilaPanel[] }) => void; extras?: ExtrasProductos }) {
   const [orden, setOrden] = useState<{ col: ColProducto; desc: boolean }>({ col: 'ventas', desc: true })
-  const [mas, setMas] = useState<{ k: string; x: number; y: number } | null>(null)
+  const [mas, setMas] = useState<{ k: string; boton: HTMLElement } | null>(null)
   const productos = useMemo(() => {
     const por = new Map<string, FilaPanel[]>()
     for (const f of filas) {
@@ -326,13 +326,8 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
   useEffect(() => {
     if (!mas) return
     const cerrar = (e: KeyboardEvent) => e.key === 'Escape' && setMas(null)
-    const fuera = () => setMas(null)
     window.addEventListener('keydown', cerrar)
-    window.addEventListener('resize', fuera)
-    return () => {
-      window.removeEventListener('keydown', cerrar)
-      window.removeEventListener('resize', fuera)
-    }
+    return () => window.removeEventListener('keydown', cerrar)
   }, [mas])
   const Cab = ({ col, texto }: { col: ColProducto; texto: string }) => (
     <th className="whitespace-nowrap px-2 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">
@@ -443,8 +438,8 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation()
-                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                      setMas((m) => (m?.k === p.k ? null : { k: p.k, x: r.right, y: r.top }))
+                      const boton = e.currentTarget as HTMLElement
+                      setMas((m) => (m?.k === p.k ? null : { k: p.k, boton }))
                     }}
                     className="rounded-[6px] px-2 py-[2px] text-[12px] font-medium text-[#3B82F6] transition-colors hover:bg-[color-mix(in_srgb,#3B82F6_12%,transparent)]"
                   >
@@ -456,22 +451,57 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
           })}
         </tbody>
       </table>
-      {abierto && mas && <PanelMas p={abierto} x={mas.x} y={mas.y} agrupar={agrupar} onCerrar={() => setMas(null)} />}
+      {abierto && mas && <PanelMas p={abierto} boton={mas.boton} agrupar={agrupar} onCerrar={() => setMas(null)} />}
     </div>
   )
 }
 
 /** El «Más» de Sellerboard: todo el desglose de un producto en una ventanita junto a su fila */
-function PanelMas({ p, x, y, agrupar, onCerrar }: { p: { k: string; mkt: string; sku: string; asin: string | null; titulo: string | null; skus: number; t: Totales; sesiones?: number | null; stock: number | null }; x: number; y: number; agrupar: Agrupar; onCerrar: () => void }) {
+function PanelMas({ p, boton, agrupar, onCerrar }: { p: { k: string; mkt: string; sku: string; asin: string | null; titulo: string | null; skus: number; t: Totales; sesiones?: number | null; stock: number | null }; boton: HTMLElement; agrupar: Agrupar; onCerrar: () => void }) {
+  // Va pegada a su fila: al hacer scroll (de la página o de cualquier caja) se recoloca, y si la fila sale de la pantalla se cierra.
+  // El alto se ajusta a lo que queda visible y lo de dentro hace scroll: nunca se queda nada cortado
   const ANCHO = 380
-  const alto = typeof window === 'undefined' ? 800 : window.innerHeight
-  const ancho = typeof window === 'undefined' ? 1200 : window.innerWidth
-  const left = Math.max(12, Math.min(x - ANCHO - 12, ancho - ANCHO - 12))
-  const top = Math.max(12, Math.min(y - 40, alto - 640))
+  const [pos, setPos] = useState<{ left: number; top: number; alto: number } | null>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  // Sin velo delante: la página sigue haciendo scroll con la ventana abierta. Un clic fuera la cierra
+  useEffect(() => {
+    const fuera = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (panel.current?.contains(t) || boton.contains(t)) return
+      onCerrar()
+    }
+    document.addEventListener('mousedown', fuera)
+    return () => document.removeEventListener('mousedown', fuera)
+  }, [boton, onCerrar])
+  useLayoutEffect(() => {
+    let marco = 0
+    const colocar = () => {
+      cancelAnimationFrame(marco)
+      marco = requestAnimationFrame(() => {
+        if (!boton.isConnected) return onCerrar()
+        const r = boton.getBoundingClientRect()
+        const vh = window.innerHeight
+        const vw = window.innerWidth
+        if (r.bottom < 0 || r.top > vh) return onCerrar()
+        const left = Math.max(12, Math.min(r.right - ANCHO - 60, vw - ANCHO - 12))
+        const alto = Math.min(660, vh - 24)
+        const top = Math.max(12, Math.min(r.top - 40, vh - alto - 12))
+        setPos({ left, top, alto: Math.min(alto, vh - top - 12) })
+      })
+    }
+    colocar()
+    window.addEventListener('scroll', colocar, true)
+    window.addEventListener('resize', colocar)
+    return () => {
+      cancelAnimationFrame(marco)
+      window.removeEventListener('scroll', colocar, true)
+      window.removeEventListener('resize', colocar)
+    }
+  }, [boton, onCerrar])
+  if (!pos) return null
   return (
     <>
-      <div className="fixed inset-0 z-[80]" onClick={onCerrar} />
-      <div className="fixed z-[81] flex max-h-[calc(100vh-24px)] flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.45)]" style={{ left, top, width: ANCHO, animation: 'ventas-entra 220ms both cubic-bezier(.2,.8,.2,1)' }}>
+      <div ref={panel} className="fixed z-[81] flex flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.45)]" style={{ left: pos.left, top: pos.top, width: ANCHO, maxHeight: pos.alto, animation: 'ventas-entra 220ms both cubic-bezier(.2,.8,.2,1)' }}>
         <div className="flex items-start gap-3 border-b border-[var(--ls-linea)] px-3 py-3">
           {agrupar === 'mercado' ? (
             <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[22px]">{bandera(p.mkt)}</span>
@@ -489,7 +519,7 @@ function PanelMas({ p, x, y, agrupar, onCerrar }: { p: { k: string; mkt: string;
             <X className="h-[15px] w-[15px]" />
           </button>
         </div>
-        <div className="overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <Desglose t={p.t} sesiones={p.sesiones} compacto />
         </div>
       </div>
