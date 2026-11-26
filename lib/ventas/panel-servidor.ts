@@ -21,6 +21,9 @@ export interface CuentaDelPanel {
     resumenAt: string | null
     error: string | null
     primeraLectura: boolean
+    /** El historial: hasta qué día hacia atrás está cargado y hasta dónde llegará (2 años) */
+    historicoHasta: string | null
+    historicoObjetivo: string | null
   }
 }
 
@@ -65,6 +68,8 @@ export async function cuentasDelPanel(): Promise<CuentaDelPanel[]> {
           publicidadHasta: (f.ads_leido_hasta as string) ?? null,
           resumenAt: (f.resumen_at as string) ?? null,
           error: (f.ultimo_error as string) ?? null,
+          historicoHasta: (f.historico_hasta as string) ?? null,
+          historicoObjetivo: (f.historico_objetivo as string) ?? null,
           primeraLectura: !f.pedidos_leido_hasta || !f.finanzas_leido_hasta || Date.parse(String(f.finanzas_leido_hasta)) < Date.now() - 2 * 86_400_000,
         },
       }

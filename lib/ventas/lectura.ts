@@ -244,12 +244,24 @@ function sumaProfunda(v: unknown, porEuro: Record<string, number>): number {
  * Lee UNA página de movimientos (payload.FinancialEvents). `zona` decide el día de los que no son de un mercado concreto. El resultado se puede volver a
  * leer sin duplicar: los movimientos llevan una `clave` estable y las tarifas se identifican por pedido + SKU.
  */
-export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: string, porEuro: Record<string, number>): DineroLeido {
+export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: string, porEuro: Record<string, number>, opciones: { publicidadFacturada?: boolean } = {}): DineroLeido {
   const salida: DineroLeido = { tarifas: [], movimientos: [] }
   const diaDe = (fecha: unknown, mercado: string) => (typeof fecha === 'string' ? diaEnZona(fecha, zonaDeMercado(mercado)) : null)
 
   for (const [lista, filas] of Object.entries(eventos)) {
-    if (!Array.isArray(filas) || filas.length === 0 || NO_SE_SUMAN.has(lista)) continue
+    if (!Array.isArray(filas) || filas.length === 0) continue
+    // El historial (más allá de lo que guarda Amazon Ads) toma la publicidad de las FACTURAS que Amazon cobra: por día de factura y sin producto
+    if (lista === 'ProductAdsPaymentEventList' && opciones.publicidadFacturada) {
+      for (const ev of filas as Array<Record<string, unknown>>) {
+        const fecha = (ev.postedDate ?? ev.PostedDate) as string | undefined
+        const dia = fecha ? diaDe(fecha, mercadoPorDefecto) : null
+        const importe = -eur(ev.transactionValue as Importe, porEuro)
+        if (!dia || !importe) continue
+        salida.movimientos.push({ clave: `a|${String(ev.invoiceId ?? '')}|${String(fecha)}|${r2(importe)}`, dia, marketplace_id: mercadoPorDefecto, sku: '', tipo: 'publicidad', unidades: 0, importe: r2(importe), extra: 0, extra_unidades: 0 })
+      }
+      continue
+    }
+    if (NO_SE_SUMAN.has(lista)) continue
 
     if (lista === 'ShipmentEventList') {
       for (const ev of filas as Array<Record<string, unknown>>) {

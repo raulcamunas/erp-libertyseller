@@ -32,6 +32,7 @@ export function TableroVentas() {
   const [libres, setLibres] = useState<Array<{ id: string; nombre: string; cliente: string | null }>>([])
   const [cuentaId, setCuentaId] = useState<string | null>(null)
   const [tanda, setTanda] = useState<Tanda>('clasica')
+  const [rango, setRango] = useState<{ desde: string; hasta: string } | null>(null)
   const [comparar, setComparar] = useState<Comparar>('anio')
   const [mercados, setMercados] = useState<Set<string> | null>(null)
   const [elegido, setElegido] = useState('hoy')
@@ -48,7 +49,10 @@ export function TableroVentas() {
   const peticion = useRef(0)
 
   const { hoy, fraccion } = useMemo(() => hoyEnMadrid(), [reloj]) // eslint-disable-line react-hooks/exhaustive-deps
-  const periodos = useMemo(() => periodosDe(tanda, hoy, fraccion), [tanda, hoy, fraccion])
+  const periodos: Periodo[] = useMemo(
+    () => (tanda === 'rango' && rango ? [{ id: 'rango', titulo: 'Rango elegido', desde: rango.desde, hasta: rango.hasta }] : periodosDe(tanda === 'rango' ? 'clasica' : tanda, hoy, fraccion)),
+    [tanda, rango, hoy, fraccion],
+  )
   const comparados = useMemo(() => periodos.map((p) => rangoAComparar(p, comparar)), [periodos, comparar])
   const cuenta = cuentas?.find((c) => c.id === cuentaId) ?? null
   const periodoElegido = periodos.find((p) => p.id === elegido) ?? periodos[0]
@@ -128,11 +132,14 @@ export function TableroVentas() {
   const tElegido = totales[iElegido]
   const filasElegidas = useMemo(() => filas.filter((f) => enRango(f.dia, periodoElegido)), [filas, periodoElegido])
   const diasGrafica = useMemo(() => {
-    const desde = periodoElegido.desde < desdeGrafica ? periodoElegido.desde : desdeGrafica
+    // Un periodo antiguo (o un rango elegido) se dibuja él solo; lo reciente, con los últimos 30 días alrededor
+    const antiguo = tanda === 'rango' || periodoElegido.hasta < desdeGrafica
+    const desde = antiguo ? periodoElegido.desde : periodoElegido.desde < desdeGrafica ? periodoElegido.desde : desdeGrafica
+    const hasta = antiguo ? periodoElegido.hasta : hoy
     const dias: string[] = []
-    for (let d = desde; d <= hoy; d = sumarDias(d, 1)) dias.push(d)
+    for (let d = desde; d <= hasta && dias.length < 800; d = sumarDias(d, 1)) dias.push(d)
     return dias
-  }, [periodoElegido.desde, desdeGrafica, hoy])
+  }, [tanda, periodoElegido.desde, periodoElegido.hasta, desdeGrafica, hoy])
 
   // La minigráfica de cada baldosa: las ventas de cada día del periodo (o de los 14 días hasta su final, si es de un día o dos)
   const ventasPorDia = new Map<string, number>()
@@ -187,14 +194,27 @@ export function TableroVentas() {
 
       {/* Los filtros */}
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <Desplegable icono={Calendar} texto={TANDAS.find((t) => t.id === tanda)?.texto ?? ''}>
-          {(cerrar) =>
-            TANDAS.map((t) => (
-              <Opcion key={t.id} activa={t.id === tanda} onClick={() => (setTanda(t.id), cerrar())}>
-                {t.texto}
-              </Opcion>
-            ))
-          }
+        <Desplegable icono={Calendar} texto={tanda === 'rango' && rango ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (TANDAS.find((t) => t.id === tanda)?.texto ?? '')}>
+          {(cerrar) => (
+            <>
+              {TANDAS.map((t) => (
+                <Opcion key={t.id} activa={t.id === tanda} onClick={() => (setTanda(t.id), cerrar())}>
+                  {t.texto}
+                </Opcion>
+              ))}
+              <ElegirRango
+                inicial={rango ?? { desde: sumarDias(hoy, -365 - 29), hasta: sumarDias(hoy, -365) }}
+                hoy={hoy}
+                activo={tanda === 'rango'}
+                onAplicar={(r) => {
+                  setRango(r)
+                  setTanda('rango')
+                  setElegido('rango')
+                  cerrar()
+                }}
+              />
+            </>
+          )}
         </Desplegable>
         <Desplegable icono={Globe} texto={!mercados || mercados.size === mercadosConDatos.length ? 'Todos los países' : `${mercados.size} ${mercados.size === 1 ? 'país' : 'países'}`}>
           {() => (
@@ -238,6 +258,7 @@ export function TableroVentas() {
           }
         </Desplegable>
         {cargando && <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ls-t4)]"><Loader2 className="h-[12px] w-[12px] animate-spin" /> leyendo…</span>}
+        {cuenta && !cuenta.estado.primeraLectura && <EstadoHistorial estado={cuenta.estado} hoy={hoy} />}
       </div>
 
       {/* Las baldosas */}
@@ -470,6 +491,49 @@ function ProgresoDeLectura({ estado }: { estado: CuentaDelPanel['estado'] }) {
         })}
       </div>
     </div>
+  )
+}
+
+function ElegirRango({ inicial, hoy, activo, onAplicar }: { inicial: { desde: string; hasta: string }; hoy: string; activo: boolean; onAplicar: (r: { desde: string; hasta: string }) => void }) {
+  const [desde, setDesde] = useState(inicial.desde)
+  const [hasta, setHasta] = useState(inicial.hasta)
+  const valido = desde && hasta && desde <= hasta && hasta <= hoy
+  const campo = 'h-8 w-full rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[12.5px] text-[var(--ls-t1)] outline-none [color-scheme:dark]'
+  return (
+    <div className="mt-1 border-t border-[var(--ls-linea)] px-3 pb-2 pt-3">
+      <div className="mb-2 flex items-center gap-2 text-[12px] font-medium text-[var(--ls-t2)]">
+        <span className="w-[14px]">{activo && <Check className="h-[13px] w-[13px] text-[var(--ls-acc)]" />}</span>
+        Rango personalizado
+      </div>
+      <div className="grid grid-cols-2 gap-2 pl-[22px]">
+        <label className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--ls-t4)]">
+          Desde
+          <input type="date" value={desde} max={hoy} onChange={(e) => setDesde(e.target.value)} className={campo} />
+        </label>
+        <label className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--ls-t4)]">
+          Hasta
+          <input type="date" value={hasta} max={hoy} onChange={(e) => setHasta(e.target.value)} className={campo} />
+        </label>
+      </div>
+      <div className="mt-2 flex justify-end">
+        <button type="button" disabled={!valido} onClick={() => onAplicar({ desde, hasta })} className="h-8 rounded-[8px] px-3 text-[12px] font-semibold text-[#141414] disabled:opacity-40" style={{ background: 'linear-gradient(135deg, #F26212, #FF8A3D)' }}>
+          Ver ese rango
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function EstadoHistorial({ estado, hoy }: { estado: CuentaDelPanel['estado']; hoy: string }) {
+  const desde = estado.historicoHasta ?? sumarDias(hoy, -62)
+  const objetivo = estado.historicoObjetivo ?? sumarDias(hoy, -730)
+  const completo = desde <= objetivo
+  return (
+    <span className="ml-auto inline-flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]" title={completo ? 'Historial completo: 2 años' : 'El historial se carga solo hacia atrás, mes a mes, hasta 2 años'}>
+      {completo ? <Check className="h-[12px] w-[12px]" style={{ color: VERDE }} /> : <Loader2 className="h-[12px] w-[12px] animate-spin" />}
+      Datos desde el {fechaCorta(desde)}
+      {!completo && <span className="text-[var(--ls-t4)]">· cargando hasta el {fechaCorta(objetivo)}</span>}
+    </span>
   )
 }
 

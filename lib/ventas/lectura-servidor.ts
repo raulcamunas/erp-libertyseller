@@ -59,6 +59,12 @@ interface Cuenta {
   resumen_at: string | null
   ultimo_error: string | null
   updated_at: string | null
+  historico_objetivo?: string | null
+  historico_hasta?: string | null
+  historico_informe_id?: string | null
+  historico_informe_desde?: string | null
+  historico_informe_hasta?: string | null
+  historico_pedido_at?: string | null
 }
 
 interface InformeAds {
@@ -165,6 +171,18 @@ export async function pasadaVentas(presupuestoMs: number): Promise<ResultadoPasa
           }
         } catch (e) {
           errores.push(`publicidad: ${mensajeDe(e)}`)
+        }
+      }
+
+      // 5 · El historial (2 años hacia atrás), solo cuando lo del día ya está al día: no le quita cupo a lo de hoy
+      const alDia = c.pedidos_leido_hasta && Date.parse(c.pedidos_leido_hasta) > Date.now() - 2 * 3_600_000 && c.finanzas_leido_hasta && Date.parse(c.finanzas_leido_hasta) > Date.now() - 3 * 3_600_000
+      if (alDia && quedan() > 40_000) {
+        try {
+          const r = await pasoHistorial(service, c, creds, mercado, porEuro, quedan() - 15_000)
+          if (r) salida.hechos.push(`${connection.name}: ${r}`)
+        } catch (e) {
+          errores.push(`historial: ${mensajeDe(e)}`)
+          await guardar(service, c.connection_id, { historico_informe_id: null }).catch(() => undefined)
         }
       }
 
@@ -461,7 +479,8 @@ export async function rehacerResumen(service: Servicio, connectionId: string): P
   const hayLinea = new Set(lineas.map((l) => `t|${l.pedido}|${l.sku}`))
   const filas = resumirDias(
     lineas.map((l) => ({ ...l, unidades: Number(l.unidades), ventas: l.ventas == null ? null : Number(l.ventas), promo: Number(l.promo), tarifa_referral: l.tarifa_referral == null ? null : Number(l.tarifa_referral), tarifa_fba: l.tarifa_fba == null ? null : Number(l.tarifa_fba), otras_tarifas: l.otras_tarifas == null ? null : Number(l.otras_tarifas) })),
-    movimientos.filter((m) => !(m.tipo === 'tarifa_pedido' && hayLinea.has(m.clave))).map((m) => ({ ...m, importe: Number(m.importe), extra: Number(m.extra), unidades: Number(m.unidades), extra_unidades: Number(m.extra_unidades) })),
+    // Las comisiones de pedidos que no están entre las líneas (anteriores a la ventana) no cuentan aquí: las cuenta el historial con su pedido
+    movimientos.filter((m) => m.tipo !== 'tarifa_pedido' && !hayLinea.has(m.clave)).map((m) => ({ ...m, importe: Number(m.importe), extra: Number(m.extra), unidades: Number(m.unidades), extra_unidades: Number(m.extra_unidades) })),
   ).filter((f) => f.dia >= desde)
   const { error } = await service.from('ventas_dia').delete().eq('connection_id', connectionId).gte('dia', desde)
   if (error) throw error
@@ -471,4 +490,92 @@ export async function rehacerResumen(service: Servicio, connectionId: string): P
   await service.from('ventas_lineas').delete().eq('connection_id', connectionId).lt('dia', corte)
   await service.from('ventas_movimientos').delete().eq('connection_id', connectionId).lt('dia', corte)
   return filas.length
+}
+
+/* ------------------------------------------------------------------ */
+/* 5 · El historial: 2 años hacia atrás, de 30 en 30 días              */
+/* ------------------------------------------------------------------ */
+
+export const DIAS_HISTORIAL = 730
+const TRAMO_HISTORIAL = 30
+
+/**
+ * Un tramo [desde, hasta) más antiguo que la ventana de 62 días: el informe de pedidos de esas fechas (se pide en una pasada y se recoge en otra) y el
+ * dinero de esas fechas (y 15 días más, que es cuando Amazon cobra los pedidos de los últimos días del tramo). Se resume en memoria y se escriben SOLO
+ * las filas de `ventas_dia` de esos días: nada de detalle. La publicidad sale de las facturas de Amazon (Amazon Ads no guarda tanto).
+ */
+async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typeof consultarInforme>[0], mercado: string, porEuro: Record<string, number>, presupuestoMs: number): Promise<string | null> {
+  // Sin la migración 345 las columnas no existen (select * no las trae): no se hace nada
+  if (!('historico_hasta' in c)) return null
+  const hoy = hoyEn()
+  const objetivo = c.historico_objetivo ?? desplazar(hoy, -DIAS_HISTORIAL)
+  const tope = c.historico_hasta ?? desplazar(hoy, -DIAS_VENTANA)
+  if (tope <= objetivo) return null
+  const ahora = new Date()
+
+  if (!c.historico_informe_id) {
+    const desde = [desplazar(tope, -TRAMO_HISTORIAL), objetivo].sort().reverse()[0]
+    // Un día de margen por delante y por detrás: el día de cada pedido es el de su país, no el de UTC
+    const { data } = await spApiRequest<{ reportId?: string }>(creds, 'createReport', {
+      method: 'POST',
+      path: '/reports/2021-06-30/reports',
+      body: { reportType: INFORME_PEDIDOS_VENTAS, marketplaceIds: [mercado], dataStartTime: `${desplazar(desde, -1)}T00:00:00Z`, dataEndTime: `${desplazar(tope, 1)}T00:00:00Z` },
+      repeatable: false,
+      maxAttempts: 1,
+    })
+    if (!data.reportId) throw new Error('Amazon ha aceptado el informe de pedidos del historial sin devolver su identificador')
+    await guardar(service, c.connection_id, { historico_objetivo: objetivo, historico_informe_id: data.reportId, historico_informe_desde: desde, historico_informe_hasta: tope, historico_pedido_at: ahora.toISOString() })
+    return `historial: pedido el informe de ${desde} → ${tope}`
+  }
+
+  const desde = c.historico_informe_desde as string
+  const hasta = c.historico_informe_hasta as string
+  const est = await consultarInforme(creds, c.historico_informe_id)
+  if (est.estado === 'IN_QUEUE' || est.estado === 'IN_PROGRESS') {
+    if (c.historico_pedido_at && ahora.getTime() - Date.parse(c.historico_pedido_at) > 60 * MIN) await guardar(service, c.connection_id, { historico_informe_id: null })
+    return null
+  }
+  if (est.estado === 'FATAL') {
+    await guardar(service, c.connection_id, { historico_informe_id: null })
+    throw new Error(`Amazon no ha podido generar el informe de pedidos del historial (${desde} → ${hasta})`)
+  }
+  const pedidos = est.estado === 'DONE' && est.documentId ? parsearPedidosVentas((await descargarInforme(creds, est.documentId)).texto, mercado, porEuro).lineas : []
+  const dentro = (dia: string) => dia >= desde && dia < hasta
+
+  // El dinero de esas fechas (hasta 15 días después: lo que Amazon cobra de los pedidos del final del tramo)
+  const arranque = Date.now()
+  const tarifas: ReturnType<typeof leerDinero>['tarifas'] = []
+  const movimientos: Movimiento[] = []
+  const finDinero = [desplazar(hasta, 15), hoy].sort()[0]
+  let siguiente: string | undefined
+  do {
+    if (Date.now() - arranque > presupuestoMs) return null // Sin tiempo: el tramo entero se repite en la próxima pasada (el informe sigue ahí)
+    const { data } = await spApiRequest<{ payload?: { FinancialEvents?: Record<string, unknown>; NextToken?: string } }>(creds, 'listFinancialEvents', {
+      method: 'GET',
+      path: '/finances/v0/financialEvents',
+      query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', PostedAfter: `${desplazar(desde, -1)}T00:00:00Z`, PostedBefore: `${finDinero}T00:00:00Z` },
+      maxAttempts: 4,
+    })
+    const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { publicidadFacturada: true })
+    tarifas.push(...leido.tarifas)
+    movimientos.push(...leido.movimientos)
+    siguiente = data?.payload?.NextToken
+  } while (siguiente)
+
+  // Las líneas con su precio y sus comisiones reales
+  const porPedido = new Map(tarifas.map((t) => [`${t.pedido}|${t.sku}`, t]))
+  const lineas: LineaGuardada[] = pedidos.filter((l) => dentro(l.dia)).map((l) => {
+    const t = porPedido.get(`${l.pedido}|${l.sku}`)
+    if (t) porPedido.delete(`${l.pedido}|${l.sku}`)
+    return { pedido: l.pedido, sku: l.sku, marketplace_id: l.marketplace_id, dia: l.dia, asin: l.asin, unidades: l.unidades, ventas: t && t.cobrado > 0 ? t.cobrado : l.ventas, promo: t ? t.promo || l.promo : l.promo, tarifa_referral: t ? t.referral : null, tarifa_fba: t ? t.fba : null, otras_tarifas: t ? t.otras : null, tarifas_reales: Boolean(t) }
+  })
+  // Las comisiones de pedidos que no son de este tramo NO cuentan aquí: son de un tramo vecino, que las casa con su pedido (lee el dinero hasta 15 días después)
+  const unicos = [...new Map(movimientos.filter((m) => dentro(m.dia)).map((m) => [m.clave, m])).values()]
+  const filas = resumirDias(lineas, unicos).filter((f) => dentro(f.dia))
+
+  const { error } = await service.from('ventas_dia').delete().eq('connection_id', c.connection_id).gte('dia', desde).lt('dia', hasta)
+  if (error) throw error
+  await enTrozos(filas.map((f) => ({ connection_id: c.connection_id, ...f })), (t) => service.from('ventas_dia').insert(t))
+  await guardar(service, c.connection_id, { historico_informe_id: null, historico_hasta: desde, historico_at: new Date().toISOString() })
+  return `historial ${desde} → ${hasta}: ${lineas.length} líneas, ${filas.length} filas`
 }

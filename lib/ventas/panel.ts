@@ -136,7 +136,7 @@ export interface Periodo extends Rango {
   hastaPronostico?: string
 }
 
-export type Tanda = 'clasica' | 'dias' | 'semanas' | 'meses' | 'trimestres'
+export type Tanda = 'clasica' | 'dias' | 'semanas' | 'meses' | 'trimestres' | 'rango'
 export type Comparar = 'anio' | 'anterior' | 'no'
 
 export const TANDAS: Array<{ id: Tanda; texto: string }> = [
