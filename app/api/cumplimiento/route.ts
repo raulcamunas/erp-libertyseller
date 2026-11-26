@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { errorResponse, fail } from '@/lib/amazon/api'
+import { errorResponse, fail, UUID } from '@/lib/amazon/api'
+import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { descartarListing, filtrosValidos, paginaDeCliente, resumenDeCliente } from '@/lib/cumplimiento/consulta'
 import { panelDeCliente } from '@/lib/cumplimiento/panel'
 import { conexionesDeCliente } from '@/lib/cumplimiento/conexiones'
@@ -16,6 +17,7 @@ import { corregir, correccionesRecientes, prepararCorreccion } from '@/lib/cumpl
 import type { Formulario } from '@/lib/cumplimiento/correccion'
 import { clientesGrowth } from '@/lib/growth/clientes'
 import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
+import { apuntar, borrarComentario, comentar, comentariosPorListing, MAX_TEXTO, registroDeCliente } from '@/lib/cumplimiento/registro-servidor'
 
 /**
  * CUMPLIMIENTO DE LISTINGS · LO QUE USA LA PANTALLA.
@@ -24,7 +26,10 @@ import { requireAppDeCuentas } from '@/lib/cuentas/acceso'
  *   filas     una página de la lista, con los filtros elegidos.
  *   ahora     lanza una revisión del cliente y CONTESTA EN SEGUIDA.
  *   sku       vuelve a mirar UN listing, tras arreglarlo en Seller Central.
- *   descartar / recuperar   quita un listing del seguimiento (no lo tenemos o no se puede recuperar) o lo devuelve. Migración 341.
+ *   descartar / recuperar   quita un listing del seguimiento (no lo tenemos o no se puede recuperar) o lo devuelve. Migración 341. Quitar EXIGE motivo (343).
+ *   registro      quién hizo qué sobre el cliente (o un listing: mercado + sku) y los comentarios. Migración 343.
+ *   comentar / borrar-comentario   un comentario en un listing, con su autor; cada uno borra solo los suyos.
+ *   Las acciones que cambian algo (quitar, recuperar, revisar, precios) se apuntan en el registro con quien las hizo (lib/cumplimiento/registro-servidor.ts).
  *   panel     el panel de la app Cumplimiento: cifras por país, temas, incidencias agrupadas y evolución.
  *   corregir-preparar / corregir-validar / corregir-enviar   el panel «Corregir» de una incidencia (correccion-servidor.ts).
  *             ENVIAR ESCRIBE EN LA FICHA DEL CLIENTE: solo tras validar los mismos cambios, y queda registrado (migración 313).
@@ -70,6 +75,10 @@ export async function POST(request: NextRequest) {
       atributos?: unknown
       formulario?: unknown
       listings?: unknown[]
+      motivo?: unknown
+      texto?: unknown
+      asin?: unknown
+      id?: unknown
     }
 
     const cliente = await clienteDe(body.cliente)
@@ -98,11 +107,23 @@ export async function POST(request: NextRequest) {
         Number.isFinite(body.pagina) ? Number(body.pagina) : 0
       )
       if ('error' in pagina) return fail(500, pagina.error)
-      return NextResponse.json({ ok: true, ...pagina })
+      const conteos = await comentariosPorListing(cliente.amazonClientId, pagina.filas)
+      let quitados = new Map<string, { autor: string | null; texto: string | null }>()
+      if (filtrosValidos(body.filtros).gravedad === 'descartados' && pagina.filas.length > 0) {
+        const reg = (await registroDeCliente(cliente.amazonClientId, { limite: 500 }).catch(() => null)) ?? []
+        quitados = new Map(reg.filter((e) => e.tipo === 'descartar').reverse().map((e) => [`${e.mercado}|${e.sku}`, { autor: e.autor, texto: e.texto }]))
+      }
+      const filas = pagina.filas.map((f) => {
+        const k = `${f.marketplace_id}|${f.sku}`
+        const q = quitados.get(k)
+        return { ...f, comentarios: conteos[k] ?? 0, ...(q ? { descartado_por_nombre: q.autor, descartado_motivo: q.texto } : {}) }
+      })
+      return NextResponse.json({ ok: true, ...pagina, filas })
     }
 
     if (body.accion === 'ahora') {
       const r = await lanzarRevisionManual(cliente.amazonClientId)
+      if (r.iniciada) await apuntar(cliente.amazonClientId, { tipo: 'revisar-todo' }, session.userId)
       return NextResponse.json({ ok: true, ...r })
     }
 
@@ -112,6 +133,7 @@ export async function POST(request: NextRequest) {
       if (!/^[A-Z0-9]{8,16}$/.test(mercado) || !sku || sku.length > 200) return fail(400, 'Listing no válido.')
       const r = await revisarUnSku(cliente.amazonClientId, mercado, sku)
       if (!r.ok) return fail(409, r.error)
+      await apuntar(cliente.amazonClientId, { tipo: 'revisar', mercado, sku, asin: typeof body.asin === 'string' ? body.asin : null, texto: r.encontrado ? null : 'Amazon ya no lo tiene en su catálogo' }, session.userId)
       return NextResponse.json({ ok: true, encontrado: r.encontrado })
     }
 
@@ -124,8 +146,15 @@ export async function POST(request: NextRequest) {
         .filter((x) => /^[A-Z0-9]{8,16}$/.test(x.mercado) && x.sku && x.sku.length <= 200)
         .slice(0, 500)
       if (listings.length === 0) return fail(400, 'Listing no válido.')
-      const r = await descartarListing(cliente.amazonClientId, listings, body.accion === 'descartar', session.userId)
+      const motivo = typeof body.motivo === 'string' ? body.motivo.trim().slice(0, MAX_TEXTO) : ''
+      if (body.accion === 'descartar' && motivo.length < 3) return fail(400, 'Hay que explicar por qué se quita del seguimiento.')
+      const r = await descartarListing(cliente.amazonClientId, listings, body.accion === 'descartar', session.userId, motivo || null)
       if (!r.ok) return fail(409, r.error)
+      await apuntar(
+        cliente.amazonClientId,
+        listings.filter((l) => `${l.mercado}|${l.sku}` in r.asins).map((l) => ({ tipo: body.accion === 'descartar' ? ('descartar' as const) : ('recuperar' as const), mercado: l.mercado, sku: l.sku, asin: r.asins[`${l.mercado}|${l.sku}`], texto: motivo || null })),
+        session.userId
+      )
       return NextResponse.json({ ok: true, cambiados: r.cambiados })
     }
 
@@ -155,6 +184,7 @@ export async function POST(request: NextRequest) {
         if (!sku || sku.length > 200) return fail(400, 'Listing no válido.')
         const r = await cambiarPrecio({ clientId: cliente.amazonClientId, connectionId: conexion.connectionId, marketplaceId: mercado, sku, precio, userId: session.userId })
         if ('error' in r) return fail(r.status, r.error)
+        await apuntar(cliente.amazonClientId, { tipo: 'precio', mercado, sku, texto: `Cambió el precio a ${precio.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }, session.userId)
         return NextResponse.json({ ok: true, ...r })
       }
       const skus = Array.isArray(body.skus) ? [...new Set(body.skus.filter((x): x is string => typeof x === 'string' && x.trim().length > 0 && x.length <= 200))].slice(0, 200) : []
@@ -166,7 +196,37 @@ export async function POST(request: NextRequest) {
       }
       const r = await corregirLimites({ clientId: cliente.amazonClientId, connectionId: conexion.connectionId, marketplaceId: mercado, skus, simular: false, userId: session.userId })
       if ('error' in r) return fail(r.status, r.error)
+      await apuntar(cliente.amazonClientId, skus.map((sku) => ({ tipo: 'precio' as const, mercado, sku, texto: 'Ajustó el precio mínimo o máximo al precio actual' })), session.userId)
       return NextResponse.json({ ok: true, ...r })
+    }
+
+    if (body.accion === 'registro') {
+      const mercado = typeof body.mercado === 'string' && /^[A-Z0-9]{8,16}$/.test(body.mercado) ? body.mercado : null
+      const sku = typeof body.sku === 'string' && body.sku.trim() && body.sku.length <= 200 ? body.sku.trim() : null
+      const registro = await registroDeCliente(cliente.amazonClientId, { mercado, sku, limite: sku ? 100 : 300 })
+      return NextResponse.json({ ok: true, registro: registro ?? [], faltaMigracion: registro === null, yo: session.userId })
+    }
+
+    if (body.accion === 'comentar') {
+      const mercado = typeof body.mercado === 'string' ? body.mercado : ''
+      const sku = typeof body.sku === 'string' ? body.sku.trim() : ''
+      const texto = typeof body.texto === 'string' ? body.texto.trim() : ''
+      if (!/^[A-Z0-9]{8,16}$/.test(mercado) || !sku || sku.length > 200) return fail(400, 'Listing no válido.')
+      if (!texto) return fail(400, 'El comentario está vacío.')
+      if (texto.length > MAX_TEXTO) return fail(400, `Máximo ${MAX_TEXTO} caracteres.`)
+      const asin = typeof body.asin === 'string' && /^[A-Z0-9]{10}$/.test(body.asin) ? body.asin : null
+      try {
+        return NextResponse.json({ ok: true, comentario: await comentar(cliente.amazonClientId, { mercado, sku, asin, texto }, session.userId) })
+      } catch (e) {
+        if (isMissingSchema(e)) return fail(409, 'Falta lanzar la migración 343 (registro de Cumplimiento) en Supabase.')
+        throw e
+      }
+    }
+
+    if (body.accion === 'borrar-comentario') {
+      if (typeof body.id !== 'string' || !UUID.test(body.id)) return fail(400, 'Falta el comentario.')
+      if (!(await borrarComentario(cliente.amazonClientId, session.userId, body.id))) return fail(404, 'Ese comentario no existe o no es tuyo.')
+      return NextResponse.json({ ok: true })
     }
 
     if (body.accion === 'correcciones') {

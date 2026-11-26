@@ -155,6 +155,11 @@ export interface FilaCumplimiento {
   revisado_at: string
   /** Solo en la vista «Descartados» (migración 341): cuándo se quitó del seguimiento */
   descartado_at?: string | null
+  /** Quién lo quitó del seguimiento y por qué (registro, migración 343). Solo en «Descartados» */
+  descartado_por_nombre?: string | null
+  descartado_motivo?: string | null
+  /** Cuántos comentarios tiene el listing (migración 343) */
+  comentarios?: number
 }
 
 /**

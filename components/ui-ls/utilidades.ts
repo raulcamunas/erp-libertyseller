@@ -196,3 +196,21 @@ export const proporcionSegura = (valor: number, maximo = 1): number => {
 export const formatoEntero = (n: number) => Math.round(n).toLocaleString('es-ES', { useGrouping: 'always' })
 export const formatoEuros = (n: number, decimales = 0) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: decimales, minimumFractionDigits: decimales })
 export const formatoPorcentaje = (proporcion: number, decimales = 1) => `${(proporcion * 100).toLocaleString('es-ES', { maximumFractionDigits: decimales, minimumFractionDigits: decimales })} %`
+
+/** «hace 5 min», «hace 3 h», «ayer a las 14:32», «12 nov · 09:10» */
+export function cuandoFue(iso: string): string {
+  const t = Date.parse(iso)
+  const seg = (Date.now() - t) / 1000
+  const hora = new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  if (seg < 60) return 'ahora mismo'
+  if (seg < 3600) return `hace ${Math.floor(seg / 60)} min`
+  const hoy = new Date()
+  const d = new Date(t)
+  const mismoDia = (a: Date, b: Date) => a.toDateString() === b.toDateString()
+  if (mismoDia(d, hoy)) return `hace ${Math.floor(seg / 3600)} h`
+  const ayer = new Date(hoy)
+  ayer.setDate(hoy.getDate() - 1)
+  if (mismoDia(d, ayer)) return `ayer a las ${hora}`
+  return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...(d.getFullYear() !== hoy.getFullYear() ? { year: 'numeric' } : {}) })} · ${hora}`
+}
+

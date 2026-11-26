@@ -345,31 +345,46 @@ export async function descartarListing(
   amazonClientId: string,
   listings: ReadonlyArray<{ mercado: string; sku: string }>,
   descartar: boolean,
-  userId: string
-): Promise<{ ok: true; cambiados: number } | { ok: false; error: string }> {
+  userId: string,
+  motivo: string | null = null
+): Promise<{ ok: true; cambiados: number; asins: Record<string, string | null> } | { ok: false; error: string }> {
   const conexiones = await conexionesDeCliente(amazonClientId)
   if (conexiones.length === 0) return { ok: false, error: 'Este cliente no tiene ninguna cuenta de Amazon activa.' }
-  const cambios = descartar ? { descartado_at: new Date().toISOString(), descartado_por: userId } : { descartado_at: null, descartado_por: null, en_amazon: true }
+  // El motivo (343) va en el propio listing; sin la 343, se quita igual y el motivo queda solo en la respuesta
+  let conMotivo = true
+  const cambiosDe = (): Record<string, unknown> => {
+    const base: Record<string, unknown> = descartar ? { descartado_at: new Date().toISOString(), descartado_por: userId } : { descartado_at: null, descartado_por: null, en_amazon: true }
+    if (conMotivo) base.descartado_motivo = descartar ? motivo : null
+    return base
+  }
+  const asins: Record<string, string | null> = {}
   // Por país, en tandas: «Eliminar del seguimiento» de varios a la vez es un update por país
   const porPais = new Map<string, string[]>()
   for (const l of listings) porPais.set(l.mercado, [...(porPais.get(l.mercado) ?? []), l.sku])
   let cambiados = 0
   for (const [mercado, skus] of porPais) {
     for (let i = 0; i < skus.length; i += 100) {
-      const { data, error } = await createServiceClient()
-        .from('listing_cumplimiento')
-        .update(cambios)
-        .in('connection_id', conexiones.map((c) => c.id))
-        .eq('marketplace_id', mercado)
-        .in('sku', skus.slice(i, i + 100))
-        .select('id')
+      const actualizar = () =>
+        createServiceClient()
+          .from('listing_cumplimiento')
+          .update(cambiosDe())
+          .in('connection_id', conexiones.map((c) => c.id))
+          .eq('marketplace_id', mercado)
+          .in('sku', skus.slice(i, i + 100))
+          .select('id, sku, asin')
+      let { data, error } = await actualizar()
+      if (error && conMotivo && /descartado_motivo/.test(error.message ?? '')) {
+        conMotivo = false
+        ;({ data, error } = await actualizar())
+      }
       if (error) {
         if (isMissingSchema(error) || /descartado/.test(error.message ?? '')) return { ok: false, error: 'Falta lanzar la migración 341 (cumplimiento_descartados) en el editor SQL de Supabase.' }
         throw error
       }
       cambiados += data?.length ?? 0
+      for (const d of (data ?? []) as Array<{ sku: string; asin: string | null }>) asins[`${mercado}|${d.sku}`] = d.asin
     }
   }
   if (cambiados === 0) return { ok: false, error: 'Esos listings ya no están en la revisión.' }
-  return { ok: true, cambiados }
+  return { ok: true, cambiados, asins }
 }

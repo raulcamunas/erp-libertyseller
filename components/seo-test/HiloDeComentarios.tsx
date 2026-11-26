@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MessageSquare, SendHorizontal, Trash2 } from 'lucide-react'
-import { Avatar } from '@/components/ui-ls'
+import { Avatar, cuandoFue } from '@/components/ui-ls'
 import { llamar } from '@/components/marketing-test/llamar'
 import type { ComentarioSeo } from '@/lib/seo/comentarios-servidor'
 
@@ -48,23 +48,6 @@ export function useComentadosPorHilo(): Map<string, number> {
   return useMemo(() => new Map([...(ctx?.porHilo ?? new Map<string, ComentarioSeo[]>()).entries()].map(([h, l]) => [h, l.length])), [ctx?.porHilo])
 }
 
-/** «hace 5 min», «hace 3 h», «ayer a las 14:32», «12 nov · 09:10» */
-export function cuandoFue(iso: string): string {
-  const t = Date.parse(iso)
-  const seg = (Date.now() - t) / 1000
-  const hora = new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-  if (seg < 60) return 'ahora mismo'
-  if (seg < 3600) return `hace ${Math.floor(seg / 60)} min`
-  const hoy = new Date()
-  const d = new Date(t)
-  const mismoDia = (a: Date, b: Date) => a.toDateString() === b.toDateString()
-  if (mismoDia(d, hoy)) return `hace ${Math.floor(seg / 3600)} h`
-  const ayer = new Date(hoy)
-  ayer.setDate(hoy.getDate() - 1)
-  if (mismoDia(d, ayer)) return `ayer a las ${hora}`
-  return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...(d.getFullYear() !== hoy.getFullYear() ? { year: 'numeric' } : {}) })} · ${hora}`
-}
-
 /** El botón que abre el hilo, con cuántos comentarios tiene y las caras de quién ha comentado */
 export function BotonDeComentarios({ hilo, abierto, onClick }: { hilo: string; abierto: boolean; onClick: () => void }) {
   const lista = useComentariosDe(hilo)
@@ -76,9 +59,9 @@ export function BotonDeComentarios({ hilo, abierto, onClick }: { hilo: string; a
       aria-expanded={abierto}
       className="inline-flex h-7 items-center gap-[6px] rounded-full border px-[10px] text-[11.5px] font-medium transition-colors"
       style={{
-        borderColor: abierto || lista.length ? 'color-mix(in srgb, var(--ls-acento, #F26212) 40%, var(--ls-linea))' : 'var(--ls-linea)',
+        borderColor: abierto || lista.length ? 'color-mix(in srgb, var(--ls-acento, var(--ls-acc)) 40%, var(--ls-linea))' : 'var(--ls-linea)',
         color: lista.length ? 'var(--ls-t1)' : 'var(--ls-t3)',
-        background: abierto ? 'color-mix(in srgb, var(--ls-acento, #F26212) 10%, transparent)' : 'transparent',
+        background: abierto ? 'color-mix(in srgb, var(--ls-acento, var(--ls-acc)) 10%, transparent)' : 'transparent',
       }}
     >
       {caras.length > 0 && (
@@ -171,7 +154,7 @@ export function Hilo({ hilo, asin, autoFoco = false }: { hilo: string; asin: str
             rows={Math.min(5, Math.max(1, texto.split('\n').length))}
             maxLength={2000}
             placeholder="Escribe un comentario…  (Intro para enviar)"
-            className="min-h-[36px] flex-1 resize-none rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[color-mix(in_srgb,var(--ls-acento,#F26212)_55%,var(--ls-linea))]"
+            className="min-h-[36px] flex-1 resize-none rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[color-mix(in_srgb,var(--ls-acento,var(--ls-acc))_55%,var(--ls-linea))]"
           />
           <button
             type="button"
@@ -179,7 +162,7 @@ export function Hilo({ hilo, asin, autoFoco = false }: { hilo: string; asin: str
             disabled={!texto.trim() || enviando}
             aria-label="Enviar comentario"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[#141414] transition-opacity disabled:opacity-40"
-            style={{ background: 'var(--ls-acento, #F26212)' }}
+            style={{ background: 'var(--ls-acento, var(--ls-acc))' }}
           >
             <SendHorizontal className="h-[15px] w-[15px]" />
           </button>

@@ -31,9 +31,11 @@ export interface ConfirmacionProps {
   onConfirmar: () => void | Promise<unknown>
   /** Contenido extra (lista de lo que se va a borrar, por ejemplo) */
   children?: ReactNode
+  /** true = el botón de confirmar sigue apagado (p. ej. falta escribir un motivo en `children`) */
+  bloqueado?: boolean
 }
 
-export function Confirmacion({ abierto, onCambio, titulo, descripcion, palabra = 'BORRAR', textoConfirmar = 'Confirmar', textoCancelar = 'Cancelar', tono = 'peligro', onConfirmar, children }: ConfirmacionProps) {
+export function Confirmacion({ abierto, onCambio, titulo, descripcion, palabra = 'BORRAR', textoConfirmar = 'Confirmar', textoCancelar = 'Cancelar', tono = 'peligro', onConfirmar, children, bloqueado = false }: ConfirmacionProps) {
   const [escrito, setEscrito] = useState('')
   const [trabajando, setTrabajando] = useState(false)
   const idCampo = useId()
@@ -46,7 +48,7 @@ export function Confirmacion({ abierto, onCambio, titulo, descripcion, palabra =
     if (abierto) setEscrito('')
   }, [abierto])
 
-  const listo = palabra == null || palabraCoincide(escrito, palabra)
+  const listo = !bloqueado && (palabra == null || palabraCoincide(escrito, palabra))
 
   const confirmar = async () => {
     if (!listo || trabajando) return

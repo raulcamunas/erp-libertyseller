@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowDownRight, ArrowUpRight, Bot, ChevronRight, FileText, FlaskConical, History, KeyRound, Minus, Search, Sparkles, Tag, TriangleAlert, Type } from 'lucide-react'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import type { ComentarioSeo } from '@/lib/seo/comentarios-servidor'
-import { BotonDeComentarios, cuandoFue, Hilo, ProveedorDeComentarios, useComentadosPorHilo } from './HiloDeComentarios'
-import { Avatar, Boton, EstadoVacio, Insignia } from '@/components/ui-ls'
+import { BotonDeComentarios, Hilo, ProveedorDeComentarios, useComentadosPorHilo } from './HiloDeComentarios'
+import { Avatar, Boton, cuandoFue, EstadoVacio, Insignia } from '@/components/ui-ls'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { EdicionGuardada } from '@/lib/seo/edicion-servidor'
 import type { EventoSeo, TipoDeEvento } from '@/lib/seo/registro-servidor'
@@ -598,9 +598,9 @@ function Registro({ eventos, nombreDeAsin, mkt, verFicha, persona, setPersona }:
 
   return (
     <div className="overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-      <div className="flex flex-col gap-3 border-b border-[var(--ls-linea)] p-4" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ls-mod-seo, var(--ls-acento)) 7%, transparent), transparent)' }}>
+      <div className="flex flex-col gap-3 border-b border-[var(--ls-linea)] p-4" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ls-mod-seo, var(--ls-acento, var(--ls-acc))) 7%, transparent), transparent)' }}>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-[10px]" style={{ background: 'color-mix(in srgb, var(--ls-mod-seo, var(--ls-acento)) 16%, transparent)', color: 'var(--ls-mod-seo, var(--ls-acento))' }}>
+          <span className="flex h-8 w-8 items-center justify-center rounded-[10px]" style={{ background: 'color-mix(in srgb, var(--ls-mod-seo, var(--ls-acento, var(--ls-acc))) 16%, transparent)', color: 'var(--ls-mod-seo, var(--ls-acento, var(--ls-acc)))' }}>
             <History className="h-[16px] w-[16px]" />
           </span>
           <div>
@@ -616,7 +616,7 @@ function Registro({ eventos, nombreDeAsin, mkt, verFicha, persona, setPersona }:
                   onClick={() => setPersona(persona === n ? '' : n)}
                   title={`${n} · ${k} acciones${persona === n ? ' (pulsa para quitar el filtro)' : ''}`}
                   className="rounded-full transition-transform hover:-translate-y-[2px]"
-                  style={{ outline: persona === n ? '2px solid var(--ls-acento)' : 'none', outlineOffset: 2, opacity: persona && persona !== n ? 0.4 : 1 }}
+                  style={{ outline: persona === n ? '2px solid var(--ls-acento, var(--ls-acc))' : 'none', outlineOffset: 2, opacity: persona && persona !== n ? 0.4 : 1 }}
                 >
                   <Avatar nombre={n} tamano={30} />
                 </button>
@@ -634,7 +634,7 @@ function Registro({ eventos, nombreDeAsin, mkt, verFicha, persona, setPersona }:
                 setCuantos(POR_PAGINA)
               }}
               className="h-7 rounded-full border px-3 text-[12px] transition-colors"
-              style={tipo === v ? { borderColor: 'var(--ls-acento)', color: 'var(--ls-t1)', background: 'color-mix(in srgb, var(--ls-acento) 12%, transparent)' } : { borderColor: 'var(--ls-linea)', color: 'var(--ls-t3)' }}
+              style={tipo === v ? { borderColor: 'var(--ls-acento, var(--ls-acc))', color: 'var(--ls-t1)', background: 'color-mix(in srgb, var(--ls-acento, var(--ls-acc)) 12%, transparent)' } : { borderColor: 'var(--ls-linea)', color: 'var(--ls-t3)' }}
             >
               {t}
             </button>
@@ -714,7 +714,7 @@ function EventoDelRegistro({ e, producto, mkt, verFicha, abierto, alternar }: { 
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {e.asin && (
-            <button type="button" onClick={() => verFicha(e.asin as string)} className="group/p inline-flex max-w-full items-center gap-[10px] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] py-[5px] pl-[5px] pr-3 text-left transition-colors hover:border-[color-mix(in_srgb,var(--ls-acento)_45%,var(--ls-linea))]" title="Abrir la ficha">
+            <button type="button" onClick={() => verFicha(e.asin as string)} className="group/p inline-flex max-w-full items-center gap-[10px] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] py-[5px] pl-[5px] pr-3 text-left transition-colors hover:border-[color-mix(in_srgb,var(--ls-acento,var(--ls-acc))_45%,var(--ls-linea))]" title="Abrir la ficha">
               <span className="shrink-0 rounded-[8px] bg-white p-[2px]">
                 <ImagenDeProducto asin={e.asin} mkt={mkt} lado={40} redondeo={6} titulo={producto ?? e.asin} />
               </span>

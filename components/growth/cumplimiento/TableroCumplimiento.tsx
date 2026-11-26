@@ -10,8 +10,10 @@ import {
   Download,
   ExternalLink,
   EyeOff,
+  History,
   Info,
   Loader2,
+  MessageSquare,
   Play,
   RefreshCw,
   RotateCcw,
@@ -52,6 +54,9 @@ import {
   type PaginaCumplimiento,
   type RespuestaResumen,
 } from '@/lib/cumplimiento/tipos'
+import { Avatar, Confirmacion } from '@/components/ui-ls'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
+import { ActividadDelListing, MotivoParaQuitar, PanelDeActividad } from './ActividadCumplimiento'
 
 /**
  * CUMPLIMIENTO — LA PANTALLA DE UN CLIENTE.
@@ -67,6 +72,9 @@ import {
  *
  * Se actualiza sola: cada dos minutos, y cada pocos segundos mientras hay una
  * revisión en marcha.
+ *
+ * QUIÉN HIZO QUÉ (migración 343): cada fila lleva la foto del producto y, al abrirla, su actividad y comentarios con el nombre de
+ * quien los hizo. Quitar del seguimiento EXIGE un motivo. «Actividad» abre todo lo hecho en el cliente (ActividadCumplimiento.tsx).
  */
 
 type Ultimo = {
@@ -122,6 +130,10 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
   const [revisando, setRevisando] = useState<string | null>(null)
   const [nota, setNota] = useState<string | null>(null)
   const [marcadas, setMarcadas] = useState<ReadonlySet<string>>(new Set())
+  // «Eliminar del seguimiento» pide motivo: la lista a quitar espera en el diálogo
+  const [porQuitar, setPorQuitar] = useState<FilaCumplimiento[] | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [verActividad, setVerActividad] = useState(false)
 
   const peticion = useRef(0)
   // Sin datos del servidor, la primera carga la hace el efecto de los filtros
@@ -256,7 +268,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     setNota(null)
     setError(null)
     try {
-      const r = await llamar<{ encontrado: boolean }>('sku', { mercado: f.marketplace_id, sku: f.sku })
+      const r = await llamar<{ encontrado: boolean }>('sku', { mercado: f.marketplace_id, sku: f.sku, asin: f.asin })
       setNota(
         r.encontrado
           ? `${f.sku} revisado de nuevo.`
@@ -270,16 +282,23 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     }
   }
 
-  async function descartar(lista: FilaCumplimiento[], quitar: boolean) {
+  function descartar(lista: FilaCumplimiento[], quitar: boolean) {
     if (lista.length === 0) return
-    const quien = lista.length === 1 ? `${lista[0].sku} (${nombreMarketplace(lista[0].marketplace_id)})` : `estos ${lista.length} listings`
-    if (quitar && !window.confirm(`¿Eliminar ${quien} del seguimiento?\n\nDejan de salir en la lista y de contar en las cifras, el panel y «Hoy». Se pueden recuperar desde «Descartados».`)) return
+    if (quitar) {
+      setMotivo('')
+      setPorQuitar(lista)
+      return
+    }
+    void cambiarSeguimiento(lista, false, null)
+  }
+
+  async function cambiarSeguimiento(lista: FilaCumplimiento[], quitar: boolean, motivoTxt: string | null) {
     const claves = new Set(lista.map(claveFila))
     setRevisando(lista.length === 1 ? claveFila(lista[0]) : '*')
     setNota(null)
     setError(null)
     try {
-      const r = await llamar<{ cambiados: number }>(quitar ? 'descartar' : 'recuperar', { listings: lista.map((f) => ({ mercado: f.marketplace_id, sku: f.sku })) })
+      const r = await llamar<{ cambiados: number }>(quitar ? 'descartar' : 'recuperar', { listings: lista.map((f) => ({ mercado: f.marketplace_id, sku: f.sku })), motivo: motivoTxt })
       setFilas((prev) => prev.filter((x) => !claves.has(claveFila(x))))
       setMarcadas((prev) => new Set([...prev].filter((k) => !claves.has(k))))
       const n = lista.length === 1 ? lista[0].sku : `${r.cambiados} listings`
@@ -390,6 +409,10 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
               </div>
             </div>
 
+            <button type="button" className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario}`} onClick={() => setVerActividad(true)} title="Quién ha hecho qué en este cliente: listings quitados con su motivo, correcciones, precios y comentarios">
+              <History className="h-3 w-3" />
+              Actividad
+            </button>
             <a
               href={urlCsv}
               className={`${BOTON.base} ${BOTON.alto} ${BOTON.secundario} ${sinRevisar ? 'pointer-events-none opacity-45' : ''}`}
@@ -593,7 +616,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
               <span className={`${TIPO.s} ${TEXTO.t1} font-medium`}>
                 {marcadasVisibles.length} {marcadasVisibles.length === 1 ? 'marcado' : 'marcados'}
               </span>
-              <button type="button" className={`${BOTON.base} ${BOTON.secundario}`} disabled={revisando !== null} onClick={() => void descartar(marcadasVisibles, !enDescartados)}>
+              <button type="button" className={`${BOTON.base} ${BOTON.secundario}`} disabled={revisando !== null} onClick={() => descartar(marcadasVisibles, !enDescartados)}>
                 {revisando === '*' ? <Loader2 className="h-3 w-3 animate-spin" /> : enDescartados ? <RotateCcw className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
                 {enDescartados ? 'Volver a seguir' : 'Eliminar del seguimiento'}
               </button>
@@ -646,7 +669,9 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
                       alAbrir={() => alternar(k)}
                       alRevisar={() => void revisarUno(f)}
                       descartada={enDescartados}
-                      alDescartar={() => void descartar([f], !enDescartados)}
+                      alDescartar={() => descartar([f], !enDescartados)}
+                      llamar={llamar}
+                      alComentar={(n) => setFilas((prev) => prev.map((x) => (claveFila(x) === k ? { ...x, comentarios: n } : x)))}
                       marcada={marcadas.has(k)}
                       alMarcar={() => marcar(k)}
                       alCorregir={alCorregir ? (i) => alCorregir(f, i) : undefined}
@@ -677,6 +702,37 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
           </div>
         </div>
       )}
+
+      <Confirmacion
+        abierto={porQuitar !== null}
+        onCambio={(a) => !a && setPorQuitar(null)}
+        titulo={porQuitar && porQuitar.length === 1 ? `¿Eliminar ${porQuitar[0].sku} del seguimiento?` : `¿Eliminar estos ${porQuitar?.length ?? 0} listings del seguimiento?`}
+        descripcion="Dejan de salir en la lista y de contar en las cifras, el panel y «Hoy». Se pueden recuperar desde «Descartados»."
+        palabra={null}
+        textoConfirmar="Eliminar del seguimiento"
+        bloqueado={motivo.trim().length < 3}
+        onConfirmar={async () => {
+          if (porQuitar) await cambiarSeguimiento(porQuitar, true, motivo.trim())
+          setPorQuitar(null)
+        }}
+      >
+        {porQuitar && porQuitar.length > 1 && (
+          <div className="mb-3 flex max-h-[120px] flex-wrap gap-[6px] overflow-y-auto">
+            {porQuitar.slice(0, 30).map((f) => (
+              <span key={claveFila(f)} className="inline-flex items-center gap-[6px] rounded-[8px] border border-[var(--ls-linea)] py-[2px] pl-[2px] pr-[8px] text-[11.5px] text-[var(--ls-t2)]">
+                <span className="rounded-[5px] bg-white p-[1px]">
+                  <ImagenDeProducto asin={f.asin} mkt={f.marketplace_id} lado={22} redondeo={4} />
+                </span>
+                {f.sku}
+              </span>
+            ))}
+            {porQuitar.length > 30 && <span className="text-[11.5px] text-[var(--ls-t4)]">y {porQuitar.length - 30} más</span>}
+          </div>
+        )}
+        <MotivoParaQuitar motivo={motivo} setMotivo={setMotivo} />
+      </Confirmacion>
+
+      <PanelDeActividad abierto={verActividad} onCambio={setVerActividad} llamar={llamar} nombre={nombre} mercado={filtros.mercado} />
     </div>
   )
 }
@@ -697,6 +753,8 @@ function FilaLista({
   marcada,
   alMarcar,
   alCorregir,
+  llamar,
+  alComentar,
 }: {
   f: FilaCumplimiento
   abierta: boolean
@@ -710,6 +768,8 @@ function FilaLista({
   marcada: boolean
   alMarcar: () => void
   alCorregir?: (i: Incidencia) => void
+  llamar: <T>(accion: string, extra?: Record<string, unknown>) => Promise<T>
+  alComentar: (n: number) => void
 }) {
   const ficha = estadoDeFicha(f.estado)
   const fichaTono: TonoEstado = ficha === 'comprable' ? 'verde' : ficha === 'visible' ? 'gris' : 'rojo'
@@ -747,8 +807,19 @@ function FilaLista({
           </span>
         </td>
         <td className={TABLA.celda}>
-          <span className={`${TABLA.corta} max-w-[320px]`} title={f.titulo ?? undefined}>
-            {f.titulo ?? '—'}
+          <span className="flex items-center gap-[9px]">
+            <span className="shrink-0 rounded-[6px] bg-white p-[1px] ring-1 ring-[var(--ls-linea)]">
+              <ImagenDeProducto asin={f.asin} mkt={f.marketplace_id} lado={30} redondeo={5} titulo={f.titulo ?? f.sku} />
+            </span>
+            <span className={`${TABLA.corta} max-w-[300px]`} title={f.titulo ?? undefined}>
+              {f.titulo ?? '—'}
+            </span>
+            {(f.comentarios ?? 0) > 0 && (
+              <span className="inline-flex shrink-0 items-center gap-[3px] rounded-full px-[6px] py-[1px] text-[10.5px] font-semibold tabular-nums" style={{ color: COLOR_ESTADO.azul, background: `color-mix(in srgb, ${COLOR_ESTADO.azul} 14%, transparent)` }} title={`${f.comentarios} ${f.comentarios === 1 ? 'comentario' : 'comentarios'}: abre la fila para leerlos`}>
+                <MessageSquare className="h-[10px] w-[10px]" />
+                {f.comentarios}
+              </span>
+            )}
           </span>
         </td>
         <td className={TABLA.celda}>{nombreMarketplace(f.marketplace_id)}</td>
@@ -782,7 +853,21 @@ function FilaLista({
           </span>
         </td>
         <td className={TABLA.celda}>{f.tema ? ROTULO_TEMA[f.tema].corto : <span className={TEXTO.t4}>—</span>}</td>
-        <td className={`${TABLA.celda} ${TEXTO.t3}`}>{descartada && f.descartado_at ? `quitado ${hace(f.descartado_at)}` : f.desde ? hace(f.desde) : '—'}</td>
+        <td className={`${TABLA.celda} ${TEXTO.t3}`}>
+          {descartada && f.descartado_at ? (
+            <span className="inline-flex max-w-[260px] items-center gap-[6px]" title={f.descartado_motivo ? `Motivo: ${f.descartado_motivo}` : 'Sin motivo (se quitó antes de que se pidiera)'}>
+              {f.descartado_por_nombre && <Avatar nombre={f.descartado_por_nombre} tamano={18} />}
+              <span className="truncate">
+                quitado {hace(f.descartado_at)}
+                {f.descartado_motivo ? ` · ${f.descartado_motivo}` : ''}
+              </span>
+            </span>
+          ) : f.desde ? (
+            hace(f.desde)
+          ) : (
+            '—'
+          )}
+        </td>
         <td className={TABLA.celda} onClick={(e) => e.stopPropagation()}>
           <span className="inline-flex items-center gap-[2px]">
             <button
@@ -836,6 +921,8 @@ function FilaLista({
       {abierta && (
         <tr>
           <td colSpan={9} className={`border-b ${LINEA.normal} bg-[var(--ls-sup2)] px-[28px] py-[9px]`}>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(340px,1fr)]">
+            <div className="min-w-0">
             {f.incidencias.length === 0 ? (
               <p className={`${TIPO.s} ${TEXTO.t3}`}>Amazon no ha puesto ninguna incidencia a este listing.</p>
             ) : (
@@ -867,6 +954,9 @@ function FilaLista({
               Revisado {hace(f.revisado_at)}
               {f.asin && <> · ASIN {f.asin}</>}
             </p>
+            </div>
+            <ActividadDelListing llamar={llamar} mercado={f.marketplace_id} sku={f.sku} asin={f.asin} alCambiarComentarios={alComentar} />
+            </div>
           </td>
         </tr>
       )}
