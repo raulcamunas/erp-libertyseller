@@ -82,11 +82,29 @@ export async function avanzarSalud(connectionId: string, marketplaceId: string, 
   }
 }
 
-/** Las cuentas y países activos (los que el cliente tiene en marcha) */
+/**
+ * Los países donde la cuenta tiene listings (función de la 297). Raúl (26 nov 2026): los países que aún no se han abierto llenaban la pantalla de «Todavía no se ha leído»
+ * y gastaban un informe al día para nada. Si la función falla, null: se miran todos, como antes.
+ */
+async function paisesConListings(connectionIds: string[]): Promise<Set<string> | null> {
+  if (connectionIds.length === 0) return new Set()
+  const { data, error } = await createServiceClient().rpc('cumplimiento_catalogo', { p_conexiones: connectionIds })
+  if (error) return null
+  return new Set(((data ?? []) as Array<{ marketplace_id: string; total: number }>).filter((x) => Number(x.total) > 0).map((x) => x.marketplace_id))
+}
+
+const conListings = (paises: readonly string[], abiertos: Set<string> | null) => (abiertos ? paises.filter((m) => abiertos.has(m)) : [...paises])
+
+/** Las cuentas y países activos (los que el cliente tiene en marcha y con listings) */
 async function cuentasYPaises(): Promise<Array<{ connectionId: string; marketplaceId: string }>> {
   const { data, error } = await createServiceClient().from('amazon_connections').select('id, marketplace_ids, marketplaces_activos').eq('is_active', true).eq('status', 'activa')
   if (error) throw error
-  return ((data ?? []) as Array<{ id: string; marketplace_ids: string[] | null; marketplaces_activos: string[] | null }>).flatMap((c) => (c.marketplaces_activos?.length ? c.marketplaces_activos : (c.marketplace_ids ?? [])).map((m) => ({ connectionId: c.id, marketplaceId: m })))
+  const salida: Array<{ connectionId: string; marketplaceId: string }> = []
+  for (const c of (data ?? []) as Array<{ id: string; marketplace_ids: string[] | null; marketplaces_activos: string[] | null }>) {
+    const abiertos = await paisesConListings([c.id])
+    for (const m of conListings(c.marketplaces_activos?.length ? c.marketplaces_activos : (c.marketplace_ids ?? []), abiertos)) salida.push({ connectionId: c.id, marketplaceId: m })
+  }
+  return salida
 }
 
 /** Una pasada para todas las cuentas (proceso horario `cumplimiento`). Sin la migración 339, no hace nada */
@@ -128,7 +146,7 @@ export async function saludDeCliente(amazonClientId: string, mercado: string | n
     throw error
   }
   const filas = (data ?? []) as FilaDeSalud[]
-  const paises = mercado ? [mercado] : [...new Set(conexiones.flatMap((c) => (c.marketplaces_activos?.length ? c.marketplaces_activos : c.marketplace_ids)))]
+  const paises = mercado ? [mercado] : conListings([...new Set(conexiones.flatMap((c) => (c.marketplaces_activos?.length ? c.marketplaces_activos : c.marketplace_ids)))], await paisesConListings(conexiones.map((c) => c.id)))
   return paises.map((m) => {
     const f = filas.find((x) => x.marketplace_id === m)
     return { marketplaceId: m, estado: f?.estado ?? 'nunca', leidoAt: f?.leido_at ?? null, datos: f?.datos ?? null, error: f?.error ?? null }
@@ -140,7 +158,7 @@ export async function pedirSaludDeCliente(amazonClientId: string, mercado: strin
   const conexiones = await conexionesDeCliente(amazonClientId)
   let n = 0
   for (const c of conexiones) {
-    const paises = mercado ? [mercado] : c.marketplaces_activos?.length ? c.marketplaces_activos : c.marketplace_ids
+    const paises = mercado ? [mercado] : conListings(c.marketplaces_activos?.length ? c.marketplaces_activos : c.marketplace_ids, await paisesConListings([c.id]))
     for (const m of paises) {
       const r = await avanzarSalud(c.id, m, { forzar: true }).catch(() => 'error')
       if (r !== 'error') n++

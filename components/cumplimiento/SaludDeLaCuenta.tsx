@@ -65,12 +65,46 @@ export function SaludDeLaCuenta({ cliente, mercado }: { cliente: string; mercado
     }
   }
 
+  // Con varios países, tarjeta entera solo para los que ya tienen datos; los que no (sin leer, pidiéndose o con error) van juntos en una sola caja
+  const conPais = datos.salud.length > 1 || mercado === 'todos'
+  const enteras = conPais ? datos.salud.filter((s) => s.datos) : datos.salud
+  const resto = conPais ? datos.salud.filter((s) => !s.datos) : []
   return (
     <div className="flex flex-col gap-3">
-      {datos.salud.map((s) => (
-        <TarjetaDeSalud key={s.marketplaceId} s={s} conPais={datos.salud.length > 1 || mercado === 'todos'} actualizar={actualizar} pidiendo={pidiendo} />
+      {enteras.map((s) => (
+        <TarjetaDeSalud key={s.marketplaceId} s={s} conPais={conPais} actualizar={actualizar} pidiendo={pidiendo} />
       ))}
+      {resto.length > 0 && <SinDatos salud={resto} actualizar={actualizar} pidiendo={pidiendo} />}
     </div>
+  )
+}
+
+/** Los países sin datos todavía, en una sola caja: un renglón cada uno */
+function SinDatos({ salud, actualizar, pidiendo }: { salud: SaludParaPantalla[]; actualizar: () => void; pidiendo: boolean }) {
+  const nombre = (id: string) => {
+    const p = AMAZON_MARKETPLACES.find((m) => m.id === id)
+    return p ? nombreDePais(p.countryCode) : id
+  }
+  return (
+    <section className="rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Activity className="h-[14px] w-[14px] text-[var(--ls-t4)]" />
+        <span className="text-[12.5px] font-medium text-[var(--ls-t2)]">Salud de la cuenta sin datos en {salud.length} {salud.length === 1 ? 'país' : 'países'}</span>
+        <button type="button" disabled={pidiendo} onClick={actualizar} className="ml-auto inline-flex items-center gap-1 rounded-[8px] px-2 py-1 text-[11.5px] text-[var(--ls-t4)] transition-colors hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)] disabled:opacity-60">
+          <RefreshCw className={`h-3 w-3 ${pidiendo || salud.some((s) => s.estado === 'pedido') ? 'animate-spin' : ''}`} /> Pedir ahora
+        </button>
+      </div>
+      <ul className="mt-2 flex flex-col gap-1">
+        {salud.map((s) => (
+          <li key={s.marketplaceId} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
+            <span className="min-w-[110px] font-medium text-[var(--ls-t2)]">{nombre(s.marketplaceId)}</span>
+            <span className="text-[var(--ls-t4)]" style={s.error ? { color: COLOR_ESTADO.ambar } : undefined}>
+              {s.error ?? (s.estado === 'pedido' ? 'Amazon está preparando el informe.' : 'Todavía no se ha leído (se lee solo una vez al día).')}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
