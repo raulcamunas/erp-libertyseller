@@ -246,25 +246,30 @@ export function RepartoDelDinero({ t }: { t: Totales }) {
 
 type ColProducto = 'unidades' | 'reembolsos' | 'ventas' | 'publicidad' | 'tarifas' | 'neto' | 'margen' | 'roi' | 'precio'
 
-export function TablaProductos({ filas, ivaPct, costes, titulos, buscar }: { filas: readonly FilaPanel[]; ivaPct: number; costes: Record<string, number>; titulos: Record<string, { titulo: string | null; asin: string | null }>; buscar: string }) {
+export type Agrupar = 'sku' | 'asin' | 'mercado'
+
+export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar = 'sku', onAbrir }: { filas: readonly FilaPanel[]; ivaPct: number; costes: Record<string, number>; titulos: Record<string, { titulo: string | null; asin: string | null }>; buscar: string; agrupar?: Agrupar; onAbrir?: (p: { titulo: string; sub: string; asin: string | null; mkt: string; filas: FilaPanel[] }) => void }) {
   const [orden, setOrden] = useState<{ col: ColProducto; desc: boolean }>({ col: 'ventas', desc: true })
   const productos = useMemo(() => {
     const por = new Map<string, FilaPanel[]>()
     for (const f of filas) {
-      if (!f.sku) continue
-      const k = `${f.mkt}|${f.sku}`
+      if (!f.sku && agrupar !== 'mercado') continue
+      const k = agrupar === 'mercado' ? f.mkt : agrupar === 'asin' ? (f.asin ?? titulos[f.sku]?.asin ?? f.sku) : `${f.mkt}|${f.sku}`
       por.set(k, [...(por.get(k) ?? []), f])
     }
     const q = buscar.trim().toLowerCase()
     return [...por.entries()]
       .map(([k, fs]) => {
-        const [mkt, ...resto] = k.split('|')
-        const sku = resto.join('|')
-        const asin = fs.find((f) => f.asin)?.asin ?? titulos[sku]?.asin ?? null
-        return { k, mkt, sku, asin, titulo: titulos[sku]?.titulo ?? null, t: totalizar(fs, ivaPct, costes), coste: costes[sku] ?? null }
+        const conSku = fs.find((f) => f.sku) ?? fs[0]
+        const mkt = conSku.mkt
+        const sku = agrupar === 'mercado' ? '' : conSku.sku
+        const asin = agrupar === 'mercado' ? null : (fs.find((f) => f.asin)?.asin ?? titulos[sku]?.asin ?? null)
+        const titulo = agrupar === 'mercado' ? `${dominio(mkt)}` : (titulos[sku]?.titulo ?? null)
+        const skus = new Set(fs.map((f) => f.sku).filter(Boolean)).size
+        return { k, mkt, sku, asin, titulo, skus, filas: fs, t: totalizar(fs, ivaPct, costes), coste: costes[sku] ?? null }
       })
       .filter((p) => !q || p.sku.toLowerCase().includes(q) || (p.asin ?? '').toLowerCase().includes(q) || (p.titulo ?? '').toLowerCase().includes(q))
-  }, [filas, ivaPct, costes, titulos, buscar])
+  }, [filas, ivaPct, costes, titulos, buscar, agrupar])
   const valor = (p: (typeof productos)[number], c: ColProducto) => (c === 'tarifas' ? p.t.tarifas : c === 'margen' ? (p.t.margen ?? -9) : c === 'roi' ? (p.t.roi ?? -9) : c === 'precio' ? (p.t.precioMedio ?? 0) : c === 'neto' ? p.t.neto : (p.t[c] as number))
   const lista = [...productos].sort((a, b) => (orden.desc ? valor(b, orden.col) - valor(a, orden.col) : valor(a, orden.col) - valor(b, orden.col)))
   const maxVentas = Math.max(1, ...lista.map((p) => p.t.ventas))
@@ -296,18 +301,28 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar }: { fil
         </thead>
         <tbody>
           {lista.map((p, i) => (
-            <tr key={p.k} className="group border-b border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)]" style={{ animation: `ventas-entra 420ms ${Math.min(i, 20) * 25}ms both cubic-bezier(.2,.8,.2,1)` }}>
+            <tr key={p.k} onClick={() => onAbrir?.({ titulo: p.titulo ?? p.sku, sub: agrupar === 'mercado' ? `${p.skus} productos` : `${p.asin ?? '—'} · SKU ${p.sku}${agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}`, asin: p.asin, mkt: p.mkt, filas: p.filas })} className={`group border-b ${onAbrir ? 'cursor-pointer' : ''} border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)]`} style={{ animation: `ventas-entra 420ms ${Math.min(i, 20) * 25}ms both cubic-bezier(.2,.8,.2,1)` }}>
               <td className="px-3 py-[9px]">
                 <div className="flex items-center gap-3">
-                  <span className="shrink-0 rounded-[9px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)] transition-transform group-hover:scale-[1.06]">
-                    <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={44} redondeo={7} titulo={p.titulo ?? p.sku} />
-                  </span>
+                  {agrupar === 'mercado' ? (
+                    <span className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-[12px] bg-[var(--ls-sup2)] text-[24px]">{bandera(p.mkt)}</span>
+                  ) : (
+                    <span className="shrink-0 rounded-[9px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)] transition-transform group-hover:scale-[1.06]">
+                      <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={44} redondeo={7} titulo={p.titulo ?? p.sku} />
+                    </span>
+                  )}
                   <div className="min-w-0 max-w-[380px]">
                     <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
-                      <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
-                      <span className="tabular-nums">{p.asin ?? '—'}</span>
-                      <span>·</span>
-                      <span className="truncate">SKU {p.sku}</span>
+                      {agrupar === 'mercado' ? (
+                        <span>{pais(p.mkt)} · {p.skus} productos</span>
+                      ) : (
+                        <>
+                          <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
+                          <span className="tabular-nums">{p.asin ?? '—'}</span>
+                          <span>·</span>
+                          <span className="truncate">SKU {p.sku}{agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}</span>
+                        </>
+                      )}
                     </div>
                     <div className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]" title={p.titulo ?? p.sku}>
                       {p.titulo ?? p.sku}

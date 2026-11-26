@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, ArrowRight, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
 import { CabeceraDeModulo, Chispa, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
+import { VistaGrafico } from './VistaGrafico'
+import { VistaPyG } from './VistaPyG'
 import { Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, NARANJA, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
 
 /**
@@ -14,7 +17,7 @@ import { Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta
  * productos, pedidos y cuenta de resultados se ponen en ese periodo. Todas las cuentas de beneficio, en el navegador (lib/ventas/panel.ts).
  */
 
-type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number> } | null; lineas: LineaDelPanel[] | null }
+type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo?: Array<{ sku: string; mkt: string; asin: string | null; titulo: string | null; activo: boolean }> } | null; lineas: LineaDelPanel[] | null }
 type Pestana = 'productos' | 'pedidos' | 'resultados'
 
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
@@ -33,6 +36,8 @@ export function TableroVentas() {
   const [cuentaId, setCuentaId] = useState<string | null>(null)
   const [tanda, setTanda] = useState<Tanda>('clasica')
   const [rango, setRango] = useState<{ desde: string; hasta: string } | null>(null)
+  const [vista, setVista] = useState<'baldosas' | 'grafico' | 'pyg'>('baldosas')
+  const [seleccion, setSeleccion] = useState<Set<string> | null>(null)
   const [comparar, setComparar] = useState<Comparar>('anio')
   const [mercados, setMercados] = useState<Set<string> | null>(null)
   const [elegido, setElegido] = useState('hoy')
@@ -116,7 +121,7 @@ export function TableroVentas() {
   }, [])
 
   const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
-  const filtrar = useCallback((fs: readonly FilaPanel[]) => (mercados ? fs.filter((f) => mercados.has(f.mkt)) : fs), [mercados])
+  const filtrar = useCallback((fs: readonly FilaPanel[]) => fs.filter((f) => (!mercados || mercados.has(f.mkt)) && (!seleccion || seleccion.has(f.sku))), [mercados, seleccion])
   const filas = useMemo(() => filtrar(datos?.filas ?? []), [datos, filtrar])
   const filasComp = useMemo(() => filtrar(comparacion), [comparacion, filtrar])
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
@@ -141,6 +146,16 @@ export function TableroVentas() {
     return dias
   }, [tanda, periodoElegido.desde, periodoElegido.hasta, desdeGrafica, hoy])
 
+  // Los productos que se pueden elegir arriba: el catálogo de la cuenta y lo que se ha vendido aunque no esté en él, lo que más vende primero
+  const elegibles: ProductoElegible[] = useMemo(() => {
+    const ventas = new Map<string, number>()
+    for (const f of datos?.filas ?? []) if (f.sku) ventas.set(f.sku, (ventas.get(f.sku) ?? 0) + f.ventas)
+    const por = new Map<string, ProductoElegible>()
+    for (const c of datos?.productos?.catalogo ?? []) if (!por.has(c.sku) && (c.activo || ventas.has(c.sku))) por.set(c.sku, { sku: c.sku, asin: c.asin, titulo: c.titulo, mkt: c.mkt })
+    for (const f of datos?.filas ?? []) if (f.sku && !por.has(f.sku)) por.set(f.sku, { sku: f.sku, asin: f.asin, titulo: datos?.productos?.titulos[f.sku]?.titulo ?? null, mkt: f.mkt })
+    return [...por.values()].map((p) => ({ ...p, ventas: ventas.get(p.sku) ?? 0 }))
+  }, [datos])
+
   // La minigráfica de cada baldosa: las ventas de cada día del periodo (o de los 14 días hasta su final, si es de un día o dos)
   const ventasPorDia = new Map<string, number>()
   for (const f of filas) ventasPorDia.set(f.dia, (ventasPorDia.get(f.dia) ?? 0) + f.ventas)
@@ -161,6 +176,18 @@ export function TableroVentas() {
 
   return (
     <Marco
+      debajo={
+        <Segmentado
+          etiqueta="Vista"
+          valor={vista}
+          onCambio={setVista}
+          opciones={[
+            { id: 'baldosas', texto: 'Baldosas', icono: LayoutGrid },
+            { id: 'grafico', texto: 'Gráfico', icono: ChartColumnBig },
+            { id: 'pyg', texto: 'P&L', icono: Rows3 },
+          ]}
+        />
+      }
       acciones={
         <div className="flex flex-wrap items-center gap-2">
           {cuentas && (
@@ -192,6 +219,11 @@ export function TableroVentas() {
       )}
       {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
 
+      {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} />}
+      {cuenta && vista === 'grafico' && <VistaGrafico cuenta={cuenta} hoy={hoy} skus={seleccion} />}
+      {cuenta && vista === 'pyg' && <VistaPyG cuenta={cuenta} hoy={hoy} skus={seleccion} />}
+      {vista === 'baldosas' && (
+        <>
       {/* Los filtros */}
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <Desplegable icono={Calendar} texto={tanda === 'rango' && rango ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (TANDAS.find((t) => t.id === tanda)?.texto ?? '')}>
@@ -331,6 +363,9 @@ export function TableroVentas() {
         {pestana === 'resultados' && <CuentaDeResultados periodos={periodos} totales={totales} />}
       </section>
 
+        </>
+      )}
+
       <PanelLateral abierto={desglose != null} onCambio={(a) => !a && setDesglose(null)} titulo={desglose?.titulo ?? ''} descripcion={desglose ? `${fechaCorta(desglose.desde)} – ${fechaCorta(desglose.hastaPronostico ?? desglose.hasta)}${desglose.escala ? ' · pronóstico del mes entero' : ''}` : ''} icono={Coins} acento="marca" ancho={440}>
         {desglose && <Desglose t={totales[periodos.findIndex((p) => p.id === desglose.id)] ?? totalizar([], iva, costes)} />}
       </PanelLateral>
@@ -365,10 +400,10 @@ export function TableroVentas() {
 
 /* ------------------------------------------------------------------ */
 
-function Marco({ children, acciones }: { children: React.ReactNode; acciones?: React.ReactNode }) {
+function Marco({ children, acciones, debajo }: { children: React.ReactNode; acciones?: React.ReactNode; debajo?: React.ReactNode }) {
   return (
     <div className="mx-auto w-full min-w-0 max-w-[1500px] pb-12 lg:px-1">
-      <CabeceraDeModulo icono={Coins} acento="marca" titulo="Sellerboard" subtitulo="Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon" acciones={acciones} />
+      <CabeceraDeModulo icono={Coins} acento="marca" titulo="Sellerboard" subtitulo="Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon" acciones={acciones} debajo={debajo} />
       <div className="mt-4">{children}</div>
     </div>
   )
