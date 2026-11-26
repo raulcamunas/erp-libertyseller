@@ -17,7 +17,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 export const dynamic = 'force-dynamic'
 
 /** Los que Amazon no perdona */
-const OBLIGATORIOS = ['nombre', 'empresa', 'linea1', 'ciudad', 'provincia', 'codigoPostal', 'pais', 'telefono', 'email'] as const
+const OBLIGATORIOS = ['nombre', 'empresa', 'linea1', 'ciudad', 'codigoPostal', 'pais', 'telefono', 'email'] as const
 
 const COLUMNA: Record<string, string> = {
   nombre: 'nombre',
@@ -101,7 +101,9 @@ export async function PUT(request: NextRequest) {
       return fail(400, 'El país va en dos letras: ES para España, FR para Francia, PT para Portugal')
     }
     fila.pais = pais
-    fila.provincia = (fila.provincia ?? '').toUpperCase()
+    // La provincia es opcional (si en Seller Central la dirección «Enviar desde» no la tiene, mejor no mandarla)
+    const provincia = typeof body.provincia === 'string' ? body.provincia.trim().toUpperCase().slice(0, 40) : ''
+    fila.provincia = provincia // '' = sin provincia (la columna es NOT NULL)
 
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fila.email ?? '')) {
       return fail(400, 'Ese correo no parece válido')

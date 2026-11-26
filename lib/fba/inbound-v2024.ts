@@ -129,7 +129,8 @@ export function cuerpoCrearPlan(p: { nombre: string; marketplaceId: string; orig
       addressLine1: o.linea1 ?? '',
       ...(o.linea2 ? { addressLine2: o.linea2 } : {}),
       city: o.ciudad ?? '',
-      stateOrProvinceCode: o.provincia ?? '',
+      // La provincia es opcional para Amazon: si la dirección «Enviar desde» de Seller Central no la tiene, mandarla puede hacer que no la verifique
+      ...(o.provincia?.trim() ? { stateOrProvinceCode: o.provincia.trim() } : {}),
       postalCode: o.codigoPostal ?? '',
       countryCode: o.pais ?? '',
       phoneNumber: o.telefono ?? '',

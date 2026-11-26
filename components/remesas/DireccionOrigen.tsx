@@ -137,7 +137,7 @@ export function DireccionOrigen({
       >
         <p className="text-[13px] leading-[1.55] text-[var(--ls-t2)]">
           {dir.linea1}
-          {dir.linea2 ? `, ${dir.linea2}` : ''} · {dir.codigoPostal} {dir.ciudad} ({dir.provincia}) · {dir.pais}
+          {dir.linea2 ? `, ${dir.linea2}` : ''} · {dir.codigoPostal} {dir.ciudad}{dir.provincia ? ` (${dir.provincia})` : ''} · {dir.pais}
         </p>
         <p className="mt-[2px] break-words text-[12.5px] text-[var(--ls-t3)]">
           {dir.telefono} · {dir.email}
@@ -211,11 +211,11 @@ export function DireccionOrigen({
           <input {...campo('codigoPostal')} inputMode="numeric" autoComplete="postal-code" className={CAMPO} />
         </Campo>
 
-        <Campo etiqueta="Provincia" pista="En código: MD, B, V, SE…">
+        <Campo etiqueta="Provincia" pista="Opcional. Vacía si en Seller Central no la tiene">
           <input
             value={borrador.provincia}
             onChange={(e) => setBorrador({ ...borrador, provincia: e.target.value.toUpperCase() })}
-            placeholder="MD"
+            placeholder="—"
             maxLength={4}
             className={`${CAMPO} uppercase`}
           />

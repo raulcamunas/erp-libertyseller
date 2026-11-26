@@ -450,7 +450,8 @@ async function lanzar(ctx: Ctx, paso: PasoEnvio, llamada: () => Promise<{ operat
       paso,
       operacion,
       estado: 'fallo',
-      problemas: [{ code: null, message: texto, details: null, severity: 'ERROR' }],
+      // Lo que dijo Amazon tal cual, para poder ver QUÉ campo no le gusta (el mensaje traducido no lo dice)
+      problemas: [{ code: null, message: texto, details: e instanceof AmazonApiError ? e.message : null, severity: 'ERROR' }],
       peticion,
       actor: ctx.actor,
       user_id: ctx.userId,

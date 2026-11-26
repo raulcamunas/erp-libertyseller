@@ -296,7 +296,6 @@ export function validarInventario(p: {
         ['empresa', d.empresa],
         ['dirección', d.linea1],
         ['ciudad', d.ciudad],
-        ['provincia', d.provincia],
         ['código postal', d.codigoPostal],
         ['país', d.pais],
         ['teléfono', d.telefono],
