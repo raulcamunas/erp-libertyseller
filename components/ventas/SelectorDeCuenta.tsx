@@ -27,7 +27,7 @@ export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir }: { cuent
   return (
     <div ref={caja} className="relative">
       <button type="button" onClick={() => setAbierto((x) => !x)} className="flex h-11 min-w-[260px] items-center gap-3 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] pl-[6px] pr-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition-colors hover:border-[color-mix(in_srgb,var(--ls-t1)_18%,var(--ls-linea))]" aria-expanded={abierto}>
-        {actual && <Inicial texto={nombre(actual)} />}
+        {actual && <Inicial texto={nombre(actual)} emoji={actual.emoji} />}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13.5px] font-semibold text-[var(--ls-t1)]">{actual ? nombre(actual) : 'Elegir cliente'}</span>
           {actual && actual.cliente && actual.cliente !== actual.nombre && <span className="block truncate text-[11px] text-[var(--ls-t4)]">{actual.nombre}</span>}
@@ -47,7 +47,7 @@ export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir }: { cuent
             <div className="px-3 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">Clientes vinculados</div>
             {lista.map((c) => (
               <button key={c.id} type="button" onClick={() => (onCambio(c.id), setAbierto(false), setQ(''))} className="flex w-full items-center gap-3 rounded-[11px] px-2 py-[7px] text-left transition-colors hover:bg-[var(--ls-sup2)]" style={c.id === valor ? { background: 'color-mix(in srgb, #F26212 9%, transparent)' } : undefined}>
-                <Inicial texto={nombre(c)} />
+                <Inicial texto={nombre(c)} emoji={c.emoji} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-medium text-[var(--ls-t1)]">{nombre(c)}</span>
                   <span className="block truncate text-[11px] text-[var(--ls-t4)]">
@@ -71,7 +71,14 @@ export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir }: { cuent
   )
 }
 
-function Inicial({ texto }: { texto: string }) {
+function Inicial({ texto, emoji }: { texto: string; emoji?: string | null }) {
+  if (emoji) {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-[18px] leading-none" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, #F26212 22%, var(--ls-sup2)), var(--ls-sup2))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, #F26212 28%, transparent)' }} aria-hidden>
+        {emoji}
+      </span>
+    )
+  }
   const letras = texto.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')
   return (
     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-[12px] font-bold text-[#141414]" style={{ background: 'linear-gradient(135deg, #F26212, #FFB27A)' }}>

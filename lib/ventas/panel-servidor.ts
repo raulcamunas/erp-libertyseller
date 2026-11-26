@@ -7,11 +7,14 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import type { FilaPanel } from './panel'
+import { emojisDeClientes } from './emoji-servidor'
 
 export interface CuentaDelPanel {
   id: string
   nombre: string
   cliente: string | null
+  /** El emoticono del cliente (el de Tareas o, si no está, uno elegido por la IA). null = iniciales */
+  emoji: string | null
   iva: number
   mercados: string[]
   estado: {
@@ -53,6 +56,8 @@ export async function cuentasDelPanel(): Promise<CuentaDelPanel[]> {
   const conexiones = new Map(((cons ?? []) as Array<{ id: string; name: string; client_id: string; marketplace_ids: string[] | null; marketplaces_activos: string[] | null }>).map((c) => [c.id, c]))
   const { data: clis } = await s.from('amazon_clients').select('id, name').in('id', [...conexiones.values()].map((c) => c.client_id))
   const nombreCliente = new Map(((clis ?? []) as Array<{ id: string; name: string }>).map((c) => [c.id, c.name]))
+  const nombres = [...new Set(filas.map((f) => { const c = conexiones.get(f.connection_id as string); return (c ? nombreCliente.get(c.client_id) : null) ?? c?.name ?? '' }).filter(Boolean))]
+  const emojis = await emojisDeClientes(nombres).catch(() => new Map<string, string | null>())
   return filas
     .map((f) => {
       const c = conexiones.get(f.connection_id as string)
@@ -60,6 +65,7 @@ export async function cuentasDelPanel(): Promise<CuentaDelPanel[]> {
         id: f.connection_id as string,
         nombre: c?.name ?? 'Cuenta',
         cliente: c ? (nombreCliente.get(c.client_id) ?? null) : null,
+        emoji: emojis.get((c ? nombreCliente.get(c.client_id) : null) ?? c?.name ?? '') ?? null,
         iva: n(f.iva_pct),
         mercados: c?.marketplace_ids ?? [],
         estado: {
