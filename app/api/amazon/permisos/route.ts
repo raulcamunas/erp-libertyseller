@@ -313,6 +313,51 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    /* ---------- Modo aparte: ¿podemos pedir reseñas? ---------- */
+
+    /**
+     * ?modo=resenas · LA PETICIÓN DE RESEÑA DE AMAZON (Solicitations API), la del botón «Solicitar una reseña» de Seller Central y la que usa Sellerboard.
+     *
+     * Solo lee: busca UN pedido enviado de hace 10–30 días (getOrders, sin datos del comprador) y pregunta qué peticiones admite
+     * (getSolicitationActionsForOrder). NO manda ninguna petición. Devuelve el veredicto y las acciones que Amazon ofrece, nunca el pedido.
+     *   200 -> el rol de pedir reseñas está · 403 -> no está.
+     */
+    if (request.nextUrl.searchParams.get('modo') === 'resenas') {
+      const hasta = new Date(Date.now() - 10 * 86_400_000)
+      const desde = new Date(Date.now() - 30 * 86_400_000)
+      let pedido: string | null = null
+      let pedidosVistos = 0
+      try {
+        const { data } = await spApiRequest<{ payload?: { Orders?: Array<{ AmazonOrderId: string; OrderStatus: string }> } }>(credentials, 'getOrders', {
+          method: 'GET',
+          path: '/orders/v0/orders',
+          query: { MarketplaceIds: [marketplaceId], CreatedAfter: iso(desde), CreatedBefore: iso(hasta), OrderStatuses: ['Shipped'], MaxResultsPerPage: 5 },
+          maxAttempts: 2,
+        })
+        const pedidos = data?.payload?.Orders ?? []
+        pedidosVistos = pedidos.length
+        pedido = pedidos[0]?.AmazonOrderId ?? null
+      } catch (error) {
+        return NextResponse.json({ conexion: connection.name, marketplaceId, veredicto: 'indeterminado', detalle: error instanceof AmazonApiError ? `No se han podido leer los pedidos: ${error.humanMessage}` : 'No se han podido leer los pedidos' })
+      }
+      if (!pedido) return NextResponse.json({ conexion: connection.name, marketplaceId, veredicto: 'indeterminado', detalle: 'No hay ningún pedido enviado de hace 10–30 días en este país para probar.' })
+      let acciones: string[] = []
+      const sonda = await sondar(
+        { nombre: 'getSolicitationActionsForOrder', rol: 'Buyer Solicitation (pedir reseñas)', para: 'Pedir la reseña de Amazon de cada pedido, como el botón «Solicitar una reseña».' },
+        async () => {
+          const { httpStatus, data } = await spApiRequest<{ _links?: { actions?: Array<{ name?: string }> } }>(credentials, 'getSolicitationActionsForOrder', {
+            method: 'GET',
+            path: `/solicitations/v1/orders/${encodeURIComponent(pedido as string)}`,
+            query: { marketplaceIds: [marketplaceId] },
+            maxAttempts: 2,
+          })
+          acciones = (data?._links?.actions ?? []).map((a) => a.name ?? '').filter(Boolean)
+          return { httpStatus }
+        }
+      )
+      return NextResponse.json({ conexion: connection.name, marketplaceId, pedidosVistos, sonda, accionesDisponibles: acciones })
+    }
+
     /* ---------- Modo aparte: ¿hay ventas por SKU y por día? ---------- */
 
     /**

@@ -57,6 +57,8 @@ export type AmazonOperation =
   | 'getMyFeesEstimates'
   // ---------- La que añadió la sonda de permisos ----------
   | 'getOrderMetrics'
+  // ---------- Pedir reseñas (Solicitations API): por ahora solo la sonda ----------
+  | 'getSolicitationActionsForOrder'
   // ---------- Las de contar las ventas de un intervalo (verificación de stock) ----------
   | 'getOrders'
   | 'getOrderItems'
@@ -212,6 +214,9 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    * es cuando se sabrá cuántas páginas son de verdad.
    */
   listFinancialEvents: { rate: 0.5, burst: 1 },
+
+  /** Solicitations API: 1 por segundo con ráfaga de 5 (publicado). De momento solo la usa la sonda de reseñas */
+  getSolicitationActionsForOrder: { rate: 1, burst: 5 },
 
   /**
    * Fulfillment Inbound. El cupo publicado es 2 por segundo con ráfaga de 30,
