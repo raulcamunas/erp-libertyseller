@@ -179,7 +179,7 @@ export function ResumenDeCuentas() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Todas las cuentas · {PERIODOS.find((p) => p.id === periodo)?.texto}</div>
-            <CifraAnimada valor={total?.ventas ?? 0} formato={(v) => euros(v, 0)} className="mt-1 block text-[38px] font-semibold leading-none tracking-[-0.04em] tabular-nums text-[var(--ls-t1)]" />
+            <CifraAnimada valor={total?.ventas ?? 0} formato={(v) => euros(v)} className="mt-1 block text-[38px] font-semibold leading-none tracking-[-0.04em] tabular-nums text-[var(--ls-t1)]" />
             <div className="mt-2 flex items-center gap-2 text-[12px] text-[var(--ls-t4)]">
               <Chip actual={total?.ventas ?? 0} anterior={totalComp?.ventas} />
               <span>{r.texto}</span>
@@ -188,8 +188,8 @@ export function ResumenDeCuentas() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Cifra texto="Unidades" valor={entero(total?.unidades ?? 0)} delta={<Chip actual={total?.unidades ?? 0} anterior={totalComp?.unidades} />} />
             <Cifra texto="Reembolsos" valor={entero(total?.reembolsos ?? 0)} color={total?.reembolsos ? ROJO : undefined} delta={<Chip actual={total?.reembolsos ?? 0} anterior={totalComp?.reembolsos} inverso />} />
-            <Cifra texto="Publicidad" valor={euros(-(total?.publicidad ?? 0), 0)} delta={<Chip actual={total?.publicidad ?? 0} anterior={totalComp?.publicidad} inverso />} />
-            <Cifra texto="Ganancia neta" valor={euros(total?.neto ?? 0, 0)} color={(total?.neto ?? 0) >= 0 ? VERDE : ROJO} delta={<Chip actual={total?.neto ?? 0} anterior={totalComp?.neto} />} />
+            <Cifra texto="Publicidad" valor={euros(-(total?.publicidad ?? 0))} delta={<Chip actual={total?.publicidad ?? 0} anterior={totalComp?.publicidad} inverso />} />
+            <Cifra texto="Ganancia neta" valor={euros(total?.neto ?? 0)} color={(total?.neto ?? 0) >= 0 ? VERDE : ROJO} delta={<Chip actual={total?.neto ?? 0} anterior={totalComp?.neto} />} />
             <Cifra texto="Margen" valor={pct(total?.margen ?? null, 0)} />
           </div>
         </div>
@@ -267,7 +267,7 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
         </div>
         <div className="mt-4 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
         <div className="flex items-baseline gap-2">
-          <CifraAnimada valor={t?.ventas ?? 0} formato={(v) => euros(v, 0)} className="text-[28px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)]" />
+          <CifraAnimada valor={t?.ventas ?? 0} formato={(v) => euros(v)} className="text-[28px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)]" />
           {t && <Chip actual={t.ventas} anterior={r?.c?.ventas} />}
         </div>
         <div className="-mx-5 mt-2">
@@ -276,8 +276,8 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
         <div className="mt-1 grid grid-cols-4 divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[13px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[8px]">
           <Mini texto="Uds." valor={entero(t?.unidades ?? 0)} />
           <Mini texto="Reemb." valor={entero(t?.reembolsos ?? 0)} color={t?.reembolsos ? ROJO : undefined} />
-          <Mini texto="PPC" valor={euros(-(t?.publicidad ?? 0), 0)} />
-          <Mini texto="Neto" valor={euros(t?.neto ?? 0, 0)} color={(t?.neto ?? 0) >= 0 ? VERDE : ROJO} />
+          <Mini texto="PPC" valor={euros(-(t?.publicidad ?? 0))} />
+          <Mini texto="Neto" valor={euros(t?.neto ?? 0)} color={(t?.neto ?? 0) >= 0 ? VERDE : ROJO} />
         </div>
       </Link>
     </motion.div>
@@ -288,7 +288,7 @@ function Mini({ texto, valor, color }: { texto: string; valor: string; color?: s
   return (
     <div className="min-w-0 px-[10px]">
       <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">{texto}</div>
-      <div className="truncate text-[13.5px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
+      <div className="truncate text-[12.5px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
         {valor}
       </div>
     </div>
