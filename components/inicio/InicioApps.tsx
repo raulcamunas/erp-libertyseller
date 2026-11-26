@@ -13,14 +13,14 @@ import { TarjetaDeApp } from './TarjetaDeApp'
  * Solo pinta. Qué aplicaciones ve cada persona (rol, permisos sueltos, las que se ocultan al admin…) lo decide app/dashboard/page.tsx, que es quien
  * tiene los datos; aquí llega la lista ya filtrada. El estilo y el movimiento viven en el bloque «Inicio y acceso» de app/globals.css (`inicio-*`).
  */
-export function InicioApps({ nombre, rol, apps }: { nombre: string; rol: string; apps: AppConfig[] }) {
+export function InicioApps({ nombre, rol, apps, puesto }: { nombre: string; rol: string; apps: AppConfig[]; puesto?: string | null }) {
   const paso = (n: number) => ({ '--d': n }) as CSSProperties
   const enOrbita = apps.slice(0, 5)
 
   return (
     <>
       {/* En el móvil, una pantalla de iconos (components/inicio/InicioMovil.tsx); desde `lg`, la de siempre sin tocar */}
-      <InicioMovil className="lg:hidden" ids={apps.map((a) => a.id)} nombre={nombre} rol={rol} />
+      <InicioMovil className="lg:hidden" ids={apps.map((a) => a.id)} nombre={nombre} rol={rol} puesto={puesto} />
     <div className="hidden lg:block max-w-7xl mx-auto">
       <section className="inicio-hero inicio-hero-entra">
         <div className="inicio-hero-rejilla" aria-hidden />

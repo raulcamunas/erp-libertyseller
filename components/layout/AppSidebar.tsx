@@ -10,7 +10,7 @@ import { NotificationsBell } from '@/components/layout/NotificationsBell'
 import { leerAvisosSinLeer, leerChatSinLeer, leerCorreoSinLeer, ponerWebLeadsSinVer, suscribirContadores } from '@/lib/avisos/contadores'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { esCeo } from '@/lib/usuarios/ceo'
-import { apps, getAppById, nombreCortoDe, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, GRUPOS_DEL_MENU, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
+import { apps, getAppById, nombreCortoDe, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, gruposDelMenuPara, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { esRutaInmersiva, EVENTO_ABRIR_MENU } from '@/lib/layout/inmersivo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
@@ -285,7 +285,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   }, [pendiente])
 
   // El menú: las aplicaciones sueltas y los desplegables (lib/layout/menu.ts). Un desplegable existe para quien ve al menos dos de sus aplicaciones
-  const menu = armarMenu(filteredApps, GRUPOS_DEL_MENU)
+  const menu = armarMenu(filteredApps, gruposDelMenuPara(userPuesto))
   const rutasDelMenu = aplanarMenu(menu).map((a) => a.route)
   // Estando en una pantalla que cuelga de otra (Actividad, desde Mi rendimiento), se enciende la de la que cuelga
   const rutaActiva = rutaActivaDelMenu(rutasDelMenu, rutaParaElMenu(pendiente ?? pathname ?? ''))

@@ -110,6 +110,7 @@ export default async function DashboardPage() {
     <InicioApps
       nombre={primerNombre(profile.full_name, user.email)}
       rol={profile.role}
+      puesto={profile.puesto}
       apps={filteredApps.filter((app) => app.id !== 'home')}
     />
   )

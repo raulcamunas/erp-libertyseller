@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
 import { Check, ChevronDown, LayoutGrid, Pin, Search, X } from 'lucide-react'
-import { getAppById, GRUPOS_DEL_MENU, nombreCortoDe, type AppConfig } from '@/lib/config/apps'
+import { getAppById, gruposDelMenuPara, nombreCortoDe, type AppConfig } from '@/lib/config/apps'
 import { armarMenu } from '@/lib/layout/menu'
 import { cuantasApps, fechaEnPalabras, saludoDe } from '@/lib/inicio/saludo'
 import { leerChatSinLeer, leerCorreoSinLeer, leerWebLeadsSinVer, suscribirContadores } from '@/lib/avisos/contadores'
@@ -35,7 +35,7 @@ interface Seccion {
   apps: AppConfig[]
 }
 
-export function InicioMovil({ ids, nombre, className }: { ids: readonly string[]; nombre: string; rol?: string; className?: string }) {
+export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly string[]; nombre: string; rol?: string; className?: string; puesto?: string | null }) {
   const router = useRouter()
   const apps = useMemo(() => ids.map((id) => getAppById(id)).filter((a): a is AppConfig => Boolean(a)), [ids])
 
@@ -93,7 +93,7 @@ export function InicioMovil({ ids, nombre, className }: { ids: readonly string[]
 
   // Las secciones: las del menú lateral, en su orden
   const { secciones, grupoDe } = useMemo(() => {
-    const menu = armarMenu(apps, GRUPOS_DEL_MENU)
+    const menu = armarMenu(apps, gruposDelMenuPara(puesto))
     const sueltas: AppConfig[] = []
     const grupos: Seccion[] = []
     const grupoDe = new Map<string, string>()
@@ -106,7 +106,7 @@ export function InicioMovil({ ids, nombre, className }: { ids: readonly string[]
     }
     const secciones: Seccion[] = [...(sueltas.length > 0 ? [{ id: 'tus-apps', titulo: 'Tus apps', apps: sueltas }] : []), ...grupos]
     return { secciones, grupoDe }
-  }, [apps])
+  }, [apps, puesto])
 
   const resultados = useMemo(() => {
     if (consulta.trim() === '') return null

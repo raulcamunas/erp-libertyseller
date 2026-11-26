@@ -1002,6 +1002,16 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     despuesDe: 'correo',
   },
   {
+    // COMERCIAL (26 nov 2026, Raúl): lo del equipo comercial en un desplegable, para quien NO es comercial. A los comerciales (puesto comercial, manager
+    // comercial o comercial autónomo) les siguen saliendo sueltas, como siempre: es su día a día (gruposDelMenuPara).
+    id: 'comercial',
+    name: 'Comercial',
+    description: 'CRM Leads Web, Agenda Comercial, CRM de clientes, Cold Calling, Mis Horas y Mi rendimiento',
+    icon: Handshake,
+    apps: ['web-leads', 'agenda', 'crm', 'cold-calling', 'horas', 'rendimiento'],
+    despuesDe: 'home',
+  },
+  {
     id: 'herramientas-agencia',
     name: 'Herramientas Agencia',
     description: 'Teléfonos, Growth Partner, Amazon API e informes de marketing',
@@ -1064,4 +1074,12 @@ export const nombreCortoDe = (app: Pick<AppConfig, 'name' | 'nombreCorto'>): str
 
 export const getAppsByCategory = (category: string): AppConfig[] => {
   return apps.filter(app => app.category === category)
+}
+
+/** Los puestos del equipo comercial: a ellos el menú les enseña sus aplicaciones sueltas, sin el desplegable «Comercial» */
+export const PUESTOS_COMERCIALES: ReadonlySet<string> = new Set(['comercial', 'manager_comercial', 'comercial_autonomo'])
+
+/** Los desplegables del menú que ve cada persona: los comerciales no tienen el de «Comercial» */
+export function gruposDelMenuPara(puesto: string | null | undefined): readonly GrupoDelMenu[] {
+  return puesto && PUESTOS_COMERCIALES.has(puesto) ? GRUPOS_DEL_MENU.filter((g) => g.id !== 'comercial') : GRUPOS_DEL_MENU
 }

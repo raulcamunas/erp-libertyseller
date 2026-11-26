@@ -56,6 +56,7 @@ export function TableroVentas() {
   const [anadir, setAnadir] = useState(false)
   const [reloj, setReloj] = useState(0)
   const peticion = useRef(0)
+  const cache = useRef<{ productosDe: string | null; productos: Datos['productos']; compDe: string | null }>({ productosDe: null, productos: null, compDe: null })
 
   const { hoy, fraccion } = useMemo(() => hoyEnMadrid(), [reloj]) // eslint-disable-line react-hooks/exhaustive-deps
   const periodos: Periodo[] = useMemo(
@@ -94,14 +95,23 @@ export function TableroVentas() {
     // Los refrescos solos (cada minuto) no enseñan «leyendo…»: las cifras suben animadas en su sitio
     setCargando(true)
     setError(null)
-    const principal = pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoPrincipal.desde}&hasta=${rangoPrincipal.hasta}`)
-    const comp = rangoComparacion ? pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoComparacion.desde}&hasta=${rangoComparacion.hasta}&productos=0`) : Promise.resolve({ filas: [] as FilaPanel[], productos: null, lineas: null })
+    // MENOS CARGA A LA BASE (aviso de CPU de Supabase, 26 nov 2026): el catálogo (títulos y costes) se pide UNA vez por cuenta, y la comparación (que es
+    // pasado y no cambia) solo cuando cambian la cuenta o las fechas. El refresco solo relee las cifras del periodo.
+    const conProductos = cache.current.productosDe !== cuentaId
+    const claveComp = `${cuentaId}|${rangoComparacion?.desde}|${rangoComparacion?.hasta}`
+    const conComp = cache.current.compDe !== claveComp
+    const principal = pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoPrincipal.desde}&hasta=${rangoPrincipal.hasta}${conProductos ? '' : '&productos=0'}`)
+    const comp = rangoComparacion && conComp ? pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoComparacion.desde}&hasta=${rangoComparacion.hasta}&productos=0`) : Promise.resolve(null)
     Promise.all([principal, comp])
       .then(([a, b]) => {
         if (n !== peticion.current) return
-        setDatos(a)
+        if (conProductos) cache.current = { ...cache.current, productosDe: cuentaId, productos: a.productos }
+        setDatos({ ...a, productos: conProductos ? a.productos : cache.current.productos })
         setDatosDe(cuentaId)
-        setComparacion(b.filas)
+        if (b) {
+          cache.current = { ...cache.current, compDe: claveComp }
+          setComparacion(b.filas)
+        } else if (!rangoComparacion) setComparacion([])
       })
       .catch((e) => n === peticion.current && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => n === peticion.current && setCargando(false))
@@ -120,9 +130,9 @@ export function TableroVentas() {
     }
   }, [cuentaId, pestana, periodoElegido.desde, periodoElegido.hasta, reloj])
 
-  // Se vuelve a leer cada minuto con la pantalla a la vista: lo que el cron trae de Amazon aparece solo, con las cifras subiendo
+  // Se vuelve a leer cada 2 minutos con la pantalla a la vista: lo que el cron trae de Amazon aparece solo, con las cifras subiendo
   useEffect(() => {
-    const t = setInterval(() => document.visibilityState === 'visible' && setReloj((x) => x + 1), 60_000)
+    const t = setInterval(() => document.visibilityState === 'visible' && setReloj((x) => x + 1), 120_000)
     return () => clearInterval(t)
   }, [])
 
@@ -197,7 +207,7 @@ export function TableroVentas() {
       acciones={
         <div className="flex flex-wrap items-center gap-2">
           {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => (setCuentaId(id), setSeleccion(null))} onAnadir={() => setAnadir(true)} />}
-          <button type="button" onClick={() => setReloj((x) => x + 1)} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           </button>
         </div>
