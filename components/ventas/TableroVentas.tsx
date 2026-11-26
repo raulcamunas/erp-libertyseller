@@ -39,6 +39,8 @@ export function TableroVentas() {
   const [rango, setRango] = useState<{ desde: string; hasta: string } | null>(null)
   const [vista, setVista] = useState<'baldosas' | 'grafico' | 'pyg'>('baldosas')
   const [seleccion, setSeleccion] = useState<Set<string> | null>(null)
+  // De qué cuenta son los datos que se están enseñando: al cambiar de cliente (o de filtros) las cifras cambian, pero eso NO es una venta nueva
+  const [datosDe, setDatosDe] = useState<string | null>(null)
   const [series, setSeries] = useState<Set<SerieGrafica>>(new Set(['ventas', 'neto', 'publicidad']))
   const [comparar, setComparar] = useState<Comparar>('anio')
   const [mercados, setMercados] = useState<Set<string> | null>(null)
@@ -98,6 +100,7 @@ export function TableroVentas() {
       .then(([a, b]) => {
         if (n !== peticion.current) return
         setDatos(a)
+        setDatosDe(cuentaId)
         setComparacion(b.filas)
       })
       .catch((e) => n === peticion.current && setError(e instanceof Error ? e.message : String(e)))
@@ -288,7 +291,7 @@ export function TableroVentas() {
       {/* Las baldosas */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {periodos.map((p, i) => (
-          <Baldosa key={`${tanda}-${p.id}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} />
+          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} />
         ))}
       </div>
 
@@ -300,24 +303,31 @@ export function TableroVentas() {
               <div className={ROTULO}>Evolución diaria</div>
               <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia</div>
             </div>
-            <span className="ml-auto flex flex-wrap items-center gap-[6px]">
+            <div className="ml-auto inline-flex flex-wrap items-center rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)]" role="group" aria-label="Qué se dibuja">
               {SERIES_GRAFICA.map((x) => {
                 const on = series.has(x.id)
                 return (
                   <button
                     key={x.id}
                     type="button"
+                    aria-pressed={on}
                     onClick={() => setSeries((s0) => { const n = new Set(s0); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n.size ? n : s0 })}
-                    className="inline-flex h-7 items-center gap-[6px] rounded-full border px-[10px] text-[11.5px] transition-all"
-                    style={on ? { borderColor: `color-mix(in srgb, ${x.color} 45%, var(--ls-linea))`, background: `color-mix(in srgb, ${x.color} 12%, transparent)`, color: 'var(--ls-t1)' } : { borderColor: 'var(--ls-linea)', color: 'var(--ls-t4)' }}
+                    className="relative flex h-[28px] items-center gap-2 rounded-[9px] px-3 text-[12px] font-medium transition-all duration-200"
+                    style={on ? { background: 'var(--ls-sup)', color: 'var(--ls-t1)', boxShadow: '0 1px 2px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)' } : { color: 'var(--ls-t4)' }}
                     title={x.id === 'ppc' ? 'Ventas que Amazon Ads atribuye a un clic en un anuncio el mismo día' : x.id === 'organico' ? 'Ventas menos las atribuidas a la publicidad' : undefined}
                   >
-                    <span className="h-[7px] w-[7px] rounded-full transition-opacity" style={{ background: x.color, opacity: on ? 1 : 0.35 }} />
+                    <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden className="shrink-0 transition-opacity" style={{ opacity: on ? 1 : 0.45 }}>
+                      {x.id === 'publicidad' ? (
+                        <line x1="1" y1="4" x2="15" y2="4" stroke={on ? x.color : 'currentColor'} strokeWidth="2" strokeDasharray="3 2.5" strokeLinecap="round" />
+                      ) : (
+                        <path d="M1 6 C 5 6, 6 2, 9 2 S 13 4, 15 3" fill="none" stroke={on ? x.color : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" />
+                      )}
+                    </svg>
                     {x.texto}
                   </button>
                 )
               })}
-            </span>
+            </div>
           </div>
           <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
         </section>
@@ -420,22 +430,27 @@ function Marco({ children, acciones, debajo }: { children: React.ReactNode; acci
 const TARJETA = 'rounded-[20px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[inset_0_1px_0_rgba(255,255,255,0.035),0_1px_2px_rgba(0,0,0,0.18)]'
 const ROTULO = 'text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]'
 
-function Baldosa({ p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void }) {
+function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { contexto: string; p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void }) {
   // EL DINERO QUE SUBE: cuando entra una venta nueva (el refresco de cada minuto trae más que antes), la cifra sube contando y sale «+119,99 €» flotando
   // hacia arriba, con un brillo suave en la baldosa. Sin avisos ni sonidos: solo se ve.
-  const anterior = useRef<number | null>(null)
+  const anterior = useRef<{ contexto: string; ventas: number } | null>(null)
   const [subida, setSubida] = useState<{ id: number; importe: number } | null>(null)
   useEffect(() => {
-    const prev = anterior.current
-    anterior.current = t.ventas
-    if (prev == null || cargando) return
+    const prevRef = anterior.current
+    anterior.current = { contexto, ventas: t.ventas }
+    // Solo cuando es la MISMA cuenta con los mismos filtros y ya había cifras: cambiar de cliente, de país o de productos no es una venta
+    if (!prevRef || prevRef.contexto !== contexto || prevRef.ventas === 0 || cargando) {
+      setSubida(null)
+      return
+    }
+    const prev = prevRef.ventas
     const diff = t.ventas - prev
     if (diff >= 0.5) {
       setSubida({ id: Date.now(), importe: diff })
       const x = setTimeout(() => setSubida(null), 3200)
       return () => clearTimeout(x)
     }
-  }, [t.ventas, cargando])
+  }, [t.ventas, cargando, contexto])
   const fechas = p.desde === p.hasta ? fechaCorta(p.desde).slice(0, 5) : `${fechaCorta(p.desde).slice(0, 5)} – ${fechaCorta(p.hastaPronostico ?? p.hasta).slice(0, 5)}`
   const hayComp = c != null && (c.ventas !== 0 || c.unidades !== 0)
   return (
