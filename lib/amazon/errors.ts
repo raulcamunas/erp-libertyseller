@@ -345,9 +345,9 @@ export function describeHttpError(params: {
       kind: 'peticion',
       message: tecnico,
       humanMessage:
-        'Amazon no reconoce la dirección de origen del cliente (no la encuentra en su callejero). Corrígela en «Sale desde» ' +
-        'para que sea igual que la dirección «Enviar desde» que el cliente tiene en Seller Central: calle completa sin abreviar, ' +
-        'número, localidad con sus acentos y provincia. Luego reintenta el paso.',
+        'Amazon no encuentra la dirección de origen en su callejero, y el ERP ya ha probado a escribirla de varias formas (con y sin acentos, ' +
+        'sin provincia, con «C/», con la ciudad en la otra lengua). Revisa que la calle, el número y el código postal sean los de la dirección «Enviar desde» ' +
+        'de Seller Central y reintenta. Si es correcta y aun así no pasa, es el callejero de Amazon: crea este envío en «Manual».',
       httpStatus,
       requestId,
       code,

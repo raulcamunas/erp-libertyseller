@@ -488,9 +488,24 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
     ctx,
     'plan',
     async () => {
-      const r = await api.crearPlan(ctx.creds, cuerpo)
-      await guardar(ctx, { inbound_plan_id: r.inboundPlanId })
-      return r
+      // Si Amazon no verifica la dirección (su callejero no la encuentra), se prueban otras formas de escribir LA MISMA dirección
+      // (sin acentos, sin provincia, «C/», la ciudad en la otra lengua…) y se queda la primera que acepta. Por la API no hay
+      // «usar esta dirección igualmente» como en Seller Central
+      const variantes = api.variantesDeDireccion(direccion as DireccionOrigen)
+      let ultimo: unknown = null
+      for (const [n, origen] of variantes.entries()) {
+        const intento = n === 0 ? cuerpo : { ...cuerpo, sourceAddress: api.cuerpoCrearPlan({ nombre: cuerpo.name, marketplaceId: f.marketplace_id as string, origen, lineas }).sourceAddress }
+        try {
+          if (n > 0) await new Promise((r) => setTimeout(r, 1200)) // createInboundPlan admite pocas llamadas por segundo
+          const r = await api.crearPlan(ctx.creds, intento)
+          await guardar(ctx, { inbound_plan_id: r.inboundPlanId })
+          return n === 0 ? r : { ...r, direccionUsada: { linea1: origen.linea1, ciudad: origen.ciudad, provincia: origen.provincia, intento: n + 1 } }
+        } catch (e) {
+          if (!api.esDireccionSinVerificar(e)) throw e
+          ultimo = e
+        }
+      }
+      throw ultimo
     },
     { referencias: cuerpo.items.length, unidades: cuerpo.items.reduce((s, i) => s + i.quantity, 0), origen: cuerpo.sourceAddress.postalCode },
     {

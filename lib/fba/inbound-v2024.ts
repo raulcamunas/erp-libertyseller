@@ -142,6 +142,75 @@ export function cuerpoCrearPlan(p: { nombre: string; marketplaceId: string; orig
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* La dirección que Amazon no verifica                                 */
+/* ------------------------------------------------------------------ */
+
+/** ¿Es el «WARNING: Address was unable to be verified» de createInboundPlan? */
+export function esDireccionSinVerificar(e: unknown): boolean {
+  return e instanceof AmazonApiError && e.httpStatus === 400 && /address was unable to be verified|address.*(invalid|not valid|could not be validated)/i.test(e.message)
+}
+
+const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '')
+const TIPO_DE_VIA = /^(calle|c\/|c\.|cl\.?|avenida|avda\.?|av\.?|plaza|pza\.?|pl\.?|paseo|p[ºo]\.?|camino|carretera|ctra\.?|ronda|travesía|travesia|pasaje|glorieta|rúa|rua|carrer|kalea)\s+/i
+/** Ciudades con su nombre en la otra lengua oficial (el callejero de Amazon a veces solo tiene una) */
+const OTRO_NOMBRE: Record<string, string[]> = {
+  pamplona: ['Pamplona/Iruña', 'Iruña'],
+  'san sebastian': ['Donostia-San Sebastián', 'Donostia'],
+  vitoria: ['Vitoria-Gasteiz'],
+  'vitoria-gasteiz': ['Vitoria'],
+  bilbao: ['Bilbo'],
+  'a coruna': ['La Coruña'],
+  'la coruna': ['A Coruña'],
+  orense: ['Ourense'],
+  lerida: ['Lleida'],
+  gerona: ['Girona'],
+  alicante: ['Alicante/Alacant'],
+  castellon: ['Castellón de la Plana'],
+  valencia: ['València'],
+  palma: ['Palma de Mallorca'],
+}
+
+/**
+ * PURA. Las formas de escribir la MISMA dirección que se prueban, por orden, cuando Amazon no verifica la que hay guardada: sin provincia, sin acentos,
+ * con el número tras coma, sin el tipo de vía, con «C/», con el nombre de la ciudad en la otra lengua. Nunca cambia la calle, el número ni el código
+ * postal: solo cómo se escriben. Sin repetidas y como mucho `max`.
+ */
+export function variantesDeDireccion(o: DireccionOrigen, max = 14): DireccionOrigen[] {
+  const linea = (o.linea1 ?? '').trim()
+  const ciudad = (o.ciudad ?? '').trim()
+  const m = linea.match(/^(.*?)[,\s]+(\d+[a-zA-Z]?)\s*$/)
+  const calle = m ? m[1].trim() : linea
+  const numero = m ? m[2] : ''
+  const nombreCalle = calle.replace(TIPO_DE_VIA, '').trim()
+  const junta = (c: string, coma: boolean) => (numero ? `${c}${coma ? ', ' : ' '}${numero}` : c)
+  const lineas = [
+    linea,
+    junta(calle, true),
+    sinAcentos(linea),
+    junta(sinAcentos(calle), true),
+    nombreCalle !== calle ? junta(nombreCalle, false) : '',
+    nombreCalle !== calle ? junta(nombreCalle, true) : '',
+    nombreCalle !== calle ? junta(`C/ ${nombreCalle}`, false) : '',
+    nombreCalle !== calle ? junta(sinAcentos(nombreCalle), false) : '',
+  ].filter(Boolean)
+  const ciudades = [ciudad, ...(OTRO_NOMBRE[sinAcentos(ciudad).toLowerCase()] ?? [])]
+  const provincias = [...new Set([o.provincia?.trim() ? o.provincia.trim() : null, null])]
+  const salida: DireccionOrigen[] = []
+  const vistas = new Set<string>()
+  const meter = (l: string, c: string, p: string | null) => {
+    const k = `${l}|${c}|${p ?? ''}`
+    if (vistas.has(k) || salida.length >= max) return
+    vistas.add(k)
+    salida.push({ ...o, linea1: l, ciudad: c, provincia: p })
+  }
+  // Primero lo guardado (con y sin provincia), luego las formas de la calle, y al final la ciudad en la otra lengua
+  for (const p of provincias) meter(linea, ciudad, p)
+  for (const l of lineas) meter(l, ciudad, null)
+  for (const c of ciudades.slice(1)) for (const l of lineas.slice(0, 3)) meter(l, c, null)
+  return salida
+}
+
 export async function crearPlan(creds: AmazonCredentials, cuerpo: ReturnType<typeof cuerpoCrearPlan>): Promise<{ operationId: string; inboundPlanId: string }> {
   const data = await escribir<{ operationId?: string; inboundPlanId?: string }>(creds, 'createInboundPlan', 'POST', `${RUTA}/inboundPlans`, cuerpo)
   if (!data.inboundPlanId) throw new AmazonApiError({ kind: 'servidor', message: 'createInboundPlan sin inboundPlanId', humanMessage: 'Amazon ha aceptado el plan pero no ha devuelto su identificador.' })
