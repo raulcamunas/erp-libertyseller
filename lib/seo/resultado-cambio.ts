@@ -74,6 +74,11 @@ export interface ResultadoDelCambio {
   avisos: string[]
   /** Una frase para la tarjeta */
   resumen: string
+  /** DESDE EL CAMBIO HASTA HOY (panel «Cambios»): la media de TODAS las semanas de después con la misma cesta, y su variación frente a las 3 de antes en la medida que decide */
+  desdeElCambio: MedidasDeVentana
+  variacionDesde: number | null
+  /** La serie larga para la gráfica: hasta 8 semanas antes, la del cambio y todas las de después */
+  serieLarga: Array<PuntoDeCesta & { lado: 'antes' | 'cambio' | 'despues' }>
 }
 
 export interface EntradaDeResultado {
@@ -131,7 +136,7 @@ export function resultadoDelCambio(e: EntradaDeResultado): ResultadoDelCambio {
   const antesSem = semanas.filter(([, hasta]) => hasta < fecha).slice(-SEMANAS_A_COMPARAR)
   const despuesSem = semanas.filter(([desde]) => desde > fecha).slice(0, SEMANAS_A_COMPARAR)
   const vacio: MedidasDeVentana = { semanas: 0, cuotaImpresiones: null, cuotaClics: null, cuotaCompras: null, comprasSemana: null, gastoSemana: null }
-  const base = { fechaCambio: fecha, juzgableDesde, medida: null, variacion: null, antes: vacio, despues: vacio, serie: [], cesta: [], tocadas: [], avisos: [] as string[] }
+  const base = { fechaCambio: fecha, juzgableDesde, medida: null, variacion: null, antes: vacio, despues: vacio, serie: [], cesta: [], tocadas: [], avisos: [] as string[], desdeElCambio: vacio, variacionDesde: null, serieLarga: [] }
 
   if (antesSem.length === 0)
     return { ...base, estado: 'pocos-datos', resumen: 'No hay semanas de Brand Analytics de antes del cambio con las que comparar.' }
@@ -177,6 +182,14 @@ export function resultadoDelCambio(e: EntradaDeResultado): ResultadoDelCambio {
   ]
   const antes = medidas(puntosAntes, e.gastoSemanal)
   const despues = medidas(puntosDespues, e.gastoSemanal)
+  // Desde el cambio hasta hoy, con la misma cesta: lo que enseña el panel «Cambios»
+  const puntosDesde = semanas.filter(([desde]) => desde > fecha).map(([d, h]) => puntoDe(d, h))
+  const desdeElCambio = medidas(puntosDesde, e.gastoSemanal)
+  const serieLarga: ResultadoDelCambio['serieLarga'] = [
+    ...semanas.filter(([, hasta]) => hasta < fecha).slice(-8).map(([d, h]) => ({ ...puntoDe(d, h), lado: 'antes' as const })),
+    ...(semanaDelCambio ? [{ ...puntoDe(semanaDelCambio[0], semanaDelCambio[1]), lado: 'cambio' as const }] : []),
+    ...puntosDesde.map((p) => ({ ...p, lado: 'despues' as const })),
+  ]
 
   // Las búsquedas que el cambio metió o sacó
   const fichaAntes = aCobertura(e.antes)
@@ -232,7 +245,7 @@ export function resultadoDelCambio(e: EntradaDeResultado): ResultadoDelCambio {
     avisos.push(`El gasto en publicidad de este producto ${cambioPpc > 0 ? 'subió' : 'bajó'} un ${Math.abs(Math.round(cambioPpc * 100))} % (${Math.round(antes.gastoSemana ?? 0)} → ${Math.round(despues.gastoSemana ?? 0)} €/semana): parte del efecto puede venir de ahí.`)
   else if (antes.gastoSemana === 0 && (despues.gastoSemana ?? 0) > 0) avisos.push('Antes no había gasto en publicidad de este producto y después sí: parte del efecto puede venir de ahí.')
 
-  const comun = { ...base, antes, despues, serie, cesta, tocadas, avisos }
+  const comun = { ...base, antes, despues, serie, cesta, tocadas, avisos, desdeElCambio, serieLarga }
 
   if (puntosDespues.length === 0 || despues.semanas === 0)
     return { ...comun, estado: 'esperando', resumen: `Cambio aplicado el ${fechaCorta(fecha)}. Brand Analytics todavía no tiene semanas completas de después; se juzga desde el ${fechaCorta(juzgableDesde)}.` }
@@ -244,7 +257,8 @@ export function resultadoDelCambio(e: EntradaDeResultado): ResultadoDelCambio {
   const medida: ResultadoDelCambio['medida'] = porCompras ? 'compras' : antes.cuotaImpresiones != null && despues.cuotaImpresiones != null && antes.cuotaImpresiones > 0 ? 'impresiones' : null
   const variacion = medida === 'compras' ? relativa(antes.cuotaCompras, despues.cuotaCompras) : medida === 'impresiones' ? relativa(antes.cuotaImpresiones, despues.cuotaImpresiones) : null
   const nombre = medida === 'compras' ? 'la cuota de compras' : 'la cuota de impresiones'
-  const conMedida = { ...comun, medida, variacion }
+  const variacionDesde = medida === 'compras' ? relativa(antes.cuotaCompras, desdeElCambio.cuotaCompras) : medida === 'impresiones' ? relativa(antes.cuotaImpresiones, desdeElCambio.cuotaImpresiones) : null
+  const conMedida = { ...comun, medida, variacion, variacionDesde }
 
   if (medida == null || variacion == null) return { ...conMedida, estado: 'pocos-datos', resumen: 'Brand Analytics no da impresiones ni compras suficientes de estas búsquedas para juzgar el cambio.' }
   const tendencia = variacion >= UMBRAL_VARIACION ? 'sube' : variacion <= -UMBRAL_VARIACION ? 'baja' : 'se mantiene'

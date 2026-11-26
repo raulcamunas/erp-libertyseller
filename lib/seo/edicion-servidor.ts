@@ -78,7 +78,7 @@ function deFila(r: Record<string, unknown>, nombres: Map<string, string>): Edici
   }
 }
 
-async function nombresDe(ids: Array<unknown>): Promise<Map<string, string>> {
+export async function nombresDe(ids: Array<unknown>): Promise<Map<string, string>> {
   const unicos = [...new Set(ids.filter((x): x is string => typeof x === 'string'))]
   if (unicos.length === 0) return new Map()
   const { data } = await createServiceClient().from('profiles').select('id, full_name').in('id', unicos)
@@ -88,6 +88,18 @@ async function nombresDe(ids: Array<unknown>): Promise<Map<string, string>> {
 /** El historial de ediciones de un producto (las 20 últimas), con los nombres de quién las hizo. Sin la migración 312, vacío */
 export async function edicionesDe(c: { connectionId: string; marketplaceId: string }, asin: string): Promise<{ ediciones: EdicionGuardada[]; sinMigracion: boolean }> {
   const { data, error } = await createServiceClient().from('seo_ediciones').select(COLUMNAS).eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).eq('asin', asin).order('created_at', { ascending: false }).limit(20)
+  if (error) {
+    if (isMissingSchema(error)) return { ediciones: [], sinMigracion: true }
+    throw error
+  }
+  const filas = (data ?? []) as Array<Record<string, unknown>>
+  const nombres = await nombresDe(filas.flatMap((f) => [f.creado_por, f.enviado_por]))
+  return { ediciones: filas.map((f) => deFila(f, nombres)), sinMigracion: false }
+}
+
+/** Las ediciones de TODA la cuenta y país (panel «Cambios»: las aplicadas con su resultado y el registro de quién hizo qué), las más nuevas primero */
+export async function edicionesDeLaCuenta(c: { connectionId: string; marketplaceId: string }, limite = 200): Promise<{ ediciones: EdicionGuardada[]; sinMigracion: boolean }> {
+  const { data, error } = await createServiceClient().from('seo_ediciones').select(COLUMNAS).eq('connection_id', c.connectionId).eq('marketplace_id', c.marketplaceId).order('created_at', { ascending: false }).limit(limite)
   if (error) {
     if (isMissingSchema(error)) return { ediciones: [], sinMigracion: true }
     throw error

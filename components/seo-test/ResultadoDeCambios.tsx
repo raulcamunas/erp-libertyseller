@@ -15,7 +15,7 @@ import { useDelProducto } from './useDelProducto'
  * (lib/seo/resultado-cambio.ts), la barra semanal con la semana del cambio marcada, las búsquedas que el cambio metió o sacó y lo que ensucia la comparación (stock, otro cambio, publicidad).
  */
 
-const ESTILO: Record<EstadoResultado, { texto: string; color: string }> = {
+export const ESTILO_RESULTADO: Record<EstadoResultado, { texto: string; color: string }> = {
   mejora: { texto: 'Mejora', color: COLOR_ESTADO.verde },
   empeora: { texto: 'Empeora', color: COLOR_ESTADO.rojo },
   igual: { texto: 'Sin efecto claro', color: 'var(--ls-t3)' },
@@ -25,12 +25,12 @@ const ESTILO: Record<EstadoResultado, { texto: string; color: string }> = {
   'pocos-datos': { texto: 'Pocos datos', color: 'var(--ls-t4)' },
 }
 
-const APLICADAS: ReadonlySet<EdicionGuardada['estado']> = new Set(['aplicada', 'parcial'])
-const fechaDe = (e: EdicionGuardada) => (e.verificadaAt ?? e.enviadaAt ?? e.createdAt).slice(0, 10)
+export const APLICADAS: ReadonlySet<EdicionGuardada['estado']> = new Set(['aplicada', 'parcial'])
+export const fechaDe = (e: EdicionGuardada) => (e.verificadaAt ?? e.enviadaAt ?? e.createdAt).slice(0, 10)
 const p1 = (x: number | null) => (x == null ? '—' : `${(x * 100).toLocaleString('es-ES', { maximumFractionDigits: 1, minimumFractionDigits: x < 0.1 ? 1 : 0 })} %`)
 const n1 = (x: number | null) => (x == null ? '—' : x.toLocaleString('es-ES', { maximumFractionDigits: 1 }))
 const fCorta = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-const NOMBRE_CAMPO: Record<string, string> = { titulo: 'título', highlights: 'Item Highlights', bullets: 'viñetas', descripcion: 'descripción', backend: 'backend' }
+export const NOMBRE_CAMPO: Record<string, string> = { titulo: 'título', highlights: 'Item Highlights', bullets: 'viñetas', descripcion: 'descripción', backend: 'backend' }
 
 export function ResultadoDeCambios({ cuentaId, asin, precio, decisiones }: { cuentaId: string; asin: string; precio: number | null; decisiones: DecisionesDeBusquedas }) {
   const ediciones = useDelProducto<{ ediciones: EdicionGuardada[]; sinMigracion: boolean }>(`/api/seo/ediciones?cuenta=${encodeURIComponent(cuentaId)}&asin=${asin}`)
@@ -84,7 +84,7 @@ export function ResultadoDeCambios({ cuentaId, asin, precio, decisiones }: { cue
 
 function TarjetaDeResultado({ e, r }: { e: EdicionGuardada; r: ResultadoDelCambio }) {
   const [ver, setVer] = useState(false)
-  const est = ESTILO[r.estado]
+  const est = ESTILO_RESULTADO[r.estado]
   const Flecha = r.variacion == null ? Minus : r.variacion >= 0.1 ? ArrowUpRight : r.variacion <= -0.1 ? ArrowDownRight : Minus
   const medidaTxt = r.medida === 'compras' ? 'cuota de compras' : r.medida === 'impresiones' ? 'cuota de impresiones' : null
   return (
@@ -199,7 +199,7 @@ function Barras({ r }: { r: ResultadoDelCambio }) {
       <div className="mt-2 flex h-[92px] items-end gap-[6px]">
         {r.serie.map((p) => {
           const v = valor(p)
-          const color = p.lado === 'antes' ? 'var(--ls-t4)' : p.lado === 'cambio' ? COLOR_ESTADO.ambar : ESTILO[r.estado].color === 'var(--ls-t4)' ? COLOR_ESTADO.azul : ESTILO[r.estado].color
+          const color = p.lado === 'antes' ? 'var(--ls-t4)' : p.lado === 'cambio' ? COLOR_ESTADO.ambar : ESTILO_RESULTADO[r.estado].color === 'var(--ls-t4)' ? COLOR_ESTADO.azul : ESTILO_RESULTADO[r.estado].color
           return (
             <div key={p.desde} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`Semana del ${fCorta(p.desde)}: ${p1(v)}${p.lado === 'cambio' ? ' (semana del cambio, no cuenta)' : ''}`}>
               <span className="text-[10px] tabular-nums text-[var(--ls-t4)]">{v == null ? '' : p1(v)}</span>

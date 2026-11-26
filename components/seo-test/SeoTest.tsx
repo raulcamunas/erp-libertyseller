@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeCheck, CircleAlert, FileText, KeyRound, ListChecks, Loader2, Package, Radar, RefreshCw, Search, SearchCheck, ShoppingCart, Target } from 'lucide-react'
+import { BadgeCheck, CircleAlert, FileText, History, KeyRound, ListChecks, Loader2, Package, Radar, RefreshCw, Search, SearchCheck, ShoppingCart, Target } from 'lucide-react'
 import { AvatarDeCliente, BarraDeClientes, type ClienteDeBarra } from '@/components/marketing-test/BarraDeClientes'
 import { bandera } from '@/components/marketing-test/piezas'
 import { haceCuanto } from '@/components/marketing-test/formato'
@@ -15,6 +15,7 @@ import { PestanaSeoBusquedas } from './PestanaSeoBusquedas'
 import { PestanaSeoFicha } from './PestanaSeoFicha'
 import { PestanaSeoHelium } from './PestanaSeoHelium'
 import { PestanaSeoCompetencia } from './PestanaSeoCompetencia'
+import { PestanaSeoCambios } from './PestanaSeoCambios'
 import { useHistorial } from './useHistorial'
 import { GuiaDeEtiquetas } from './GuiaDeEtiquetas'
 
@@ -25,6 +26,7 @@ const PESTANAS = [
   { id: 'ficha', texto: 'Ficha', icono: FileText },
   { id: 'competencia', texto: 'Competencia', icono: Radar },
   { id: 'helium', texto: 'Helium 10', icono: KeyRound },
+  { id: 'cambios', texto: 'Cambios', icono: History },
 ] as const satisfies ReadonlyArray<Opcion<string>>
 type IdPestana = (typeof PESTANAS)[number]['id']
 
@@ -204,6 +206,8 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
               <PestanaSeoBusquedas cuentaId={cuentaId} datos={datos} moneda={cuenta.moneda} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} recargar={recargar} consulta={consultaAbierta} setConsulta={setConsultaAbierta} />
             ) : activa === 'competencia' ? (
               <PestanaSeoCompetencia cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} recargarCuenta={() => void recargar()} />
+            ) : activa === 'cambios' ? (
+              <PestanaSeoCambios cuentaId={cuentaId} datos={datos} verFicha={(a) => irA('ficha', a)} />
             ) : activa === 'helium' ? (
               <PestanaSeoHelium cuentaId={cuentaId} datos={datos} asin={asinElegido} setAsin={setAsin} irAProductos={() => irA('productos')} />
             ) : (
