@@ -402,7 +402,8 @@ export function TablaPedidos({ lineas, titulos, ivaPct, costes, buscar }: { line
         <tbody>
           {lista.map((l, i) => {
             const ventas = l.ventas ?? 0
-            const tarifas = l.tarifas ?? -0.15 * ventas
+            // Las tarifas de Amazon vienen con su IVA dentro y se enseñan sin él (lib/ventas/panel.ts)
+            const tarifas = (l.tarifas ?? -0.15 * 1.21 * ventas) / (1 + ivaPct / 100)
             const iva = Math.max(0, ventas - l.promo) * (ivaPct / (100 + ivaPct))
             const cogs = (costes[l.sku] ?? 0) * l.unidades
             const neto = ventas - l.promo + tarifas - iva - cogs

@@ -415,8 +415,9 @@ export interface FilaDia {
   unidades_ppc: number
 }
 
-/** Comisión de venta por defecto cuando un SKU todavía no tiene ninguna real (la de casi todas las categorías de Amazon) */
-export const REFERRAL_POR_DEFECTO = 0.15
+/** Comisión de venta por defecto cuando un SKU todavía no tiene ninguna real: el 15 % de casi todas las categorías, CON el 21 % de IVA dentro, como
+ *  vienen las reales (el panel les quita el IVA al sumar: lib/ventas/panel.ts) */
+export const REFERRAL_POR_DEFECTO = 0.15 * 1.21
 
 /**
  * Junta las líneas de pedido y los movimientos en una fila por país × SKU × día. Las líneas sin precio toman el precio medio de ese SKU; las que aún no

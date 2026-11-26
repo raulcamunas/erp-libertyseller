@@ -9,6 +9,10 @@
  *   · coste de los reembolsos = − lo devuelto al comprador + lo que Amazon devuelve o cobra de comisiones por el reembolso
  *   · IVA = (ventas − promociones − lo devuelto) × iva / (100 + iva)   (las ventas de Amazon llevan el IVA dentro)
  *   · ajustes = lo que Amazon reembolsa (inventario perdido o dañado, cargos al comprador): suma
+ *
+ * LAS TARIFAS DE AMAZON, SIN SU IVA (26 nov 2026, cuadrando con Sellerboard): Amazon da las comisiones, la tarifa FBA, la suscripción y las comisiones de los
+ * reembolsos CON el IVA dentro (3,73 € de comisión de un juego de 19,99 € = 15 % + IVA), y ese IVA el vendedor lo recupera. Se guardan como vienen y aquí
+ * se quitan: tarifa / (1 + IVA). Con IVA 0 (una cuenta de fuera de la UE) no cambia nada.
  */
 
 export const DIA_MS = 86_400_000
@@ -75,6 +79,7 @@ export function vacios(): Totales {
 /** Suma unas filas y saca el beneficio. `costes` = coste por unidad de cada SKU (euros) */
 export function totalizar(filas: readonly FilaPanel[], ivaPct: number, costes: Readonly<Record<string, number>>, escala = 1): Totales {
   const t = vacios()
+  const sinIva = 1 / (1 + Math.max(0, ivaPct) / 100)
   for (const f of filas) {
     t.ventas += f.ventas
     t.unidades += f.unidades
@@ -84,12 +89,12 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: number, costes: R
     t.publicidad += f.publicidad
     t.ventasPpc += f.ventasPpc
     t.unidadesPpc += f.unidadesPpc
-    t.referral += f.referral
-    t.fba += f.fba
-    t.otras += f.otras
-    t.estimadas += f.estimadas
+    t.referral += f.referral * sinIva
+    t.fba += f.fba * sinIva
+    t.otras += f.otras * sinIva
+    t.estimadas += f.estimadas * sinIva
     t.reembolsado += f.reembolsado
-    t.costeReembolso += f.comisionReembolso - f.reembolsado
+    t.costeReembolso += f.comisionReembolso * sinIva - f.reembolsado
     t.ajustes += f.ajustes
     if (f.sku && f.unidades) {
       const c = costes[f.sku]

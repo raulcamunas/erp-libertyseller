@@ -26,14 +26,15 @@ console.log('=== periodos ===')
 
 console.log('=== el beneficio (el ejemplo de Sellerboard: un jamón a 119,99 en Francia) ===')
 {
-  const f: FilaPanel = { dia: '2026-11-26', mkt: 'A13V1IB3VIYZZH', sku: 'MONTE 004 - FR', asin: 'B0', unidades: 1, pedidos: 1, ventas: 119.99, promo: 0, referral: -18, fba: 0, otras: 0, estimadas: -18, reembolsos: 0, reembolsado: 0, comisionReembolso: 0, ajustes: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0 }
+  const f: FilaPanel = { dia: '2026-11-26', mkt: 'A13V1IB3VIYZZH', sku: 'MONTE 004 - FR', asin: 'B0', unidades: 1, pedidos: 1, ventas: 119.99, promo: 0, referral: -21.78, fba: 0, otras: 0, estimadas: -21.78, reembolsos: 0, reembolsado: 0, comisionReembolso: 0, ajustes: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0 }
   const t = totalizar([f], 21, {})
+  ok('la comisión que da Amazon con IVA (21,78) se descuenta sin él: 18,00, como Sellerboard', Math.abs(t.referral + 18) < 0.011, String(t.referral))
   ok('IVA 20,82 (el 21 % que va dentro del precio)', casi(t.iva, 20.82), String(t.iva))
   ok('ganancia neta 81,17, como Sellerboard', casi(t.neto, 81.17), String(t.neto))
   ok('margen 67,6 %', casi((t.margen as number) * 100, 67.65), String(t.margen))
   const conCoste = totalizar([f], 21, { 'MONTE 004 - FR': 40 })
   ok('con coste de 40 € la ganancia baja 40 y el ROI sale', casi(conCoste.neto, 41.17) && casi(conCoste.roi as number, 41.17 / 40))
-  const reemb = totalizar([{ ...f, reembolsos: 1, reembolsado: 119.99, comisionReembolso: 14.4 }], 21, {})
+  const reemb = totalizar([{ ...f, reembolsos: 1, reembolsado: 119.99, comisionReembolso: 17.424 }], 21, {})
   ok('un reembolso entero: el IVA se recupera y solo se pierde la comisión no devuelta', casi(reemb.iva, 0) && casi(reemb.neto, 119.99 - 18 - 119.99 + 14.4), String(reemb.neto))
 }
 

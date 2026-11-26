@@ -213,7 +213,10 @@ export async function cuentasParaAnadir(): Promise<Array<{ id: string; nombre: s
 }
 
 export async function anadirCuenta(connectionId: string): Promise<void> {
-  const { error } = await createServiceClient().from('ventas_cuentas').upsert({ connection_id: connectionId, activa: true }, { onConflict: 'connection_id' })
+  // Una cuenta de EE. UU., Canadá o México no tiene IVA europeo: ni en las ventas ni en las tarifas
+  const { data: con } = await createServiceClient().from('amazon_connections').select('region').eq('id', connectionId).maybeSingle()
+  const sinIva = (con as { region?: string } | null)?.region === 'na'
+  const { error } = await createServiceClient().from('ventas_cuentas').upsert({ connection_id: connectionId, activa: true, ...(sinIva ? { iva_pct: 0 } : {}) }, { onConflict: 'connection_id' })
   if (error) throw error
 }
 
