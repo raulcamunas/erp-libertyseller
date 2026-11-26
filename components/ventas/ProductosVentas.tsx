@@ -7,6 +7,7 @@ import { CabeceraDeModulo } from '@/components/ui-ls'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { hoyEnMadrid, sumarDias, totalizar, type FilaPanel } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, ProductoDelCatalogo } from '@/lib/ventas/panel-servidor'
+import { leerCostesCsv } from '@/lib/ventas/costes-csv'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { bandera, Buscador, euros, pais, ROJO, VERDE } from './piezas'
 
@@ -140,26 +141,13 @@ export function ProductosVentas() {
   }
 
   const importar = async (f: File) => {
-    const texto = await f.text()
-    const lineas = texto.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim())
-    if (lineas.length === 0) return
-    const sep = lineas[0].includes(';') ? ';' : lineas[0].includes('\t') ? '\t' : ','
-    const cab = lineas[0].split(sep).map((c) => c.trim().toLowerCase())
-    const iSku = cab.findIndex((c) => c === 'sku')
-    const iCogs = cab.findIndex((c) => c === 'cogs' || c === 'coste' || c === 'cost')
-    const conCabecera = iSku >= 0 && iCogs >= 0
-    const lote: Array<{ sku: string; coste: number }> = []
-    for (const l of lineas.slice(conCabecera ? 1 : 0)) {
-      const c = l.split(sep)
-      const sku = (c[conCabecera ? iSku : 0] ?? '').trim().replace(/^"|"$/g, '')
-      const n = aNumero((c[conCabecera ? iCogs : 1] ?? '').replace(/^"|"$/g, ''))
-      if (sku && n != null && !Number.isNaN(n)) lote.push({ sku, coste: n })
-    }
-    if (lote.length === 0) {
-      setAviso({ texto: 'El fichero no trae ninguna fila «SKU;COGS» válida (columnas SKU y COGS, o las dos primeras).', bien: false })
+    // Lector propio (lib/ventas/costes-csv.ts): respeta las comillas del export de Sellerboard («"SKU";"Cost"») y la coma decimal
+    const { costes, error } = leerCostesCsv(await f.text())
+    if (error) {
+      setAviso({ texto: error, bien: false })
       return
     }
-    await guardar(lote)
+    await guardar(costes)
   }
 
   return (
