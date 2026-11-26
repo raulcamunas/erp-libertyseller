@@ -22,6 +22,8 @@ class Base {
   simultaneas = 0
   maximoSimultaneas = 0
   falla = new Set<number>()
+  /** Tramos que fallan pedidos de 1.000 de golpe pero llegan en trozos pequeños (tiempo agotado, conexión justa: lo de Daniela, 26 nov 2026) */
+  fallaSiGrande = new Set<number>()
   retardoMs = 5
   /** Una base a la que todavía no se le ha lanzado la migración 262: pedir sus columnas da error de columna inexistente */
   sinLa262: string | null = null
@@ -58,6 +60,7 @@ class Base {
         if (base.sinLa263 && columnas.includes('ccaa')) return { data: null, error: { code: base.sinLa263 }, count: null }
         if (base.sinLa264 && columnas.includes('ciclo_vuelta')) return { data: null, error: { code: base.sinLa264 }, count: null }
         if (base.falla.has(desde)) return { data: null, error: { code: 'XX000' }, count: null }
+        if (hasta - desde + 1 > 250 && base.fallaSiGrande.has(desde)) return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' }, count: null }
         const visibles = base.filas.filter((f) => propietario === null || f.assigned_to === propietario)
         return { data: visibles.slice(desde, hasta + 1), error: null, count: conRecuento ? visibles.length : null }
       },
@@ -133,6 +136,13 @@ async function main() {
     roto.falla.add(0)
     const r2 = await cargarCartera(cliente(roto))
     ok('si falla el primero no hay nada que enseñar, y se dice', r2.leads.length === 0 && r2.incompleta)
+    ok('y se dice lo que contestó la base', r2.motivo === 'XX000', String(r2.motivo))
+
+    const justa = base(3500)
+    justa.fallaSiGrande.add(0)
+    justa.fallaSiGrande.add(2000)
+    const r3 = await cargarCartera(cliente(justa))
+    ok('un tramo que falla de golpe se vuelve a pedir en trozos pequeños y la cartera llega ENTERA', r3.leads.length === 3500 && !r3.incompleta && new Set(r3.leads.map((l) => l.id)).size === 3500, `${r3.leads.length} incompleta=${r3.incompleta}`)
   }
 
   console.log('\n=== una base a la que todavía no se le ha lanzado la migración 262 (los partners) ===')
@@ -156,7 +166,7 @@ async function main() {
     const otraFalla = base(100)
     otraFalla.falla.add(0)
     const r2 = await cargarCartera(cliente(otraFalla))
-    ok('un error que NO es de columna no se repite (no se enmascara un fallo de verdad)', otraFalla.peticiones.length === 1 && r2.incompleta && r2.leads.length === 0)
+    ok('un error que NO es de columna no se pide con menos columnas (no se enmascara un fallo de verdad): solo se reintenta igual, en trozos', otraFalla.peticiones.every((p) => p.columnas === COLUMNAS_DE_CARTERA || p.columnas === 'id') && r2.incompleta && r2.leads.length === 0)
   }
 
   console.log('\n=== una base con la 262 pero sin la 263 (las columnas de ubicación) ===')

@@ -37,6 +37,7 @@ export function useCartera({ propietarioInicial, userId }: Opciones) {
   // Empieza cargando: no hay nada que enseñar hasta que llegue el primer tramo
   const [cargando, setCargando] = useState(true)
   const [incompleta, setIncompleta] = useState(false)
+  const [motivo, setMotivo] = useState<string | null>(null)
   const pedido = useRef(0)
   /** Cuándo llegó la última cartera completa: sirve para saber si, al volver a la pantalla, hay que pedirla otra vez */
   const cargadaEn = useRef(0)
@@ -52,6 +53,7 @@ export function useCartera({ propietarioInicial, userId }: Opciones) {
       if (silenciosa && r.leads.length === 0 && r.incompleta) return
       setLeads(r.leads)
       setIncompleta(r.incompleta)
+      setMotivo(r.incompleta ? (r.motivo ?? null) : null)
       setCargando(false)
       cargadaEn.current = Date.now()
     },
@@ -138,5 +140,5 @@ export function useCartera({ propietarioInicial, userId }: Opciones) {
     }
   }, [supabase, userId, propietario])
 
-  return { leads, propietario, cargando, incompleta, cargadaEn, cambiarPropietario, recargar, refrescar, parchear }
+  return { leads, propietario, cargando, incompleta, motivo, cargadaEn, cambiarPropietario, recargar, refrescar, parchear }
 }

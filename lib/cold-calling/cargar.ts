@@ -92,14 +92,38 @@ export interface ResultadoDeCarga {
   total: number
   /** true si algún tramo falló: lo que se ha cargado es una cartera INCOMPLETA y la pantalla tiene que decirlo */
   incompleta: boolean
+  /** Lo que contestó la base cuando falló (código y mensaje), para enseñarlo en el aviso y saber qué pasa sin abrir la consola */
+  motivo?: string | null
+}
+
+/** Si un tramo de 1.000 falla (tiempo agotado, conexión justa), se vuelve a pedir en trozos de este tamaño antes de darlo por perdido (26 nov 2026: a Daniela no le llegaba la cartera) */
+export const FILAS_POR_TRAMO_PEQUENO = 250
+
+export function motivoDeError(e: unknown): string {
+  const x = (e ?? {}) as { code?: unknown; message?: unknown; status?: unknown }
+  const partes = [x.code, x.status, x.message].filter((v) => v != null && String(v).trim() !== '').map(String)
+  return partes.length ? partes.join(' · ').slice(0, 200) : 'sin respuesta de la base (conexión cortada o tiempo agotado)'
 }
 
 type Respuesta = { data: unknown; error: unknown; count?: number | null }
 
-function pedirTramo(supabase: ClienteDeLectura, propietario: string | undefined, desde: number, conRecuento: boolean, columnas: string): PromiseLike<Respuesta> {
+function pedirTramo(supabase: ClienteDeLectura, propietario: string | undefined, desde: number, conRecuento: boolean, columnas: string, filas = FILAS_POR_TRAMO): PromiseLike<Respuesta> {
   let consulta = supabase.from('cold_leads').select(columnas, conRecuento ? { count: 'exact' } : undefined)
   if (propietario) consulta = consulta.eq('assigned_to', propietario)
-  return consulta.order('id', { ascending: true }).range(desde, desde + FILAS_POR_TRAMO - 1) as unknown as PromiseLike<Respuesta>
+  return consulta.order('id', { ascending: true }).range(desde, desde + filas - 1) as unknown as PromiseLike<Respuesta>
+}
+
+/** Un tramo de 1.000 que ha fallado, pedido otra vez en trozos pequeños y de uno en uno. null + el error si tampoco así */
+async function tramoEnTrozos(supabase: ClienteDeLectura, propietario: string | undefined, desde: number, columnas: string): Promise<{ filas: ColdLead[] | null; error?: unknown }> {
+  const filas: ColdLead[] = []
+  for (let d = desde; d < desde + FILAS_POR_TRAMO; d += FILAS_POR_TRAMO_PEQUENO) {
+    const r = await pedirTramo(supabase, propietario, d, false, columnas, FILAS_POR_TRAMO_PEQUENO)
+    if (r.error) return { filas: null, error: r.error }
+    const trozo = (r.data ?? []) as unknown as ColdLead[]
+    filas.push(...trozo)
+    if (trozo.length < FILAS_POR_TRAMO_PEQUENO) break
+  }
+  return { filas }
 }
 
 export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCarga = {}): Promise<ResultadoDeCarga> {
@@ -111,11 +135,38 @@ export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCa
     primero = await pedirTramo(supabase, op.propietario, 0, true, NIVELES_DE_COLUMNAS[nivel])
   }
   const columnas = NIVELES_DE_COLUMNAS[nivel]
+  let motivo: string | null = null
   if (primero.error) {
-    console.error('Cold Calling · no se ha podido leer la cartera', { codigo: (primero.error as { code?: unknown })?.code ?? null })
-    return { leads: [], total: 0, incompleta: true }
+    motivo = motivoDeError(primero.error)
+    console.error('Cold Calling · ha fallado el primer tramo de la cartera; se reintenta en trozos', { motivo })
+    // Antes se daba por perdida la cartera entera. Ahora: el recuento aparte (sin columnas, ligero) y el primer tramo en trozos pequeños
+    let recuento = supabase.from('cold_leads').select('id', { count: 'exact', head: true })
+    if (op.propietario) recuento = recuento.eq('assigned_to', op.propietario)
+    const [c, t] = await Promise.all([recuento as unknown as PromiseLike<Respuesta>, tramoEnTrozos(supabase, op.propietario, 0, columnas)])
+    if (!t.filas) {
+      motivo = motivoDeError(t.error)
+      console.error('Cold Calling · no se ha podido leer la cartera', { motivo })
+      return { leads: [], total: 0, incompleta: true, motivo }
+    }
+    primero = { data: t.filas, error: null, count: c.error ? null : (c.count ?? null) }
   }
   const filas = (primero.data ?? []) as unknown as ColdLead[]
+  if (primero.count == null && filas.length >= FILAS_POR_TRAMO) {
+    // Sin recuento (el primer tramo vino en trozos y el recuento tampoco llegó): se sigue de tramo en tramo hasta uno que venga corto
+    const leads: ColdLead[] = [...filas]
+    for (let desde = FILAS_POR_TRAMO; ; desde += FILAS_POR_TRAMO) {
+      const r = await pedirTramo(supabase, op.propietario, desde, false, columnas)
+      const t = r.error ? await tramoEnTrozos(supabase, op.propietario, desde, columnas) : { filas: (r.data ?? []) as unknown as ColdLead[] }
+      if (!t.filas) {
+        motivo = motivoDeError(t.error ?? r.error)
+        return { leads, total: leads.length, incompleta: true, motivo }
+      }
+      leads.push(...t.filas)
+      op.alProgreso?.(leads.length, leads.length)
+      if (t.filas.length < FILAS_POR_TRAMO) break
+    }
+    return { leads, total: leads.length, incompleta: false, motivo: null }
+  }
   const total = Math.max(primero.count ?? filas.length, filas.length)
   const leads: ColdLead[] = [...filas]
   op.alProgreso?.(leads.length, total)
@@ -128,17 +179,25 @@ export async function cargarCartera(supabase: ClienteDeLectura, op: OpcionesDeCa
   for (let i = 0; i < desdes.length; i += TRAMOS_A_LA_VEZ) {
     const grupo = desdes.slice(i, i + TRAMOS_A_LA_VEZ)
     const respuestas = await Promise.all(grupo.map((d) => pedirTramo(supabase, op.propietario, d, false, columnas)))
-    respuestas.forEach((r, j) => {
-      if (r.error) {
-        incompleta = true
-        console.error('Cold Calling · ha fallado un tramo de la cartera', { desde: grupo[j], codigo: (r.error as { code?: unknown })?.code ?? null })
-        return
+    for (let j = 0; j < respuestas.length; j++) {
+      const r = respuestas[j]
+      if (!r.error) {
+        tramos.set(grupo[j], (r.data ?? []) as unknown as ColdLead[])
+        continue
       }
-      tramos.set(grupo[j], (r.data ?? []) as unknown as ColdLead[])
-    })
+      // El que falla se pide otra vez en trozos pequeños antes de darlo por perdido
+      const t = await tramoEnTrozos(supabase, op.propietario, grupo[j], columnas)
+      if (t.filas) {
+        tramos.set(grupo[j], t.filas)
+        continue
+      }
+      incompleta = true
+      motivo = motivoDeError(t.error ?? r.error)
+      console.error('Cold Calling · ha fallado un tramo de la cartera', { desde: grupo[j], motivo })
+    }
     for (const d of grupo) leads.push(...(tramos.get(d) ?? []))
     op.alProgreso?.(leads.length, total)
   }
 
-  return { leads, total, incompleta: incompleta || leads.length < total }
+  return { leads, total, incompleta: incompleta || leads.length < total, motivo }
 }

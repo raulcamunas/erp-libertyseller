@@ -394,6 +394,7 @@ export function ColdCallingBoard({ propietarioInicial, team, currentUser, puedeV
           <AlertTriangle className={`${AVISO.icono} !mt-0 text-[var(--ls-e-ambar)]`} aria-hidden />
           <p className="flex-1">
             <span className={AVISO.fuerte}>La cartera ha llegado incompleta.</span> Algún tramo no se ha podido leer, así que puede que falten leads.
+            {cartera.motivo && <span className="ml-1 text-[var(--ls-t4)]">(La base ha contestado: {cartera.motivo})</span>}
           </p>
           <button type="button" onClick={() => void cartera.recargar()} className={`${BOTON.base} ${BOTON.secundario}`}>
             <RefreshCw className="h-3 w-3" aria-hidden /> Reintentar
