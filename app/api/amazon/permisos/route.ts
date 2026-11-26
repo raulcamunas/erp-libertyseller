@@ -313,6 +313,83 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    /* ---------- Modo aparte: un mes de dinero, resumido ---------- */
+
+    /**
+     * ?modo=finanzas&dias=30 · LA PRUEBA DEL PANEL DE VENTAS (sustituir Sellerboard, 26 nov 2026).
+     *
+     * Lee los movimientos de dinero de la cuenta (listFinancialEvents, Finance and Accounting) de los últimos `dias` (hasta 2 días atrás,
+     * que es lo que Amazon ya ha publicado) y devuelve SOLO SUMAS por concepto y moneda: ventas, comisiones, tarifa FBA, devoluciones,
+     * publicidad, almacenamiento… y cuántos movimientos de cada tipo. Nunca un pedido ni un dato del comprador. Solo lee.
+     * Tope de páginas para no pasar del tiempo de la ruta: si se corta, lo dice.
+     */
+    if (request.nextUrl.searchParams.get('modo') === 'finanzas') {
+      const dias = Math.min(Math.max(Number(request.nextUrl.searchParams.get('dias')) || 30, 1), 60)
+      const hasta = new Date(Date.now() - 2 * 86_400_000)
+      const desde = new Date(hasta.getTime() - dias * 86_400_000)
+      const conceptos = new Map<string, { importe: number; veces: number }>()
+      const eventos = new Map<string, number>()
+      const skus = new Set<string>()
+      const sumar = (clave: string, importe: number) => {
+        const x = conceptos.get(clave) ?? { importe: 0, veces: 0 }
+        x.importe += importe
+        x.veces += 1
+        conceptos.set(clave, x)
+      }
+      // Recorre un evento: cada objeto con un «…Type» de texto y un importe { CurrencyAmount, CurrencyCode } al lado es un concepto
+      const recorrer = (lista: string, v: unknown, tipoPadre: string | null) => {
+        if (Array.isArray(v)) return v.forEach((x) => recorrer(lista, x, tipoPadre))
+        if (!v || typeof v !== 'object') return
+        const o = v as Record<string, unknown>
+        if (typeof o.SellerSKU === 'string') skus.add(o.SellerSKU)
+        const tipo = Object.entries(o).find(([k, x]) => /Type$/.test(k) && typeof x === 'string')?.[1] as string | undefined
+        for (const [k, x] of Object.entries(o)) {
+          if (x && typeof x === 'object' && !Array.isArray(x) && typeof (x as Record<string, unknown>).CurrencyAmount === 'number') {
+            const m = x as { CurrencyAmount: number; CurrencyCode?: string }
+            sumar(`${lista} · ${tipo ?? tipoPadre ?? k} · ${m.CurrencyCode ?? '?'}`, m.CurrencyAmount)
+          } else if (x && typeof x === 'object') recorrer(lista, x, tipo ?? tipoPadre)
+        }
+      }
+      let siguiente: string | undefined
+      let paginas = 0
+      let cortado = false
+      const TOPE = 45
+      try {
+        do {
+          const { data } = await spApiRequest<{ payload?: { FinancialEvents?: Record<string, unknown[]>; NextToken?: string } }>(credentials, 'listFinancialEvents', {
+            method: 'GET',
+            path: '/finances/v0/financialEvents',
+            query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', PostedAfter: iso(desde), PostedBefore: iso(hasta) },
+            maxAttempts: 4,
+          })
+          paginas += 1
+          for (const [lista, filas] of Object.entries(data?.payload?.FinancialEvents ?? {})) {
+            if (!Array.isArray(filas) || filas.length === 0) continue
+            eventos.set(lista, (eventos.get(lista) ?? 0) + filas.length)
+            recorrer(lista.replace(/EventList$/, ''), filas, null)
+          }
+          siguiente = data?.payload?.NextToken
+          if (siguiente && paginas >= TOPE) {
+            cortado = true
+            break
+          }
+        } while (siguiente)
+      } catch (error) {
+        return NextResponse.json({ conexion: connection.name, error: error instanceof AmazonApiError ? error.humanMessage : String(error), paginas })
+      }
+      const redondo = (n: number) => Math.round(n * 100) / 100
+      return NextResponse.json({
+        conexion: connection.name,
+        desde: iso(desde),
+        hasta: iso(hasta),
+        paginas,
+        cortado,
+        skusDistintos: skus.size,
+        eventos: Object.fromEntries([...eventos.entries()].sort((a, b) => b[1] - a[1])),
+        conceptos: [...conceptos.entries()].sort((a, b) => Math.abs(b[1].importe) - Math.abs(a[1].importe)).map(([c, v]) => ({ concepto: c, importe: redondo(v.importe), veces: v.veces })),
+      })
+    }
+
     /* ---------- Modo aparte: ¿podemos pedir reseñas? ---------- */
 
     /**
