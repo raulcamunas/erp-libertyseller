@@ -10,13 +10,13 @@ export interface TiposDeCambio {
   respaldo: boolean
 }
 
-const RESPALDO: TiposDeCambio = { porEuro: { EUR: 1, USD: 1.1, MXN: 20.8 }, fecha: '2026-11-19', respaldo: true }
+const RESPALDO: TiposDeCambio = { porEuro: { EUR: 1, USD: 1.1, MXN: 20.8, GBP: 0.85, PLN: 4.25, SEK: 11.2, TRY: 40, CAD: 1.55 }, fecha: '2026-11-19', respaldo: true }
 let guardado: { t: TiposDeCambio; en: number } | null = null
 
 export async function tiposDeCambio(): Promise<TiposDeCambio> {
   if (guardado && Date.now() - guardado.en < 12 * 3_600_000) return guardado.t
   try {
-    const r = await fetch('https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,MXN,GBP', { cache: 'no-store', signal: AbortSignal.timeout(8_000) })
+    const r = await fetch('https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,MXN,GBP,PLN,SEK,TRY,CAD', { cache: 'no-store', signal: AbortSignal.timeout(8_000) })
     const j = (await r.json()) as { date?: string; rates?: Record<string, number> }
     if (!r.ok || !j.rates?.USD) throw new Error('sin datos')
     const t: TiposDeCambio = { porEuro: { EUR: 1, ...j.rates }, fecha: j.date ?? '', respaldo: false }

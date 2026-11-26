@@ -308,6 +308,15 @@ export async function middleware(request: NextRequest) {
         }
       }
 
+      // Ruta /dashboard/ventas (Sellerboard propio) - Solo admin: las cifras de negocio de los clientes. El filtro de verdad está en /api/ventas
+      if (pathname.startsWith('/dashboard/ventas')) {
+        if (userRole !== 'admin') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
       // Ruta /dashboard/limpieza-ofertas - Solo admin
       //
       // Desde ahí se BORRAN los límites de precio y las rebajas que un cliente

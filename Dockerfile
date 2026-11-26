@@ -71,6 +71,7 @@ RUN { \
       echo "* * * * * /app/scripts/auditor-stock.sh"; \
       echo "* * * * * /app/scripts/fba-seguimiento.sh"; \
       echo "* * * * * /app/scripts/fba-pedidos.sh"; \
+      echo "* * * * * /app/scripts/ventas.sh"; \
       echo "* * * * * /app/scripts/stock-verificacion.sh"; \
       echo "* * * * * /app/scripts/cumplimiento.sh"; \
       echo "* * * * * /app/scripts/rinkel-llamadas.sh"; \

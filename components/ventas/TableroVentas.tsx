@@ -1,0 +1,470 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
+import { AlertTriangle, Calendar, ChartNoAxesCombined, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
+import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
+import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import { Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, NARANJA, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
+
+/**
+ * VENTAS · EL TABLERO (el «Sellerboard» propio, 26 nov 2026). Una cuenta arriba; cinco baldosas con su periodo (Hoy, Ayer, Este mes, Pronóstico, Mes
+ * pasado… o las otras tandas) comparadas con el año anterior o el periodo anterior; al pulsar una, la gráfica, el reparto del dinero y las tablas de
+ * productos, pedidos y cuenta de resultados se ponen en ese periodo. Todas las cuentas de beneficio, en el navegador (lib/ventas/panel.ts).
+ */
+
+type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number> } | null; lineas: LineaDelPanel[] | null }
+type Pestana = 'productos' | 'pedidos' | 'resultados'
+
+async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, { cache: 'no-store', ...init })
+  const j = (await r.json().catch(() => null)) as (T & { error?: string }) | null
+  if (!r.ok) throw new Error(j?.error ?? `Error ${r.status}`)
+  return j as T
+}
+
+const minimo = (xs: string[]) => xs.reduce((a, b) => (b < a ? b : a))
+const maximo = (xs: string[]) => xs.reduce((a, b) => (b > a ? b : a))
+
+const COLORES_BALDOSA = [
+  ['#F26212', '#FF8A3D'],
+  ['#D9530C', '#F2803A'],
+  ['#B84900', '#E0702B'],
+  ['#8F3A06', '#C2611F'],
+  ['#5E2A0B', '#97501F'],
+]
+
+export function TableroVentas() {
+  const [cuentas, setCuentas] = useState<CuentaDelPanel[] | null>(null)
+  const [libres, setLibres] = useState<Array<{ id: string; nombre: string; cliente: string | null }>>([])
+  const [cuentaId, setCuentaId] = useState<string | null>(null)
+  const [tanda, setTanda] = useState<Tanda>('clasica')
+  const [comparar, setComparar] = useState<Comparar>('anio')
+  const [mercados, setMercados] = useState<Set<string> | null>(null)
+  const [elegido, setElegido] = useState('hoy')
+  const [pestana, setPestana] = useState<Pestana>('productos')
+  const [buscar, setBuscar] = useState('')
+  const [datos, setDatos] = useState<Datos | null>(null)
+  const [comparacion, setComparacion] = useState<FilaPanel[]>([])
+  const [lineas, setLineas] = useState<LineaDelPanel[] | null>(null)
+  const [cargando, setCargando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [desglose, setDesglose] = useState<Periodo | null>(null)
+  const [anadir, setAnadir] = useState(false)
+  const [reloj, setReloj] = useState(0)
+  const peticion = useRef(0)
+
+  const { hoy, fraccion } = useMemo(() => hoyEnMadrid(), [reloj]) // eslint-disable-line react-hooks/exhaustive-deps
+  const periodos = useMemo(() => periodosDe(tanda, hoy, fraccion), [tanda, hoy, fraccion])
+  const comparados = useMemo(() => periodos.map((p) => rangoAComparar(p, comparar)), [periodos, comparar])
+  const cuenta = cuentas?.find((c) => c.id === cuentaId) ?? null
+  const periodoElegido = periodos.find((p) => p.id === elegido) ?? periodos[0]
+
+  // Las cuentas
+  const cargarCuentas = useCallback(async () => {
+    const r = await pedir<{ cuentas: CuentaDelPanel[]; libres: Array<{ id: string; nombre: string; cliente: string | null }> }>('/api/ventas?que=cuentas')
+    setCuentas(r.cuentas)
+    setLibres(r.libres)
+    setCuentaId((x) => x ?? r.cuentas[0]?.id ?? null)
+  }, [])
+  useEffect(() => {
+    cargarCuentas().catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  }, [cargarCuentas])
+  useEffect(() => {
+    if (!periodos.some((p) => p.id === elegido)) setElegido(periodos[0].id)
+  }, [periodos, elegido])
+
+  // Los datos: el tramo de las baldosas (y la gráfica: 30 días como mínimo) y el de la comparación
+  const desdeGrafica = sumarDias(hoy, -29)
+  const rangoPrincipal = useMemo(() => ({ desde: minimo([...periodos.map((p) => p.desde), desdeGrafica]), hasta: maximo(periodos.map((p) => p.hasta)) }), [periodos, desdeGrafica])
+  const rangoComparacion = useMemo(() => {
+    const rs = comparados.filter((r): r is NonNullable<typeof r> => r != null)
+    return rs.length ? { desde: minimo(rs.map((r) => r.desde)), hasta: maximo(rs.map((r) => r.hasta)) } : null
+  }, [comparados])
+
+  useEffect(() => {
+    if (!cuentaId) return
+    const n = ++peticion.current
+    setCargando(true)
+    setError(null)
+    const principal = pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoPrincipal.desde}&hasta=${rangoPrincipal.hasta}`)
+    const comp = rangoComparacion ? pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoComparacion.desde}&hasta=${rangoComparacion.hasta}&productos=0`) : Promise.resolve({ filas: [] as FilaPanel[], productos: null, lineas: null })
+    Promise.all([principal, comp])
+      .then(([a, b]) => {
+        if (n !== peticion.current) return
+        setDatos(a)
+        setComparacion(b.filas)
+      })
+      .catch((e) => n === peticion.current && setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => n === peticion.current && setCargando(false))
+  }, [cuentaId, rangoPrincipal, rangoComparacion, reloj])
+
+  // Los pedidos del periodo elegido (solo hay detalle de los últimos ~62 días)
+  useEffect(() => {
+    if (!cuentaId || pestana !== 'pedidos') return
+    let vivo = true
+    setLineas(null)
+    pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${periodoElegido.desde}&hasta=${periodoElegido.desde}&productos=0&lineasDesde=${periodoElegido.desde}&lineasHasta=${periodoElegido.hasta}`)
+      .then((r) => vivo && setLineas(r.lineas ?? []))
+      .catch(() => vivo && setLineas([]))
+    return () => {
+      vivo = false
+    }
+  }, [cuentaId, pestana, periodoElegido.desde, periodoElegido.hasta, reloj])
+
+  // Se refresca solo cada 5 minutos (lo que tarda el cron en traer lo nuevo)
+  useEffect(() => {
+    const t = setInterval(() => document.visibilityState === 'visible' && setReloj((x) => x + 1), 5 * 60_000)
+    return () => clearInterval(t)
+  }, [])
+
+  const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
+  const filtrar = useCallback((fs: readonly FilaPanel[]) => (mercados ? fs.filter((f) => mercados.has(f.mkt)) : fs), [mercados])
+  const filas = useMemo(() => filtrar(datos?.filas ?? []), [datos, filtrar])
+  const filasComp = useMemo(() => filtrar(comparacion), [comparacion, filtrar])
+  const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
+  const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
+  const iva = cuenta?.iva ?? 21
+
+  const totales: Totales[] = useMemo(() => periodos.map((p) => totalizar(filas.filter((f) => enRango(f.dia, p)), iva, costes, p.escala ?? 1)), [periodos, filas, iva, costes])
+  const totalesComp: Array<Totales | null> = useMemo(
+    () => comparados.map((r) => (r ? totalizar(filasComp.filter((f) => enRango(f.dia, r)), iva, costes) : null)),
+    [comparados, filasComp, iva, costes],
+  )
+  const iElegido = Math.max(0, periodos.findIndex((p) => p.id === periodoElegido.id))
+  const tElegido = totales[iElegido]
+  const filasElegidas = useMemo(() => filas.filter((f) => enRango(f.dia, periodoElegido)), [filas, periodoElegido])
+  const diasGrafica = useMemo(() => {
+    const desde = periodoElegido.desde < desdeGrafica ? periodoElegido.desde : desdeGrafica
+    const dias: string[] = []
+    for (let d = desde; d <= hoy; d = sumarDias(d, 1)) dias.push(d)
+    return dias
+  }, [periodoElegido.desde, desdeGrafica, hoy])
+
+  if (cuentas && cuentas.length === 0) {
+    return (
+      <Marco>
+        <p className="py-16 text-center text-[13px] text-[var(--ls-t3)]">Todavía no hay ninguna cuenta en el panel. Falta lanzar la migración 344 o añadir una.</p>
+      </Marco>
+    )
+  }
+
+  return (
+    <Marco
+      acciones={
+        <div className="flex flex-wrap items-center gap-2">
+          {cuentas && (
+            <select value={cuentaId ?? ''} onChange={(e) => setCuentaId(e.target.value)} className="h-9 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 text-[13px] font-medium text-[var(--ls-t1)] outline-none" aria-label="Cuenta">
+              {cuentas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.cliente ?? c.nombre}
+                  {c.cliente && c.cliente !== c.nombre ? ` · ${c.nombre}` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <button type="button" onClick={() => setAnadir(true)} className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--ls-linea)] px-3 text-[12.5px] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Añadir otra cuenta al panel">
+            <Plus className="h-[14px] w-[14px]" /> Cuenta
+          </button>
+          <button type="button" onClick={() => setReloj((x) => x + 1)} className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-[var(--ls-linea)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+            {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
+          </button>
+        </div>
+      }
+    >
+      <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }`}</style>
+
+      {cuenta?.estado.primeraLectura && (
+        <div className="mb-4 flex items-start gap-3 rounded-[14px] border border-[color-mix(in_srgb,var(--ls-acc)_35%,var(--ls-linea))] bg-[color-mix(in_srgb,var(--ls-acc)_7%,var(--ls-sup))] p-3 text-[12.5px] text-[var(--ls-t2)]">
+          <Loader2 className="mt-[2px] h-[15px] w-[15px] shrink-0 animate-spin text-[var(--ls-acc)]" />
+          <div>
+            <span className="font-semibold text-[var(--ls-t1)]">Trayendo los últimos 62 días de Amazon.</span> Se llena solo en los próximos minutos: pedidos {cuenta.estado.pedidosHasta ? `hasta el ${fechaCorta(cuenta.estado.pedidosHasta.slice(0, 10))}` : 'pendientes'}, dinero {cuenta.estado.dineroHasta ? `hasta el ${fechaCorta(cuenta.estado.dineroHasta.slice(0, 10))}` : 'pendiente'}, publicidad {cuenta.estado.publicidadHasta ? `hasta el ${fechaCorta(cuenta.estado.publicidadHasta)}` : 'pendiente'}.
+          </div>
+        </div>
+      )}
+      {cuenta?.estado.error && !cuenta.estado.primeraLectura && (
+        <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 text-[12px] text-[var(--ls-t3)]">
+          <AlertTriangle className="mt-[1px] h-[14px] w-[14px] shrink-0" style={{ color: 'var(--ls-e-ambar)' }} /> Última lectura con avisos: {cuenta.estado.error}
+        </div>
+      )}
+      {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
+
+      {/* Los filtros */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Desplegable icono={Calendar} texto={TANDAS.find((t) => t.id === tanda)?.texto ?? ''}>
+          {(cerrar) =>
+            TANDAS.map((t) => (
+              <Opcion key={t.id} activa={t.id === tanda} onClick={() => (setTanda(t.id), cerrar())}>
+                {t.texto}
+              </Opcion>
+            ))
+          }
+        </Desplegable>
+        <Desplegable icono={Globe} texto={!mercados || mercados.size === mercadosConDatos.length ? 'Todos los países' : `${mercados.size} ${mercados.size === 1 ? 'país' : 'países'}`}>
+          {() => (
+            <>
+              <Opcion activa={!mercados} onClick={() => setMercados(null)}>
+                Todos los países
+              </Opcion>
+              {mercadosConDatos.map((m) => {
+                const activa = !mercados || mercados.has(m)
+                return (
+                  <Opcion
+                    key={m}
+                    activa={activa}
+                    onClick={() => {
+                      const base = new Set(mercados ?? mercadosConDatos)
+                      if (base.has(m)) base.delete(m)
+                      else base.add(m)
+                      setMercados(base.size === mercadosConDatos.length ? null : base)
+                    }}
+                  >
+                    {bandera(m)} {pais(m)}
+                  </Opcion>
+                )
+              })}
+            </>
+          )}
+        </Desplegable>
+        <Desplegable icono={GitCompareArrows} texto={comparar === 'anio' ? 'Comparar con el año anterior' : comparar === 'anterior' ? 'Comparar con el periodo anterior' : 'Sin comparar'}>
+          {(cerrar) =>
+            (
+              [
+                ['anio', 'Comparar año sobre año'],
+                ['anterior', 'Comparar con el periodo anterior'],
+                ['no', 'No comparar'],
+              ] as Array<[Comparar, string]>
+            ).map(([v, t]) => (
+              <Opcion key={v} activa={comparar === v} onClick={() => (setComparar(v), cerrar())}>
+                {t}
+              </Opcion>
+            ))
+          }
+        </Desplegable>
+        {cargando && <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ls-t4)]"><Loader2 className="h-[12px] w-[12px] animate-spin" /> leyendo…</span>}
+      </div>
+
+      {/* Las baldosas */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {periodos.map((p, i) => (
+          <Baldosa key={`${tanda}-${p.id}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} rangoComp={comparados[i]} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} />
+        ))}
+      </div>
+
+      {/* La gráfica y el reparto del dinero */}
+      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
+        <section className="rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4">
+          <div className="mb-2 flex flex-wrap items-center gap-3">
+            <ChartNoAxesCombined className="h-[15px] w-[15px] text-[var(--ls-acc)]" />
+            <span className="text-[14px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia por día</span>
+            <span className="text-[11.5px] text-[var(--ls-t4)]">en color, {periodoElegido.titulo.toLowerCase()}</span>
+            <span className="ml-auto flex items-center gap-3 text-[11px] text-[var(--ls-t3)]">
+              <Leyenda color={NARANJA} texto="Ventas" />
+              <Leyenda color={VERDE} texto="Ganancia neta" />
+              <Leyenda color="#a78bfa" texto="Publicidad" raya />
+            </span>
+          </div>
+          <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} />
+        </section>
+        <section className="flex flex-col gap-4 rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4">
+          <div>
+            <div className="text-[14px] font-semibold text-[var(--ls-t1)]">A dónde va cada euro</div>
+            <div className="text-[11.5px] text-[var(--ls-t4)]">{periodoElegido.titulo} · de {euros(tElegido?.ventas ?? 0)} vendidos</div>
+          </div>
+          {tElegido && <RepartoDelDinero t={tElegido} />}
+          <div className="mt-auto grid grid-cols-3 gap-2">
+            <Mini texto="Margen" valor={pct(tElegido?.margen ?? null)} />
+            <Mini texto="TACOS" valor={pct(tElegido?.tacos ?? null)} />
+            <Mini texto="ROI" valor={tElegido?.roi == null ? '—' : pct(tElegido.roi)} nota={tElegido?.unidadesSinCoste ? 'faltan costes' : undefined} />
+          </div>
+        </section>
+      </div>
+
+      {/* Las tablas */}
+      <section className="mt-4 overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ls-linea)] p-3">
+          <span className="text-[15px] font-semibold text-[var(--ls-t1)]">{periodoElegido.titulo}</span>
+          <Segmentado
+            etiqueta="Vista"
+            tamano="sm"
+            valor={pestana}
+            onCambio={setPestana}
+            opciones={[
+              { id: 'productos', texto: 'Productos' },
+              { id: 'pedidos', texto: 'Pedidos' },
+              { id: 'resultados', texto: 'Cuenta de resultados' },
+            ]}
+          />
+          <span className="ml-auto" />
+          {pestana !== 'resultados' && <Buscador valor={buscar} onCambio={setBuscar} />}
+        </div>
+        {pestana === 'productos' && <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} />}
+        {pestana === 'pedidos' &&
+          (lineas == null ? (
+            <p className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-[var(--ls-t4)]">
+              <Loader2 className="h-[14px] w-[14px] animate-spin" /> Cargando los pedidos…
+            </p>
+          ) : (
+            <TablaPedidos lineas={mercados ? lineas.filter((l) => mercados.has(l.mkt)) : lineas} titulos={titulos} ivaPct={iva} costes={costes} buscar={buscar} />
+          ))}
+        {pestana === 'resultados' && <CuentaDeResultados periodos={periodos} totales={totales} />}
+      </section>
+
+      <PanelLateral abierto={desglose != null} onCambio={(a) => !a && setDesglose(null)} titulo={desglose?.titulo ?? ''} descripcion={desglose ? `${fechaCorta(desglose.desde)} – ${fechaCorta(desglose.hastaPronostico ?? desglose.hasta)}${desglose.escala ? ' · pronóstico del mes entero' : ''}` : ''} icono={Coins} acento="marca" ancho={440}>
+        {desglose && <Desglose t={totales[periodos.findIndex((p) => p.id === desglose.id)] ?? totalizar([], iva, costes)} />}
+      </PanelLateral>
+
+      <PanelLateral abierto={anadir} onCambio={setAnadir} titulo="Añadir una cuenta al panel" descripcion="Empieza a leerse sola en la próxima pasada (5 minutos) y en un rato tiene sus últimos 62 días." icono={Plus} acento="marca">
+        <div className="flex flex-col gap-1">
+          {libres.length === 0 && <p className="text-[12.5px] text-[var(--ls-t4)]">Todas las cuentas conectadas ya están en el panel.</p>}
+          {libres.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={async () => {
+                await pedir('/api/ventas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'anadir', cuenta: l.id }) })
+                setAnadir(false)
+                await cargarCuentas()
+                setCuentaId(l.id)
+              }}
+              className="flex items-center justify-between rounded-[10px] border border-[var(--ls-linea)] px-3 py-[10px] text-left text-[13px] text-[var(--ls-t1)] hover:border-[var(--ls-acc)]"
+            >
+              <span>
+                {l.cliente ?? l.nombre}
+                {l.cliente && l.cliente !== l.nombre && <span className="text-[var(--ls-t4)]"> · {l.nombre}</span>}
+              </span>
+              <Plus className="h-[14px] w-[14px] text-[var(--ls-t3)]" />
+            </button>
+          ))}
+        </div>
+      </PanelLateral>
+    </Marco>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+function Marco({ children, acciones }: { children: React.ReactNode; acciones?: React.ReactNode }) {
+  return (
+    <div className="mx-auto w-full min-w-0 max-w-[1500px] pb-12 lg:px-1">
+      <CabeceraDeModulo icono={Coins} acento="marca" titulo="Sellerboard" subtitulo="Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon" acciones={acciones} />
+      <div className="mt-4">{children}</div>
+    </div>
+  )
+}
+
+function Baldosa({ p, i, t, c, rangoComp, elegida, onElegir, onMas }: { p: Periodo; i: number; t: Totales; c: Totales | null; rangoComp: { desde: string; hasta: string } | null; elegida: boolean; onElegir: () => void; onMas: () => void }) {
+  const [a, b] = COLORES_BALDOSA[i % COLORES_BALDOSA.length]
+  const fechas = p.desde === p.hasta ? fechaCorta(p.desde) : `${fechaCorta(p.desde)} – ${fechaCorta(p.hastaPronostico ?? p.hasta)}`
+  const fechasComp = rangoComp ? (rangoComp.desde === rangoComp.hasta ? fechaCorta(rangoComp.desde) : `${fechaCorta(rangoComp.desde)} – ${fechaCorta(rangoComp.hasta)}`) : null
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: i * 0.06, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{ y: -3 }}
+      onClick={onElegir}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onElegir()}
+      aria-pressed={elegida}
+      className="group relative cursor-pointer overflow-hidden rounded-[16px] border bg-[var(--ls-sup)] text-left transition-shadow"
+      style={{ borderColor: elegida ? a : 'var(--ls-linea)', boxShadow: elegida ? `0 0 0 1px ${a}, 0 12px 32px -14px ${a}` : 'var(--ls-sombra-1)' }}
+    >
+      <div className="relative px-4 pb-3 pt-3 text-white" style={{ background: `linear-gradient(135deg, ${a}, ${b})` }}>
+        <div className="pointer-events-none absolute -right-6 -top-10 h-28 w-28 rounded-full bg-white/10 blur-xl transition-transform duration-700 group-hover:scale-125" />
+        <div className="text-[14px] font-semibold">{p.titulo}</div>
+        <div className="mt-[2px] flex items-center justify-between gap-2 text-[11px] text-white/80">
+          <span>{fechas}</span>
+          {fechasComp && <span className="text-white/60">{fechasComp}</span>}
+        </div>
+      </div>
+      <div className="flex flex-col gap-[10px] px-4 pb-2 pt-3">
+        <Cifra texto="Ventas" valor={t.ventas} anterior={c?.ventas} formato={(v) => euros(v)} grande />
+        <Cifra texto="Unidades" valor={t.unidades} anterior={c?.unidades} formato={entero} />
+        <Cifra texto="Reembolsos" valor={t.reembolsos} anterior={c?.reembolsos} formato={entero} inverso />
+        <Cifra texto="Ganancia neta" valor={t.neto} anterior={c?.neto} formato={(v) => euros(v)} color={t.neto >= 0 ? VERDE : ROJO} grande />
+        {t.ventas > 0 && (
+          <div className="h-[5px] w-full overflow-hidden rounded-full bg-[var(--ls-sup2)]" title={`Margen ${pct(t.margen)}`}>
+            <motion.div initial={{ width: 0 }} animate={{ width: `${Math.max(0, Math.min(1, t.margen ?? 0)) * 100}%` }} transition={{ duration: 1, delay: 0.2 + i * 0.06, ease: [0.16, 1, 0.3, 1] }} className="h-full rounded-full" style={{ background: `linear-gradient(90deg, ${VERDE}, color-mix(in srgb, ${VERDE} 60%, white))` }} />
+          </div>
+        )}
+      </div>
+      <button type="button" onClick={(e) => (e.stopPropagation(), onMas())} className="w-full border-t border-[var(--ls-linea)] py-2 text-[12px] font-medium text-[var(--ls-acc)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-acc)_8%,transparent)]">
+        Desglose
+      </button>
+    </motion.div>
+  )
+}
+
+function Cifra({ texto, valor, anterior, formato, grande, inverso, color }: { texto: string; valor: number; anterior?: number | null; formato: (n: number) => string; grande?: boolean; inverso?: boolean; color?: string }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
+        {texto}
+        {anterior !== undefined && <Chip actual={valor} anterior={anterior} inverso={inverso} />}
+      </div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span style={{ color: color ?? 'var(--ls-t1)' }}>
+          <CifraAnimada valor={valor} formato={formato} className={`tabular-nums ${grande ? 'text-[21px] font-semibold tracking-[-0.02em]' : 'text-[15px] font-medium'}`} />
+        </span>
+        {anterior != null && <span className="text-[11.5px] tabular-nums text-[var(--ls-t4)]">{formato(anterior)}</span>}
+      </div>
+    </div>
+  )
+}
+
+function Mini({ texto, valor, nota }: { texto: string; valor: string; nota?: string }) {
+  return (
+    <div className="rounded-[12px] bg-[var(--ls-sup2)] px-3 py-2">
+      <div className="text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">{texto}</div>
+      <div className="text-[16px] font-semibold tabular-nums text-[var(--ls-t1)]">{valor}</div>
+      {nota && <div className="text-[10px] text-[var(--ls-t4)]">{nota}</div>}
+    </div>
+  )
+}
+
+function Leyenda({ color, texto, raya }: { color: string; texto: string; raya?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-block h-[3px] w-[14px] rounded-full" style={{ background: raya ? `repeating-linear-gradient(90deg, ${color} 0 4px, transparent 4px 7px)` : color }} />
+      {texto}
+    </span>
+  )
+}
+
+function Desplegable({ icono: Icono, texto, children }: { icono: typeof Calendar; texto: string; children: (cerrar: () => void) => React.ReactNode }) {
+  const [abierto, setAbierto] = useState(false)
+  const caja = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!abierto) return
+    const fuera = (e: MouseEvent) => !caja.current?.contains(e.target as Node) && setAbierto(false)
+    document.addEventListener('mousedown', fuera)
+    return () => document.removeEventListener('mousedown', fuera)
+  }, [abierto])
+  return (
+    <div ref={caja} className="relative">
+      <button type="button" onClick={() => setAbierto((x) => !x)} className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t1)] transition-colors hover:border-[color-mix(in_srgb,var(--ls-acc)_45%,var(--ls-linea))]" aria-expanded={abierto}>
+        <Icono className="h-[14px] w-[14px] text-[var(--ls-acc)]" />
+        {texto}
+        <ChevronDown className={`h-[13px] w-[13px] text-[var(--ls-t4)] transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      {abierto && (
+        <motion.div initial={{ opacity: 0, y: -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} className="absolute left-0 top-[42px] z-30 min-w-[260px] rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-1 shadow-[var(--ls-sombra-3)]">
+          {children(() => setAbierto(false))}
+        </motion.div>
+      )}
+    </div>
+  )
+}
+
+function Opcion({ activa, onClick, children }: { activa: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[12.5px] text-[var(--ls-t1)] hover:bg-[var(--ls-sup2)]">
+      <span className="w-[14px]">{activa && <Check className="h-[13px] w-[13px] text-[var(--ls-acc)]" />}</span>
+      {children}
+    </button>
+  )
+}
+

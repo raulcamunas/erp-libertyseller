@@ -177,6 +177,19 @@ export const TAREAS_CRON = [
       '(sin nada del comprador). Con eso el plan de reposición cuenta también lo que el cliente vende desde su almacén.',
   },
   {
+    /**
+     * CADA 5 MINUTOS: EL PANEL DE VENTAS (EL «SELLERBOARD» PROPIO, 26 nov 2026). Pedidos, movimientos de dinero y publicidad por producto de cada cuenta
+     * dada de alta en `ventas_cuentas`, y el resumen por día. No espera a Amazon: pide en una pasada y recoge en otra. Solo lee de Amazon.
+     */
+    id: 'ventas',
+    nombre: 'Ventas y beneficio (Sellerboard)',
+    ruta: '/api/ventas/cron',
+    cadaMinutos: 5,
+    que:
+      'Lee de Amazon los pedidos, el dinero (comisiones, reembolsos, tarifas) y la publicidad por producto de las cuentas del panel de ventas, y guarda ' +
+      'una fila por producto y día. Sin nada del comprador.',
+  },
+  {
     id: 'fba-seguimiento',
     nombre: 'Seguimiento de envíos a FBA',
     ruta: '/api/fba/cron-seguimiento',
@@ -598,6 +611,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-remesas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 12 * 60 },
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-pedidos': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
+  ventas: { prioridad: 'baja', ayunoMaxMin: 60 },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'fba-planificador': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },

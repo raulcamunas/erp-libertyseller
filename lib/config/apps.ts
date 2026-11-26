@@ -37,6 +37,8 @@ import {
   ClipboardCheck,
   BriefcaseBusiness,
   ChartNoAxesCombined,
+  Coins,
+  PackageSearch,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -451,6 +453,28 @@ export const apps: AppConfig[] = [
     category: 'core'
   },
   {
+    // SELLERBOARD (26 nov 2026): el panel de ventas y beneficio propio, con los datos de las cuentas de Amazon que ya están conectadas (lib/ventas).
+    // Solo administradores: son las cifras de negocio de los clientes. Va en el desplegable «Sellerboard» (GRUPOS_DEL_MENU).
+    id: 'ventas',
+    name: 'Tablero de ventas',
+    nombreCorto: 'Ventas',
+    description: 'Ventas, tarifas de Amazon, publicidad y ganancia neta por día, producto y país',
+    icon: Coins,
+    route: '/dashboard/ventas',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
+    id: 'ventas-productos',
+    name: 'Productos',
+    nombreCorto: 'Productos',
+    description: 'El COGS de cada producto, su beneficio por unidad y lo que vende al día (como la página «Productos» de Sellerboard)',
+    icon: PackageSearch,
+    route: '/dashboard/ventas/productos',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
     // GROWTH PARTNER — el trabajo sobre la cuenta de un cliente.
     //
     // EL CORTE ENTRE ESTE MÓDULO Y AMAZON API, que es la regla que decide dónde
@@ -665,6 +689,9 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'trafico',
   'entrais-pccomponentes',
   'limpieza-ofertas',
+  // El panel de ventas y beneficio de los clientes (Sellerboard propio)
+  'ventas',
+  'ventas-productos',
   // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
   // de los clientes las llevan los administrativos, persona a persona con la casilla (lib/cuentas/acceso.ts).
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
@@ -990,6 +1017,15 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     description: 'Cuentas de clientes, Remesas a FBA, PPC, SEO de fichas y Cumplimiento',
     icon: BriefcaseBusiness,
     apps: ['cuentas', 'remesas', 'marketing-test', 'seo-test', 'cumplimiento'],
+    despuesDe: 'correo',
+  },
+  {
+    // El «Sellerboard» propio (26 nov 2026): crecerá con más pantallas (como las de Sellerboard)
+    id: 'sellerboard',
+    name: 'Sellerboard',
+    description: 'Tablero de ventas y beneficio, y productos con su COGS',
+    icon: Coins,
+    apps: ['ventas', 'ventas-productos'],
     despuesDe: 'correo',
   },
   {
