@@ -1,8 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Search } from 'lucide-react'
-import { Area, Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
+import { Area, Cell, ComposedChart, Line, Pie, PieChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { marketplaceById } from '@/lib/types/amazon'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
@@ -37,16 +37,17 @@ export const dominio = (mkt: string) => {
   return `Amazon.${d[cc] ?? cc.toLowerCase()}`
 }
 
-/** La variación como chip: verde si mejora, rojo si empeora (para gastos, al revés) */
+/** La variación: flecha y porcentaje, sin caja. Verde si mejora, rojo si empeora (para gastos y reembolsos, al revés). Nada si no hay con qué comparar */
 export function Chip({ actual, anterior, inverso = false }: { actual: number; anterior: number | null | undefined; inverso?: boolean }) {
   const v = variacion(actual, anterior)
-  if (v == null) return <span className="rounded-[6px] bg-[var(--ls-sup2)] px-[6px] py-[1px] text-[10.5px] text-[var(--ls-t4)]">—</span>
+  if (v == null || Math.abs(v) < 0.005) return null
   const bueno = inverso ? v <= 0 : v >= 0
   const color = Math.abs(v) < 0.005 ? 'var(--ls-t3)' : bueno ? VERDE : ROJO
+  const Flecha = v >= 0 ? ArrowUpRight : ArrowDownRight
   return (
-    <span className="inline-flex items-center gap-[2px] rounded-[6px] px-[6px] py-[1px] text-[10.5px] font-semibold tabular-nums" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}>
-      {v >= 0 ? '+' : '−'}
-      {Math.abs(v * 100).toLocaleString('es-ES', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} %
+    <span className="inline-flex items-center gap-[1px] text-[11.5px] font-medium tabular-nums" style={{ color }}>
+      <Flecha className="h-[13px] w-[13px]" strokeWidth={2.4} />
+      {Math.abs(v * 100).toLocaleString('es-ES', { maximumFractionDigits: 1, minimumFractionDigits: Math.abs(v) < 0.1 ? 1 : 0 })} %
     </span>
   )
 }
@@ -134,85 +135,104 @@ export function Desglose({ t }: { t: Totales }) {
 /* La gráfica: ventas y ganancia por día                               */
 /* ------------------------------------------------------------------ */
 
+function Burbuja({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; color: string; name: string }>; label?: string }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="min-w-[170px] rounded-[12px] border border-[var(--ls-linea)] bg-[color-mix(in_srgb,var(--ls-sup)_94%,transparent)] px-3 py-2 shadow-[var(--ls-sombra-3)] backdrop-blur-md">
+      <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--ls-t4)]">{label}</div>
+      {payload.map((p) => (
+        <div key={p.dataKey} className="flex items-center gap-2 py-[2px] text-[12.5px]">
+          <span className="h-[7px] w-[7px] rounded-full" style={{ background: p.color }} />
+          <span className="text-[var(--ls-t3)]">{p.name}</span>
+          <span className="ml-auto font-semibold tabular-nums text-[var(--ls-t1)]">{euros(p.value, 0)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado }: { filas: readonly FilaPanel[]; dias: string[]; ivaPct: number; costes: Record<string, number>; resaltado: { desde: string; hasta: string } | null }) {
   const datos = useMemo(() => {
     const porDia = new Map<string, FilaPanel[]>()
     for (const f of filas) porDia.set(f.dia, [...(porDia.get(f.dia) ?? []), f])
     return dias.map((d) => {
       const t = totalizar(porDia.get(d) ?? [], ivaPct, costes)
-      const dentro = resaltado ? d >= resaltado.desde && d <= resaltado.hasta : false
-      return { dia: d, etiqueta: new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' }), ventas: t.ventas, neto: t.neto, publicidad: t.publicidad, unidades: t.unidades, dentro }
+      return { dia: d, etiqueta: new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' }), ventas: t.ventas, neto: t.neto, publicidad: t.publicidad }
     })
-  }, [filas, dias, ivaPct, costes, resaltado])
+  }, [filas, dias, ivaPct, costes])
+  const vacio = datos.every((d) => d.ventas === 0 && d.neto === 0)
+  const r = resaltado ? datos.filter((d) => d.dia >= resaltado.desde && d.dia <= resaltado.hasta) : []
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <ComposedChart data={datos} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id="ventas-barra" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={NARANJA2} stopOpacity={0.95} />
-            <stop offset="100%" stopColor={NARANJA} stopOpacity={0.55} />
-          </linearGradient>
-          <linearGradient id="ventas-barra-tenue" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={NARANJA2} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={NARANJA} stopOpacity={0.15} />
-          </linearGradient>
-          <linearGradient id="ventas-neto" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={VERDE} stopOpacity={0.28} />
-            <stop offset="100%" stopColor={VERDE} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid stroke="var(--ls-linea)" strokeDasharray="3 4" vertical={false} />
-        <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: 'var(--ls-t4)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={18} />
-        <YAxis tick={{ fontSize: 11, fill: 'var(--ls-t4)' }} axisLine={false} tickLine={false} width={56} tickFormatter={(v: number) => `${Math.round(v).toLocaleString('es-ES')} €`} />
-        <Tooltip
-          cursor={{ fill: 'color-mix(in srgb, var(--ls-t1) 5%, transparent)' }}
-          contentStyle={{ background: 'var(--ls-sup)', border: '1px solid var(--ls-linea)', borderRadius: 12, fontSize: 12, boxShadow: 'var(--ls-sombra-2)' }}
-          labelStyle={{ color: 'var(--ls-t1)', fontWeight: 600 }}
-          formatter={(v: number, nombre: string) => [nombre === 'Unidades' ? entero(v) : euros(v), nombre]}
-        />
-        <Bar dataKey="ventas" name="Ventas" radius={[6, 6, 0, 0]} maxBarSize={26} animationDuration={900} shape={(p: unknown) => <BarraVentas {...(p as BarraProps)} />} />
-        <Area type="monotone" dataKey="neto" name="Ganancia neta" stroke={VERDE} strokeWidth={2.5} fill="url(#ventas-neto)" dot={false} animationDuration={1100} />
-        <Line type="monotone" dataKey="publicidad" name="Publicidad" stroke={COLOR_ESTADO.violeta ?? '#a78bfa'} strokeWidth={1.5} strokeDasharray="4 4" dot={false} animationDuration={1100} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div className="relative">
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={datos} margin={{ top: 12, right: 6, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="vg-ventas" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={NARANJA2} stopOpacity={0.38} />
+              <stop offset="70%" stopColor={NARANJA} stopOpacity={0.06} />
+              <stop offset="100%" stopColor={NARANJA} stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="vg-neto" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={VERDE} stopOpacity={0.16} />
+              <stop offset="100%" stopColor={VERDE} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          {r.length > 0 && <ReferenceArea x1={r[0].etiqueta} x2={r[r.length - 1].etiqueta} fill="var(--ls-t1)" fillOpacity={0.035} stroke="none" ifOverflow="extendDomain" />}
+          <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: 'var(--ls-t4)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={28} dy={6} />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--ls-t4)' }} axisLine={false} tickLine={false} width={48} tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k` : `${Math.round(v)}`)} />
+          <Tooltip content={<Burbuja />} cursor={{ stroke: 'var(--ls-t4)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+          <Area type="monotone" dataKey="ventas" name="Ventas" stroke={NARANJA2} strokeWidth={2.2} fill="url(#vg-ventas)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: NARANJA2 }} animationDuration={1000} />
+          <Area type="monotone" dataKey="neto" name="Ganancia neta" stroke={VERDE} strokeWidth={2} fill="url(#vg-neto)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: VERDE }} animationDuration={1200} />
+          <Line type="monotone" dataKey="publicidad" name="Publicidad" stroke="#a78bfa" strokeWidth={1.4} strokeDasharray="3 4" dot={false} animationDuration={1200} />
+        </ComposedChart>
+      </ResponsiveContainer>
+      {vacio && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[12.5px] text-[var(--ls-t4)]">Aún no hay ventas en estos días</div>}
+    </div>
   )
 }
 
-type BarraProps = { x: number; y: number; width: number; height: number; payload: { dentro: boolean } }
-function BarraVentas({ x, y, width, height, payload }: BarraProps) {
-  if (!height || height < 0) return null
-  const r = Math.min(6, width / 2)
-  return <path d={`M${x},${y + height} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + width - r},${y} Q${x + width},${y} ${x + width},${y + r} L${x + width},${y + height} Z`} fill={payload.dentro ? 'url(#ventas-barra)' : 'url(#ventas-barra-tenue)'} />
-}
-
 /* ------------------------------------------------------------------ */
-/* Dónde se va el dinero (barra apilada de las ventas)                 */
+/* A dónde va cada euro (anillo)                                       */
 /* ------------------------------------------------------------------ */
 
 export function RepartoDelDinero({ t }: { t: Totales }) {
   const partes = [
-    { texto: 'IVA', valor: t.iva, color: '#9C9289' },
-    { texto: 'Tarifas de Amazon', valor: -t.tarifas, color: NARANJA },
-    { texto: 'Publicidad', valor: t.publicidad, color: COLOR_ESTADO.violeta ?? '#a78bfa' },
+    { texto: 'Ganancia', valor: Math.max(0, t.neto), color: VERDE },
+    { texto: 'Tarifas', valor: -t.tarifas, color: NARANJA },
+    { texto: 'IVA', valor: t.iva, color: '#8B8580' },
+    { texto: 'Publicidad', valor: t.publicidad, color: '#a78bfa' },
+    { texto: 'Productos', valor: t.cogs, color: '#60A5FA' },
     { texto: 'Reembolsos', valor: -t.costeReembolso, color: ROJO },
-    { texto: 'Promociones', valor: t.promo, color: COLOR_ESTADO.ambar },
-    { texto: 'Coste de productos', valor: t.cogs, color: COLOR_ESTADO.azul },
-    { texto: 'Ganancia neta', valor: Math.max(0, t.neto), color: VERDE },
+    { texto: 'Promos', valor: t.promo, color: COLOR_ESTADO.ambar },
   ].filter((p) => p.valor > 0.005)
-  const total = partes.reduce((s, p) => s + p.valor, 0) || 1
+  const total = partes.reduce((s2, p) => s2 + p.valor, 0)
   return (
-    <div>
-      <div className="flex h-[14px] w-full overflow-hidden rounded-full bg-[var(--ls-sup2)]">
-        {partes.map((p, i) => (
-          <div key={p.texto} className="h-full transition-[width] duration-700 ease-out" style={{ width: `${(p.valor / total) * 100}%`, background: p.color, marginLeft: i ? 2 : 0 }} title={`${p.texto}: ${euros(p.valor)}`} />
-        ))}
+    <div className="flex items-center gap-4">
+      <div className="relative h-[140px] w-[140px] shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={total ? partes : [{ texto: '', valor: 1, color: 'var(--ls-sup2)' }]} dataKey="valor" innerRadius={50} outerRadius={68} paddingAngle={total ? 2.5 : 0} cornerRadius={5} stroke="none" startAngle={90} endAngle={-270} animationDuration={900}>
+              {(total ? partes : [{ color: 'var(--ls-sup2)' }]).map((p, i) => (
+                <Cell key={i} fill={p.color} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[22px] font-semibold tracking-[-0.02em] tabular-nums" style={{ color: t.neto >= 0 ? 'var(--ls-t1)' : ROJO }}>
+            {t.margen == null ? '—' : pct(t.margen, 0)}
+          </span>
+          <span className="text-[10.5px] uppercase tracking-[0.1em] text-[var(--ls-t4)]">margen</span>
+        </div>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-[6px]">
+      <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
+        {partes.length === 0 && <span className="text-[12px] text-[var(--ls-t4)]">Sin ventas en este periodo</span>}
         {partes.map((p) => (
-          <div key={p.texto} className="flex items-center gap-2 text-[12px]">
-            <span className="h-[9px] w-[9px] shrink-0 rounded-[3px]" style={{ background: p.color }} />
+          <div key={p.texto} className="flex items-center gap-2 text-[12.5px]">
+            <span className="h-[8px] w-[8px] shrink-0 rounded-full" style={{ background: p.color }} />
             <span className="truncate text-[var(--ls-t3)]">{p.texto}</span>
-            <span className="ml-auto tabular-nums text-[var(--ls-t1)]">{pct(p.valor / total, 0)}</span>
+            <span className="ml-auto whitespace-nowrap tabular-nums text-[var(--ls-t1)]">{euros(p.valor, 0)}</span>
+            <span className="w-[36px] shrink-0 whitespace-nowrap text-right tabular-nums text-[var(--ls-t4)]">{pct(total ? p.valor / total : 0, 0)}</span>
           </div>
         ))}
       </div>
@@ -282,7 +302,7 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar }: { fil
                   <span className="shrink-0 rounded-[9px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)] transition-transform group-hover:scale-[1.06]">
                     <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={44} redondeo={7} titulo={p.titulo ?? p.sku} />
                   </span>
-                  <div className="min-w-0 max-w-[460px]">
+                  <div className="min-w-0 max-w-[380px]">
                     <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
                       <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
                       <span className="tabular-nums">{p.asin ?? '—'}</span>

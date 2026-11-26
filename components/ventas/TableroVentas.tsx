@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Calendar, ChartNoAxesCombined, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Plus, RefreshCw } from 'lucide-react'
-import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
+import { AlertTriangle, ArrowRight, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
+import { CabeceraDeModulo, Chispa, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 import { Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, NARANJA, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
@@ -26,14 +26,6 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
 
 const minimo = (xs: string[]) => xs.reduce((a, b) => (b < a ? b : a))
 const maximo = (xs: string[]) => xs.reduce((a, b) => (b > a ? b : a))
-
-const COLORES_BALDOSA = [
-  ['#F26212', '#FF8A3D'],
-  ['#D9530C', '#F2803A'],
-  ['#B84900', '#E0702B'],
-  ['#8F3A06', '#C2611F'],
-  ['#5E2A0B', '#97501F'],
-]
 
 export function TableroVentas() {
   const [cuentas, setCuentas] = useState<CuentaDelPanel[] | null>(null)
@@ -142,6 +134,16 @@ export function TableroVentas() {
     return dias
   }, [periodoElegido.desde, desdeGrafica, hoy])
 
+  // La minigráfica de cada baldosa: las ventas de cada día del periodo (o de los 14 días hasta su final, si es de un día o dos)
+  const ventasPorDia = new Map<string, number>()
+  for (const f of filas) ventasPorDia.set(f.dia, (ventasPorDia.get(f.dia) ?? 0) + f.ventas)
+  const serieDe = (p: Periodo) => {
+    const desde = p.desde < sumarDias(p.hasta, -13) ? p.desde : sumarDias(p.hasta, -13)
+    const out: number[] = []
+    for (let d = desde; d <= p.hasta; d = sumarDias(d, 1)) out.push(ventasPorDia.get(d) ?? 0)
+    return out
+  }
+
   if (cuentas && cuentas.length === 0) {
     return (
       <Marco>
@@ -155,7 +157,7 @@ export function TableroVentas() {
       acciones={
         <div className="flex flex-wrap items-center gap-2">
           {cuentas && (
-            <select value={cuentaId ?? ''} onChange={(e) => setCuentaId(e.target.value)} className="h-9 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 text-[13px] font-medium text-[var(--ls-t1)] outline-none" aria-label="Cuenta">
+            <select value={cuentaId ?? ''} onChange={(e) => setCuentaId(e.target.value)} className="h-9 rounded-[11px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[13px] font-medium text-[var(--ls-t1)] outline-none" aria-label="Cuenta">
               {cuentas.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.cliente ?? c.nombre}
@@ -175,14 +177,7 @@ export function TableroVentas() {
     >
       <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }`}</style>
 
-      {cuenta?.estado.primeraLectura && (
-        <div className="mb-4 flex items-start gap-3 rounded-[14px] border border-[color-mix(in_srgb,var(--ls-acc)_35%,var(--ls-linea))] bg-[color-mix(in_srgb,var(--ls-acc)_7%,var(--ls-sup))] p-3 text-[12.5px] text-[var(--ls-t2)]">
-          <Loader2 className="mt-[2px] h-[15px] w-[15px] shrink-0 animate-spin text-[var(--ls-acc)]" />
-          <div>
-            <span className="font-semibold text-[var(--ls-t1)]">Trayendo los últimos 62 días de Amazon.</span> Se llena solo en los próximos minutos: pedidos {cuenta.estado.pedidosHasta ? `hasta el ${fechaCorta(cuenta.estado.pedidosHasta.slice(0, 10))}` : 'pendientes'}, dinero {cuenta.estado.dineroHasta ? `hasta el ${fechaCorta(cuenta.estado.dineroHasta.slice(0, 10))}` : 'pendiente'}, publicidad {cuenta.estado.publicidadHasta ? `hasta el ${fechaCorta(cuenta.estado.publicidadHasta)}` : 'pendiente'}.
-          </div>
-        </div>
-      )}
+      {cuenta?.estado.primeraLectura && <ProgresoDeLectura estado={cuenta.estado} />}
       {cuenta?.estado.error && !cuenta.estado.primeraLectura && (
         <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 text-[12px] text-[var(--ls-t3)]">
           <AlertTriangle className="mt-[1px] h-[14px] w-[14px] shrink-0" style={{ color: 'var(--ls-e-ambar)' }} /> Última lectura con avisos: {cuenta.estado.error}
@@ -191,7 +186,7 @@ export function TableroVentas() {
       {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
 
       {/* Los filtros */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         <Desplegable icono={Calendar} texto={TANDAS.find((t) => t.id === tanda)?.texto ?? ''}>
           {(cerrar) =>
             TANDAS.map((t) => (
@@ -246,20 +241,21 @@ export function TableroVentas() {
       </div>
 
       {/* Las baldosas */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {periodos.map((p, i) => (
-          <Baldosa key={`${tanda}-${p.id}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} rangoComp={comparados[i]} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} />
+          <Baldosa key={`${tanda}-${p.id}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} />
         ))}
       </div>
 
       {/* La gráfica y el reparto del dinero */}
-      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)]">
-        <section className="rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4">
-          <div className="mb-2 flex flex-wrap items-center gap-3">
-            <ChartNoAxesCombined className="h-[15px] w-[15px] text-[var(--ls-acc)]" />
-            <span className="text-[14px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia por día</span>
-            <span className="text-[11.5px] text-[var(--ls-t4)]">en color, {periodoElegido.titulo.toLowerCase()}</span>
-            <span className="ml-auto flex items-center gap-3 text-[11px] text-[var(--ls-t3)]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)]">
+        <section className={TARJETA + ' p-5'}>
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <div>
+              <div className={ROTULO}>Evolución diaria</div>
+              <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia</div>
+            </div>
+            <span className="ml-auto flex items-center gap-4 text-[11.5px] text-[var(--ls-t3)]">
               <Leyenda color={NARANJA} texto="Ventas" />
               <Leyenda color={VERDE} texto="Ganancia neta" />
               <Leyenda color="#a78bfa" texto="Publicidad" raya />
@@ -267,24 +263,27 @@ export function TableroVentas() {
           </div>
           <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} />
         </section>
-        <section className="flex flex-col gap-4 rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4">
+        <section className={TARJETA + ' flex flex-col gap-5 p-5'}>
           <div>
-            <div className="text-[14px] font-semibold text-[var(--ls-t1)]">A dónde va cada euro</div>
-            <div className="text-[11.5px] text-[var(--ls-t4)]">{periodoElegido.titulo} · de {euros(tElegido?.ventas ?? 0)} vendidos</div>
+            <div className={ROTULO}>{periodoElegido.titulo}</div>
+            <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">A dónde va cada euro</div>
           </div>
           {tElegido && <RepartoDelDinero t={tElegido} />}
-          <div className="mt-auto grid grid-cols-3 gap-2">
-            <Mini texto="Margen" valor={pct(tElegido?.margen ?? null)} />
+          <div className="mt-auto grid grid-cols-3 gap-3 border-t border-[var(--ls-linea)] pt-4">
+            <Mini texto="Ventas" valor={euros(tElegido?.ventas ?? 0, 0)} />
             <Mini texto="TACOS" valor={pct(tElegido?.tacos ?? null)} />
-            <Mini texto="ROI" valor={tElegido?.roi == null ? '—' : pct(tElegido.roi)} nota={tElegido?.unidadesSinCoste ? 'faltan costes' : undefined} />
+            <Mini texto="ROI" valor={tElegido?.roi == null ? '—' : pct(tElegido.roi, 0)} nota={tElegido?.unidadesSinCoste ? 'faltan costes' : undefined} />
           </div>
         </section>
       </div>
 
       {/* Las tablas */}
-      <section className="mt-4 overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ls-linea)] p-3">
-          <span className="text-[15px] font-semibold text-[var(--ls-t1)]">{periodoElegido.titulo}</span>
+      <section className={TARJETA + ' mt-4 overflow-hidden'}>
+        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ls-linea)] px-5 py-4">
+          <div className="mr-2">
+            <div className={ROTULO}>Detalle</div>
+            <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">{periodoElegido.titulo}</div>
+          </div>
           <Segmentado
             etiqueta="Vista"
             tamano="sm"
@@ -354,73 +353,122 @@ function Marco({ children, acciones }: { children: React.ReactNode; acciones?: R
   )
 }
 
-function Baldosa({ p, i, t, c, rangoComp, elegida, onElegir, onMas }: { p: Periodo; i: number; t: Totales; c: Totales | null; rangoComp: { desde: string; hasta: string } | null; elegida: boolean; onElegir: () => void; onMas: () => void }) {
-  const [a, b] = COLORES_BALDOSA[i % COLORES_BALDOSA.length]
-  const fechas = p.desde === p.hasta ? fechaCorta(p.desde) : `${fechaCorta(p.desde)} – ${fechaCorta(p.hastaPronostico ?? p.hasta)}`
-  const fechasComp = rangoComp ? (rangoComp.desde === rangoComp.hasta ? fechaCorta(rangoComp.desde) : `${fechaCorta(rangoComp.desde)} – ${fechaCorta(rangoComp.hasta)}`) : null
+const TARJETA = 'rounded-[20px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[inset_0_1px_0_rgba(255,255,255,0.035),0_1px_2px_rgba(0,0,0,0.18)]'
+const ROTULO = 'text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]'
+
+function Baldosa({ p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void }) {
+  const fechas = p.desde === p.hasta ? fechaCorta(p.desde).slice(0, 5) : `${fechaCorta(p.desde).slice(0, 5)} – ${fechaCorta(p.hastaPronostico ?? p.hasta).slice(0, 5)}`
+  const hayComp = c != null && (c.ventas !== 0 || c.unidades !== 0)
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: i * 0.06, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-      whileHover={{ y: -3 }}
+      transition={{ delay: i * 0.05, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       onClick={onElegir}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onElegir()}
       aria-pressed={elegida}
-      className="group relative cursor-pointer overflow-hidden rounded-[16px] border bg-[var(--ls-sup)] text-left transition-shadow"
-      style={{ borderColor: elegida ? a : 'var(--ls-linea)', boxShadow: elegida ? `0 0 0 1px ${a}, 0 12px 32px -14px ${a}` : 'var(--ls-sombra-1)' }}
+      className={`group relative cursor-pointer overflow-hidden p-5 text-left transition-all duration-300 ${TARJETA} ${elegida ? '' : 'hover:border-[color-mix(in_srgb,var(--ls-t1)_16%,var(--ls-linea))]'}`}
+      style={elegida ? { borderColor: 'color-mix(in srgb, #F26212 45%, var(--ls-linea))', background: 'linear-gradient(180deg, color-mix(in srgb, #F26212 7%, var(--ls-sup)) 0%, var(--ls-sup) 55%)', boxShadow: '0 18px 40px -24px rgba(242,98,18,0.55), inset 0 1px 0 rgba(255,255,255,0.05)' } : undefined}
     >
-      <div className="relative px-4 pb-3 pt-3 text-white" style={{ background: `linear-gradient(135deg, ${a}, ${b})` }}>
-        <div className="pointer-events-none absolute -right-6 -top-10 h-28 w-28 rounded-full bg-white/10 blur-xl transition-transform duration-700 group-hover:scale-125" />
-        <div className="text-[14px] font-semibold">{p.titulo}</div>
-        <div className="mt-[2px] flex items-center justify-between gap-2 text-[11px] text-white/80">
-          <span>{fechas}</span>
-          {fechasComp && <span className="text-white/60">{fechasComp}</span>}
+      {elegida && <motion.div layoutId="baldosa-elegida" className="absolute inset-x-6 top-0 h-[2px] rounded-full" style={{ background: 'linear-gradient(90deg, transparent, #FF8A3D, transparent)' }} />}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={`truncate text-[13px] font-medium ${elegida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{p.escala ? 'Pronóstico' : p.titulo}</span>
+        <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-[var(--ls-t4)]">{fechas}</span>
+      </div>
+
+      {cargando ? (
+        <div className="mt-5 flex flex-col gap-3">
+          <div className="h-[26px] w-2/3 animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+          <div className="h-[34px] w-full animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+          <div className="h-[30px] w-full animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
         </div>
-      </div>
-      <div className="flex flex-col gap-[10px] px-4 pb-2 pt-3">
-        <Cifra texto="Ventas" valor={t.ventas} anterior={c?.ventas} formato={(v) => euros(v)} grande />
-        <Cifra texto="Unidades" valor={t.unidades} anterior={c?.unidades} formato={entero} />
-        <Cifra texto="Reembolsos" valor={t.reembolsos} anterior={c?.reembolsos} formato={entero} inverso />
-        <Cifra texto="Ganancia neta" valor={t.neto} anterior={c?.neto} formato={(v) => euros(v)} color={t.neto >= 0 ? VERDE : ROJO} grande />
-        {t.ventas > 0 && (
-          <div className="h-[5px] w-full overflow-hidden rounded-full bg-[var(--ls-sup2)]" title={`Margen ${pct(t.margen)}`}>
-            <motion.div initial={{ width: 0 }} animate={{ width: `${Math.max(0, Math.min(1, t.margen ?? 0)) * 100}%` }} transition={{ duration: 1, delay: 0.2 + i * 0.06, ease: [0.16, 1, 0.3, 1] }} className="h-full rounded-full" style={{ background: `linear-gradient(90deg, ${VERDE}, color-mix(in srgb, ${VERDE} 60%, white))` }} />
+      ) : (
+        <>
+          <div className="mt-4 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">Ventas</div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <CifraAnimada valor={t.ventas} formato={(v) => euros(v, 0)} className="text-[27px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--ls-t1)]" />
           </div>
-        )}
-      </div>
-      <button type="button" onClick={(e) => (e.stopPropagation(), onMas())} className="w-full border-t border-[var(--ls-linea)] py-2 text-[12px] font-medium text-[var(--ls-acc)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-acc)_8%,transparent)]">
-        Desglose
+          <div className="mt-[6px] flex h-[16px] items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
+            {hayComp ? (
+              <>
+                <Chip actual={t.ventas} anterior={c?.ventas} />
+                <span className="tabular-nums">vs {euros(c?.ventas ?? 0, 0)}</span>
+              </>
+            ) : (
+              <span>{p.escala ? 'al ritmo de este mes' : '\u00a0'}</span>
+            )}
+          </div>
+          <div className="-mx-1 mt-3 opacity-90 transition-opacity group-hover:opacity-100">
+            <Chispa valores={serie} color={elegida ? '#FF8A3D' : 'var(--ls-t3)'} alto={34} />
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--ls-linea)] pt-3">
+            <Mini texto="Uds." valor={entero(t.unidades)} delta={hayComp ? <Chip actual={t.unidades} anterior={c?.unidades} /> : null} />
+            <Mini texto="Reemb." valor={entero(t.reembolsos)} delta={hayComp ? <Chip actual={t.reembolsos} anterior={c?.reembolsos} inverso /> : null} />
+            <Mini texto="Neto" valor={compacto(t.neto)} color={t.neto >= 0 ? VERDE : ROJO} delta={hayComp ? <Chip actual={t.neto} anterior={c?.neto} /> : null} />
+          </div>
+        </>
+      )}
+      <button type="button" onClick={(e) => (e.stopPropagation(), onMas())} className="mt-3 inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--ls-t4)] transition-colors hover:text-[#FF8A3D] group-hover:text-[var(--ls-t2)]">
+        Desglose <ArrowRight className="h-[12px] w-[12px] transition-transform group-hover:translate-x-[2px]" />
       </button>
     </motion.div>
   )
 }
 
-function Cifra({ texto, valor, anterior, formato, grande, inverso, color }: { texto: string; valor: number; anterior?: number | null; formato: (n: number) => string; grande?: boolean; inverso?: boolean; color?: string }) {
+/** «9.636 €», y de 10.000 en adelante «10,1k €» (cabe en la columna) */
+const compacto = (v: number) => (Math.abs(v) >= 10_000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €` : euros(v, 0))
+
+function Mini({ texto, valor, color, delta, nota }: { texto: string; valor: string; color?: string; delta?: React.ReactNode; nota?: string }) {
   return (
-    <div>
-      <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
-        {texto}
-        {anterior !== undefined && <Chip actual={valor} anterior={anterior} inverso={inverso} />}
+    <div className="min-w-0">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ls-t4)]">{texto}</div>
+      <div className="truncate text-[14px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
+        {valor}
       </div>
-      <div className="flex items-baseline justify-between gap-2">
-        <span style={{ color: color ?? 'var(--ls-t1)' }}>
-          <CifraAnimada valor={valor} formato={formato} className={`tabular-nums ${grande ? 'text-[21px] font-semibold tracking-[-0.02em]' : 'text-[15px] font-medium'}`} />
-        </span>
-        {anterior != null && <span className="text-[11.5px] tabular-nums text-[var(--ls-t4)]">{formato(anterior)}</span>}
-      </div>
+      {delta && <div className="mt-[1px]">{delta}</div>}
+      {nota && <div className="text-[10px] text-[var(--ls-t4)]">{nota}</div>}
     </div>
   )
 }
 
-function Mini({ texto, valor, nota }: { texto: string; valor: string; nota?: string }) {
+function ProgresoDeLectura({ estado }: { estado: CuentaDelPanel['estado'] }) {
+  const inicio = Date.now() - 62 * 86_400_000
+  const avance = (hasta: string | null) => (hasta ? Math.max(0.04, Math.min(1, (Date.parse(hasta.length === 10 ? `${hasta}T23:59:00Z` : hasta) - inicio) / (Date.now() - inicio))) : 0.02)
+  const pasos = [
+    { icono: ShoppingBag, texto: 'Pedidos', hasta: estado.pedidosHasta },
+    { icono: Receipt, texto: 'Dinero (comisiones y reembolsos)', hasta: estado.dineroHasta },
+    { icono: Megaphone, texto: 'Publicidad por producto', hasta: estado.publicidadHasta },
+  ]
   return (
-    <div className="rounded-[12px] bg-[var(--ls-sup2)] px-3 py-2">
-      <div className="text-[10.5px] uppercase tracking-wide text-[var(--ls-t4)]">{texto}</div>
-      <div className="text-[16px] font-semibold tabular-nums text-[var(--ls-t1)]">{valor}</div>
-      {nota && <div className="text-[10px] text-[var(--ls-t4)]">{nota}</div>}
+    <div className={TARJETA + ' mb-5 p-5'}>
+      <div className="flex items-center gap-3">
+        <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,#F26212_14%,transparent)]">
+          <Loader2 className="h-[15px] w-[15px] animate-spin text-[#FF8A3D]" />
+        </span>
+        <div>
+          <div className="text-[14px] font-semibold text-[var(--ls-t1)]">Trayendo los últimos 62 días de Amazon</div>
+          <div className="text-[12px] text-[var(--ls-t4)]">Se llena solo en unos minutos. No hace falta quedarse en la pantalla.</div>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        {pasos.map((p) => {
+          const a = avance(p.hasta)
+          const Icono = p.icono
+          return (
+            <div key={p.texto}>
+              <div className="flex items-center gap-2 text-[12px] text-[var(--ls-t2)]">
+                <Icono className="h-[13px] w-[13px] text-[var(--ls-t4)]" /> {p.texto}
+                <span className="ml-auto tabular-nums text-[var(--ls-t4)]">{a >= 0.99 ? <Check className="h-[13px] w-[13px]" style={{ color: VERDE }} /> : p.hasta ? `hasta el ${fechaCorta(p.hasta.slice(0, 10)).slice(0, 5)}` : 'en cola'}</span>
+              </div>
+              <div className="mt-2 h-[4px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
+                <motion.div className="h-full rounded-full" initial={{ width: 0 }} animate={{ width: `${a * 100}%` }} transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }} style={{ background: 'linear-gradient(90deg, #F26212, #FF8A3D)' }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -445,8 +493,8 @@ function Desplegable({ icono: Icono, texto, children }: { icono: typeof Calendar
   }, [abierto])
   return (
     <div ref={caja} className="relative">
-      <button type="button" onClick={() => setAbierto((x) => !x)} className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t1)] transition-colors hover:border-[color-mix(in_srgb,var(--ls-acc)_45%,var(--ls-linea))]" aria-expanded={abierto}>
-        <Icono className="h-[14px] w-[14px] text-[var(--ls-acc)]" />
+      <button type="button" onClick={() => setAbierto((x) => !x)} className="inline-flex h-9 items-center gap-2 rounded-[11px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:text-[var(--ls-t1)] hover:border-[color-mix(in_srgb,var(--ls-t1)_18%,var(--ls-linea))]" aria-expanded={abierto}>
+        <Icono className="h-[14px] w-[14px] text-[var(--ls-t4)]" />
         {texto}
         <ChevronDown className={`h-[13px] w-[13px] text-[var(--ls-t4)] transition-transform ${abierto ? 'rotate-180' : ''}`} />
       </button>
