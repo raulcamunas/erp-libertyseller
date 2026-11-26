@@ -28,6 +28,8 @@ export interface EventoSeo {
   accion: string
   detalle: string | null
   tono: 'bien' | 'mal' | 'aviso' | 'neutro'
+  /** El hilo de comentarios: «cambio:<edición>» (lo comparten el envío, la comprobación y la tarjeta) o «ev:<id>» */
+  hilo: string
 }
 
 const LIMITE = 300
@@ -51,6 +53,7 @@ async function filas(tabla: string, columnas: string, c: { connectionId: string;
 /** Los eventos de las ediciones de ficha (ya leídas con sus nombres) */
 export function eventosDeEdiciones(ediciones: readonly EdicionGuardada[]): EventoSeo[] {
   const ev: EventoSeo[] = []
+  const hilo = (e: EdicionGuardada) => `cambio:${e.id}`
   for (const e of ediciones) {
     const que = camposTexto(e.campos)
     if (e.enviadaAt)
@@ -63,6 +66,7 @@ export function eventosDeEdiciones(ediciones: readonly EdicionGuardada[]): Event
         accion: `Envió a Amazon un cambio de ${que}${e.origen === 'ia' ? ' (propuesta de la IA)' : ''}`,
         detalle: e.fueraDeVentana ? 'Se saltó la ventana de 30 días entre cambios' : null,
         tono: e.fueraDeVentana ? 'aviso' : 'neutro',
+        hilo: hilo(e),
       })
     if (e.verificadaAt && (e.estado === 'aplicada' || e.estado === 'no_aplicada' || e.estado === 'parcial'))
       ev.push({
@@ -74,9 +78,10 @@ export function eventosDeEdiciones(ediciones: readonly EdicionGuardada[]): Event
         accion: e.estado === 'aplicada' ? `Comprobó que Amazon aplicó el cambio de ${que}` : e.estado === 'parcial' ? `Comprobó que Amazon aplicó solo parte del cambio de ${que}` : `Comprobó que Amazon NO aplicó el cambio de ${que}`,
         detalle: e.verificacion?.explicacion ?? null,
         tono: e.estado === 'aplicada' ? 'bien' : e.estado === 'parcial' ? 'aviso' : 'mal',
+        hilo: hilo(e),
       })
     if (e.estado === 'error')
-      ev.push({ id: `${e.id}-error`, at: e.enviadaAt ?? e.createdAt, quien: e.enviadoPor ?? e.creadoPor, tipo: 'ficha', asin: e.asin, accion: `Tuvo un error al enviar el cambio de ${que}`, detalle: e.error, tono: 'mal' })
+      ev.push({ id: `${e.id}-error`, at: e.enviadaAt ?? e.createdAt, quien: e.enviadoPor ?? e.creadoPor, tipo: 'ficha', asin: e.asin, accion: `Tuvo un error al enviar el cambio de ${que}`, detalle: e.error, tono: 'mal', hilo: hilo(e) })
   }
   return ev
 }
@@ -95,14 +100,15 @@ export async function registroDeLaCuenta(c: { connectionId: string; marketplaceI
   const str = (v: unknown) => (typeof v === 'string' ? v : null)
 
   const ev: EventoSeo[] = eventosDeEdiciones(ediciones)
+  const otros: Array<Omit<EventoSeo, 'hilo'>> = []
   for (const r of propuestas)
-    ev.push({ id: `prop-${r.id}`, at: String(r.creada_at), quien: nombre(r.creada_por), tipo: 'ia', asin: str(r.asin), accion: 'Pidió una propuesta de ficha a la IA', detalle: null, tono: 'neutro' })
+    otros.push({ id: `prop-${r.id}`, at: String(r.creada_at), quien: nombre(r.creada_por), tipo: 'ia', asin: str(r.asin), accion: 'Pidió una propuesta de ficha a la IA', detalle: null, tono: 'neutro' })
   for (const r of helium) {
     const tipo = r.tipo === 'cerebro' ? 'Cerebro' : r.tipo === 'magnet' ? 'Magnet' : 'Keyword Tracker'
-    ev.push({ id: `hel-${r.id}`, at: String(r.subido_at), quien: nombre(r.subido_por), tipo: 'helium', asin: str(r.asin), accion: `Subió un ${tipo} de Helium 10`, detalle: `${Number(r.filas ?? 0).toLocaleString('es-ES')} palabras${str(r.fichero) ? ` · ${str(r.fichero)}` : ''}`, tono: 'neutro' })
+    otros.push({ id: `hel-${r.id}`, at: String(r.subido_at), quien: nombre(r.subido_por), tipo: 'helium', asin: str(r.asin), accion: `Subió un ${tipo} de Helium 10`, detalle: `${Number(r.filas ?? 0).toLocaleString('es-ES')} palabras${str(r.fichero) ? ` · ${str(r.fichero)}` : ''}`, tono: 'neutro' })
   }
   for (const r of busquedas)
-    ev.push({
+    otros.push({
       id: `bus-${r.consulta}`,
       at: String(r.created_at),
       quien: nombre(r.created_by),
@@ -114,10 +120,11 @@ export async function registroDeLaCuenta(c: { connectionId: string; marketplaceI
     })
   for (const r of marcas) {
     const aMano = r.origen === 'manual'
-    ev.push({ id: `mar-${r.marca}`, at: String(r.created_at), quien: aMano ? nombre(r.created_by) : null, tipo: 'marca', asin: null, accion: aMano ? 'Añadió una marca de la competencia' : 'Detectó una marca de la competencia', detalle: `${str(r.texto) ?? str(r.marca)}${r.activa === false ? ' (desactivada)' : ''}`, tono: 'neutro' })
+    otros.push({ id: `mar-${r.marca}`, at: String(r.created_at), quien: aMano ? nombre(r.created_by) : null, tipo: 'marca', asin: null, accion: aMano ? 'Añadió una marca de la competencia' : 'Detectó una marca de la competencia', detalle: `${str(r.texto) ?? str(r.marca)}${r.activa === false ? ' (desactivada)' : ''}`, tono: 'neutro' })
   }
   for (const r of highlights)
-    ev.push({ id: `hig-${r.asin}`, at: String(r.highlights_manual_at), quien: nombre(r.highlights_manual_por), tipo: 'highlights', asin: str(r.asin), accion: 'Apuntó a mano los Item Highlights', detalle: null, tono: 'neutro' })
+    otros.push({ id: `hig-${r.asin}`, at: String(r.highlights_manual_at), quien: nombre(r.highlights_manual_por), tipo: 'highlights', asin: str(r.asin), accion: 'Apuntó a mano los Item Highlights', detalle: null, tono: 'neutro' })
 
+  for (const o of otros) ev.push({ ...o, hilo: `ev:${o.id}` })
   return ev.sort((a, b) => b.at.localeCompare(a.at))
 }

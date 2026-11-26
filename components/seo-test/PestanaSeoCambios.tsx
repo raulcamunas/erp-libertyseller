@@ -1,7 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { ArrowDownRight, ArrowUpRight, Bot, FileText, FlaskConical, History, KeyRound, Minus, Search, Sparkles, Tag, TriangleAlert, Type } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowDownRight, ArrowUpRight, Bot, ChevronRight, FileText, FlaskConical, History, KeyRound, Minus, Search, Sparkles, Tag, TriangleAlert, Type } from 'lucide-react'
+import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
+import type { ComentarioSeo } from '@/lib/seo/comentarios-servidor'
+import { BotonDeComentarios, cuandoFue, Hilo, ProveedorDeComentarios, useComentadosPorHilo } from './HiloDeComentarios'
 import { Avatar, Boton, EstadoVacio, Insignia } from '@/components/ui-ls'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import type { EdicionGuardada } from '@/lib/seo/edicion-servidor'
@@ -20,14 +23,18 @@ import { APLICADAS, ESTILO_RESULTADO, fechaDe, NOMBRE_CAMPO } from './ResultadoD
  *   2. Una tarjeta por cambio: la cuota que decide semana a semana (8 antes, todas después), la media de antes y la de DESDE el cambio, el veredicto 3+3
  *      de lib/seo/resultado-cambio.ts y lo que ensucia la comparación.
  *   3. El resultado por persona (quién envió cada cambio y cómo salió).
- *   4. El registro: quién hizo qué y cuándo (lib/seo/registro-servidor.ts).
- * Solo lee. Las cifras son de Brand Analytics (semanas cerradas), con la misma cesta de búsquedas antes y después.
+ *   4. El registro: quién hizo qué y cuándo (lib/seo/registro-servidor.ts), con el avatar de cada persona, la foto del producto y un hilo de comentarios en cada acción
+ *      y en cada tarjeta de cambio (migración 342, HiloDeComentarios.tsx). Los comentarios son lo único que se escribe desde esta pestaña.
+ * Las cifras son de Brand Analytics (semanas cerradas), con la misma cesta de búsquedas antes y después.
  */
 
 interface DatosDeCambios {
   ediciones: EdicionGuardada[]
   registro: EventoSeo[]
   sinMigracion: boolean
+  comentarios?: ComentarioSeo[]
+  sinComentarios?: boolean
+  yo?: string
 }
 
 interface Cambio {
@@ -42,7 +49,6 @@ const n0 = (x: number | null | undefined) => (x == null ? '—' : Math.round(x).
 const pct = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(Math.round(x * 100))} %`
 const fCorta = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })
 const fLarga = (d: string) => new Date(d).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
-const hora = (d: string) => new Date(d).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 const colorDe = (estado: EstadoResultado) => (ESTILO_RESULTADO[estado].color === 'var(--ls-t4)' ? 'var(--ls-t3)' : ESTILO_RESULTADO[estado].color)
 const ERP = 'El ERP'
 
@@ -53,6 +59,9 @@ export function PestanaSeoCambios({ cuentaId, datos, verFicha }: { cuentaId: str
   const decisiones = useMemo(() => decisionesDe(datos), [datos])
   const [persona, setPersona] = useState('')
   const [asin, setAsin] = useState('')
+  const [comentarios, setComentarios] = useState<ComentarioSeo[]>([])
+  useEffect(() => setComentarios(cambios.datos?.comentarios ?? []), [cambios.datos])
+  const mkt = cuentaId.split('~')[1] ?? null
   const hoy = new Date().toISOString().slice(0, 10)
 
   const nombreDeAsin = useMemo(() => {
@@ -97,6 +106,7 @@ export function PestanaSeoCambios({ cuentaId, datos, verFicha }: { cuentaId: str
   const cuenta = (estado: EstadoResultado[]) => visibles.filter((c) => estado.includes(c.r.estado)).length
 
   return (
+    <ProveedorDeComentarios cuentaId={cuentaId} yo={cambios.datos.yo ?? null} sinTabla={!!cambios.datos.sinComentarios} comentarios={comentarios} setComentarios={setComentarios}>
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-2">
         <select aria-label="Persona" value={persona} onChange={(e) => setPersona(e.target.value)} className={SELECT_PEQUENO}>
@@ -144,15 +154,16 @@ export function PestanaSeoCambios({ cuentaId, datos, verFicha }: { cuentaId: str
               .slice()
               .sort((a, b) => b.r.fechaCambio.localeCompare(a.r.fechaCambio))
               .map((c) => (
-                <TarjetaDeCambio key={c.e.id} c={c} verFicha={verFicha} />
+                <TarjetaDeCambio key={c.e.id} c={c} verFicha={verFicha} mkt={mkt} />
               ))}
             {todos.length > 0 && visibles.length === 0 && <p className="text-[12.5px] text-[var(--ls-t4)]">Ningún cambio aplicado con estos filtros.</p>}
           </div>
         </>
       )}
 
-      <Registro eventos={eventos} nombreDeAsin={nombreDeAsin} />
+      <Registro eventos={eventos} nombreDeAsin={nombreDeAsin} mkt={mkt} verFicha={verFicha} persona={persona} setPersona={setPersona} />
     </div>
+    </ProveedorDeComentarios>
   )
 }
 
@@ -249,8 +260,9 @@ function LineaDeLaCuenta({ filas, cambios, asin }: { filas: ReturnType<typeof us
 /* 2 · La tarjeta de cada cambio                                       */
 /* ------------------------------------------------------------------ */
 
-function TarjetaDeCambio({ c, verFicha }: { c: Cambio; verFicha: (asin: string) => void }) {
+function TarjetaDeCambio({ c, verFicha, mkt }: { c: Cambio; verFicha: (asin: string) => void; mkt: string | null }) {
   const { e, r } = c
+  const [hiloAbierto, setHiloAbierto] = useState(false)
   const est = ESTILO_RESULTADO[r.estado]
   const color = colorDe(r.estado)
   const medidaTxt = r.medida === 'compras' ? 'cuota de compras' : r.medida === 'impresiones' ? 'cuota de impresiones' : null
@@ -263,6 +275,10 @@ function TarjetaDeCambio({ c, verFicha }: { c: Cambio; verFicha: (asin: string) 
   return (
     <div id={`cambio-${e.id}`} className="scroll-mt-4 rounded-[14px] border bg-[var(--ls-sup)] p-4" style={{ borderColor: `color-mix(in srgb, ${color} 35%, var(--ls-linea))` }}>
       <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <button type="button" onClick={() => verFicha(e.asin)} className="shrink-0 rounded-[12px] bg-white p-[3px] ring-1 ring-[var(--ls-linea)]" title="Ver la ficha">
+            <ImagenDeProducto asin={e.asin} mkt={mkt} lado={58} redondeo={10} titulo={c.nombre} />
+          </button>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-[6px] px-[8px] py-[2px] text-[12px] font-semibold" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}>
@@ -293,6 +309,7 @@ function TarjetaDeCambio({ c, verFicha }: { c: Cambio; verFicha: (asin: string) 
               </Insignia>
             )}
           </div>
+        </div>
         </div>
         <Boton variante="secundario" icono={FileText} onClick={() => verFicha(e.asin)}>
           Ver la ficha
@@ -352,6 +369,14 @@ function TarjetaDeCambio({ c, verFicha }: { c: Cambio; verFicha: (asin: string) 
           {r.tocadas.length > 8 && <span className="text-[11.5px] text-[var(--ls-t4)]">y {r.tocadas.length - 8} más</span>}
         </div>
       )}
+      <div className="mt-3 border-t border-[var(--ls-linea)] pt-3">
+        <BotonDeComentarios hilo={`cambio:${e.id}`} abierto={hiloAbierto} onClick={() => setHiloAbierto((x) => !x)} />
+        {hiloAbierto && (
+          <div className="mt-2">
+            <Hilo hilo={`cambio:${e.id}`} asin={e.asin} autoFoco />
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -532,12 +557,18 @@ function PorPersona({ cambios }: { cambios: Cambio[] }) {
 
 const ICONO: Record<TipoDeEvento, typeof FileText> = { ficha: Type, verificacion: Bot, ia: Sparkles, helium: KeyRound, busqueda: Search, marca: Tag, highlights: FileText }
 const TONO: Record<EventoSeo['tono'], string> = { bien: COLOR_ESTADO.verde, mal: COLOR_ESTADO.rojo, aviso: COLOR_ESTADO.ambar, neutro: 'var(--ls-t3)' }
-const POR_PAGINA = 60
+const TIPO_TXT: Record<TipoDeEvento, string> = { ficha: 'Ficha', verificacion: 'Comprobación', ia: 'IA', helium: 'Helium 10', busqueda: 'Búsqueda', marca: 'Marca', highlights: 'Highlights' }
+const POR_PAGINA = 40
+type FiltroTipo = '' | 'fichas' | 'otros' | 'comentados'
 
-function Registro({ eventos, nombreDeAsin }: { eventos: EventoSeo[]; nombreDeAsin: (a: string | null) => string | null }) {
-  const [tipo, setTipo] = useState<'' | 'fichas' | 'otros'>('')
+function Registro({ eventos, nombreDeAsin, mkt, verFicha, persona, setPersona }: { eventos: EventoSeo[]; nombreDeAsin: (a: string | null) => string | null; mkt: string | null; verFicha: (asin: string) => void; persona: string; setPersona: (p: string) => void }) {
+  const [tipo, setTipo] = useState<FiltroTipo>('')
   const [cuantos, setCuantos] = useState(POR_PAGINA)
-  const filtrados = eventos.filter((e) => !tipo || (tipo === 'fichas' ? e.tipo === 'ficha' || e.tipo === 'verificacion' : e.tipo !== 'ficha' && e.tipo !== 'verificacion'))
+  const [abierto, setAbierto] = useState<string | null>(null)
+  const comentados = useComentadosPorHilo()
+  const filtrados = eventos.filter((e) =>
+    !tipo ? true : tipo === 'fichas' ? e.tipo === 'ficha' || e.tipo === 'verificacion' : tipo === 'comentados' ? (comentados.get(e.hilo) ?? 0) > 0 : e.tipo !== 'ficha' && e.tipo !== 'verificacion',
+  )
   const dias = useMemo(() => {
     const m = new Map<string, EventoSeo[]>()
     for (const e of filtrados.slice(0, cuantos)) {
@@ -546,54 +577,98 @@ function Registro({ eventos, nombreDeAsin }: { eventos: EventoSeo[]; nombreDeAsi
     }
     return [...m.entries()]
   }, [filtrados, cuantos])
+  // El equipo que aparece en el registro, el que más hace primero: pulsar una cara filtra por esa persona
+  const equipo = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const e of eventos) if (e.quien) m.set(e.quien, (m.get(e.quien) ?? 0) + 1)
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }, [eventos])
+  const nComentados = eventos.filter((e) => (comentados.get(e.hilo) ?? 0) > 0).length
+  const hoyTxt = new Date().toLocaleDateString('sv-SE')
+  const ayer = new Date()
+  ayer.setDate(ayer.getDate() - 1)
+  const ayerTxt = ayer.toLocaleDateString('sv-SE')
+
+  const CHIPS: Array<[FiltroTipo, string]> = [
+    ['', 'Todo'],
+    ['fichas', 'Cambios de ficha'],
+    ['otros', 'Búsquedas, marcas, Helium e IA'],
+    ['comentados', `Con comentarios${nComentados ? ` · ${nComentados}` : ''}`],
+  ]
 
   return (
-    <div className="rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <History className="h-[15px] w-[15px] text-[var(--ls-t3)]" />
-        <span className="text-[14px] font-semibold text-[var(--ls-t1)]">Registro: quién ha hecho qué</span>
-        <span className="text-[11.5px] text-[var(--ls-t4)]">últimos 6 meses · {eventos.length.toLocaleString('es-ES')} acciones</span>
-        <select aria-label="Tipo de acción" value={tipo} onChange={(e) => setTipo(e.target.value as typeof tipo)} className={`${SELECT_PEQUENO} ml-auto`}>
-          <option value="">Todo</option>
-          <option value="fichas">Cambios de ficha</option>
-          <option value="otros">Búsquedas, marcas, Helium e IA</option>
-        </select>
-      </div>
-      {filtrados.length === 0 ? (
-        <p className="mt-3 text-[12.5px] text-[var(--ls-t4)]">No hay acciones registradas con estos filtros.</p>
-      ) : (
-        <div className="mt-3 flex flex-col gap-4">
-          {dias.map(([dia, lista]) => (
-            <div key={dia}>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">{fLarga(lista[0].at)}</div>
-              <div className="flex flex-col">
-                {lista.map((e) => {
-                  const Icono = ICONO[e.tipo]
-                  const producto = nombreDeAsin(e.asin)
-                  return (
-                    <div key={e.id} className="flex items-start gap-3 border-t border-[var(--ls-linea)] py-2 first:border-t-0">
-                      <span className="w-[42px] shrink-0 pt-[2px] text-[11.5px] tabular-nums text-[var(--ls-t4)]">{hora(e.at)}</span>
-                      <span className="mt-[1px] flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full" style={{ background: `color-mix(in srgb, ${TONO[e.tono]} 14%, transparent)`, color: TONO[e.tono] }}>
-                        <Icono className="h-[12px] w-[12px]" />
-                      </span>
-                      <div className="min-w-0 flex-1 text-[12.5px] leading-[1.45]">
-                        <span className="font-semibold text-[var(--ls-t1)]">{e.quien ?? ERP}</span> <span className="text-[var(--ls-t2)]">{e.accion.charAt(0).toLowerCase() + e.accion.slice(1)}</span>
-                        {producto && (
-                          <span className="text-[var(--ls-t3)]">
-                            {' '}
-                            · {producto.length > 50 ? `${producto.slice(0, 50)}…` : producto}
-                          </span>
-                        )}
-                        {e.detalle && <div className="truncate text-[11.5px] text-[var(--ls-t4)]">{e.detalle}</div>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+    <div className="overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
+      <div className="flex flex-col gap-3 border-b border-[var(--ls-linea)] p-4" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ls-mod-seo, var(--ls-acento)) 7%, transparent), transparent)' }}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-[10px]" style={{ background: 'color-mix(in srgb, var(--ls-mod-seo, var(--ls-acento)) 16%, transparent)', color: 'var(--ls-mod-seo, var(--ls-acento))' }}>
+            <History className="h-[16px] w-[16px]" />
+          </span>
+          <div>
+            <div className="text-[15px] font-semibold text-[var(--ls-t1)]">Actividad del equipo</div>
+            <div className="text-[11.5px] text-[var(--ls-t4)]">Quién ha hecho qué y cuándo · últimos 6 meses · {eventos.length.toLocaleString('es-ES')} acciones · pulsa «Comentar» para dejar una nota</div>
+          </div>
+          {equipo.length > 0 && (
+            <div className="ml-auto flex items-center gap-1">
+              {equipo.slice(0, 8).map(([n, k]) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setPersona(persona === n ? '' : n)}
+                  title={`${n} · ${k} acciones${persona === n ? ' (pulsa para quitar el filtro)' : ''}`}
+                  className="rounded-full transition-transform hover:-translate-y-[2px]"
+                  style={{ outline: persona === n ? '2px solid var(--ls-acento)' : 'none', outlineOffset: 2, opacity: persona && persona !== n ? 0.4 : 1 }}
+                >
+                  <Avatar nombre={n} tamano={30} />
+                </button>
+              ))}
             </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-[6px]">
+          {CHIPS.map(([v, t]) => (
+            <button
+              key={v || 'todo'}
+              type="button"
+              onClick={() => {
+                setTipo(v)
+                setCuantos(POR_PAGINA)
+              }}
+              className="h-7 rounded-full border px-3 text-[12px] transition-colors"
+              style={tipo === v ? { borderColor: 'var(--ls-acento)', color: 'var(--ls-t1)', background: 'color-mix(in srgb, var(--ls-acento) 12%, transparent)' } : { borderColor: 'var(--ls-linea)', color: 'var(--ls-t3)' }}
+            >
+              {t}
+            </button>
+          ))}
+          {persona && (
+            <button type="button" onClick={() => setPersona('')} className="inline-flex h-7 items-center gap-1 rounded-full bg-[var(--ls-sup2)] px-3 text-[12px] text-[var(--ls-t2)]">
+              <Avatar nombre={persona} tamano={16} /> {persona} ✕
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtrados.length === 0 ? (
+        <p className="p-4 text-[12.5px] text-[var(--ls-t4)]">No hay acciones registradas con estos filtros.</p>
+      ) : (
+        <div className="flex flex-col gap-5 p-4">
+          {dias.map(([dia, lista]) => (
+            <section key={dia}>
+              <div className="sticky top-0 z-[1] mb-2 flex items-center gap-2 bg-[var(--ls-sup)] py-1">
+                <span className="text-[12px] font-semibold text-[var(--ls-t1)]">{dia === hoyTxt ? 'Hoy' : dia === ayerTxt ? 'Ayer' : fLarga(lista[0].at).replace(/^./, (l) => l.toUpperCase())}</span>
+                <span className="h-px flex-1 bg-[var(--ls-linea)]" />
+                <span className="text-[11px] text-[var(--ls-t4)]">
+                  {lista.length} {lista.length === 1 ? 'acción' : 'acciones'}
+                </span>
+              </div>
+              <ol className="relative ml-[17px] border-l border-[var(--ls-linea)]">
+                {lista.map((e) => (
+                  <EventoDelRegistro key={e.id} e={e} producto={nombreDeAsin(e.asin)} mkt={mkt} verFicha={verFicha} abierto={abierto === e.id} alternar={() => setAbierto((x) => (x === e.id ? null : e.id))} />
+                ))}
+              </ol>
+            </section>
           ))}
           {filtrados.length > cuantos && (
-            <div>
+            <div className="flex justify-center">
               <Boton variante="secundario" onClick={() => setCuantos((c) => c + POR_PAGINA)}>
                 Ver más ({(filtrados.length - cuantos).toLocaleString('es-ES')})
               </Boton>
@@ -602,5 +677,64 @@ function Registro({ eventos, nombreDeAsin }: { eventos: EventoSeo[]; nombreDeAsi
         </div>
       )}
     </div>
+  )
+}
+
+function EventoDelRegistro({ e, producto, mkt, verFicha, abierto, alternar }: { e: EventoSeo; producto: string | null; mkt: string | null; verFicha: (asin: string) => void; abierto: boolean; alternar: () => void }) {
+  const Icono = ICONO[e.tipo]
+  const tono = TONO[e.tono]
+  return (
+    <li className="relative pb-3 pl-6 last:pb-0">
+      {/* La cara de quien lo hizo sobre la línea del día, con el icono del tipo de acción en la esquina */}
+      <span className="absolute -left-[17px] top-0">
+        {e.quien ? (
+          <Avatar nombre={e.quien} tamano={34} className="ring-[3px] ring-[var(--ls-sup)]" />
+        ) : (
+          <span className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-[var(--ls-sup3)] text-[var(--ls-t2)] ring-[3px] ring-[var(--ls-sup)]" title="Lo hizo el ERP solo">
+            <Bot className="h-[16px] w-[16px]" />
+          </span>
+        )}
+        <span className="absolute -bottom-[3px] -right-[5px] flex h-[17px] w-[17px] items-center justify-center rounded-full ring-2 ring-[var(--ls-sup)]" style={{ background: `color-mix(in srgb, ${tono} 22%, var(--ls-sup))`, color: tono }} title={TIPO_TXT[e.tipo]}>
+          <Icono className="h-[10px] w-[10px]" />
+        </span>
+      </span>
+
+      <div className="rounded-[12px] border border-transparent p-[10px] pt-[6px] transition-colors hover:border-[var(--ls-linea)] hover:bg-[color-mix(in_srgb,var(--ls-sup2)_55%,transparent)]" style={abierto ? { borderColor: 'var(--ls-linea)', background: 'color-mix(in srgb, var(--ls-sup2) 55%, transparent)' } : undefined}>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-[13px] font-semibold text-[var(--ls-t1)]">{e.quien ?? ERP}</span>
+          <span className="text-[13px] text-[var(--ls-t2)]">{e.accion.charAt(0).toLowerCase() + e.accion.slice(1)}</span>
+          <span className="ml-auto whitespace-nowrap text-[11px] tabular-nums text-[var(--ls-t4)]" title={new Date(e.at).toLocaleString('es-ES')}>
+            {cuandoFue(e.at)}
+          </span>
+        </div>
+        {e.detalle && (
+          <div className="mt-[2px] text-[12px] leading-[1.45]" style={{ color: e.tono === 'neutro' ? 'var(--ls-t3)' : tono }}>
+            {e.detalle}
+          </div>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {e.asin && (
+            <button type="button" onClick={() => verFicha(e.asin as string)} className="group/p inline-flex max-w-full items-center gap-[10px] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] py-[5px] pl-[5px] pr-3 text-left transition-colors hover:border-[color-mix(in_srgb,var(--ls-acento)_45%,var(--ls-linea))]" title="Abrir la ficha">
+              <span className="shrink-0 rounded-[8px] bg-white p-[2px]">
+                <ImagenDeProducto asin={e.asin} mkt={mkt} lado={40} redondeo={6} titulo={producto ?? e.asin} />
+              </span>
+              <span className="min-w-0">
+                <span className="block max-w-[420px] truncate text-[12px] font-medium text-[var(--ls-t1)]">{producto ?? e.asin}</span>
+                <span className="block text-[10.5px] tabular-nums text-[var(--ls-t4)]">{e.asin}</span>
+              </span>
+              <ChevronRight className="h-[14px] w-[14px] shrink-0 text-[var(--ls-t4)] transition-transform group-hover/p:translate-x-[2px]" />
+            </button>
+          )}
+          <span className="ml-auto">
+            <BotonDeComentarios hilo={e.hilo} abierto={abierto} onClick={alternar} />
+          </span>
+        </div>
+        {abierto && (
+          <div className="mt-2">
+            <Hilo hilo={e.hilo} asin={e.asin} autoFoco />
+          </div>
+        )}
+      </div>
+    </li>
   )
 }
