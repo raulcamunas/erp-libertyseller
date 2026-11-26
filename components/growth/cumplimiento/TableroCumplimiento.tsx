@@ -121,6 +121,7 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
   const [ultimo, setUltimo] = useState<Ultimo>(null)
   const [revisando, setRevisando] = useState<string | null>(null)
   const [nota, setNota] = useState<string | null>(null)
+  const [marcadas, setMarcadas] = useState<ReadonlySet<string>>(new Set())
 
   const peticion = useRef(0)
   // Sin datos del servidor, la primera carga la hace el efecto de los filtros
@@ -269,16 +270,20 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
     }
   }
 
-  async function descartar(f: FilaCumplimiento, quitar: boolean) {
-    if (quitar && !window.confirm(`¿Eliminar ${f.sku} (${nombreMarketplace(f.marketplace_id)}) del seguimiento?\n\nDeja de salir en la lista y de contar en las cifras, el panel y «Hoy». Se puede recuperar desde «Descartados».`)) return
-    const k = claveFila(f)
-    setRevisando(k)
+  async function descartar(lista: FilaCumplimiento[], quitar: boolean) {
+    if (lista.length === 0) return
+    const quien = lista.length === 1 ? `${lista[0].sku} (${nombreMarketplace(lista[0].marketplace_id)})` : `estos ${lista.length} listings`
+    if (quitar && !window.confirm(`¿Eliminar ${quien} del seguimiento?\n\nDejan de salir en la lista y de contar en las cifras, el panel y «Hoy». Se pueden recuperar desde «Descartados».`)) return
+    const claves = new Set(lista.map(claveFila))
+    setRevisando(lista.length === 1 ? claveFila(lista[0]) : '*')
     setNota(null)
     setError(null)
     try {
-      await llamar(quitar ? 'descartar' : 'recuperar', { mercado: f.marketplace_id, sku: f.sku })
-      setFilas((prev) => prev.filter((x) => claveFila(x) !== k))
-      setNota(quitar ? `${f.sku} ya no se sigue. Está en «Descartados» por si hay que recuperarlo.` : `${f.sku} vuelve al seguimiento; la próxima revisión dirá cómo está en Amazon.`)
+      const r = await llamar<{ cambiados: number }>(quitar ? 'descartar' : 'recuperar', { listings: lista.map((f) => ({ mercado: f.marketplace_id, sku: f.sku })) })
+      setFilas((prev) => prev.filter((x) => !claves.has(claveFila(x))))
+      setMarcadas((prev) => new Set([...prev].filter((k) => !claves.has(k))))
+      const n = lista.length === 1 ? lista[0].sku : `${r.cambiados} listings`
+      setNota(quitar ? `${n} ya no se ${lista.length === 1 ? 'sigue' : 'siguen'}. Está${lista.length === 1 ? '' : 'n'} en «Descartados» por si hay que recuperar${lista.length === 1 ? 'lo' : 'los'}.` : `${n} vuelve${lista.length === 1 ? '' : 'n'} al seguimiento; la próxima revisión dirá cómo está${lista.length === 1 ? '' : 'n'} en Amazon.`)
       void refrescarResumen(filtrosRef.current.mercado)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se ha podido cambiar el seguimiento')
@@ -286,6 +291,19 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
       setRevisando(null)
     }
   }
+
+  const marcar = (k: string) =>
+    setMarcadas((prev) => {
+      const s = new Set(prev)
+      if (s.has(k)) s.delete(k)
+      else s.add(k)
+      return s
+    })
+  const enDescartados = filtros.gravedad === 'descartados'
+  // Al cambiar de filtro, lo marcado deja de verse: se suelta
+  useEffect(() => setMarcadas(new Set()), [filtros])
+  const marcadasVisibles = filas.filter((f) => marcadas.has(claveFila(f)))
+  const todasMarcadas = filas.length > 0 && marcadasVisibles.length === filas.length
 
   const alternar = (k: string) =>
     setAbiertas((prev) => {
@@ -570,11 +588,40 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
         </Vacio>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-[6px]">
+          {marcadasVisibles.length > 0 && (
+            <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 py-[6px]">
+              <span className={`${TIPO.s} ${TEXTO.t1} font-medium`}>
+                {marcadasVisibles.length} {marcadasVisibles.length === 1 ? 'marcado' : 'marcados'}
+              </span>
+              <button type="button" className={`${BOTON.base} ${BOTON.secundario}`} disabled={revisando !== null} onClick={() => void descartar(marcadasVisibles, !enDescartados)}>
+                {revisando === '*' ? <Loader2 className="h-3 w-3 animate-spin" /> : enDescartados ? <RotateCcw className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
+                {enDescartados ? 'Volver a seguir' : 'Eliminar del seguimiento'}
+              </button>
+              <button type="button" className={`${TIPO.s} ${TEXTO.t3} hover:text-[var(--ls-t1)]`} onClick={() => setMarcadas(new Set())}>
+                Quitar marcas
+              </button>
+            </div>
+          )}
           <div className={`${TABLA.caja} relative`}>
             <table className={TABLA.tabla}>
               <thead>
                 <tr>
-                  <th className={`${TABLA.cabecera} ${TABLA.cabeceraFija}`}>SKU</th>
+                  <th className={`${TABLA.cabecera} ${TABLA.cabeceraFija}`}>
+                    <span className="flex items-center gap-[7px]">
+                      <input
+                        type="checkbox"
+                        className="h-[13px] w-[13px] cursor-pointer accent-[var(--ls-acc)]"
+                        checked={todasMarcadas}
+                        ref={(el) => {
+                          if (el) el.indeterminate = marcadasVisibles.length > 0 && !todasMarcadas
+                        }}
+                        onChange={() => setMarcadas(todasMarcadas ? new Set() : new Set(filas.map(claveFila)))}
+                        aria-label="Marcar todos los listings de la lista"
+                        title="Marcar todos los cargados"
+                      />
+                      SKU
+                    </span>
+                  </th>
                   <th className={TABLA.cabecera}>Producto</th>
                   <th className={TABLA.cabecera}>País</th>
                   <th className={TABLA.cabecera}>Ficha</th>
@@ -598,8 +645,10 @@ export function TableroCumplimiento({ slug, nombre, resumenInicial, paginaInicia
                       revisando={revisando === k}
                       alAbrir={() => alternar(k)}
                       alRevisar={() => void revisarUno(f)}
-                      descartada={filtros.gravedad === 'descartados'}
-                      alDescartar={() => void descartar(f, filtros.gravedad !== 'descartados')}
+                      descartada={enDescartados}
+                      alDescartar={() => void descartar([f], !enDescartados)}
+                      marcada={marcadas.has(k)}
+                      alMarcar={() => marcar(k)}
                       alCorregir={alCorregir ? (i) => alCorregir(f, i) : undefined}
                     />
                   )
@@ -645,6 +694,8 @@ function FilaLista({
   alRevisar,
   descartada,
   alDescartar,
+  marcada,
+  alMarcar,
   alCorregir,
 }: {
   f: FilaCumplimiento
@@ -656,6 +707,8 @@ function FilaLista({
   /** En la vista «Descartados»: el botón recupera en vez de quitar */
   descartada: boolean
   alDescartar: () => void
+  marcada: boolean
+  alMarcar: () => void
   alCorregir?: (i: Incidencia) => void
 }) {
   const ficha = estadoDeFicha(f.estado)
@@ -676,6 +729,14 @@ function FilaLista({
       <tr className={`${TABLA.fila} cursor-pointer ${abierta ? TABLA.filaSel : ''}`} onClick={alAbrir}>
         <td className={`${TABLA.celda} ${TABLA.celdaFija}`}>
           <span className="flex items-center gap-[5px]">
+            <input
+              type="checkbox"
+              className="mr-[2px] h-[13px] w-[13px] shrink-0 cursor-pointer accent-[var(--ls-acc)]"
+              checked={marcada}
+              onClick={(e) => e.stopPropagation()}
+              onChange={alMarcar}
+              aria-label={`Marcar ${f.sku}`}
+            />
             {abierta ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
             <span className={`${TIPO.m} ${TEXTO.t1} font-medium`}>{f.sku}</span>
             {f.es_padre && (

@@ -343,25 +343,33 @@ export async function todasLasFilas(
  */
 export async function descartarListing(
   amazonClientId: string,
-  mercado: string,
-  sku: string,
+  listings: ReadonlyArray<{ mercado: string; sku: string }>,
   descartar: boolean,
   userId: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; cambiados: number } | { ok: false; error: string }> {
   const conexiones = await conexionesDeCliente(amazonClientId)
   if (conexiones.length === 0) return { ok: false, error: 'Este cliente no tiene ninguna cuenta de Amazon activa.' }
   const cambios = descartar ? { descartado_at: new Date().toISOString(), descartado_por: userId } : { descartado_at: null, descartado_por: null, en_amazon: true }
-  const { data, error } = await createServiceClient()
-    .from('listing_cumplimiento')
-    .update(cambios)
-    .in('connection_id', conexiones.map((c) => c.id))
-    .eq('marketplace_id', mercado)
-    .eq('sku', sku)
-    .select('id')
-  if (error) {
-    if (isMissingSchema(error) || /descartado/.test(error.message ?? '')) return { ok: false, error: 'Falta lanzar la migración 341 (cumplimiento_descartados) en el editor SQL de Supabase.' }
-    throw error
+  // Por país, en tandas: «Eliminar del seguimiento» de varios a la vez es un update por país
+  const porPais = new Map<string, string[]>()
+  for (const l of listings) porPais.set(l.mercado, [...(porPais.get(l.mercado) ?? []), l.sku])
+  let cambiados = 0
+  for (const [mercado, skus] of porPais) {
+    for (let i = 0; i < skus.length; i += 100) {
+      const { data, error } = await createServiceClient()
+        .from('listing_cumplimiento')
+        .update(cambios)
+        .in('connection_id', conexiones.map((c) => c.id))
+        .eq('marketplace_id', mercado)
+        .in('sku', skus.slice(i, i + 100))
+        .select('id')
+      if (error) {
+        if (isMissingSchema(error) || /descartado/.test(error.message ?? '')) return { ok: false, error: 'Falta lanzar la migración 341 (cumplimiento_descartados) en el editor SQL de Supabase.' }
+        throw error
+      }
+      cambiados += data?.length ?? 0
+    }
   }
-  if (!data?.length) return { ok: false, error: 'Ese listing ya no está en la revisión.' }
-  return { ok: true }
+  if (cambiados === 0) return { ok: false, error: 'Esos listings ya no están en la revisión.' }
+  return { ok: true, cambiados }
 }

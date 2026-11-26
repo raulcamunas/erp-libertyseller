@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
       codigo?: string
       atributos?: unknown
       formulario?: unknown
+      listings?: unknown[]
     }
 
     const cliente = await clienteDe(body.cliente)
@@ -115,12 +116,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.accion === 'descartar' || body.accion === 'recuperar') {
-      const mercado = typeof body.mercado === 'string' ? body.mercado : ''
-      const sku = typeof body.sku === 'string' ? body.sku.trim() : ''
-      if (!/^[A-Z0-9]{8,16}$/.test(mercado) || !sku || sku.length > 200) return fail(400, 'Listing no válido.')
-      const r = await descartarListing(cliente.amazonClientId, mercado, sku, body.accion === 'descartar', session.userId)
+      // Uno (mercado + sku) o varios (listings: [{ mercado, sku }], hasta 500)
+      const crudos = Array.isArray(body.listings) ? body.listings : [{ mercado: body.mercado, sku: body.sku }]
+      const listings = crudos
+        .map((x) => (typeof x === 'object' && x !== null ? (x as Record<string, unknown>) : {}))
+        .map((x) => ({ mercado: typeof x.mercado === 'string' ? x.mercado : '', sku: typeof x.sku === 'string' ? x.sku.trim() : '' }))
+        .filter((x) => /^[A-Z0-9]{8,16}$/.test(x.mercado) && x.sku && x.sku.length <= 200)
+        .slice(0, 500)
+      if (listings.length === 0) return fail(400, 'Listing no válido.')
+      const r = await descartarListing(cliente.amazonClientId, listings, body.accion === 'descartar', session.userId)
       if (!r.ok) return fail(409, r.error)
-      return NextResponse.json({ ok: true })
+      return NextResponse.json({ ok: true, cambiados: r.cambiados })
     }
 
     if (body.accion === 'salud' || body.accion === 'salud-ahora') {
