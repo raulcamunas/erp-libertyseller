@@ -349,7 +349,7 @@ export const TAREAS_CRON = [
     id: 'rinkel-llamadas',
     nombre: 'Llamadas de Rinkel',
     ruta: '/api/rendimiento/cron',
-    cadaMinutos: 3,
+    cadaMinutos: 1,
     que:
       'Lee de Rinkel las llamadas nuevas de cada comercial que ha vinculado su clave, con la grabación de ' +
       'las que la tienen, para el panel «Mi rendimiento». No escribe nada en Rinkel.',
@@ -396,7 +396,7 @@ export const TAREAS_CRON = [
     id: 'correo-sync',
     nombre: 'Correo de los comerciales',
     ruta: '/api/correo/cron',
-    cadaMinutos: 2,
+    cadaMinutos: 1,
     que:
       'Trae a Correo los mensajes nuevos de cada buzón conectado, de Entrada y de Enviados, y recoge lo que se ' +
       'haya leído en el webmail. Solo lee: no envía, no borra ni marca nada en el servidor de correo.',
@@ -556,7 +556,7 @@ export const TAREAS_CRON = [
     id: 'analisis-keepa',
     nombre: 'Análisis de Amazon (Keepa)',
     ruta: '/api/analisis/cron',
-    cadaMinutos: 3,
+    cadaMinutos: 1,
     que: 'Analiza con Keepa la siguiente tienda de las listas de vendedores de Amazon y deja su informe en la ficha del lead (casilla «Con informe»).',
   },
   {
