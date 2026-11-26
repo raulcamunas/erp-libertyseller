@@ -9,7 +9,7 @@ import { ArrowLeft, CalendarClock, Check, Inbox, Loader2, MailCheck, Pause, Penc
 import { CifraAnimada, PanelLateral } from '@/components/ui-ls'
 import { ESTADOS, type Campana, type EstadoEnvio } from '@/lib/ventas/resenas'
 import type { CuentaDelPanel } from '@/lib/ventas/panel-servidor'
-import type { DetalleResenas, EnvioDeResena, ResumenResenasCuenta } from '@/lib/ventas/resenas-servidor'
+import type { DetalleResenas, PedidoConResena, ResumenResenasCuenta } from '@/lib/ventas/resenas-servidor'
 import { ACENTOS, Marco, TARJETA } from './TableroVentas'
 import { Emoji } from './ResumenDeCuentas'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
@@ -169,7 +169,27 @@ function Num({ texto, valor, color }: { texto: string; valor: number; color?: st
 /* Una cuenta                                                          */
 /* ------------------------------------------------------------------ */
 
-type Filtro = EstadoEnvio | 'todos'
+type Clase = EstadoEnvio | 'sin_solicitud' | 'cancelado'
+type Filtro = Clase | 'todos'
+
+/** Cómo va la reseña de un pedido: la de la cola si ha entrado, y si no, por qué no */
+const CLASES: Record<Clase, { texto: string; color: string }> = { ...ESTADOS, sin_solicitud: { texto: 'Sin solicitud', color: '#A1A1AA' }, cancelado: { texto: 'Cancelado', color: '#52525B' } }
+function claseDe(p: PedidoConResena): Clase {
+  if (p.envio) return p.envio.estado
+  if (p.reembolsado) return 'reembolsado'
+  if (p.cancelado) return 'cancelado'
+  return 'sin_solicitud'
+}
+function motivoSinSolicitud(p: PedidoConResena, campanas: DetalleResenas['campanas']): string {
+  const activas = campanas.filter((c) => c.activa)
+  if (!activas.length) return 'No hay ninguna campaña activa'
+  const dia = new Date(p.compraAt).toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' })
+  if (p.fbm && activas.every((c) => c.excluir_fbm)) return 'Pedido FBM (excluido)'
+  if (p.promo && activas.every((c) => c.excluir_promo)) return 'Con promoción (excluido)'
+  if (activas.every((c) => dia < c.desde)) return 'Anterior a «Activa desde» de la campaña'
+  if (Date.now() - Date.parse(p.compraAt) > 32 * 86_400_000) return 'Fuera del plazo de Amazon (30 días tras la entrega)'
+  return 'Entra en la cola en la próxima pasada (10 min)'
+}
 
 function DeUnaCuenta({ cuentas, cuentaId, error: errorCuentas }: { cuentas: CuentaDelPanel[] | null; cuentaId: string; error: string | null }) {
   const router = useRouter()
@@ -214,11 +234,13 @@ function DeUnaCuenta({ cuentas, cuentaId, error: errorCuentas }: { cuentas: Cuen
     }
     return k
   }, [d, hoyMs])
-  const lista = useMemo(() => {
-    const xs = (d?.envios ?? []).filter((e) => filtro === 'todos' || e.estado === filtro)
-    // Lo que va a salir, primero (lo más próximo arriba); luego lo ya hecho, lo más reciente arriba
-    return xs.sort((a, b) => (a.estado === 'en_cola' && b.estado === 'en_cola' ? a.programadoAt.localeCompare(b.programadoAt) : a.estado === 'en_cola' ? -1 : b.estado === 'en_cola' ? 1 : (b.enviadaAt ?? b.programadoAt).localeCompare(a.enviadaAt ?? a.programadoAt)))
-  }, [d, filtro])
+  // Todos los pedidos (los más recientes arriba), con cuántos hay de cada clase para los filtros
+  const cuantos = useMemo(() => {
+    const c: Partial<Record<Clase, number>> = {}
+    for (const p of d?.pedidos ?? []) c[claseDe(p)] = (c[claseDe(p)] ?? 0) + 1
+    return c
+  }, [d])
+  const lista = useMemo(() => (d?.pedidos ?? []).filter((p) => filtro === 'todos' || claseDe(p) === filtro).sort((a, b) => b.compraAt.localeCompare(a.compraAt)), [d, filtro])
 
   const accion = async (cuerpo: Record<string, unknown>) => {
     try {
@@ -368,13 +390,16 @@ function DeUnaCuenta({ cuentas, cuentaId, error: errorCuentas }: { cuentas: Cuen
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ls-linea)] px-5 py-4">
           <div>
             <div className="text-[14px] font-semibold text-[var(--ls-t1)]">Pedidos</div>
-            <div className="text-[12px] text-[var(--ls-t4)]">{filtro === 'todos' ? 'Los de los últimos 40 días' : ESTADOS[filtro].texto} · {entero(lista.length)}</div>
+            <div className="text-[12px] text-[var(--ls-t4)]">Todos los de los últimos 40 días y si ya se les ha pedido la reseña · {entero(lista.length)}</div>
           </div>
-          {filtro !== 'todos' && (
-            <button type="button" onClick={() => setFiltro('todos')} className="inline-flex items-center gap-1 text-[12px] text-[var(--ls-t3)] hover:text-[var(--ls-t1)]">
-              <X className="h-[12px] w-[12px]" /> Quitar filtro
-            </button>
-          )}
+          <div className="flex flex-wrap gap-[6px]">
+            <FiltroChip activo={filtro === 'todos'} onClick={() => setFiltro('todos')} texto="Todos" n={d?.pedidos.length ?? 0} color="#F26212" />
+            {(['enviada', 'en_cola', 'sin_solicitud', 'no_disponible', 'reembolsado', 'caducada', 'error', 'descartada', 'cancelado'] as Clase[])
+              .filter((k) => cuantos[k])
+              .map((k) => (
+                <FiltroChip key={k} activo={filtro === k} onClick={() => setFiltro(filtro === k ? 'todos' : k)} texto={CLASES[k].texto} n={cuantos[k] ?? 0} color={CLASES[k].color} />
+              ))}
+          </div>
         </div>
         {d && lista.length === 0 && <p className="px-5 py-8 text-center text-[13px] text-[var(--ls-t4)]">Nada por aquí.</p>}
         {lista.length > 0 && (
@@ -385,15 +410,15 @@ function DeUnaCuenta({ cuentas, cuentaId, error: errorCuentas }: { cuentas: Cuen
                   <th className="px-5 py-[9px] text-left font-semibold">Pedido</th>
                   <th className="px-3 py-[9px] text-left font-semibold">Compra</th>
                   <th className="px-3 py-[9px] text-left font-semibold">Reseña</th>
-                  <th className="px-3 py-[9px] text-left font-semibold">Estado</th>
+                  <th className="px-3 py-[9px] text-left font-semibold">Fecha</th>
                   <th className="px-3 py-[9px] text-right font-semibold">Importe</th>
                   <th className="px-3 py-[9px] text-left font-semibold">Campaña</th>
                   <th className="px-5 py-[9px] text-right font-semibold" />
                 </tr>
               </thead>
               <tbody>
-                {lista.slice(0, ver).map((e) => (
-                  <FilaEnvio key={e.pedido} e={e} onAccion={(a) => accion({ accion: a, pedido: e.pedido })} />
+                {lista.slice(0, ver).map((p) => (
+                  <FilaPedido key={p.pedido} p={p} motivo={claseDe(p) === 'sin_solicitud' ? motivoSinSolicitud(p, d?.campanas ?? []) : null} onAccion={(a) => accion({ accion: a, pedido: p.pedido })} />
                 ))}
               </tbody>
             </table>
@@ -457,46 +482,52 @@ function GraficaCola({ porDia }: { porDia: DetalleResenas['porDia'] }) {
   )
 }
 
-function FilaEnvio({ e, onAccion }: { e: EnvioDeResena; onAccion: (a: 'descartar' | 'recuperar') => void }) {
-  const est = ESTADOS[e.estado]
+function FiltroChip({ activo, onClick, texto, n, color }: { activo: boolean; onClick: () => void; texto: string; n: number; color: string }) {
+  return (
+    <button type="button" onClick={onClick} className="inline-flex items-center gap-[6px] rounded-full border px-[10px] py-[4px] text-[11.5px] transition-colors" style={{ borderColor: activo ? color : 'var(--ls-linea)', background: activo ? `color-mix(in srgb, ${color} 14%, transparent)` : 'transparent', color: 'var(--ls-t2)' }}>
+      <span className="h-[6px] w-[6px] rounded-full" style={{ background: color }} />
+      {texto}
+      <span className="font-semibold tabular-nums text-[var(--ls-t1)]">{entero(n)}</span>
+    </button>
+  )
+}
+
+function FilaPedido({ p, motivo, onAccion }: { p: PedidoConResena; motivo: string | null; onAccion: (a: 'descartar' | 'recuperar') => void }) {
+  const clase = claseDe(p)
+  const est = CLASES[clase]
+  const e = p.envio
   return (
     <tr className="border-b border-[var(--ls-linea)] last:border-0 hover:bg-[color-mix(in_srgb,var(--ls-sup2)_60%,transparent)]">
       <td className="px-5 py-[7px]">
         <div className="flex items-center gap-2">
-          <span title={pais(e.mkt)}>{bandera(e.mkt)}</span>
-          <span className="tabular-nums text-[var(--ls-t1)]">{e.pedido}</span>
+          <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
+          <span className="tabular-nums text-[var(--ls-t1)]">{p.pedido}</span>
+          {p.fbm && <span className="rounded-[5px] bg-[var(--ls-sup2)] px-[5px] text-[10px] font-semibold text-[var(--ls-t3)]">FBM</span>}
         </div>
-        <div className="truncate text-[11px] text-[var(--ls-t4)]">{e.skus.join(' · ')}</div>
+        <div className="max-w-[300px] truncate text-[11px] text-[var(--ls-t4)]">
+          {p.unidades} ud. · {p.skus.join(' · ')}
+        </div>
       </td>
-      <td className="px-3 tabular-nums text-[var(--ls-t3)]">{fecha(e.compraAt)}</td>
-      <td className="px-3 tabular-nums text-[var(--ls-t2)]">
-        {e.estado === 'enviada' ? (
-          <span className="inline-flex items-center gap-1 text-[#34D399]">
-            <Check className="h-[12px] w-[12px]" />
-            {fechaHora(e.enviadaAt)}
-          </span>
-        ) : e.estado === 'en_cola' ? (
-          <span>{fechaHora(e.programadoAt)}</span>
-        ) : (
-          <span className="text-[var(--ls-t4)]">—</span>
-        )}
-      </td>
+      <td className="px-3 tabular-nums text-[var(--ls-t3)]">{fecha(p.compraAt)}</td>
       <td className="px-3">
-        <span className="inline-flex items-center gap-[6px] rounded-full px-[9px] py-[2px] text-[11.5px] font-medium" style={{ background: `color-mix(in srgb, ${est.color} 14%, transparent)`, color: est.color }} title={e.detalle ?? undefined}>
-          <span className="h-[6px] w-[6px] rounded-full" style={{ background: est.color }} />
+        <span className="inline-flex items-center gap-[6px] rounded-full px-[9px] py-[2px] text-[11.5px] font-medium" style={{ background: `color-mix(in srgb, ${est.color} 14%, transparent)`, color: est.color }} title={e?.detalle ?? motivo ?? undefined}>
+          {clase === 'enviada' ? <Check className="h-[11px] w-[11px]" /> : <span className="h-[6px] w-[6px] rounded-full" style={{ background: est.color }} />}
           {est.texto}
         </span>
-        {e.detalle && e.estado !== 'enviada' && <div className="mt-[2px] max-w-[280px] truncate text-[11px] text-[var(--ls-t4)]" title={e.detalle}>{e.detalle}</div>}
+        {(motivo || (e?.detalle && clase !== 'enviada')) && <div className="mt-[2px] max-w-[300px] truncate text-[11px] text-[var(--ls-t4)]" title={motivo ?? e?.detalle ?? undefined}>{motivo ?? e?.detalle}</div>}
       </td>
-      <td className="px-3 text-right tabular-nums text-[var(--ls-t2)]">{e.importe != null ? euros(e.importe) : '—'}</td>
-      <td className="px-3 text-[var(--ls-t3)]">{e.campana ?? '—'}</td>
+      <td className="px-3 tabular-nums text-[var(--ls-t2)]">
+        {clase === 'enviada' ? <span className="text-[#34D399]">{fechaHora(e?.enviadaAt ?? null)}</span> : clase === 'en_cola' ? <span>{fechaHora(e?.programadoAt ?? null)}</span> : <span className="text-[var(--ls-t4)]">—</span>}
+      </td>
+      <td className="px-3 text-right tabular-nums text-[var(--ls-t2)]">{euros(p.importe)}</td>
+      <td className="px-3 text-[var(--ls-t3)]">{e?.campana ?? '—'}</td>
       <td className="px-5 text-right">
-        {e.estado === 'en_cola' && (
+        {clase === 'en_cola' && (
           <button type="button" onClick={() => onAccion('descartar')} className="inline-flex items-center gap-1 rounded-[8px] px-2 py-1 text-[11.5px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[#F87171]">
             <X className="h-[12px] w-[12px]" /> Descartar
           </button>
         )}
-        {(e.estado === 'descartada' || e.estado === 'error') && (
+        {(clase === 'descartada' || clase === 'error') && (
           <button type="button" onClick={() => onAccion('recuperar')} className="inline-flex items-center gap-1 rounded-[8px] px-2 py-1 text-[11.5px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
             <Undo2 className="h-[12px] w-[12px]" /> A la cola
           </button>

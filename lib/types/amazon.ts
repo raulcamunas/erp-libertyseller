@@ -115,6 +115,7 @@ export const AMAZON_MARKETPLACES: AmazonMarketplace[] = [
   { id: 'A2NODRKZP88ZB9', label: 'Suecia', countryCode: 'SE', region: 'eu', currency: 'SEK' },
   { id: 'AMEN7PMS3EDWL', label: 'Bélgica', countryCode: 'BE', region: 'eu', currency: 'EUR' },
   { id: 'A1805IZSGTT6HS', label: 'Países Bajos', countryCode: 'NL', region: 'eu', currency: 'EUR' },
+  { id: 'A28R8C7NBKEWEA', label: 'Irlanda', countryCode: 'IE', region: 'eu', currency: 'EUR' },
   { id: 'ARBP9OOSHTCHU', label: 'Egipto', countryCode: 'EG', region: 'eu', currency: 'EGP' },
   { id: 'A33AVAJ2PDY3EV', label: 'Turquía', countryCode: 'TR', region: 'eu', currency: 'TRY' },
   { id: 'A17E79C6D8DWNP', label: 'Arabia Saudí', countryCode: 'SA', region: 'eu', currency: 'SAR' },

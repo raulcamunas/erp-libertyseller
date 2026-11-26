@@ -12,7 +12,7 @@ export const DIAS_SIN_OFRECER = 14
 /** Amazon deja pedirla hasta 30 días después de la entrega */
 export const DIAS_MAXIMO = DIAS_HASTA_ENTREGA + 30
 
-export type EstadoEnvio = 'en_cola' | 'enviada' | 'no_disponible' | 'caducada' | 'error' | 'descartada'
+export type EstadoEnvio = 'en_cola' | 'enviada' | 'no_disponible' | 'caducada' | 'error' | 'descartada' | 'reembolsado'
 
 export const ESTADOS: Record<EstadoEnvio, { texto: string; color: string }> = {
   en_cola: { texto: 'En cola', color: '#60A5FA' },
@@ -21,6 +21,7 @@ export const ESTADOS: Record<EstadoEnvio, { texto: string; color: string }> = {
   caducada: { texto: 'Fuera de plazo', color: '#71717A' },
   error: { texto: 'Error', color: '#F87171' },
   descartada: { texto: 'Descartada', color: '#52525B' },
+  reembolsado: { texto: 'Reembolsado', color: '#FB923C' },
 }
 
 export interface Campana {
@@ -68,6 +69,9 @@ export function campanaDelPedido(p: PedidoParaCola, campanas: readonly Campana[]
   }
   return null
 }
+
+/** El pedido de un movimiento de reembolso (su clave es «r|pedido|sku|fecha|importe», lib/ventas/lectura.ts) */
+export const pedidoDeReembolso = (clave: string): string | null => (clave.startsWith('r|') ? clave.split('|')[1] || null : null)
 
 export const sumarDias = (dia: string, n: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
 

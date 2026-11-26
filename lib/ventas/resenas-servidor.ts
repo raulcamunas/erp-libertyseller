@@ -2,7 +2,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { spApiRequest } from '@/lib/amazon/sp-api'
 import { AmazonApiError } from '@/lib/amazon/errors'
-import { campanaDelPedido, cuandoPedir, DIAS_MAXIMO, instanteEnMadrid, siNoLaOfrece, type Campana, type EstadoEnvio, type PedidoParaCola } from './resenas'
+import { campanaDelPedido, cuandoPedir, DIAS_MAXIMO, instanteEnMadrid, pedidoDeReembolso, siNoLaOfrece, type Campana, type EstadoEnvio, type PedidoParaCola } from './resenas'
 
 /**
  * RESEÑAS · EL SERVIDOR.
@@ -58,7 +58,23 @@ export async function pasadaResenas(presupuestoMs: number): Promise<ResultadoPas
   return salida
 }
 
-/** Los pedidos de los últimos 30 días que aún no están en la cola, con la campaña que les toca */
+/** Los pedidos con algún reembolso desde esa fecha: a esos NUNCA se les pide la reseña (sería invitar a una de una estrella) */
+async function pedidosReembolsados(service: Servicio, cuenta: string, desdeDia: string): Promise<Set<string>> {
+  const salida = new Set<string>()
+  for (let d = 0; d < 50_000; d += 1000) {
+    const { data, error } = await service.from('ventas_movimientos').select('clave').eq('connection_id', cuenta).eq('tipo', 'reembolso').gte('dia', desdeDia).range(d, d + 999)
+    if (error) throw error
+    for (const f of (data ?? []) as Array<{ clave: string }>) {
+      const p = pedidoDeReembolso(f.clave)
+      if (p) salida.add(p)
+    }
+    if ((data ?? []).length < 1000) break
+  }
+  return salida
+}
+const diaHace = (dias: number) => new Date(Date.now() - dias * DIA_MS).toISOString().slice(0, 10)
+
+/** Los pedidos de los últimos 30 días que aún no están en la cola, con la campaña que les toca (los reembolsados, nunca) */
 async function encolar(service: Servicio, cuenta: string, campanas: Campana[]): Promise<number> {
   const desde = new Date(Date.now() - DIAS_MAXIMO * DIA_MS).toISOString()
   const lineas: Array<{ pedido: string; sku: string; marketplace_id: string; fecha: string; dia: string; canal: string | null; promo: number; ventas: number | null; estado: string | null }> = []
@@ -76,9 +92,10 @@ async function encolar(service: Servicio, cuenta: string, campanas: Campana[]): 
     for (const f of (data ?? []) as Array<{ pedido: string }>) ya.add(f.pedido)
     if ((data ?? []).length < 1000) break
   }
+  const reembolsados = await pedidosReembolsados(service, cuenta, diaHace(DIAS_MAXIMO + 5))
   const pedidos = new Map<string, PedidoParaCola>()
   for (const l of lineas) {
-    if (ya.has(l.pedido) || /cancel/i.test(l.estado ?? '')) continue
+    if (ya.has(l.pedido) || reembolsados.has(l.pedido) || /cancel/i.test(l.estado ?? '')) continue
     const p = pedidos.get(l.pedido) ?? { pedido: l.pedido, marketplace_id: l.marketplace_id, fecha: l.fecha, dia: l.dia, fbm: false, promo: 0, skus: [], importe: 0 }
     p.fbm ||= l.canal === 'fbm'
     p.promo += Number(l.promo || 0)
@@ -119,12 +136,19 @@ async function enviar(service: Servicio, cuenta: string, presupuestoMs: number):
   const { data: cs } = await service.from('resenas_campanas').select('id, hora').eq('connection_id', cuenta)
   const horaDe = new Map(((cs ?? []) as Array<{ id: string; hora: number }>).map((c) => [c.id, c.hora]))
   const hoy = hoyEnMadrid()
+  const reembolsados = await pedidosReembolsados(service, cuenta, diaHace(DIAS_MAXIMO + 10))
   let enviadas = 0
   let otras = 0
   for (const e of cola) {
     if (Date.now() - arranque > presupuestoMs - 5_000) break
     const ahora = new Date().toISOString()
     const marcar = (cambios: Record<string, unknown>) => service.from('resenas_envios').update({ intentos: e.intentos + 1, ultimo_intento_at: ahora, ...cambios }).eq('connection_id', cuenta).eq('pedido', e.pedido)
+    // Reembolsado mientras esperaba en la cola: no se pide
+    if (reembolsados.has(e.pedido)) {
+      await service.from('resenas_envios').update({ estado: 'reembolsado', detalle: 'Pedido reembolsado: no se pide la reseña' }).eq('connection_id', cuenta).eq('pedido', e.pedido)
+      otras++
+      continue
+    }
     try {
       const { data: acc } = await spApiRequest<{ _links?: { actions?: Array<{ name?: string }> } }>(creds, 'getSolicitationActionsForOrder', {
         method: 'GET',
@@ -227,8 +251,25 @@ export interface EnvioDeResena {
   campana: string | null
 }
 
+/** Un pedido de la cuenta (de los últimos 40 días) y cómo va su reseña */
+export interface PedidoConResena {
+  pedido: string
+  mkt: string
+  compraAt: string
+  skus: string[]
+  unidades: number
+  importe: number
+  fbm: boolean
+  promo: boolean
+  reembolsado: boolean
+  cancelado: boolean
+  /** null = nunca ha entrado en la cola */
+  envio: EnvioDeResena | null
+}
+
 export interface DetalleResenas {
   campanas: Array<Campana & { enviadas30: number; enCola: number }>
+  pedidos: PedidoConResena[]
   /** Por día (Madrid): lo enviado (pasado) y lo programado (futuro), por estado */
   porDia: Array<{ dia: string; enviadas: number; programadas: number; otras: number }>
   porEstado: Record<EstadoEnvio, number>
@@ -272,7 +313,7 @@ export async function detalleResenas(cuenta: string): Promise<DetalleResenas> {
     const d = new Date(Date.parse(`${hoy}T00:00:00Z`) + k * DIA_MS).toISOString().slice(0, 10)
     dias.set(d, { dia: d, enviadas: 0, programadas: 0, otras: 0 })
   }
-  const porEstado = { en_cola: 0, enviada: 0, no_disponible: 0, caducada: 0, error: 0, descartada: 0 } as Record<EstadoEnvio, number>
+  const porEstado = { en_cola: 0, enviada: 0, no_disponible: 0, caducada: 0, error: 0, descartada: 0, reembolsado: 0 } as Record<EstadoEnvio, number>
   const enviadas30 = new Map<string, number>()
   const enCola = new Map<string, number>()
   const hace30 = Date.now() - 30 * DIA_MS
@@ -293,8 +334,33 @@ export async function detalleResenas(cuenta: string): Promise<DetalleResenas> {
       if (d) d.otras++
     }
   }
+  // TODOS los pedidos de la cuenta (de ventas_lineas, que se guarda 62 días), con su reseña si la tiene
+  const lineas: Array<{ pedido: string; sku: string; marketplace_id: string; fecha: string; canal: string | null; promo: number; ventas: number | null; unidades: number; estado: string | null }> = []
+  for (let k = 0; k < 30_000; k += 1000) {
+    const { data, error } = await s.from('ventas_lineas').select('pedido, sku, marketplace_id, fecha, canal, promo, ventas, unidades, estado').eq('connection_id', cuenta).gte('fecha', desde).order('fecha', { ascending: false }).range(k, k + 999)
+    if (error) throw error
+    lineas.push(...((data ?? []) as typeof lineas))
+    if ((data ?? []).length < 1000) break
+  }
+  const reembolsados = await pedidosReembolsados(s, cuenta, desde.slice(0, 10))
+  const envioDe = new Map(envios.map((e) => [e.pedido, e]))
+  const pedidos = new Map<string, PedidoConResena>()
+  for (const l of lineas) {
+    let p = pedidos.get(l.pedido)
+    if (!p) {
+      p = { pedido: l.pedido, mkt: l.marketplace_id, compraAt: l.fecha, skus: [], unidades: 0, importe: 0, fbm: false, promo: false, reembolsado: reembolsados.has(l.pedido), cancelado: /cancel/i.test(l.estado ?? ''), envio: envioDe.get(l.pedido) ?? null }
+      pedidos.set(l.pedido, p)
+    }
+    if (!p.skus.includes(l.sku)) p.skus.push(l.sku)
+    p.unidades += Number(l.unidades || 0)
+    p.importe = Math.round((p.importe + Number(l.ventas || 0)) * 100) / 100
+    p.fbm ||= l.canal === 'fbm'
+    p.promo ||= Number(l.promo || 0) > 0
+  }
+
   return {
     campanas: campanas.map((c) => ({ ...c, enviadas30: enviadas30.get(c.id) ?? 0, enCola: enCola.get(c.id) ?? 0 })),
+    pedidos: [...pedidos.values()].slice(0, 3000),
     porDia: [...dias.values()],
     porEstado,
     envios: envios.slice(0, 400),
