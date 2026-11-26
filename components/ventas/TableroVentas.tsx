@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
 import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
@@ -45,7 +45,8 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   // De qué cuenta son los datos que se están enseñando: al cambiar de cliente (o de filtros) las cifras cambian, pero eso NO es una venta nueva
   const [datosDe, setDatosDe] = useState<string | null>(null)
   const [series, setSeries] = useState<Set<SerieGrafica>>(new Set(['ventas', 'neto', 'publicidad']))
-  const [comparar, setComparar] = useState<Comparar>('anio')
+  // Siempre contra el año anterior (Raúl, 27 nov 2026: «siempre voy a querer comparar vs el año anterior»)
+  const comparar: Comparar = 'anio'
   const [mercados, setMercados] = useState<Set<string> | null>(null)
   const [elegido, setElegido] = useState('hoy')
   const [pestana, setPestana] = useState<Pestana>('productos')
@@ -194,51 +195,8 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
     )
   }
 
-  return (
-    <Marco
-      debajo={
-        <Segmentado
-          etiqueta="Vista"
-          valor={vista}
-          onCambio={setVista}
-          opciones={[
-            { id: 'baldosas', texto: 'Baldosas', icono: LayoutGrid },
-            { id: 'grafico', texto: 'Gráfico', icono: ChartColumnBig },
-            { id: 'pyg', texto: 'P&L', icono: Rows3 },
-          ]}
-        />
-      }
-      acciones={
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href="/dashboard/ventas" className="inline-flex h-11 items-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)]">
-            <ArrowLeft className="h-[14px] w-[14px]" />
-            Todas las cuentas
-          </Link>
-          {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
-          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
-            {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
-          </button>
-        </div>
-      }
-    >
-      <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }`}</style>
-
-      {cuenta?.estado.primeraLectura && <ProgresoDeLectura estado={cuenta.estado} />}
-      {cuenta?.estado.error && !cuenta.estado.primeraLectura && (
-        <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 text-[12px] text-[var(--ls-t3)]">
-          <AlertTriangle className="mt-[1px] h-[14px] w-[14px] shrink-0" style={{ color: 'var(--ls-e-ambar)' }} /> Última lectura con avisos: {cuenta.estado.error}
-        </div>
-      )}
-      {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
-
-      {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} />}
-      <AltoEstable clave={vista}>
-      {cuenta && vista === 'grafico' && <VistaGrafico cuenta={cuenta} hoy={hoy} skus={seleccion} />}
-      {cuenta && vista === 'pyg' && <VistaPyG cuenta={cuenta} hoy={hoy} skus={seleccion} />}
-      {vista === 'baldosas' && (
-        <>
-      {/* Los filtros */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+  const filtrosBaldosas = (
+    <>
         <Desplegable icono={Calendar} texto={tanda === 'rango' && rango ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (TANDAS.find((t) => t.id === tanda)?.texto ?? '')}>
           {(cerrar) => (
             <>
@@ -287,24 +245,60 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
             </>
           )}
         </Desplegable>
-        <Desplegable icono={GitCompareArrows} texto={comparar === 'anio' ? 'Comparar con el año anterior' : comparar === 'anterior' ? 'Comparar con el periodo anterior' : 'Sin comparar'}>
-          {(cerrar) =>
-            (
-              [
-                ['anio', 'Comparar año sobre año'],
-                ['anterior', 'Comparar con el periodo anterior'],
-                ['no', 'No comparar'],
-              ] as Array<[Comparar, string]>
-            ).map(([v, t]) => (
-              <Opcion key={v} activa={comparar === v} onClick={() => (setComparar(v), cerrar())}>
-                {t}
-              </Opcion>
-            ))
-          }
-        </Desplegable>
         {cargando && !datos && <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ls-t4)]"><Loader2 className="h-[12px] w-[12px] animate-spin" /> leyendo…</span>}
-        {cuenta && !cuenta.estado.primeraLectura && <EstadoHistorial estado={cuenta.estado} hoy={hoy} />}
+    </>
+  )
+
+  return (
+    <Marco
+      acciones={
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/dashboard/ventas" className="inline-flex h-11 items-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)]">
+            <ArrowLeft className="h-[14px] w-[14px]" />
+            Todas las cuentas
+          </Link>
+          {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
+          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+            {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
+          </button>
+        </div>
+      }
+    >
+      <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }`}</style>
+
+      {cuenta?.estado.primeraLectura && <ProgresoDeLectura estado={cuenta.estado} />}
+      {cuenta?.estado.error && !cuenta.estado.primeraLectura && (
+        <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 text-[12px] text-[var(--ls-t3)]">
+          <AlertTriangle className="mt-[1px] h-[14px] w-[14px] shrink-0" style={{ color: 'var(--ls-e-ambar)' }} /> Última lectura con avisos: {cuenta.estado.error}
+        </div>
+      )}
+      {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
+
+      {/* Todo en una línea: la vista, los productos y (en Baldosas) el periodo y los países */}
+      <div className="mb-5 flex flex-wrap items-center gap-2 xl:flex-nowrap">
+        <Segmentado
+          etiqueta="Vista"
+          valor={vista}
+          onCambio={setVista}
+          opciones={[
+            { id: 'baldosas', texto: 'Baldosas', icono: LayoutGrid },
+            { id: 'grafico', texto: 'Gráfico', icono: ChartColumnBig },
+            { id: 'pyg', texto: 'P&L', icono: Rows3 },
+          ]}
+        />
+        {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} className="min-w-[260px] flex-1" />}
+        {vista === 'baldosas' && filtrosBaldosas}
       </div>
+      <AltoEstable clave={vista}>
+      {cuenta && vista === 'grafico' && <VistaGrafico cuenta={cuenta} hoy={hoy} skus={seleccion} />}
+      {cuenta && vista === 'pyg' && <VistaPyG cuenta={cuenta} hoy={hoy} skus={seleccion} />}
+      {vista === 'baldosas' && (
+        <>
+      {cuenta && !cuenta.estado.primeraLectura && (
+        <div className="-mt-3 mb-4 flex justify-end">
+          <EstadoHistorial estado={cuenta.estado} hoy={hoy} />
+        </div>
+      )}
 
       {/* Las baldosas */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">

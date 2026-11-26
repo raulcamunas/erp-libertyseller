@@ -19,7 +19,7 @@ export interface ProductoElegible {
   ventas?: number
 }
 
-export function SelectorDeProductos({ productos, seleccion, onCambio }: { productos: ProductoElegible[]; seleccion: Set<string> | null; onCambio: (s: Set<string> | null) => void }) {
+export function SelectorDeProductos({ productos, seleccion, onCambio, className = 'mb-5' }: { productos: ProductoElegible[]; seleccion: Set<string> | null; onCambio: (s: Set<string> | null) => void; className?: string }) {
   const [abierto, setAbierto] = useState(false)
   const [q, setQ] = useState('')
   const caja = useRef<HTMLDivElement>(null)
@@ -46,7 +46,7 @@ export function SelectorDeProductos({ productos, seleccion, onCambio }: { produc
   }
 
   return (
-    <div ref={caja} className="relative mb-5">
+    <div ref={caja} className={`relative ${className}`}>
       <div
         onClick={() => setAbierto(true)}
         className="flex min-h-[44px] cursor-text flex-wrap items-center gap-2 rounded-[14px] border bg-[var(--ls-sup)] px-3 py-[6px] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors"
