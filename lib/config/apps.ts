@@ -40,6 +40,7 @@ import {
   Coins,
   PackageSearch,
   Star,
+  Truck,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -476,6 +477,16 @@ export const apps: AppConfig[] = [
     category: 'analytics'
   },
   {
+    id: 'ventas-envio',
+    name: 'Costo de envío',
+    nombreCorto: 'Envío',
+    description: 'Lo que cuesta mandar los pedidos FBM de cada cliente, por perfiles (como la página «Costo de envío» de Sellerboard)',
+    icon: Truck,
+    route: '/dashboard/ventas/envio',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
     id: 'ventas-resenas',
     name: 'Reseñas',
     nombreCorto: 'Reseñas',
@@ -704,6 +715,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'ventas',
   'ventas-productos',
   'ventas-resenas',
+  'ventas-envio',
   // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
   // de los clientes las llevan los administrativos, persona a persona con la casilla (lib/cuentas/acceso.ts).
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
@@ -1047,7 +1059,7 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     name: 'Sellerboard',
     description: 'Tablero de ventas y beneficio, productos con su COGS y reseñas',
     icon: Coins,
-    apps: ['ventas', 'ventas-productos', 'ventas-resenas'],
+    apps: ['ventas', 'ventas-productos', 'ventas-envio', 'ventas-resenas'],
     despuesDe: 'correo',
   },
   {

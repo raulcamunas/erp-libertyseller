@@ -79,6 +79,7 @@ const FILAS: FilaPyG[] = [
   },
   { id: 'cogs', texto: 'Coste de los productos', valor: (t) => -t.cogs, formato: 'euros' },
   { id: 'iva', texto: 'IVA', valor: (t) => -t.iva, formato: 'euros' },
+  { id: 'envio', texto: 'Costo de envío (FBM)', valor: (t) => -t.envio, formato: 'euros' },
   { id: 'ajustes', texto: 'Ajustes y reembolsos de Amazon', valor: (t) => t.ajustes, formato: 'euros' },
   { id: 'bruto', texto: 'Ganancia bruta', valor: (t) => t.bruto, formato: 'euros' },
   { id: 'neto', texto: 'Ganancia neta', valor: (t) => t.neto, formato: 'euros', fuerte: true },

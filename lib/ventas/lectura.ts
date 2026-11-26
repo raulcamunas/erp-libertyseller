@@ -83,6 +83,8 @@ export interface LineaPedido {
   ventas: number | null
   /** Euros, en positivo: lo que se descuenta por promociones */
   promo: number
+  /** Euros: lo que pagó el comprador por el envío (está dentro de `ventas`) */
+  envio: number
 }
 
 export interface PedidosLeidosVentas {
@@ -160,8 +162,10 @@ export function parsearPedidosVentas(texto: string, mercadoPorDefecto: string, p
     const k = `${pedido}|${sku}`
     const previa = juntas.get(k)
     const ventas = cobrado == null ? null : r2(aEuros(cobrado, moneda, porEuro))
+    const envio = r2(aEuros(num(val(i.envio)) ?? 0, moneda, porEuro))
     if (previa) {
       previa.unidades += unidades
+      previa.envio = r2(previa.envio + envio)
       previa.ventas = previa.ventas == null || ventas == null ? (previa.ventas ?? ventas) : r2(previa.ventas + ventas)
       previa.promo = r2(previa.promo + aEuros(promo, moneda, porEuro))
       continue
@@ -178,6 +182,7 @@ export function parsearPedidosVentas(texto: string, mercadoPorDefecto: string, p
       unidades,
       ventas,
       promo: r2(aEuros(promo, moneda, porEuro)),
+      envio,
     })
   }
   salida.lineas = [...juntas.values()].filter((l) => l.unidades > 0)
@@ -395,6 +400,9 @@ export interface LineaGuardada {
   tarifa_fba: number | null
   otras_tarifas: number | null
   tarifas_reales: boolean
+  /** Pedido FBM (lo envía el vendedor) y lo cobrado por el envío: para el coste de envío (migración 349) */
+  fbm?: boolean
+  envio?: number | null
 }
 
 export interface FilaDia {
@@ -417,6 +425,10 @@ export interface FilaDia {
   publicidad: number
   ventas_ppc: number
   unidades_ppc: number
+  /** De los pedidos FBM: unidades, pedidos y lo cobrado por el envío (migración 349) */
+  unidades_fbm: number
+  pedidos_fbm: number
+  envio_cobrado: number
 }
 
 /** Comisión de venta por defecto cuando un SKU todavía no tiene ninguna real: el 15 % de casi todas las categorías, CON el 21 % de IVA dentro, como
@@ -450,12 +462,12 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     }
   }
 
-  const filas = new Map<string, FilaDia & { _pedidos: Set<string> }>()
+  const filas = new Map<string, FilaDia & { _pedidos: Set<string>; _fbm: Set<string> }>()
   const fila = (mercado: string, sku: string, dia: string, asin: string | null) => {
     const k = `${dia}|${mercado}|${sku}`
     let f = filas.get(k)
     if (!f) {
-      f = { marketplace_id: mercado, sku, dia, asin, unidades: 0, pedidos: 0, ventas: 0, promo: 0, tarifa_referral: 0, tarifa_fba: 0, otras_tarifas: 0, tarifas_estimadas: 0, reembolsos: 0, reembolsado: 0, comision_reembolso: 0, ajustes: 0, publicidad: 0, ventas_ppc: 0, unidades_ppc: 0, _pedidos: new Set() }
+      f = { marketplace_id: mercado, sku, dia, asin, unidades: 0, pedidos: 0, ventas: 0, promo: 0, tarifa_referral: 0, tarifa_fba: 0, otras_tarifas: 0, tarifas_estimadas: 0, reembolsos: 0, reembolsado: 0, comision_reembolso: 0, ajustes: 0, publicidad: 0, ventas_ppc: 0, unidades_ppc: 0, unidades_fbm: 0, pedidos_fbm: 0, envio_cobrado: 0, _pedidos: new Set(), _fbm: new Set() }
       filas.set(k, f)
     }
     if (!f.asin && asin) f.asin = asin
@@ -469,6 +481,11 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     const f = fila(l.marketplace_id, l.sku, l.dia, l.asin)
     f.unidades += l.unidades
     f._pedidos.add(l.pedido)
+    if (l.fbm) {
+      f.unidades_fbm += l.unidades
+      f._fbm.add(l.pedido)
+      f.envio_cobrado += l.envio ?? 0
+    }
     f.ventas += ventas
     f.promo += l.promo
     if (l.tarifas_reales) {
@@ -510,9 +527,11 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     }
   }
 
-  return [...filas.values()].map(({ _pedidos, ...f }) => ({
+  return [...filas.values()].map(({ _pedidos, _fbm, ...f }) => ({
     ...f,
     pedidos: _pedidos.size,
+    pedidos_fbm: _fbm.size,
+    envio_cobrado: r2(f.envio_cobrado),
     ventas: r2(f.ventas),
     promo: r2(f.promo),
     tarifa_referral: r2(f.tarifa_referral),

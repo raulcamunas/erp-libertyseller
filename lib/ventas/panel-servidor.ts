@@ -134,13 +134,25 @@ async function leerCuentasDelPanel(): Promise<CuentaDelPanel[]> {
     .sort((a, b) => (a.cliente ?? a.nombre).localeCompare(b.cliente ?? b.nombre, 'es'))
 }
 
+const COLUMNAS_DIA = 'dia, marketplace_id, sku, asin, unidades, pedidos, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_estimadas, reembolsos, reembolsado, comision_reembolso, ajustes, publicidad, ventas_ppc, unidades_ppc'
+/** ¿Está lanzada la migración 349 (envío FBM)? Se mira una vez (y otra a los 10 minutos si dio que no) */
+let hayEnvio: { valor: boolean; at: number } | null = null
+async function conEnvio(): Promise<boolean> {
+  if (hayEnvio && (hayEnvio.valor || Date.now() - hayEnvio.at < 10 * 60_000)) return hayEnvio.valor
+  const { error } = await createServiceClient().from('ventas_dia').select('envio_cobrado').limit(1)
+  hayEnvio = { valor: !error, at: Date.now() }
+  return hayEnvio.valor
+}
+
 export async function filasDelPanel(connectionId: string, desde: string, hasta: string): Promise<FilaPanel[]> {
   const s = createServiceClient()
+  const envio = await conEnvio()
   const filas: FilaPanel[] = []
+  const fbm: Array<{ unidades: number; pedidos: number; cobrado: number }> = []
   for (let d = 0; ; d += 1000) {
     const { data, error } = await s
       .from('ventas_dia')
-      .select('dia, marketplace_id, sku, asin, unidades, pedidos, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_estimadas, reembolsos, reembolsado, comision_reembolso, ajustes, publicidad, ventas_ppc, unidades_ppc')
+      .select(envio ? `${COLUMNAS_DIA}, unidades_fbm, pedidos_fbm, envio_cobrado` : COLUMNAS_DIA)
       .eq('connection_id', connectionId)
       .gte('dia', desde)
       .lte('dia', hasta)
@@ -149,7 +161,7 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
       .order('sku')
       .range(d, d + 999)
     if (error) throw error
-    for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    for (const r of (data ?? []) as unknown as Array<Record<string, unknown>>) {
       filas.push({
         dia: String(r.dia),
         mkt: String(r.marketplace_id),
@@ -171,9 +183,143 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
         ventasPpc: n(r.ventas_ppc),
         unidadesPpc: n(r.unidades_ppc),
       })
+      fbm.push({ unidades: n(r.unidades_fbm), pedidos: n(r.pedidos_fbm), cobrado: n(r.envio_cobrado) })
     }
-    if ((data ?? []).length < 1000) return filas
+    if ((data ?? []).length < 1000) break
   }
+  if (!envio || !fbm.some((x) => x.pedidos > 0)) return filas
+  // El coste de envío de los pedidos FBM de cada fila: lo importado por pedido manda; el resto, según el perfil que le toque
+  const [perfiles, importados] = await Promise.all([perfilesDeEnvio(connectionId), envioImportado(connectionId, desde, hasta)])
+  filas.forEach((f, i) => {
+    const x = fbm[i]
+    if (!x.pedidos) return
+    const imp = importados.get(`${f.dia}|${f.mkt}|${f.sku}`)
+    const resto = imp ? Math.max(0, x.pedidos - imp.pedidos) / x.pedidos : 1
+    const p = perfilDeLaFila(perfiles, f.dia, f.sku)
+    const porRegla = !p || p.regla === 'cobrado' ? x.cobrado : p.regla === 'pedido' ? p.importe * x.pedidos : p.importe * x.unidades
+    f.envio = Math.round(((imp?.coste ?? 0) + porRegla * resto) * 100) / 100
+  })
+  return filas
+}
+
+/* ------------------------------------------------------------------ */
+/* Costo de envío (migración 349)                                      */
+/* ------------------------------------------------------------------ */
+
+export interface PerfilEnvio {
+  id: string
+  nombre: string
+  prioridad: number
+  desde: string | null
+  hasta: string | null
+  productos_modo: 'todos' | 'solo' | 'excepto'
+  skus: string[]
+  regla: 'cobrado' | 'pedido' | 'unidad'
+  importe: number
+}
+
+const perfilesDeEnvio = (connectionId: string) =>
+  enCache(`envio:${connectionId}`, 60_000, async (): Promise<PerfilEnvio[]> => {
+    const { data, error } = await createServiceClient().from('ventas_envio_perfiles').select('id, nombre, prioridad, desde, hasta, productos_modo, skus, regla, importe').eq('connection_id', connectionId).order('prioridad').order('created_at')
+    if (error) return []
+    return ((data ?? []) as Array<Record<string, unknown>>).map((p) => ({ ...(p as unknown as PerfilEnvio), importe: n(p.importe), skus: (p.skus as string[]) ?? [] }))
+  })
+
+/** El perfil que se lleva una fila (día y SKU): el primero por prioridad que la acepta. Ninguno = lo cobrado al comprador */
+export function perfilDeLaFila(perfiles: readonly PerfilEnvio[], dia: string, sku: string): PerfilEnvio | null {
+  for (const p of perfiles) {
+    if (p.desde && dia < p.desde) continue
+    if (p.hasta && dia > p.hasta) continue
+    if (p.productos_modo === 'solo' && !p.skus.includes(sku)) continue
+    if (p.productos_modo === 'excepto' && p.skus.includes(sku)) continue
+    return p
+  }
+  return null
+}
+
+async function envioImportado(connectionId: string, desde: string, hasta: string): Promise<Map<string, { coste: number; pedidos: number }>> {
+  const salida = new Map<string, { coste: number; pedidos: number }>()
+  const { data, error } = await createServiceClient().from('ventas_envio_pedidos').select('dia, marketplace_id, sku, coste').eq('connection_id', connectionId).gte('dia', desde).lte('dia', hasta).limit(20_000)
+  if (error) return salida
+  for (const r of (data ?? []) as Array<{ dia: string; marketplace_id: string | null; sku: string | null; coste: number }>) {
+    const k = `${r.dia}|${r.marketplace_id ?? ''}|${r.sku ?? ''}`
+    const x = salida.get(k) ?? { coste: 0, pedidos: 0 }
+    x.coste += n(r.coste)
+    x.pedidos++
+    salida.set(k, x)
+  }
+  return salida
+}
+
+export async function costoDeEnvio(connectionId: string): Promise<{ hayTabla: boolean; perfiles: PerfilEnvio[]; importados: number; ultimoImportado: string | null }> {
+  const s = createServiceClient()
+  const [p, i] = await Promise.all([
+    s.from('ventas_envio_perfiles').select('id, nombre, prioridad, desde, hasta, productos_modo, skus, regla, importe').eq('connection_id', connectionId).order('prioridad').order('created_at'),
+    s.from('ventas_envio_pedidos').select('updated_at', { count: 'exact' }).eq('connection_id', connectionId).order('updated_at', { ascending: false }).limit(1),
+  ])
+  if (p.error) return { hayTabla: false, perfiles: [], importados: 0, ultimoImportado: null }
+  return {
+    hayTabla: true,
+    perfiles: ((p.data ?? []) as Array<Record<string, unknown>>).map((x) => ({ ...(x as unknown as PerfilEnvio), importe: n(x.importe), skus: (x.skus as string[]) ?? [] })),
+    importados: i.count ?? 0,
+    ultimoImportado: ((i.data ?? [])[0] as { updated_at?: string } | undefined)?.updated_at ?? null,
+  }
+}
+
+export async function guardarPerfilEnvio(connectionId: string, p: Partial<PerfilEnvio>): Promise<string> {
+  olvidar(`envio:${connectionId}`)
+  const fecha = (x: unknown) => (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : null)
+  const fila = {
+    connection_id: connectionId,
+    nombre: (p.nombre ?? 'Por defecto').toString().trim().slice(0, 80) || 'Por defecto',
+    prioridad: Math.max(1, Math.min(99, Math.round(Number(p.prioridad ?? 1)))),
+    desde: fecha(p.desde),
+    hasta: fecha(p.hasta),
+    productos_modo: p.productos_modo === 'solo' || p.productos_modo === 'excepto' ? p.productos_modo : 'todos',
+    skus: Array.isArray(p.skus) ? p.skus.filter((x) => typeof x === 'string').slice(0, 2000) : [],
+    regla: p.regla === 'pedido' || p.regla === 'unidad' ? p.regla : 'cobrado',
+    importe: Math.max(0, Math.min(10_000, Math.round(Number(p.importe ?? 0) * 100) / 100)) || 0,
+    updated_at: new Date().toISOString(),
+  }
+  const s = createServiceClient()
+  if (p.id) {
+    const { error } = await s.from('ventas_envio_perfiles').update(fila).eq('id', p.id).eq('connection_id', connectionId)
+    if (error) throw error
+    return p.id
+  }
+  const { data, error } = await s.from('ventas_envio_perfiles').insert(fila).select('id').single()
+  if (error) throw error
+  return (data as { id: string }).id
+}
+
+export async function borrarPerfilEnvio(connectionId: string, id: string): Promise<void> {
+  olvidar(`envio:${connectionId}`)
+  const { error } = await createServiceClient().from('ventas_envio_perfiles').delete().eq('id', id).eq('connection_id', connectionId)
+  if (error) throw error
+}
+
+/** El coste real de envío de pedidos concretos (CSV «pedido;coste»). Se casa con su día, país y SKU (de los pedidos de los últimos 62 días) */
+export async function importarEnvioPedidos(connectionId: string, filas: Array<{ pedido: string; coste: number }>): Promise<{ guardados: number; sinCasar: number }> {
+  const s = createServiceClient()
+  const pedidos = [...new Set(filas.map((f) => f.pedido))]
+  const donde = new Map<string, { dia: string; marketplace_id: string; sku: string }>()
+  for (let i = 0; i < pedidos.length; i += 300) {
+    const { data } = await s.from('ventas_lineas').select('pedido, dia, marketplace_id, sku, unidades').eq('connection_id', connectionId).in('pedido', pedidos.slice(i, i + 300))
+    // Un pedido de varios SKU se apunta al que más unidades lleva
+    const mejor = new Map<string, { dia: string; marketplace_id: string; sku: string; unidades: number }>()
+    for (const l of (data ?? []) as Array<{ pedido: string; dia: string; marketplace_id: string; sku: string; unidades: number }>) {
+      const m = mejor.get(l.pedido)
+      if (!m || l.unidades > m.unidades) mejor.set(l.pedido, l)
+    }
+    for (const [k, v] of mejor) donde.set(k, v)
+  }
+  const ahora = new Date().toISOString()
+  const filasDb = filas.map((f) => ({ connection_id: connectionId, pedido: f.pedido, coste: f.coste, dia: donde.get(f.pedido)?.dia ?? null, marketplace_id: donde.get(f.pedido)?.marketplace_id ?? null, sku: donde.get(f.pedido)?.sku ?? null, updated_at: ahora }))
+  for (let i = 0; i < filasDb.length; i += 500) {
+    const { error } = await s.from('ventas_envio_pedidos').upsert(filasDb.slice(i, i + 500), { onConflict: 'connection_id,pedido' })
+    if (error) throw error
+  }
+  return { guardados: filasDb.length, sinCasar: filasDb.filter((f) => !f.dia).length }
 }
 
 export interface ProductoDelCatalogo {

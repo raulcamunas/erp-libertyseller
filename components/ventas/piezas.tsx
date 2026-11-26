@@ -95,6 +95,7 @@ export function filasDeDesglose(t: Totales, sesiones?: number | null): FilaDesgl
     },
     { texto: 'Coste de los productos', valor: euros(-t.cogs), signo: 'menos', nota: t.unidadesSinCoste ? `${entero(t.unidadesSinCoste)} unidades sin coste puesto` : undefined },
     { texto: 'IVA', valor: euros(-t.iva), signo: 'menos' },
+    ...(t.envio ? [{ texto: 'Costo de envío (FBM)', valor: euros(-t.envio), signo: 'menos' as const }] : []),
     { texto: 'Ajustes y reembolsos de Amazon', valor: euros(t.ajustes), signo: 'mas' },
     { texto: 'Ganancia bruta', valor: euros(t.bruto) },
     { texto: 'Gastos indirectos', valor: euros(0) },

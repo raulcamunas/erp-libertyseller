@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
+import { borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
@@ -28,6 +28,12 @@ export async function GET(request: NextRequest) {
     if (q.get('que') === 'cuentas') {
       const [cuentas, libres] = await Promise.all([cuentasDelPanel(), cuentasParaAnadir()])
       return NextResponse.json({ cuentas, libres })
+    }
+    // Costo de envío: los perfiles de la cuenta y cuántos pedidos tienen el coste importado
+    if (q.get('que') === 'envio') {
+      const c = q.get('cuenta') ?? ''
+      if (!UUID.test(c)) return fail(400, 'Falta la cuenta.')
+      return NextResponse.json(await costoDeEnvio(c))
     }
     // El panel de TODAS las cuentas (vista de pájaro): lo de cada una en el periodo y en el de comparación
     if (q.get('que') === 'resumen') {
@@ -85,6 +91,27 @@ export async function POST(request: NextRequest) {
         .map((x) => ({ sku: x.sku, coste: Math.round(x.coste * 100) / 100 }))
       if (limpios.length === 0) return fail(400, 'No hay ningún coste válido.')
       return NextResponse.json({ ok: true, guardados: await guardarCostes(b.cuenta, limpios, sesion.userId) })
+    }
+    if (b.accion === 'envio-perfil') {
+      const perfil = (b as { perfil?: Record<string, unknown> }).perfil
+      if (!perfil || typeof perfil !== 'object') return fail(400, 'Falta el perfil.')
+      if (perfil.id != null && (typeof perfil.id !== 'string' || !UUID.test(perfil.id))) return fail(400, 'Perfil no válido.')
+      return NextResponse.json({ ok: true, id: await guardarPerfilEnvio(b.cuenta, perfil) })
+    }
+    if (b.accion === 'envio-borrar') {
+      const id = (b as { id?: unknown }).id
+      if (typeof id !== 'string' || !UUID.test(id)) return fail(400, 'Perfil no válido.')
+      await borrarPerfilEnvio(b.cuenta, id)
+      return NextResponse.json({ ok: true })
+    }
+    if (b.accion === 'envio-csv') {
+      const lista = Array.isArray((b as { filas?: unknown }).filas) ? ((b as { filas: Array<{ pedido?: unknown; coste?: unknown }> }).filas) : []
+      const limpias = lista
+        .map((x) => ({ pedido: typeof x.pedido === 'string' ? x.pedido.trim() : '', coste: Number(x.coste) }))
+        .filter((x) => /^[0-9A-Za-z-]{5,40}$/.test(x.pedido) && Number.isFinite(x.coste) && x.coste >= 0 && x.coste <= 10_000)
+        .slice(0, 20_000)
+      if (!limpias.length) return fail(400, 'No hay ninguna fila válida (pedido;coste).')
+      return NextResponse.json({ ok: true, ...(await importarEnvioPedidos(b.cuenta, limpias)) })
     }
     if (b.accion === 'anadir') {
       await anadirCuenta(b.cuenta)

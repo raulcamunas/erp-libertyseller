@@ -62,6 +62,8 @@ export interface FilaPanel {
   publicidad: number
   ventasPpc: number
   unidadesPpc: number
+  /** Coste de enviar los pedidos FBM de esa fila (euros, en positivo), según los perfiles de «Costo de envío» (lib/ventas/panel-servidor.ts) */
+  envio?: number
 }
 
 export interface Totales {
@@ -83,6 +85,8 @@ export interface Totales {
   ajustes: number
   iva: number
   cogs: number
+  /** Coste de envío de los pedidos FBM (en positivo) */
+  envio: number
   /** Unidades vendidas de SKU sin coste puesto: el beneficio está inflado por ellas */
   unidadesSinCoste: number
   bruto: number
@@ -99,7 +103,7 @@ export interface Totales {
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 export function vacios(): Totales {
-  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
+  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, envio: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
 }
 
 /** Suma unas filas y saca el beneficio. `costes` = coste por unidad de cada SKU (euros) */
@@ -124,6 +128,7 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
     t.reembolsado += f.reembolsado
     t.costeReembolso += f.comisionReembolso * sinIva - f.reembolsado
     t.ajustes += f.ajustes
+    t.envio += f.envio ?? 0
     t.pago += f.ventas - f.promo + f.referral + f.fba + f.otras + f.comisionReembolso - f.reembolsado + f.ajustes
     const r = ivaDeVentas(ivaPct, f.mkt)
     iva += Math.max(0, f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
@@ -135,17 +140,17 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
   }
   t.tarifas = t.referral + t.fba + t.otras
   t.iva = Math.max(0, iva)
-  t.bruto = t.ventas - t.promo + t.tarifas + t.costeReembolso - t.publicidad - t.iva - t.cogs + t.ajustes
+  t.bruto = t.ventas - t.promo + t.tarifas + t.costeReembolso - t.publicidad - t.iva - t.cogs - t.envio + t.ajustes
   t.neto = t.bruto
   if (escala !== 1) {
-    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
+    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
       t[k] = t[k] * escala
     }
     t.unidades = Math.round(t.unidades)
     t.pedidos = Math.round(t.pedidos)
     t.reembolsos = Math.round(t.reembolsos)
   }
-  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
+  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
   t.margen = t.ventas > 0 ? t.neto / t.ventas : null
   // El ROI solo con TODOS los costes puestos: con la mitad sale disparado (beneficio de todo entre el coste de unos pocos)
   t.roi = t.cogs > 0 && t.unidadesSinCoste === 0 ? t.neto / t.cogs : null
