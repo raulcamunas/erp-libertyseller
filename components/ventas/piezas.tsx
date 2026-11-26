@@ -151,13 +151,23 @@ function Burbuja({ active, payload, label }: { active?: boolean; payload?: Array
   )
 }
 
-export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado }: { filas: readonly FilaPanel[]; dias: string[]; ivaPct: number; costes: Record<string, number>; resaltado: { desde: string; hasta: string } | null }) {
+/** Las líneas que se pueden encender y apagar en la gráfica de las baldosas */
+export const SERIES_GRAFICA = [
+  { id: 'ventas', texto: 'Ventas', color: '#FF8A3D' },
+  { id: 'organico', texto: 'Orgánicas', color: '#FCD34D' },
+  { id: 'ppc', texto: 'Por publicidad', color: '#60A5FA' },
+  { id: 'neto', texto: 'Ganancia neta', color: '#4ADE80' },
+  { id: 'publicidad', texto: 'Gasto en publicidad', color: '#a78bfa' },
+] as const
+export type SerieGrafica = (typeof SERIES_GRAFICA)[number]['id']
+
+export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado, series = new Set<SerieGrafica>(['ventas', 'neto', 'publicidad']) }: { filas: readonly FilaPanel[]; dias: string[]; ivaPct: number; costes: Record<string, number>; resaltado: { desde: string; hasta: string } | null; series?: ReadonlySet<SerieGrafica> }) {
   const datos = useMemo(() => {
     const porDia = new Map<string, FilaPanel[]>()
     for (const f of filas) porDia.set(f.dia, [...(porDia.get(f.dia) ?? []), f])
     return dias.map((d) => {
       const t = totalizar(porDia.get(d) ?? [], ivaPct, costes)
-      return { dia: d, etiqueta: new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' }), ventas: t.ventas, neto: t.neto, publicidad: t.publicidad }
+      return { dia: d, etiqueta: new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' }), ventas: t.ventas, organico: Math.max(0, t.ventas - t.ventasPpc), ppc: t.ventasPpc, neto: t.neto, publicidad: t.publicidad }
     })
   }, [filas, dias, ivaPct, costes])
   const vacio = datos.every((d) => d.ventas === 0 && d.neto === 0)
@@ -172,6 +182,14 @@ export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado }: { fila
               <stop offset="70%" stopColor={NARANJA} stopOpacity={0.06} />
               <stop offset="100%" stopColor={NARANJA} stopOpacity={0} />
             </linearGradient>
+            <linearGradient id="vg-org" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#FCD34D" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="#FCD34D" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="vg-ppc" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#60A5FA" stopOpacity={0.24} />
+              <stop offset="100%" stopColor="#60A5FA" stopOpacity={0} />
+            </linearGradient>
             <linearGradient id="vg-neto" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={VERDE} stopOpacity={0.16} />
               <stop offset="100%" stopColor={VERDE} stopOpacity={0} />
@@ -181,9 +199,11 @@ export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado }: { fila
           <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: 'var(--ls-t4)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={28} dy={6} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--ls-t4)' }} axisLine={false} tickLine={false} width={48} tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k` : `${Math.round(v)}`)} />
           <Tooltip content={<Burbuja />} cursor={{ stroke: 'var(--ls-t4)', strokeWidth: 1, strokeDasharray: '3 3' }} />
-          <Area type="monotone" dataKey="ventas" name="Ventas" stroke={NARANJA2} strokeWidth={2.2} fill="url(#vg-ventas)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: NARANJA2 }} animationDuration={1000} />
-          <Area type="monotone" dataKey="neto" name="Ganancia neta" stroke={VERDE} strokeWidth={2} fill="url(#vg-neto)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: VERDE }} animationDuration={1200} />
-          <Line type="monotone" dataKey="publicidad" name="Publicidad" stroke="#a78bfa" strokeWidth={1.4} strokeDasharray="3 4" dot={false} animationDuration={1200} />
+          {series.has('ventas') && <Area type="monotone" dataKey="ventas" name="Ventas" stroke={NARANJA2} strokeWidth={2.2} fill="url(#vg-ventas)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: NARANJA2 }} animationDuration={1000} />}
+          {series.has('organico') && <Area type="monotone" dataKey="organico" name="Orgánicas" stroke="#FCD34D" strokeWidth={2} fill="url(#vg-org)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#FCD34D' }} animationDuration={1000} />}
+          {series.has('ppc') && <Area type="monotone" dataKey="ppc" name="Por publicidad" stroke="#60A5FA" strokeWidth={2} fill="url(#vg-ppc)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#60A5FA' }} animationDuration={1000} />}
+          {series.has('neto') && <Area type="monotone" dataKey="neto" name="Ganancia neta" stroke={VERDE} strokeWidth={2} fill="url(#vg-neto)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: VERDE }} animationDuration={1200} />}
+          {series.has('publicidad') && <Line type="monotone" dataKey="publicidad" name="Gasto en publicidad" stroke="#a78bfa" strokeWidth={1.4} strokeDasharray="3 4" dot={false} animationDuration={1200} />}
         </ComposedChart>
       </ResponsiveContainer>
       {vacio && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[12.5px] text-[var(--ls-t4)]">Aún no hay ventas en estos días</div>}

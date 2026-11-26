@@ -32,7 +32,11 @@ interface Metrica {
 
 const METRICAS: Metrica[] = [
   { id: 'ventas', texto: 'Ventas', unidad: 'euros', color: '#FF8A3D', valor: (t) => t.ventas, forma: 'barra' },
+  { id: 'ventasOrg', texto: 'Ventas orgánicas', unidad: 'euros', color: '#FCD34D', valor: (t) => Math.max(0, t.ventas - t.ventasPpc), forma: 'barra' },
+  { id: 'ventasPpc', texto: 'Ventas por publicidad', unidad: 'euros', color: '#3B82F6', valor: (t) => t.ventasPpc, forma: 'barra' },
   { id: 'unidades', texto: 'Unidades', unidad: 'numero', color: '#60A5FA', valor: (t) => t.unidades, forma: 'linea' },
+  { id: 'udsOrg', texto: 'Unidades orgánicas', unidad: 'numero', color: '#FDE68A', valor: (t) => Math.max(0, t.unidades - t.unidadesPpc), forma: 'linea' },
+  { id: 'udsPpc', texto: 'Unidades por publicidad', unidad: 'numero', color: '#93C5FD', valor: (t) => t.unidadesPpc, forma: 'linea' },
   { id: 'pedidos', texto: 'Pedidos', unidad: 'numero', color: '#22D3EE', valor: (t) => t.pedidos, forma: 'linea' },
   { id: 'publicidad', texto: 'Costes publicitarios', unidad: 'euros', color: '#F0544F', valor: (t) => -t.publicidad, forma: 'barra' },
   { id: 'reembolsos', texto: 'Reembolsos', unidad: 'numero', color: '#F472B6', valor: (t) => t.reembolsos, forma: 'linea' },
@@ -50,6 +54,7 @@ const VISTAS: Array<{ id: string; texto: string; metricas: string[] }> = [
   { id: 'general', texto: 'Vista general de la cuenta', metricas: ['unidades', 'publicidad', 'reembolsos', 'neto'] },
   { id: 'reembolsos', texto: 'Análisis de reembolsos', metricas: ['reembolsos', 'costeReembolso', 'tasaReembolso'] },
   { id: 'ventas', texto: 'Análisis de ventas', metricas: ['ventas', 'unidades', 'pedidos', 'margen'] },
+  { id: 'organico', texto: 'Orgánico frente a publicidad', metricas: ['ventasOrg', 'ventasPpc', 'publicidad', 'tacos'] },
 ]
 export const MODOS: Array<{ id: Modo; texto: string }> = [
   { id: 'meses', texto: 'Últimos 12 meses, por mes' },

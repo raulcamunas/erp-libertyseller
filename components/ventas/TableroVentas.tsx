@@ -10,7 +10,7 @@ import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
 import { VistaPyG } from './VistaPyG'
-import { AltoEstable, Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, NARANJA, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
+import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
 
 /**
  * VENTAS · EL TABLERO (el «Sellerboard» propio, 26 nov 2026). Una cuenta arriba; cinco baldosas con su periodo (Hoy, Ayer, Este mes, Pronóstico, Mes
@@ -39,6 +39,7 @@ export function TableroVentas() {
   const [rango, setRango] = useState<{ desde: string; hasta: string } | null>(null)
   const [vista, setVista] = useState<'baldosas' | 'grafico' | 'pyg'>('baldosas')
   const [seleccion, setSeleccion] = useState<Set<string> | null>(null)
+  const [series, setSeries] = useState<Set<SerieGrafica>>(new Set(['ventas', 'neto', 'publicidad']))
   const [comparar, setComparar] = useState<Comparar>('anio')
   const [mercados, setMercados] = useState<Set<string> | null>(null)
   const [elegido, setElegido] = useState('hoy')
@@ -299,13 +300,26 @@ export function TableroVentas() {
               <div className={ROTULO}>Evolución diaria</div>
               <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia</div>
             </div>
-            <span className="ml-auto flex items-center gap-4 text-[11.5px] text-[var(--ls-t3)]">
-              <Leyenda color={NARANJA} texto="Ventas" />
-              <Leyenda color={VERDE} texto="Ganancia neta" />
-              <Leyenda color="#a78bfa" texto="Publicidad" raya />
+            <span className="ml-auto flex flex-wrap items-center gap-[6px]">
+              {SERIES_GRAFICA.map((x) => {
+                const on = series.has(x.id)
+                return (
+                  <button
+                    key={x.id}
+                    type="button"
+                    onClick={() => setSeries((s0) => { const n = new Set(s0); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n.size ? n : s0 })}
+                    className="inline-flex h-7 items-center gap-[6px] rounded-full border px-[10px] text-[11.5px] transition-all"
+                    style={on ? { borderColor: `color-mix(in srgb, ${x.color} 45%, var(--ls-linea))`, background: `color-mix(in srgb, ${x.color} 12%, transparent)`, color: 'var(--ls-t1)' } : { borderColor: 'var(--ls-linea)', color: 'var(--ls-t4)' }}
+                    title={x.id === 'ppc' ? 'Ventas que Amazon Ads atribuye a un clic en un anuncio el mismo día' : x.id === 'organico' ? 'Ventas menos las atribuidas a la publicidad' : undefined}
+                  >
+                    <span className="h-[7px] w-[7px] rounded-full transition-opacity" style={{ background: x.color, opacity: on ? 1 : 0.35 }} />
+                    {x.texto}
+                  </button>
+                )
+              })}
             </span>
           </div>
-          <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} />
+          <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
         </section>
         <section className={TARJETA + ' flex flex-col gap-5 p-5'}>
           <div>
@@ -589,14 +603,6 @@ function EstadoHistorial({ estado, hoy }: { estado: CuentaDelPanel['estado']; ho
   )
 }
 
-function Leyenda({ color, texto, raya }: { color: string; texto: string; raya?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="inline-block h-[3px] w-[14px] rounded-full" style={{ background: raya ? `repeating-linear-gradient(90deg, ${color} 0 4px, transparent 4px 7px)` : color }} />
-      {texto}
-    </span>
-  )
-}
 
 function Desplegable({ icono: Icono, texto, children }: { icono: typeof Calendar; texto: string; children: (cerrar: () => void) => React.ReactNode }) {
   const [abierto, setAbierto] = useState(false)
