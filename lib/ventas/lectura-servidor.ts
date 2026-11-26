@@ -266,7 +266,11 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
   const alDia = c.finanzas_leido_hasta && Date.parse(c.finanzas_leido_hasta) > ahora - 2 * 60 * MIN
   if (alDia && c.finanzas_leido_at && ahora - Date.parse(c.finanzas_leido_at) < 60 * MIN) return null
   const desde = c.finanzas_leido_hasta ? new Date(Date.parse(c.finanzas_leido_hasta) - (alDia ? 3 * DIA_MS : 0)) : new Date(ahora - DIAS_VENTANA * DIA_MS)
-  const hasta = new Date(Math.min(ahora - 3 * MIN, desde.getTime() + 10 * DIA_MS))
+  // El dinero va DETRÁS de los pedidos: las comisiones reales se apuntan en su línea de pedido, y si la línea aún no está se contarían dos veces
+  // (como tarifa suelta y como estimada al llegar el pedido)
+  const pedidosHasta = c.pedidos_leido_hasta ? Date.parse(c.pedidos_leido_hasta) : 0
+  const hasta = new Date(Math.min(ahora - 3 * MIN, desde.getTime() + 10 * DIA_MS, pedidosHasta))
+  if (hasta.getTime() <= desde.getTime()) return null
   const arranque = Date.now()
   const tarifas: ReturnType<typeof leerDinero>['tarifas'] = []
   const movimientos: Movimiento[] = []
@@ -453,9 +457,11 @@ export async function rehacerResumen(service: Servicio, connectionId: string): P
   const movimientos = await leerTodo<Movimiento>((d) =>
     service.from('ventas_movimientos').select('clave, dia, marketplace_id, sku, tipo, unidades, importe, extra, extra_unidades').eq('connection_id', connectionId).gte('dia', desde).order('clave').range(d, d + 999),
   )
+  // Una tarifa suelta de un pedido que SÍ está entre las líneas no cuenta (ya está en su línea)
+  const hayLinea = new Set(lineas.map((l) => `t|${l.pedido}|${l.sku}`))
   const filas = resumirDias(
     lineas.map((l) => ({ ...l, unidades: Number(l.unidades), ventas: l.ventas == null ? null : Number(l.ventas), promo: Number(l.promo), tarifa_referral: l.tarifa_referral == null ? null : Number(l.tarifa_referral), tarifa_fba: l.tarifa_fba == null ? null : Number(l.tarifa_fba), otras_tarifas: l.otras_tarifas == null ? null : Number(l.otras_tarifas) })),
-    movimientos.map((m) => ({ ...m, importe: Number(m.importe), extra: Number(m.extra), unidades: Number(m.unidades), extra_unidades: Number(m.extra_unidades) })),
+    movimientos.filter((m) => !(m.tipo === 'tarifa_pedido' && hayLinea.has(m.clave))).map((m) => ({ ...m, importe: Number(m.importe), extra: Number(m.extra), unidades: Number(m.unidades), extra_unidades: Number(m.extra_unidades) })),
   ).filter((f) => f.dia >= desde)
   const { error } = await service.from('ventas_dia').delete().eq('connection_id', connectionId).gte('dia', desde)
   if (error) throw error
