@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
+import { anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
@@ -43,6 +43,11 @@ export async function GET(request: NextRequest) {
     const desde = q.get('desde') ?? ''
     const hasta = q.get('hasta') ?? ''
     if (!UUID.test(cuenta) || !FECHA.test(desde) || !FECHA.test(hasta) || desde > hasta) return fail(400, 'Faltan la cuenta o las fechas.')
+    // Los motivos de los reembolsos del periodo (lo que sale al pulsar «Reembolsos»)
+    if (q.get('que') === 'motivos') {
+      const lista = (k: string) => (q.get(k) ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 2000)
+      return NextResponse.json(await motivosDeReembolso(cuenta, desde, hasta, { skus: lista('skus'), mercados: lista('mercados') }))
+    }
     const lDesde = q.get('lineasDesde')
     const lHasta = q.get('lineasHasta')
     const [filas, productos, lineas, sesiones] = await Promise.all([

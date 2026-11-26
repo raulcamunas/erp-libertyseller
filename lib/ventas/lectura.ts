@@ -526,3 +526,92 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     ventas_ppc: r2(f.ventas_ppc),
   }))
 }
+
+/* ------------------------------------------------------------------ */
+/* Devoluciones de FBA (los motivos de los reembolsos)                 */
+/* ------------------------------------------------------------------ */
+
+export const INFORME_DEVOLUCIONES = 'GET_FBA_FULFILLMENT_CUSTOMER_RETURNS_DATA'
+
+export interface Devolucion {
+  pedido: string
+  sku: string
+  fecha: string
+  lpn: string
+  unidades: number
+  motivo: string | null
+  comentario: string | null
+  estado: string | null
+  disposicion: string | null
+}
+
+/** PURA. El informe de devoluciones de FBA (TSV con cabecera): una fila por devolución, sin nada del comprador más que su comentario */
+export function parsearDevoluciones(texto: string): Devolucion[] {
+  const filas = texto.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim())
+  if (filas.length < 2) return []
+  const cab = filas[0].split('\t').map((h) => h.trim().toLowerCase())
+  const i = (n: string) => cab.indexOf(n)
+  const c = { fecha: i('return-date'), pedido: i('order-id'), sku: i('sku'), cantidad: i('quantity'), disp: i('detailed-disposition'), motivo: i('reason'), estado: i('status'), lpn: i('license-plate-number'), coment: i('customer-comments') }
+  if (c.pedido < 0 || c.sku < 0 || c.fecha < 0) return []
+  const val = (cols: string[], k: number) => (k >= 0 ? (cols[k] ?? '').trim() : '')
+  const salida: Devolucion[] = []
+  for (const l of filas.slice(1)) {
+    const cols = l.split('\t')
+    const pedido = val(cols, c.pedido)
+    const sku = val(cols, c.sku)
+    const t = Date.parse(val(cols, c.fecha))
+    if (!pedido || !sku || !Number.isFinite(t)) continue
+    salida.push({
+      pedido,
+      sku,
+      fecha: new Date(t).toISOString(),
+      lpn: val(cols, c.lpn),
+      unidades: Math.max(1, Number(val(cols, c.cantidad)) || 1),
+      motivo: val(cols, c.motivo) || null,
+      comentario: val(cols, c.coment) || null,
+      estado: val(cols, c.estado) || null,
+      disposicion: val(cols, c.disp) || null,
+    })
+  }
+  return salida
+}
+
+/** El motivo de Amazon (código) en español */
+const MOTIVOS: Record<string, string> = {
+  UNWANTED_ITEM: 'Ya no lo quiere',
+  ORDERED_WRONG_ITEM: 'Pidió el artículo equivocado',
+  DEFECTIVE: 'Defectuoso',
+  QUALITY_UNACCEPTABLE: 'Calidad inaceptable',
+  DAMAGED_BY_CARRIER: 'Llegó dañado (transporte)',
+  DAMAGED_BY_FC: 'Llegó dañado (almacén de Amazon)',
+  NOT_AS_DESCRIBED: 'No es como se describe',
+  MISSING_PARTS: 'Faltan piezas o accesorios',
+  FOUND_BETTER_PRICE: 'Encontró mejor precio',
+  NO_REASON_GIVEN: 'Sin motivo',
+  UNAUTHORIZED_PURCHASE: 'Compra no autorizada',
+  NOT_COMPATIBLE: 'No es compatible',
+  PART_NOT_COMPATIBLE: 'No es compatible',
+  MISSED_ESTIMATED_DELIVERY: 'Llegó tarde',
+  EXTRA_ITEM: 'Recibió un artículo de más',
+  SWITCHEROO: 'Devolvió otro artículo',
+  DID_NOT_LIKE_FABRIC: 'No le gustó el material',
+  APPAREL_TOO_SMALL: 'Demasiado pequeño',
+  APPAREL_TOO_LARGE: 'Demasiado grande',
+  APPAREL_STYLE: 'No le gustó el estilo',
+  EXCESSIVE_INSTALLATION: 'Montaje demasiado complicado',
+  UNDELIVERABLE_REFUSED: 'No se pudo entregar (rechazado)',
+  UNDELIVERABLE_UNKNOWN: 'No se pudo entregar',
+  UNDELIVERABLE_INSUFFICIENT_ADDRESS: 'No se pudo entregar (dirección)',
+  UNDELIVERABLE_FAILED_DELIVERY_ATTEMPTS: 'No se pudo entregar (ausente)',
+  UNDELIVERABLE_CARRIER_MISS_SORTED: 'No se pudo entregar (transportista)',
+  MISORDERED: 'Pidió el artículo equivocado',
+  NEVER_ARRIVED: 'No le llegó',
+  WRONG_ITEM: 'Le llegó otro artículo',
+}
+export function motivoEnEspanol(codigo: string | null | undefined): string {
+  if (!codigo) return 'Sin motivo'
+  const k = codigo.trim().toUpperCase().replace(/^CR-/, '')
+  if (MOTIVOS[k]) return MOTIVOS[k]
+  const t = k.replace(/_/g, ' ').toLowerCase()
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}

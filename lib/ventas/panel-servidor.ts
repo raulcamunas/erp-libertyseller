@@ -341,3 +341,58 @@ export async function cambiarIva(connectionId: string, iva: number): Promise<voi
   const { error } = await createServiceClient().from('ventas_cuentas').update({ iva_pct: iva }).eq('connection_id', connectionId)
   if (error) throw error
 }
+
+/* ------------------------------------------------------------------ */
+/* Los motivos de los reembolsos                                       */
+/* ------------------------------------------------------------------ */
+
+export interface MotivosDeReembolso {
+  /** Unidades reembolsadas en el periodo (lo mismo que la baldosa) */
+  total: number
+  /** Por motivo, de más a menos; «Pendiente» = Amazon aún no ha dado la devolución (o no la hay: reembolso sin devolver) */
+  grupos: Array<{ motivo: string; unidades: number; comentarios: string[] }>
+  /** false = falta la migración 348 o aún no se ha leído el informe de devoluciones */
+  conDevoluciones: boolean
+}
+
+/** Cada reembolso del periodo con el motivo de su devolución (casada por pedido y SKU) y lo que escribió el comprador */
+export async function motivosDeReembolso(connectionId: string, desde: string, hasta: string, filtro: { skus?: string[] | null; mercados?: string[] | null } = {}): Promise<MotivosDeReembolso> {
+  const { motivoEnEspanol } = await import('./lectura')
+  const s = createServiceClient()
+  const reembolsos: Array<{ clave: string; sku: string; marketplace_id: string; unidades: number }> = []
+  for (let d = 0; d < 20_000; d += 1000) {
+    const { data, error } = await s.from('ventas_movimientos').select('clave, sku, marketplace_id, unidades').eq('connection_id', connectionId).eq('tipo', 'reembolso').gte('dia', desde).lte('dia', hasta).range(d, d + 999)
+    if (error) throw error
+    reembolsos.push(...((data ?? []) as typeof reembolsos))
+    if ((data ?? []).length < 1000) break
+  }
+  const skus = filtro.skus?.length ? new Set(filtro.skus) : null
+  const mercados = filtro.mercados?.length ? new Set(filtro.mercados) : null
+  const lista = reembolsos
+    .filter((r) => (!skus || skus.has(r.sku)) && (!mercados || mercados.has(r.marketplace_id)))
+    .map((r) => ({ pedido: r.clave.startsWith('r|') ? r.clave.split('|')[1] : '', sku: r.sku, unidades: Math.max(1, Number(r.unidades) || 1) }))
+  const pedidos = [...new Set(lista.map((r) => r.pedido).filter(Boolean))]
+  const devs = new Map<string, Array<{ motivo: string | null; comentario: string | null; fecha: string }>>()
+  let conDevoluciones = true
+  for (let i = 0; i < pedidos.length; i += 300) {
+    const { data, error } = await s.from('ventas_devoluciones').select('pedido, sku, motivo, comentario, fecha').eq('connection_id', connectionId).in('pedido', pedidos.slice(i, i + 300))
+    if (error) {
+      conDevoluciones = false
+      break
+    }
+    for (const d of (data ?? []) as Array<{ pedido: string; sku: string; motivo: string | null; comentario: string | null; fecha: string }>) {
+      const k = `${d.pedido}|${d.sku}`
+      devs.set(k, [...(devs.get(k) ?? []), d])
+    }
+  }
+  const grupos = new Map<string, { motivo: string; unidades: number; comentarios: string[] }>()
+  for (const r of lista) {
+    const ds = (devs.get(`${r.pedido}|${r.sku}`) ?? []).sort((a, b) => b.fecha.localeCompare(a.fecha))
+    const motivo = ds.length ? motivoEnEspanol(ds[0].motivo) : 'Pendiente (motivo desconocido)'
+    const g = grupos.get(motivo) ?? { motivo, unidades: 0, comentarios: [] }
+    g.unidades += r.unidades
+    for (const d of ds) if (d.comentario && !g.comentarios.includes(d.comentario)) g.comentarios.push(d.comentario)
+    grupos.set(motivo, g)
+  }
+  return { total: lista.reduce((t, r) => t + r.unidades, 0), grupos: [...grupos.values()].sort((a, b) => b.unidades - a.unidades), conDevoluciones }
+}

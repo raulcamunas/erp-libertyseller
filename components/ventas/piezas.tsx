@@ -109,7 +109,7 @@ export function filasDeDesglose(t: Totales, sesiones?: number | null): FilaDesgl
   ]
 }
 
-export function Desglose({ t, sesiones, compacto = false }: { t: Totales; sesiones?: number | null; compacto?: boolean }) {
+export function Desglose({ t, sesiones, compacto = false, onReembolsos }: { t: Totales; sesiones?: number | null; compacto?: boolean; onReembolsos?: () => void }) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
   return (
     <div className="flex flex-col">
@@ -119,8 +119,8 @@ export function Desglose({ t, sesiones, compacto = false }: { t: Totales; sesion
           <div key={f.texto} className={`border-b border-[var(--ls-linea)] ${f.gris ? 'bg-[var(--ls-sup2)]' : ''}`}>
             <button
               type="button"
-              disabled={!f.hijos}
-              onClick={() => setAbiertos((s) => {
+              disabled={!f.hijos && !(f.texto === 'Reembolsos' && onReembolsos && t.reembolsos)}
+              onClick={() => f.texto === 'Reembolsos' && onReembolsos ? onReembolsos() : setAbiertos((s) => {
                 const n = new Set(s)
                 if (n.has(f.texto)) n.delete(f.texto)
                 else n.add(f.texto)
@@ -694,6 +694,96 @@ export function AltoEstable({ clave, children }: { clave: string; children: Reac
   return (
     <div ref={caja} style={{ minHeight: minimo }}>
       {children}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Los motivos de los reembolsos (al pulsar «Reembolsos»)              */
+/* ------------------------------------------------------------------ */
+
+const COLORES_MOTIVO = ['#34D399', '#60A5FA', '#F87171', '#F472B6', '#A3E635', '#FB923C', '#38BDF8', '#FBBF24', '#C084FC', '#2DD4BF', '#E879F9', '#94A3B8']
+
+export function MotivosDeReembolso({ cuenta, desde, hasta, skus, mercados }: { cuenta: string; desde: string; hasta: string; skus?: Set<string> | null; mercados?: Set<string> | null }) {
+  const [datos, setDatos] = useState<{ total: number; grupos: Array<{ motivo: string; unidades: number; comentarios: string[] }>; conDevoluciones: boolean } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    let vivo = true
+    setDatos(null)
+    const q = new URLSearchParams({ que: 'motivos', cuenta, desde, hasta })
+    if (skus?.size) q.set('skus', [...skus].join(','))
+    if (mercados?.size) q.set('mercados', [...mercados].join(','))
+    fetch(`/api/ventas?${q}`, { cache: 'no-store' })
+      .then(async (r) => {
+        const j = await r.json()
+        if (!r.ok) throw new Error(j?.error ?? `Error ${r.status}`)
+        if (vivo) setDatos(j)
+      })
+      .catch((e) => vivo && setError(e instanceof Error ? e.message : String(e)))
+    return () => {
+      vivo = false
+    }
+  }, [cuenta, desde, hasta, skus, mercados])
+  if (error) return <p className="text-[12.5px]" style={{ color: ROJO }}>{error}</p>
+  if (!datos) return <div className="h-[260px] animate-pulse rounded-[14px] bg-[var(--ls-sup2)]" />
+  if (!datos.total) return <p className="py-8 text-center text-[13px] text-[var(--ls-t4)]">Ningún reembolso en este periodo.</p>
+  const color = (i: number, motivo: string) => (motivo.startsWith('Pendiente') ? '#71717A' : COLORES_MOTIVO[i % COLORES_MOTIVO.length])
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="relative mx-auto h-[210px] w-[210px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={datos.grupos} dataKey="unidades" nameKey="motivo" innerRadius={72} outerRadius={100} paddingAngle={2} stroke="none" isAnimationActive>
+              {datos.grupos.map((g, i) => (
+                <Cell key={g.motivo} fill={color(i, g.motivo)} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[34px] font-semibold tabular-nums leading-none text-[var(--ls-t1)]">{entero(datos.total)}</span>
+          <span className="mt-1 text-[11px] text-[var(--ls-t4)]">reembolsos</span>
+        </div>
+      </div>
+      {!datos.conDevoluciones && <p className="rounded-[10px] border border-[var(--ls-linea)] px-3 py-2 text-[11.5px] text-[var(--ls-t3)]">Los motivos salen del informe de devoluciones de Amazon: falta lanzar la migración 348 o aún no se ha leído (tarda una pasada del cron).</p>}
+      <div className="flex flex-col">
+        {datos.grupos.map((g, i) => {
+          const abierto = abiertos.has(g.motivo)
+          return (
+            <div key={g.motivo} className="border-b border-[var(--ls-linea)] last:border-0">
+              <button
+                type="button"
+                disabled={!g.comentarios.length}
+                onClick={() =>
+                  setAbiertos((s) => {
+                    const n = new Set(s)
+                    if (n.has(g.motivo)) n.delete(g.motivo)
+                    else n.add(g.motivo)
+                    return n
+                  })
+                }
+                className="flex w-full items-center gap-2 py-[9px] text-left disabled:cursor-default"
+              >
+                <span className="w-[14px] text-[var(--ls-t4)]">{g.comentarios.length ? abierto ? <ChevronDown className="h-[13px] w-[13px]" /> : <ChevronRight className="h-[13px] w-[13px]" /> : null}</span>
+                <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: color(i, g.motivo) }} />
+                <span className="flex-1 text-[13px] text-[var(--ls-t2)]">{g.motivo}</span>
+                {g.comentarios.length > 0 && <span className="text-[10.5px] text-[var(--ls-t4)]">{g.comentarios.length} {g.comentarios.length === 1 ? 'comentario' : 'comentarios'}</span>}
+                <span className="w-[34px] text-right text-[13px] font-semibold tabular-nums text-[var(--ls-t1)]">{entero(g.unidades)}</span>
+              </button>
+              {abierto && (
+                <div className="flex flex-col gap-[6px] pb-3 pl-[40px] pr-2">
+                  {g.comentarios.map((c) => (
+                    <p key={c} className="rounded-[10px] bg-[var(--ls-sup2)] px-3 py-2 text-[12px] italic leading-[1.45] text-[var(--ls-t3)]">
+                      «{c}»
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

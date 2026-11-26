@@ -25,7 +25,9 @@ import { diaEnZona } from '@/lib/fba/pedidos'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
+  INFORME_DEVOLUCIONES,
   INFORME_PEDIDOS_VENTAS,
+  parsearDevoluciones,
   leerDinero,
   MERCADO_DE_PAIS,
   movimientosDePublicidad,
@@ -65,6 +67,9 @@ interface Cuenta {
   historico_informe_desde?: string | null
   historico_informe_hasta?: string | null
   historico_pedido_at?: string | null
+  devoluciones_informe_id?: string | null
+  devoluciones_pedido_at?: string | null
+  devoluciones_leido_at?: string | null
 }
 
 interface InformeAds {
@@ -171,6 +176,17 @@ export async function pasadaVentas(presupuestoMs: number): Promise<ResultadoPasa
           }
         } catch (e) {
           errores.push(`publicidad: ${mensajeDe(e)}`)
+        }
+      }
+
+      // 3b · Las devoluciones de FBA (los motivos de los reembolsos), cada 6 horas
+      if (quedan() > 20_000) {
+        try {
+          const r = await pasoDevoluciones(service, c, creds, mercado)
+          if (r) salida.hechos.push(`${connection.name}: ${r}`)
+        } catch (e) {
+          errores.push(`devoluciones: ${mensajeDe(e)}`)
+          await guardar(service, c.connection_id, { devoluciones_informe_id: null }).catch(() => undefined)
         }
       }
 
@@ -588,4 +604,47 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
   await enTrozos(filas.map((f) => ({ connection_id: c.connection_id, ...f })), (t) => service.from('ventas_dia').insert(t))
   await guardar(service, c.connection_id, { historico_informe_id: null, historico_hasta: desde, historico_at: new Date().toISOString() })
   return `historial ${desde} → ${hasta}: ${lineas.length} líneas${porDinero ? ` sacadas del dinero (informe ${est.estado}, ${pedidos.length} pedidos)` : ''}, ${filas.length} filas`
+}
+
+
+/* ------------------------------------------------------------------ */
+/* 3b · Devoluciones (los motivos de los reembolsos)                    */
+/* ------------------------------------------------------------------ */
+
+async function pasoDevoluciones(service: Servicio, c: Cuenta, creds: Parameters<typeof consultarInforme>[0], mercado: string): Promise<string | null> {
+  // Sin la migración 348 las columnas no existen: no se hace nada
+  if (!('devoluciones_leido_at' in c)) return null
+  const ahora = Date.now()
+  if (c.devoluciones_informe_id) {
+    const est = await consultarInforme(creds, c.devoluciones_informe_id)
+    if (est.estado === 'IN_QUEUE' || est.estado === 'IN_PROGRESS') {
+      if (c.devoluciones_pedido_at && ahora - Date.parse(c.devoluciones_pedido_at) > 90 * MIN) await guardar(service, c.connection_id, { devoluciones_informe_id: null })
+      return null
+    }
+    if (est.estado === 'FATAL') {
+      await guardar(service, c.connection_id, { devoluciones_informe_id: null, devoluciones_leido_at: new Date().toISOString() })
+      throw new Error('Amazon no ha podido generar el informe de devoluciones')
+    }
+    const filas = est.estado === 'DONE' && est.documentId ? parsearDevoluciones((await descargarInforme(creds, est.documentId)).texto) : []
+    const unicas = [...new Map(filas.map((d) => [`${d.pedido}|${d.sku}|${d.fecha}|${d.lpn}`, d])).values()]
+    await enTrozos(
+      unicas.map((d) => ({ connection_id: c.connection_id, ...d })),
+      (t) => service.from('ventas_devoluciones').upsert(t, { onConflict: 'connection_id,pedido,sku,fecha,lpn' }),
+    )
+    await guardar(service, c.connection_id, { devoluciones_informe_id: null, devoluciones_leido_at: new Date().toISOString() })
+    return `recogidas ${unicas.length} devoluciones`
+  }
+  if (c.devoluciones_leido_at && ahora - Date.parse(c.devoluciones_leido_at) < 6 * 60 * MIN) return null
+  // La primera vez, el último año; luego, los 2 últimos meses (Amazon actualiza el estado de las devoluciones)
+  const desde = new Date(ahora - (c.devoluciones_leido_at ? 60 : 365) * DIA_MS)
+  const { data } = await spApiRequest<{ reportId?: string }>(creds, 'createReport', {
+    method: 'POST',
+    path: '/reports/2021-06-30/reports',
+    body: { reportType: INFORME_DEVOLUCIONES, marketplaceIds: [mercado], dataStartTime: iso(desde), dataEndTime: iso(new Date(ahora - 3 * MIN)) },
+    repeatable: false,
+    maxAttempts: 1,
+  })
+  if (!data.reportId) throw new Error('Amazon ha aceptado el informe de devoluciones sin devolver su identificador')
+  await guardar(service, c.connection_id, { devoluciones_informe_id: data.reportId, devoluciones_pedido_at: new Date().toISOString() })
+  return 'pedido el informe de devoluciones'
 }

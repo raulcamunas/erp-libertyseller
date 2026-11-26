@@ -12,7 +12,7 @@ import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
 import { VistaPyG } from './VistaPyG'
-import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
+import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, MotivosDeReembolso, entero, euros, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
 
 /**
  * VENTAS · EL TABLERO (el «Sellerboard» propio, 26 nov 2026). Una cuenta arriba; cinco baldosas con su periodo (Hoy, Ayer, Este mes, Pronóstico, Mes
@@ -57,6 +57,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [desglose, setDesglose] = useState<Periodo | null>(null)
+  const [motivos, setMotivos] = useState<Periodo | null>(null)
   const [anadir, setAnadir] = useState(false)
   const [reloj, setReloj] = useState(0)
   const peticion = useRef(0)
@@ -303,7 +304,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       {/* Las baldosas */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {periodos.map((p, i) => (
-          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} />
+          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} onReembolsos={() => setMotivos(p)} />
         ))}
       </div>
 
@@ -397,7 +398,11 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       </AltoEstable>
 
       <PanelLateral abierto={desglose != null} onCambio={(a) => !a && setDesglose(null)} titulo={desglose?.titulo ?? ''} descripcion={desglose ? `${fechaCorta(desglose.desde)} – ${fechaCorta(desglose.hastaPronostico ?? desglose.hasta)}${desglose.escala ? ' · pronóstico del mes entero' : ''}` : ''} icono={Coins} acento="marca" ancho={440}>
-        {desglose && <Desglose t={totales[periodos.findIndex((p) => p.id === desglose.id)] ?? totalizar([], iva, costes)} />}
+        {desglose && <Desglose t={totales[periodos.findIndex((p) => p.id === desglose.id)] ?? totalizar([], iva, costes)} onReembolsos={() => (setMotivos(desglose), setDesglose(null))} />}
+      </PanelLateral>
+
+      <PanelLateral abierto={motivos != null} onCambio={(a) => !a && setMotivos(null)} titulo={motivos ? `Reembolsos · ${motivos.titulo}` : ''} descripcion={motivos ? `${fechaCorta(motivos.desde)} – ${fechaCorta(motivos.hasta)} · por qué se devolvió, con lo que escribió el comprador` : ''} icono={Coins} acento="marca" ancho={460}>
+        {motivos && cuentaId && <MotivosDeReembolso cuenta={cuentaId} desde={motivos.desde} hasta={motivos.hasta} skus={seleccion} mercados={mercados} />}
       </PanelLateral>
 
       <PanelLateral abierto={anadir} onCambio={setAnadir} titulo="Añadir una cuenta al panel" descripcion="Empieza a leerse sola en la próxima pasada (5 minutos) y en un rato tiene sus últimos 62 días." icono={Plus} acento="marca">
@@ -457,7 +462,7 @@ export const ACENTOS = [
 ] as const
 const ROTULO = 'text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]'
 
-function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { contexto: string; p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void }) {
+function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onMas, onReembolsos }: { contexto: string; p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void; onReembolsos: () => void }) {
   // EL DINERO QUE SUBE: cuando entra una venta nueva (el refresco de cada minuto trae más que antes), la cifra sube contando y sale «+119,99 €» flotando
   // hacia arriba, con un brillo suave en la baldosa. Sin avisos ni sonidos: solo se ve.
   const anterior = useRef<{ contexto: string; ventas: number } | null>(null)
@@ -548,7 +553,7 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
           </div>
           <div className="-mt-1 grid grid-cols-[1fr_1fr_1.25fr] divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[13px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[8px]">
             <Dato texto="Uds." valor={entero(t.unidades)} delta={hayComp ? <Chip actual={t.unidades} anterior={c?.unidades} /> : null} />
-            <Dato texto="Reemb." valor={entero(t.reembolsos)} delta={hayComp ? <Chip actual={t.reembolsos} anterior={c?.reembolsos} inverso /> : null} />
+            <Dato onClick={t.reembolsos ? onReembolsos : undefined} texto="Reemb." valor={entero(t.reembolsos)} delta={hayComp ? <Chip actual={t.reembolsos} anterior={c?.reembolsos} inverso /> : null} />
             <Dato texto="Neto" valor={corto(t.neto)} color={t.neto >= 0 ? VERDE : ROJO} delta={hayComp ? <Chip actual={t.neto} anterior={c?.neto} /> : null} />
           </div>
         </>
@@ -625,7 +630,16 @@ export function MiniArea({ valores, color, id, viva }: { valores: number[]; colo
 const corto = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €` : euros(v, 0))
 
 /** Una de las tres cifras de abajo de la baldosa */
-function Dato({ texto, valor, color, delta }: { texto: string; valor: string; color?: string; delta?: React.ReactNode }) {
+function Dato({ texto, valor, color, delta, onClick }: { texto: string; valor: string; color?: string; delta?: React.ReactNode; onClick?: () => void }) {
+  if (onClick) {
+    return (
+      <button type="button" onClick={(e) => (e.stopPropagation(), onClick())} title="Ver los motivos" className="group/dato min-w-0 rounded-[8px] px-[10px] text-left transition-colors hover:bg-[color-mix(in_srgb,var(--ls-t1)_5%,transparent)]">
+        <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)] group-hover/dato:text-[#60A5FA]">{texto} ›</div>
+        <div className="whitespace-nowrap text-[14.5px] font-semibold tabular-nums text-[#60A5FA]">{valor}</div>
+        <div className="h-[15px] whitespace-nowrap [&_*]:!text-[10.5px]">{delta}</div>
+      </button>
+    )
+  }
   return (
     <div className="min-w-0 px-[10px]">
       <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">{texto}</div>
