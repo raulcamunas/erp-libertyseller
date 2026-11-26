@@ -6,10 +6,11 @@ import { AlertTriangle, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar,
 import { CabeceraDeModulo, Chispa, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
 import { VistaPyG } from './VistaPyG'
-import { Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, NARANJA, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
+import { AltoEstable, Buscador, Chip, CuentaDeResultados, Desglose, entero, euros, fechaCorta, GraficaVentas, NARANJA, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
 
 /**
  * VENTAS · EL TABLERO (el «Sellerboard» propio, 26 nov 2026). Una cuenta arriba; cinco baldosas con su periodo (Hoy, Ayer, Este mes, Pronóstico, Mes
@@ -87,6 +88,7 @@ export function TableroVentas() {
   useEffect(() => {
     if (!cuentaId) return
     const n = ++peticion.current
+    // Los refrescos solos (cada minuto) no enseñan «leyendo…»: las cifras suben animadas en su sitio
     setCargando(true)
     setError(null)
     const principal = pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoPrincipal.desde}&hasta=${rangoPrincipal.hasta}`)
@@ -114,9 +116,9 @@ export function TableroVentas() {
     }
   }, [cuentaId, pestana, periodoElegido.desde, periodoElegido.hasta, reloj])
 
-  // Se refresca solo cada 5 minutos (lo que tarda el cron en traer lo nuevo)
+  // Se vuelve a leer cada minuto con la pantalla a la vista: lo que el cron trae de Amazon aparece solo, con las cifras subiendo
   useEffect(() => {
-    const t = setInterval(() => document.visibilityState === 'visible' && setReloj((x) => x + 1), 5 * 60_000)
+    const t = setInterval(() => document.visibilityState === 'visible' && setReloj((x) => x + 1), 60_000)
     return () => clearInterval(t)
   }, [])
 
@@ -190,20 +192,8 @@ export function TableroVentas() {
       }
       acciones={
         <div className="flex flex-wrap items-center gap-2">
-          {cuentas && (
-            <select value={cuentaId ?? ''} onChange={(e) => setCuentaId(e.target.value)} className="h-9 rounded-[11px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[13px] font-medium text-[var(--ls-t1)] outline-none" aria-label="Cuenta">
-              {cuentas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.cliente ?? c.nombre}
-                  {c.cliente && c.cliente !== c.nombre ? ` · ${c.nombre}` : ''}
-                </option>
-              ))}
-            </select>
-          )}
-          <button type="button" onClick={() => setAnadir(true)} className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--ls-linea)] px-3 text-[12.5px] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Añadir otra cuenta al panel">
-            <Plus className="h-[14px] w-[14px]" /> Cuenta
-          </button>
-          <button type="button" onClick={() => setReloj((x) => x + 1)} className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-[var(--ls-linea)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+          {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => (setCuentaId(id), setSeleccion(null))} onAnadir={() => setAnadir(true)} />}
+          <button type="button" onClick={() => setReloj((x) => x + 1)} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           </button>
         </div>
@@ -220,6 +210,7 @@ export function TableroVentas() {
       {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
 
       {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} />}
+      <AltoEstable clave={vista}>
       {cuenta && vista === 'grafico' && <VistaGrafico cuenta={cuenta} hoy={hoy} skus={seleccion} />}
       {cuenta && vista === 'pyg' && <VistaPyG cuenta={cuenta} hoy={hoy} skus={seleccion} />}
       {vista === 'baldosas' && (
@@ -289,7 +280,7 @@ export function TableroVentas() {
             ))
           }
         </Desplegable>
-        {cargando && <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ls-t4)]"><Loader2 className="h-[12px] w-[12px] animate-spin" /> leyendo…</span>}
+        {cargando && !datos && <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ls-t4)]"><Loader2 className="h-[12px] w-[12px] animate-spin" /> leyendo…</span>}
         {cuenta && !cuenta.estado.primeraLectura && <EstadoHistorial estado={cuenta.estado} hoy={hoy} />}
       </div>
 
@@ -351,6 +342,7 @@ export function TableroVentas() {
           <span className="ml-auto" />
           {pestana !== 'resultados' && <Buscador valor={buscar} onCambio={setBuscar} />}
         </div>
+        <AltoEstable clave={pestana}>
         {pestana === 'productos' && <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} />}
         {pestana === 'pedidos' &&
           (lineas == null ? (
@@ -361,10 +353,12 @@ export function TableroVentas() {
             <TablaPedidos lineas={mercados ? lineas.filter((l) => mercados.has(l.mkt)) : lineas} titulos={titulos} ivaPct={iva} costes={costes} buscar={buscar} />
           ))}
         {pestana === 'resultados' && <CuentaDeResultados periodos={periodos} totales={totales} />}
+        </AltoEstable>
       </section>
 
         </>
       )}
+      </AltoEstable>
 
       <PanelLateral abierto={desglose != null} onCambio={(a) => !a && setDesglose(null)} titulo={desglose?.titulo ?? ''} descripcion={desglose ? `${fechaCorta(desglose.desde)} – ${fechaCorta(desglose.hastaPronostico ?? desglose.hasta)}${desglose.escala ? ' · pronóstico del mes entero' : ''}` : ''} icono={Coins} acento="marca" ancho={440}>
         {desglose && <Desglose t={totales[periodos.findIndex((p) => p.id === desglose.id)] ?? totalizar([], iva, costes)} />}
@@ -402,7 +396,7 @@ export function TableroVentas() {
 
 function Marco({ children, acciones, debajo }: { children: React.ReactNode; acciones?: React.ReactNode; debajo?: React.ReactNode }) {
   return (
-    <div className="mx-auto w-full min-w-0 max-w-[1500px] pb-12 lg:px-1">
+    <div className="w-full min-w-0 pb-12 lg:px-1">
       <CabeceraDeModulo icono={Coins} acento="marca" titulo="Sellerboard" subtitulo="Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon" acciones={acciones} debajo={debajo} />
       <div className="mt-4">{children}</div>
     </div>
@@ -413,6 +407,21 @@ const TARJETA = 'rounded-[20px] border border-[var(--ls-linea)] bg-[var(--ls-sup
 const ROTULO = 'text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]'
 
 function Baldosa({ p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void }) {
+  // EL DINERO QUE SUBE: cuando entra una venta nueva (el refresco de cada minuto trae más que antes), la cifra sube contando y sale «+119,99 €» flotando
+  // hacia arriba, con un brillo suave en la baldosa. Sin avisos ni sonidos: solo se ve.
+  const anterior = useRef<number | null>(null)
+  const [subida, setSubida] = useState<{ id: number; importe: number } | null>(null)
+  useEffect(() => {
+    const prev = anterior.current
+    anterior.current = t.ventas
+    if (prev == null || cargando) return
+    const diff = t.ventas - prev
+    if (diff >= 0.5) {
+      setSubida({ id: Date.now(), importe: diff })
+      const x = setTimeout(() => setSubida(null), 3200)
+      return () => clearTimeout(x)
+    }
+  }, [t.ventas, cargando])
   const fechas = p.desde === p.hasta ? fechaCorta(p.desde).slice(0, 5) : `${fechaCorta(p.desde).slice(0, 5)} – ${fechaCorta(p.hastaPronostico ?? p.hasta).slice(0, 5)}`
   const hayComp = c != null && (c.ventas !== 0 || c.unidades !== 0)
   return (
@@ -428,6 +437,14 @@ function Baldosa({ p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { p:
       className={`group relative cursor-pointer overflow-hidden p-5 text-left transition-all duration-300 ${TARJETA} ${elegida ? '' : 'hover:border-[color-mix(in_srgb,var(--ls-t1)_16%,var(--ls-linea))]'}`}
       style={elegida ? { borderColor: 'color-mix(in srgb, #F26212 45%, var(--ls-linea))', background: 'linear-gradient(180deg, color-mix(in srgb, #F26212 7%, var(--ls-sup)) 0%, var(--ls-sup) 55%)', boxShadow: '0 18px 40px -24px rgba(242,98,18,0.55), inset 0 1px 0 rgba(255,255,255,0.05)' } : undefined}
     >
+      {subida && (
+        <>
+          <motion.div key={`brillo-${subida.id}`} initial={{ opacity: 0.55 }} animate={{ opacity: 0 }} transition={{ duration: 2.6, ease: 'easeOut' }} className="pointer-events-none absolute inset-0 rounded-[20px]" style={{ background: 'radial-gradient(120% 80% at 30% 20%, rgba(74,222,128,0.22), transparent 60%)' }} />
+          <motion.span key={`sube-${subida.id}`} initial={{ opacity: 0, y: 8, scale: 0.9 }} animate={{ opacity: [0, 1, 1, 0], y: [8, -6, -18, -30], scale: [0.9, 1, 1, 1] }} transition={{ duration: 3, times: [0, 0.15, 0.7, 1], ease: 'easeOut' }} className="pointer-events-none absolute right-5 top-[62px] z-[2] rounded-full px-[9px] py-[3px] text-[12px] font-semibold tabular-nums text-[#0b2e17]" style={{ background: 'linear-gradient(135deg, #4ADE80, #86EFAC)', boxShadow: '0 6px 18px -6px rgba(74,222,128,0.7)' }}>
+            +{euros(subida.importe, 2)}
+          </motion.span>
+        </>
+      )}
       {elegida && <motion.div layoutId="baldosa-elegida" className="absolute inset-x-6 top-0 h-[2px] rounded-full" style={{ background: 'linear-gradient(90deg, transparent, #FF8A3D, transparent)' }} />}
       <div className="flex items-baseline justify-between gap-2">
         <span className={`truncate text-[13px] font-medium ${elegida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{p.escala ? 'Pronóstico' : p.titulo}</span>

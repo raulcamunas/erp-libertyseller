@@ -4,7 +4,7 @@
  * Cada 5 minutos (cron «ventas»), para cada cuenta de `ventas_cuentas`, UN poco de cada cosa y sin esperar nunca a Amazon:
  *
  *   1. Pedidos: pide el informe de pedidos o recoge el que pidió en una pasada anterior. La primera vez trae 62 días (en dos tramos de 31); después,
- *      cada 20 minutos, los 2 últimos días (un pendiente puede cancelarse o enviarse más tarde).
+ *      cada 10 minutos, los 2 últimos días (un pendiente puede cancelarse o enviarse más tarde).
  *   2. Dinero: lee los movimientos de Amazon por tramos de 10 días (la primera vez, 62 días hacia delante). Al día, cada hora, los 3 últimos días.
  *      Las comisiones reales se apuntan en su línea de pedido; reembolsos, tarifas de la cuenta y ajustes van a `ventas_movimientos` (con clave: releer
  *      no duplica).
@@ -258,9 +258,9 @@ async function pasoPedidos(service: Servicio, c: Cuenta, creds: Parameters<typeo
     return `recogido el informe de pedidos: ${filas.length} líneas en ${mercados} países (${leidas.canceladas} canceladas fuera)`
   }
 
-  // ¿Toca pedir otro? Al día, cada 20 minutos; mientras se trae lo de los primeros 62 días, en cuanto se recoge el anterior
+  // ¿Toca pedir otro? Al día, cada 10 minutos; mientras se trae lo de los primeros 62 días, en cuanto se recoge el anterior
   const alDia = c.pedidos_leido_hasta && Date.parse(c.pedidos_leido_hasta) > ahora.getTime() - 60 * MIN
-  if (alDia && c.pedidos_leido_at && ahora.getTime() - Date.parse(c.pedidos_leido_at) < 20 * MIN) return null
+  if (alDia && c.pedidos_leido_at && ahora.getTime() - Date.parse(c.pedidos_leido_at) < 10 * MIN) return null
   const desde = c.pedidos_leido_hasta ? new Date(Date.parse(c.pedidos_leido_hasta) - (alDia ? 2 * DIA_MS : 0)) : new Date(ahora.getTime() - DIAS_VENTANA * DIA_MS)
   const hasta = new Date(Math.min(ahora.getTime() - 3 * MIN, desde.getTime() + 31 * DIA_MS))
   const { data } = await spApiRequest<{ reportId?: string }>(creds, 'createReport', {

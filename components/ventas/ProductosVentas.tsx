@@ -7,6 +7,7 @@ import { CabeceraDeModulo } from '@/components/ui-ls'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { hoyEnMadrid, sumarDias, totalizar, type FilaPanel } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, ProductoDelCatalogo } from '@/lib/ventas/panel-servidor'
+import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { bandera, Buscador, euros, pais, ROJO, VERDE } from './piezas'
 
 /**
@@ -162,24 +163,13 @@ export function ProductosVentas() {
   }
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-[1500px] pb-6 lg:px-1">
+    <div className="w-full min-w-0 pb-6 lg:px-1">
       <CabeceraDeModulo
         icono={PackageSearch}
         acento="marca"
         titulo="Productos"
         subtitulo="El COGS de cada producto (lo que cuesta una unidad puesta en Amazon), su beneficio por unidad y lo que vende al día"
-        acciones={
-          cuentas && (
-            <select value={cuentaId ?? ''} onChange={(e) => setCuentaId(e.target.value)} className="h-9 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 text-[13px] font-medium text-[var(--ls-t1)] outline-none" aria-label="Cuenta">
-              {cuentas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.cliente ?? c.nombre}
-                  {c.cliente && c.cliente !== c.nombre ? ` · ${c.nombre}` : ''}
-                </option>
-              ))}
-            </select>
-          )
-        }
+        acciones={cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={setCuentaId} />}
       />
 
       <div className="mt-4 flex flex-wrap items-center gap-2">

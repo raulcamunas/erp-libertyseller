@@ -5,7 +5,7 @@ import { Calendar, ChevronDown, ChevronRight, Download, Flame, GitCompareArrows,
 import { Segmentado } from '@/components/ui-ls'
 import { sumarDias, totalizar, variacion, type FilaPanel, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
-import { bandera, Buscador, entero, euros, fechaCorta, pais, pct, ROJO, TablaPedidos, TablaProductos, VERDE, type Agrupar } from './piezas'
+import { AltoEstable, bandera, Buscador, entero, euros, fechaCorta, pais, pct, ROJO, TablaPedidos, TablaProductos, VERDE, type Agrupar } from './piezas'
 import { cubetas, Fila, lunesDe, Menu, menosUnAnio, MODOS, RangoLibre, type Cubeta, type Modo } from './VistaGrafico'
 
 /**
@@ -358,7 +358,8 @@ export function VistaPyG({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; hoy: s
           <span className="ml-auto" />
           <Buscador valor={buscar} onCambio={setBuscar} />
         </div>
-        {pestana === 'productos' ? (
+        <AltoEstable clave={pestana}>
+          {pestana === 'productos' ? (
           <TablaProductos filas={filasDetalle} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} agrupar={agrupar} />
         ) : lineas == null ? (
           <p className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-[var(--ls-t4)]">
@@ -367,6 +368,7 @@ export function VistaPyG({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; hoy: s
         ) : (
           <TablaPedidos lineas={lineas.filter((l) => (!mercados || mercados.has(l.mkt)) && (!skus || skus.has(l.sku)))} titulos={titulos} ivaPct={iva} costes={costes} buscar={buscar} />
         )}
+        </AltoEstable>
       </section>
     </div>
   )

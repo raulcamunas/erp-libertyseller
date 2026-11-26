@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { Area, Cell, ComposedChart, Line, Pie, PieChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
@@ -487,5 +487,34 @@ export function Buscador({ valor, onCambio }: { valor: string; onCambio: (v: str
       <Search className="pointer-events-none absolute left-3 top-1/2 h-[14px] w-[14px] -translate-y-1/2 text-[var(--ls-t4)]" />
       <input value={valor} onChange={(e) => onCambio(e.target.value)} placeholder="SKU, ASIN, título o pedido" className="h-9 w-[240px] rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] pl-9 pr-3 text-[12.5px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] focus:border-[color-mix(in_srgb,var(--ls-acc)_55%,var(--ls-linea))]" />
     </label>
+  )
+}
+
+/**
+ * Un bloque que NO encoge de golpe al cambiar lo que tiene dentro (las pestañas Productos · Pedidos · Cuenta de resultados): si lo nuevo es más bajo o aún
+ * está cargando, la página se acortaba y el navegador la subía. Guarda la altura de antes mientras cambia y la suelta poco a poco.
+ */
+export function AltoEstable({ clave, children }: { clave: string; children: ReactNode }) {
+  const caja = useRef<HTMLDivElement>(null)
+  const ultimo = useRef(0)
+  const [minimo, setMinimo] = useState<number | undefined>(undefined)
+  useLayoutEffect(() => {
+    if (ultimo.current) setMinimo(ultimo.current)
+    const t = setTimeout(() => setMinimo(undefined), 2500)
+    return () => clearTimeout(t)
+  }, [clave])
+  useEffect(() => {
+    const el = caja.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      ultimo.current = el.offsetHeight
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div ref={caja} style={{ minHeight: minimo }}>
+      {children}
+    </div>
   )
 }

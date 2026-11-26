@@ -8,7 +8,7 @@ import { PanelLateral, Segmentado } from '@/components/ui-ls'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { sumarDias, totalizar, type FilaPanel, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
-import { bandera, Buscador, Desglose, entero, euros, fechaCorta, pais, pct, TablaPedidos, TablaProductos, type Agrupar } from './piezas'
+import { AltoEstable, bandera, Buscador, Desglose, entero, euros, fechaCorta, pais, pct, TablaPedidos, TablaProductos, type Agrupar } from './piezas'
 
 /**
  * VENTAS · LA VISTA «GRÁFICO» (como la de Sellerboard, 26 nov 2026). Barras y líneas por mes, semana o día de las métricas que se elijan (con tres vistas
@@ -392,7 +392,8 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
           <span className="ml-auto" />
           <Buscador valor={buscar} onCambio={setBuscar} />
         </div>
-        {pestana === 'productos' ? (
+        <AltoEstable clave={pestana}>
+          {pestana === 'productos' ? (
           <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} agrupar={agrupar} onAbrir={setProducto} />
         ) : lineas == null ? (
           <p className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-[var(--ls-t4)]">
@@ -401,6 +402,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
         ) : (
           <TablaPedidos lineas={lineas.filter((l) => (!mercados || mercados.has(l.mkt)) && (!skus || skus.has(l.sku)))} titulos={titulos} ivaPct={iva} costes={costes} buscar={buscar} />
         )}
+        </AltoEstable>
       </section>
 
       <PanelLateral abierto={producto != null} onCambio={(a) => !a && setProducto(null)} titulo={producto?.titulo ?? ''} descripcion={producto?.sub ?? ''} acento="marca" ancho={460}>
