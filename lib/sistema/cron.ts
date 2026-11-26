@@ -46,7 +46,7 @@ export const TAREAS_CRON = [
     id: 'amazon-sync',
     nombre: 'Catálogo de Amazon',
     ruta: '/api/amazon/cron-sync',
-    cadaMinutos: 15,
+    cadaMinutos: 30,
     que:
       'Relee el catálogo de cada cuenta conectada —precios, stock y estado de los listings— y ' +
       'después ejecuta el ciclo de sincronismo de stock. Las dos cosas van en la misma pasada.',
@@ -55,7 +55,7 @@ export const TAREAS_CRON = [
     id: 'amazon-jobs',
     nombre: 'Trabajos de plataforma',
     ruta: '/api/amazon/cron-jobs',
-    cadaMinutos: 5,
+    cadaMinutos: 10,
     que: 'Coge el siguiente trabajo de la cola —censo, atributos, BSR, inventario— y avanza un tramo.',
   },
   {
@@ -94,7 +94,7 @@ export const TAREAS_CRON = [
     id: 'auditor-stock',
     nombre: 'Auditor de stock',
     ruta: '/api/auditor-stock/cron',
-    cadaMinutos: 20,
+    cadaMinutos: 30,
     que:
       'Lee en directo el stock de todos los listings de ShoesF y guarda cuántos tienen y cuántos ' +
       'no, con el SKU, el ASIN y la cantidad de los que sí. No escribe nada en Amazon.',
@@ -349,7 +349,7 @@ export const TAREAS_CRON = [
     id: 'rinkel-llamadas',
     nombre: 'Llamadas de Rinkel',
     ruta: '/api/rendimiento/cron',
-    cadaMinutos: 1,
+    cadaMinutos: 3,
     que:
       'Lee de Rinkel las llamadas nuevas de cada comercial que ha vinculado su clave, con la grabación de ' +
       'las que la tienen, para el panel «Mi rendimiento». No escribe nada en Rinkel.',
@@ -396,7 +396,7 @@ export const TAREAS_CRON = [
     id: 'correo-sync',
     nombre: 'Correo de los comerciales',
     ruta: '/api/correo/cron',
-    cadaMinutos: 1,
+    cadaMinutos: 2,
     que:
       'Trae a Correo los mensajes nuevos de cada buzón conectado, de Entrada y de Enviados, y recoge lo que se ' +
       'haya leído en el webmail. Solo lee: no envía, no borra ni marca nada en el servidor de correo.',
@@ -485,7 +485,7 @@ export const TAREAS_CRON = [
     id: 'tareas-notion',
     nombre: 'Tareas de clientes con Notion',
     ruta: '/api/tareas-clientes/notion/cron',
-    cadaMinutos: 2,
+    cadaMinutos: 10,
     que:
       'Envía a Notion lo que se ha cambiado en el ERP, trae lo que se ha editado en Notion y crea las tareas que se repiten (plantillas recurrentes), sin que nadie tenga el ERP abierto.',
   },
@@ -556,7 +556,7 @@ export const TAREAS_CRON = [
     id: 'analisis-keepa',
     nombre: 'Análisis de Amazon (Keepa)',
     ruta: '/api/analisis/cron',
-    cadaMinutos: 1,
+    cadaMinutos: 3,
     que: 'Analiza con Keepa la siguiente tienda de las listas de vendedores de Amazon y deja su informe en la ficha del lead (casilla «Con informe»).',
   },
   {

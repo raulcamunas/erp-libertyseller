@@ -173,7 +173,7 @@ export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado, series =
   const vacio = datos.every((d) => d.ventas === 0 && d.neto === 0)
   const r = resaltado ? datos.filter((d) => d.dia >= resaltado.desde && d.dia <= resaltado.hasta) : []
   return (
-    <div className="relative">
+    <div className="relative [&_.recharts-area-curve]:[filter:drop-shadow(0_3px_8px_rgba(0,0,0,0.35))] [&_.recharts-area-curve]:transition-all">
       <ResponsiveContainer width="100%" height={280}>
         <ComposedChart data={datos} margin={{ top: 12, right: 6, bottom: 0, left: 0 }}>
           <defs>
@@ -231,7 +231,7 @@ export function RepartoDelDinero({ t }: { t: Totales }) {
       <div className="relative h-[140px] w-[140px] shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={total ? partes : [{ texto: '', valor: 1, color: 'var(--ls-sup2)' }]} dataKey="valor" innerRadius={50} outerRadius={68} paddingAngle={total ? 2.5 : 0} cornerRadius={5} stroke="none" startAngle={90} endAngle={-270} animationDuration={900}>
+            <Pie style={{ filter: 'drop-shadow(0 6px 14px rgba(0,0,0,0.35))' }} data={total ? partes : [{ texto: '', valor: 1, color: 'var(--ls-sup2)' }]} dataKey="valor" innerRadius={50} outerRadius={68} paddingAngle={total ? 2.5 : 0} cornerRadius={5} stroke="none" startAngle={90} endAngle={-270} animationDuration={900}>
               {(total ? partes : [{ color: 'var(--ls-sup2)' }]).map((p, i) => (
                 <Cell key={i} fill={p.color} />
               ))}

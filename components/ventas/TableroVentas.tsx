@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
-import { CabeceraDeModulo, Chispa, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
+import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
@@ -430,14 +430,29 @@ export function TableroVentas() {
 
 function Marco({ children, acciones, debajo }: { children: React.ReactNode; acciones?: React.ReactNode; debajo?: React.ReactNode }) {
   return (
-    <div className="w-full min-w-0 pb-12 lg:px-1">
+    <div className="relative isolate w-full min-w-0 pb-12 lg:px-1">
+      {/* La luz de fondo: dos manchas muy difusas (naranja y violeta) que dan profundidad sin distraer */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-10 -z-10 h-[620px] overflow-hidden">
+        <div className="absolute -left-20 top-0 h-[420px] w-[620px] rounded-full opacity-[0.10] blur-[120px]" style={{ background: '#F26212' }} />
+        <div className="absolute right-[-120px] top-24 h-[380px] w-[560px] rounded-full opacity-[0.07] blur-[130px]" style={{ background: '#8B5CF6' }} />
+        <div className="absolute left-[38%] top-[280px] h-[260px] w-[420px] rounded-full opacity-[0.05] blur-[110px]" style={{ background: '#38BDF8' }} />
+      </div>
       <CabeceraDeModulo icono={Coins} acento="marca" titulo="Sellerboard" subtitulo="Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon" acciones={acciones} debajo={debajo} />
       <div className="mt-4">{children}</div>
     </div>
   )
 }
 
-const TARJETA = 'rounded-[20px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[inset_0_1px_0_rgba(255,255,255,0.035),0_1px_2px_rgba(0,0,0,0.18)]'
+const TARJETA = 'rounded-[22px] border border-[color-mix(in_srgb,var(--ls-t1)_7%,var(--ls-linea))] bg-[var(--ls-sup)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0)_42%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_30px_-18px_rgba(0,0,0,0.6)]'
+
+/** El color de cada baldosa (Hoy, Ayer, Este mes, Pronóstico, Mes pasado): naranja, ámbar, rosa, violeta y cielo */
+const ACENTOS = [
+  ['#FF7A1A', '#FFB36B'],
+  ['#F5B942', '#FDE68A'],
+  ['#FF5C8A', '#FDA4C4'],
+  ['#A78BFA', '#DDD6FE'],
+  ['#38BDF8', '#BAE6FD'],
+] as const
 const ROTULO = 'text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]'
 
 function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onMas }: { contexto: string; p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void }) {
@@ -461,48 +476,62 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
       return () => clearTimeout(x)
     }
   }, [t.ventas, cargando, contexto])
-  const fechas = p.desde === p.hasta ? fechaCorta(p.desde).slice(0, 5) : `${fechaCorta(p.desde).slice(0, 5)} – ${fechaCorta(p.hastaPronostico ?? p.hasta).slice(0, 5)}`
+  const fechas = p.desde === p.hasta ? fechaCorta(p.desde).slice(0, 5) : `${fechaCorta(p.desde).slice(0, 5)}–${fechaCorta(p.hastaPronostico ?? p.hasta).slice(0, 5)}`
   const hayComp = c != null && (c.ventas !== 0 || c.unidades !== 0)
+  const [a, b] = ACENTOS[i % ACENTOS.length]
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: i * 0.05, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ delay: i * 0.06, duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{ y: -3 }}
       onClick={onElegir}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onElegir()}
       aria-pressed={elegida}
-      className={`group relative cursor-pointer overflow-hidden p-5 text-left transition-all duration-300 ${TARJETA} ${elegida ? '' : 'hover:border-[color-mix(in_srgb,var(--ls-t1)_16%,var(--ls-linea))]'}`}
-      style={elegida ? { borderColor: 'color-mix(in srgb, #F26212 45%, var(--ls-linea))', background: 'linear-gradient(180deg, color-mix(in srgb, #F26212 7%, var(--ls-sup)) 0%, var(--ls-sup) 55%)', boxShadow: '0 18px 40px -24px rgba(242,98,18,0.55), inset 0 1px 0 rgba(255,255,255,0.05)' } : undefined}
+      className="group relative cursor-pointer overflow-hidden rounded-[22px] border p-5 text-left transition-[border-color,box-shadow] duration-300"
+      style={{
+        borderColor: elegida ? `color-mix(in srgb, ${a} 55%, var(--ls-linea))` : 'color-mix(in srgb, var(--ls-t1) 7%, var(--ls-linea))',
+        background: `radial-gradient(140% 90% at 100% 0%, color-mix(in srgb, ${a} ${elegida ? 20 : 11}%, transparent) 0%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0) 42%), var(--ls-sup)`,
+        boxShadow: elegida ? `0 24px 50px -28px ${a}, 0 0 0 1px color-mix(in srgb, ${a} 22%, transparent), inset 0 1px 0 rgba(255,255,255,0.07)` : 'inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 30px -18px rgba(0,0,0,0.6)',
+      }}
     >
       {subida && (
         <>
-          <motion.div key={`brillo-${subida.id}`} initial={{ opacity: 0.55 }} animate={{ opacity: 0 }} transition={{ duration: 2.6, ease: 'easeOut' }} className="pointer-events-none absolute inset-0 rounded-[20px]" style={{ background: 'radial-gradient(120% 80% at 30% 20%, rgba(74,222,128,0.22), transparent 60%)' }} />
-          <motion.span key={`sube-${subida.id}`} initial={{ opacity: 0, y: 8, scale: 0.9 }} animate={{ opacity: [0, 1, 1, 0], y: [8, -6, -18, -30], scale: [0.9, 1, 1, 1] }} transition={{ duration: 3, times: [0, 0.15, 0.7, 1], ease: 'easeOut' }} className="pointer-events-none absolute right-5 top-[62px] z-[2] rounded-full px-[9px] py-[3px] text-[12px] font-semibold tabular-nums text-[#0b2e17]" style={{ background: 'linear-gradient(135deg, #4ADE80, #86EFAC)', boxShadow: '0 6px 18px -6px rgba(74,222,128,0.7)' }}>
+          <motion.div key={`brillo-${subida.id}`} initial={{ opacity: 0.55 }} animate={{ opacity: 0 }} transition={{ duration: 2.6, ease: 'easeOut' }} className="pointer-events-none absolute inset-0 rounded-[22px]" style={{ background: 'radial-gradient(120% 80% at 30% 20%, rgba(74,222,128,0.22), transparent 60%)' }} />
+          <motion.span key={`sube-${subida.id}`} initial={{ opacity: 0, y: 8, scale: 0.9 }} animate={{ opacity: [0, 1, 1, 0], y: [8, -6, -18, -30], scale: [0.9, 1, 1, 1] }} transition={{ duration: 3, times: [0, 0.15, 0.7, 1], ease: 'easeOut' }} className="pointer-events-none absolute right-5 top-[64px] z-[2] rounded-full px-[9px] py-[3px] text-[12px] font-semibold tabular-nums text-[#0b2e17]" style={{ background: 'linear-gradient(135deg, #4ADE80, #86EFAC)', boxShadow: '0 6px 18px -6px rgba(74,222,128,0.7)' }}>
             +{euros(subida.importe, 2)}
           </motion.span>
         </>
       )}
-      {elegida && <motion.div layoutId="baldosa-elegida" className="absolute inset-x-6 top-0 h-[2px] rounded-full" style={{ background: 'linear-gradient(90deg, transparent, #FF8A3D, transparent)' }} />}
-      <div className="flex items-baseline justify-between gap-2">
-        <span className={`truncate text-[13px] font-medium ${elegida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{p.escala ? 'Pronóstico' : p.titulo}</span>
-        <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-[var(--ls-t4)]">{fechas}</span>
+      {/* La línea de color de arriba: tenue en todas, viva en la elegida */}
+      <div className="absolute inset-x-5 top-0 h-[2px] rounded-full transition-opacity duration-300" style={{ background: `linear-gradient(90deg, transparent, ${a}, ${b}, transparent)`, opacity: elegida ? 1 : 0.28 }} />
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="relative flex h-[8px] w-[8px] shrink-0">
+            {elegida && <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-50" style={{ background: a }} />}
+            <span className="relative h-[8px] w-[8px] rounded-full" style={{ background: a, boxShadow: `0 0 10px ${a}` }} />
+          </span>
+          <span className={`truncate text-[13px] font-semibold ${elegida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{p.escala ? 'Pronóstico' : p.id === 'pasado' ? 'Mes pasado' : p.titulo}</span>
+        </span>
+        <span className="shrink-0 whitespace-nowrap rounded-full px-[7px] py-[2px] text-[10px] font-medium tabular-nums" style={{ background: `color-mix(in srgb, ${a} 10%, var(--ls-sup2))`, color: 'var(--ls-t3)' }}>
+          {fechas}
+        </span>
       </div>
 
       {cargando ? (
         <div className="mt-5 flex flex-col gap-3">
-          <div className="h-[26px] w-2/3 animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
-          <div className="h-[34px] w-full animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
-          <div className="h-[30px] w-full animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+          <div className="h-[30px] w-2/3 animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+          <div className="h-[44px] w-full animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
+          <div className="h-[52px] w-full animate-pulse rounded-[12px] bg-[var(--ls-sup2)]" />
         </div>
       ) : (
         <>
-          <div className="mt-4 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">Ventas</div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <CifraAnimada valor={t.ventas} formato={(v) => euros(v, 0)} className="text-[27px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--ls-t1)]" />
-          </div>
-          <div className="mt-[6px] flex h-[16px] items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
+          <div className="mt-4 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
+          <CifraAnimada valor={t.ventas} formato={(v) => euros(v, 0)} className="mt-1 block text-[30px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)]" />
+          <div className="mt-[7px] flex h-[16px] items-center gap-2 text-[11.5px] text-[var(--ls-t4)]">
             {hayComp ? (
               <>
                 <Chip actual={t.ventas} anterior={c?.ventas} />
@@ -512,31 +541,78 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
               <span>{p.escala ? 'al ritmo de este mes' : '\u00a0'}</span>
             )}
           </div>
-          <div className="-mx-1 mt-3 opacity-90 transition-opacity group-hover:opacity-100">
-            <Chispa valores={serie} color={elegida ? '#FF8A3D' : 'var(--ls-t3)'} alto={34} />
+          <div className="-mx-5 mt-2">
+            <MiniArea valores={serie} color={a} id={`ba-${i}`} viva={elegida} />
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--ls-linea)] pt-3">
-            <Mini texto="Uds." valor={entero(t.unidades)} delta={hayComp ? <Chip actual={t.unidades} anterior={c?.unidades} /> : null} />
-            <Mini texto="Reemb." valor={entero(t.reembolsos)} delta={hayComp ? <Chip actual={t.reembolsos} anterior={c?.reembolsos} inverso /> : null} />
-            <Mini texto="Neto" valor={compacto(t.neto)} color={t.neto >= 0 ? VERDE : ROJO} delta={hayComp ? <Chip actual={t.neto} anterior={c?.neto} /> : null} />
+          <div className="-mt-1 grid grid-cols-[1fr_1fr_1.25fr] divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[13px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[8px]">
+            <Dato texto="Uds." valor={entero(t.unidades)} delta={hayComp ? <Chip actual={t.unidades} anterior={c?.unidades} /> : null} />
+            <Dato texto="Reemb." valor={entero(t.reembolsos)} delta={hayComp ? <Chip actual={t.reembolsos} anterior={c?.reembolsos} inverso /> : null} />
+            <Dato texto="Neto" valor={corto(t.neto)} color={t.neto >= 0 ? VERDE : ROJO} delta={hayComp ? <Chip actual={t.neto} anterior={c?.neto} /> : null} />
           </div>
         </>
       )}
-      <button type="button" onClick={(e) => (e.stopPropagation(), onMas())} className="mt-3 inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--ls-t4)] transition-colors hover:text-[#FF8A3D] group-hover:text-[var(--ls-t2)]">
+      <button type="button" onClick={(e) => (e.stopPropagation(), onMas())} className="mt-3 inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--ls-t4)] transition-colors group-hover:text-[var(--ls-t2)]" style={{ ['--hover' as string]: a }} onMouseEnter={(e) => (e.currentTarget.style.color = b)} onMouseLeave={(e) => (e.currentTarget.style.color = '')}>
         Desglose <ArrowRight className="h-[12px] w-[12px] transition-transform group-hover:translate-x-[2px]" />
       </button>
     </motion.div>
   )
 }
 
-/** «9.636 €», y de 10.000 en adelante «10,1k €» (cabe en la columna) */
-const compacto = (v: number) => (Math.abs(v) >= 10_000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €` : euros(v, 0))
-
-function Mini({ texto, valor, color, delta, nota }: { texto: string; valor: string; color?: string; delta?: React.ReactNode; nota?: string }) {
+/** La minigráfica de la baldosa: área rellena con el color del periodo, que se dibuja al entrar */
+function MiniArea({ valores, color, id, viva }: { valores: number[]; color: string; id: string; viva: boolean }) {
+  const W = 300
+  const H = 48
+  if (valores.length < 2) return <div style={{ height: H }} />
+  const max = Math.max(...valores, 1)
+  const pts = valores.map((v, k) => [(k / (valores.length - 1)) * W, H - 6 - (v / max) * (H - 12)] as const)
+  // Curva suave (Catmull-Rom a Bézier)
+  let d = `M ${pts[0][0]} ${pts[0][1]}`
+  for (let k = 0; k < pts.length - 1; k++) {
+    const p0 = pts[k - 1] ?? pts[k]
+    const p1 = pts[k]
+    const p2 = pts[k + 1]
+    const p3 = pts[k + 2] ?? p2
+    d += ` C ${p1[0] + (p2[0] - p0[0]) / 6} ${p1[1] + (p2[1] - p0[1]) / 6}, ${p2[0] - (p3[0] - p1[0]) / 6} ${p2[1] - (p3[1] - p1[1]) / 6}, ${p2[0]} ${p2[1]}`
+  }
+  const area = `${d} L ${W} ${H} L 0 ${H} Z`
+  const ultimo = pts[pts.length - 1]
   return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--ls-t4)]">{texto}</div>
-      <div className="truncate text-[14px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-[48px] w-full" aria-hidden>
+      <defs>
+        <linearGradient id={`${id}-f`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={viva ? 0.34 : 0.2} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <motion.path d={area} fill={`url(#${id}-f)`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} />
+      <motion.path d={d} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }} style={{ filter: `drop-shadow(0 0 4px ${color})`, opacity: viva ? 1 : 0.75 }} />
+      <circle cx={ultimo[0] - 1} cy={ultimo[1]} r={3} fill={color} style={{ filter: `drop-shadow(0 0 5px ${color})` }} />
+    </svg>
+  )
+}
+
+/** El neto en la baldosa (que es estrecha): «964 €», y de 1.000 en adelante «8,7k €» */
+const corto = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €` : euros(v, 0))
+
+/** Una de las tres cifras de abajo de la baldosa */
+function Dato({ texto, valor, color, delta }: { texto: string; valor: string; color?: string; delta?: React.ReactNode }) {
+  return (
+    <div className="min-w-0 px-[10px]">
+      <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">{texto}</div>
+      <div className="whitespace-nowrap text-[14.5px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)', textShadow: color ? `0 0 14px color-mix(in srgb, ${color} 40%, transparent)` : undefined }}>
+        {valor}
+      </div>
+      <div className="h-[15px] whitespace-nowrap [&_*]:!text-[10.5px]">{delta}</div>
+    </div>
+  )
+}
+
+
+function Mini({ texto, valor, color, delta, nota, brillo }: { texto: string; valor: string; color?: string; delta?: React.ReactNode; nota?: string; brillo?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-[12px] border border-[color-mix(in_srgb,var(--ls-t1)_5%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)] px-[9px] py-[7px]">
+      <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">{texto}</div>
+      <div className="truncate text-[14px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)', textShadow: brillo && color ? `0 0 14px color-mix(in srgb, ${color} 45%, transparent)` : undefined }}>
         {valor}
       </div>
       {delta && <div className="mt-[1px]">{delta}</div>}
