@@ -73,7 +73,7 @@ export function useImagenDeProducto(mkt: string | null | undefined, asin: string
   return clave ? (cache.get(clave) ?? { url: null, listo: false }) : { url: null, listo: true }
 }
 
-export function ImagenDeProducto({ asin, mkt, lado = 48, redondeo = 10, className = '', titulo }: { asin: string | null | undefined; mkt?: string | null; lado?: number; redondeo?: number; className?: string; titulo?: string }) {
+export function ImagenDeProducto({ asin, mkt, lado = 48, redondeo = 10, className = '', titulo, borde = true }: { asin: string | null | undefined; mkt?: string | null; lado?: number; redondeo?: number; className?: string; titulo?: string; /** false = sin el filete gris de dentro (cuando ya va en un marco) */ borde?: boolean }) {
   const porDefecto = useContext(MercadoDeImagenes)
   const { url, listo } = useImagenDeProducto(mkt ?? porDefecto, asin)
   const [cargada, setCargada] = useState(false)
@@ -81,7 +81,7 @@ export function ImagenDeProducto({ asin, mkt, lado = 48, redondeo = 10, classNam
   return (
     <span
       className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden bg-white ${className}`}
-      style={{ width: lado, height: lado, borderRadius: redondeo, boxShadow: 'inset 0 0 0 1px var(--ls-linea)' }}
+      style={{ width: lado, height: lado, borderRadius: redondeo, boxShadow: borde ? 'inset 0 0 0 1px var(--ls-linea)' : undefined }}
       title={titulo}
     >
       {(!listo || (src && !cargada)) && <span className="absolute inset-0 animate-pulse bg-[var(--ls-sup2)]" />}

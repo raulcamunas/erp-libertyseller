@@ -416,7 +416,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <span className="rounded-[12px] bg-white p-[3px] ring-1 ring-[var(--ls-linea)]">
-                <ImagenDeProducto asin={producto.asin} mkt={producto.mkt} lado={72} redondeo={9} />
+                <ImagenDeProducto asin={producto.asin} mkt={producto.mkt} lado={72} redondeo={9} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
               </span>
               <div className="text-[12px] text-[var(--ls-t3)]">
                 {bandera(producto.mkt)} {pais(producto.mkt)}

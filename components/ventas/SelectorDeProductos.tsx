@@ -56,7 +56,7 @@ export function SelectorDeProductos({ productos, seleccion, onCambio }: { produc
         {elegidos.slice(0, 6).map((p) => (
           <span key={p.sku} className="inline-flex max-w-[260px] items-center gap-[6px] rounded-[9px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] py-[3px] pl-[3px] pr-[6px] text-[12px] text-[var(--ls-t1)]">
             <span className="rounded-[5px] bg-white p-[1px]">
-              <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={20} redondeo={4} />
+              <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={20} redondeo={4} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
             </span>
             <span className="truncate">{p.sku}</span>
             <button type="button" onClick={(e) => (e.stopPropagation(), alternar(p.sku))} aria-label={`Quitar ${p.sku}`} className="text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">
@@ -93,8 +93,8 @@ export function SelectorDeProductos({ productos, seleccion, onCambio }: { produc
                   <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[5px] border transition-colors" style={on ? { background: '#F26212', borderColor: '#F26212' } : { borderColor: 'var(--ls-t4)' }}>
                     {on && <Check className="h-[11px] w-[11px] text-[#141414]" strokeWidth={3} />}
                   </span>
-                  <span className="shrink-0 rounded-[7px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)]">
-                    <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={34} redondeo={5} />
+                  <span className="shrink-0 rounded-[7px]">
+                    <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={34} redondeo={5} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] text-[var(--ls-t1)]">{p.titulo ?? p.sku}</span>

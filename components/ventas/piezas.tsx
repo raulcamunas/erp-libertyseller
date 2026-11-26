@@ -371,8 +371,8 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
                     {agrupar === 'mercado' ? (
                       <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[20px]">{bandera(p.mkt)}</span>
                     ) : (
-                      <span className="shrink-0 rounded-[8px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)] transition-transform group-hover:scale-[1.06]">
-                        <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={34} redondeo={6} titulo={p.titulo ?? p.sku} />
+                      <span className="shrink-0 rounded-[8px] transition-transform group-hover:scale-[1.06]">
+                        <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={34} redondeo={6} titulo={p.titulo ?? p.sku} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
                       </span>
                     )}
                     <div className="min-w-0 max-w-[460px] leading-[1.3]">
@@ -506,8 +506,8 @@ function PanelMas({ p, boton, agrupar, onCerrar }: { p: { k: string; mkt: string
           {agrupar === 'mercado' ? (
             <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[22px]">{bandera(p.mkt)}</span>
           ) : (
-            <span className="shrink-0 rounded-[8px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)]">
-              <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={40} redondeo={6} titulo={p.titulo ?? p.sku} />
+            <span className="shrink-0 rounded-[8px]">
+              <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={40} redondeo={6} titulo={p.titulo ?? p.sku} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
             </span>
           )}
           <div className="min-w-0 flex-1">
@@ -581,8 +581,8 @@ export function TablaPedidos({ lineas, titulos, ivaPct, costes, buscar }: { line
                 </td>
                 <td className="px-2 py-[9px]">
                   <div className="flex items-center gap-3">
-                    <span className="shrink-0 rounded-[8px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)]">
-                      <ImagenDeProducto asin={l.asin ?? t?.asin ?? null} mkt={l.mkt} lado={38} redondeo={6} />
+                    <span className="shrink-0 rounded-[8px]">
+                      <ImagenDeProducto asin={l.asin ?? t?.asin ?? null} mkt={l.mkt} lado={38} redondeo={6} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
                     </span>
                     <div className="min-w-0 max-w-[380px]">
                       <div className="truncate text-[11px] text-[var(--ls-t4)]">SKU {l.sku}</div>

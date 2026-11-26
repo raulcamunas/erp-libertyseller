@@ -239,8 +239,8 @@ export function ProductosVentas() {
                     <tr key={p.sku} className={`border-b border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)] ${p.activo ? '' : 'opacity-55'}`} style={{ animation: `ventas-entra 380ms ${Math.min(i, 25) * 18}ms both cubic-bezier(.2,.8,.2,1)` }}>
                       <td className="px-3 py-[8px]">
                         <div className="flex items-center gap-3">
-                          <span className="shrink-0 rounded-[9px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)]">
-                            <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={42} redondeo={7} titulo={p.titulo ?? p.sku} />
+                          <span className="shrink-0 rounded-[9px]">
+                            <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={42} redondeo={7} titulo={p.titulo ?? p.sku} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
                           </span>
                           <div className="min-w-0 max-w-[620px]">
                             <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
