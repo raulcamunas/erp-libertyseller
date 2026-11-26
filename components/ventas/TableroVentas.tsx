@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AlertTriangle, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { AlertTriangle, ArrowLeft, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
 import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
@@ -31,10 +33,11 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
 const minimo = (xs: string[]) => xs.reduce((a, b) => (b < a ? b : a))
 const maximo = (xs: string[]) => xs.reduce((a, b) => (b > a ? b : a))
 
-export function TableroVentas() {
+export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string | null } = {}) {
+  const router = useRouter()
   const [cuentas, setCuentas] = useState<CuentaDelPanel[] | null>(null)
   const [libres, setLibres] = useState<Array<{ id: string; nombre: string; cliente: string | null }>>([])
-  const [cuentaId, setCuentaId] = useState<string | null>(null)
+  const [cuentaId, setCuentaId] = useState<string | null>(cuentaInicial)
   const [tanda, setTanda] = useState<Tanda>('clasica')
   const [rango, setRango] = useState<{ desde: string; hasta: string } | null>(null)
   const [vista, setVista] = useState<'baldosas' | 'grafico' | 'pyg'>('baldosas')
@@ -207,7 +210,11 @@ export function TableroVentas() {
       }
       acciones={
         <div className="flex flex-wrap items-center gap-2">
-          {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => (setCuentaId(id), setSeleccion(null))} onAnadir={() => setAnadir(true)} />}
+          <Link href="/dashboard/ventas" className="inline-flex h-11 items-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)]">
+            <ArrowLeft className="h-[14px] w-[14px]" />
+            Todas las cuentas
+          </Link>
+          {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
           <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           </button>
@@ -429,7 +436,7 @@ export function TableroVentas() {
 
 /* ------------------------------------------------------------------ */
 
-function Marco({ children, acciones, debajo }: { children: React.ReactNode; acciones?: React.ReactNode; debajo?: React.ReactNode }) {
+export function Marco({ children, acciones, debajo, titulo = 'Sellerboard', subtitulo = 'Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon', icono = Coins }: { children: React.ReactNode; acciones?: React.ReactNode; debajo?: React.ReactNode; titulo?: string; subtitulo?: string; icono?: typeof Coins }) {
   return (
     <div className="relative isolate w-full min-w-0 pb-12 lg:px-1">
       {/* La luz de fondo: dos manchas muy difusas (naranja y violeta) que dan profundidad sin distraer */}
@@ -438,16 +445,16 @@ function Marco({ children, acciones, debajo }: { children: React.ReactNode; acci
         <div className="absolute right-[-120px] top-24 h-[380px] w-[560px] rounded-full opacity-[0.07] blur-[130px]" style={{ background: '#8B5CF6' }} />
         <div className="absolute left-[38%] top-[280px] h-[260px] w-[420px] rounded-full opacity-[0.05] blur-[110px]" style={{ background: '#38BDF8' }} />
       </div>
-      <CabeceraDeModulo icono={Coins} acento="marca" titulo="Sellerboard" subtitulo="Ventas, tarifas, publicidad y beneficio de cada cliente, con los datos de su cuenta de Amazon" acciones={acciones} debajo={debajo} />
+      <CabeceraDeModulo icono={icono} acento="marca" titulo={titulo} subtitulo={subtitulo} acciones={acciones} debajo={debajo} />
       <div className="mt-4">{children}</div>
     </div>
   )
 }
 
-const TARJETA = 'rounded-[22px] border border-[color-mix(in_srgb,var(--ls-t1)_7%,var(--ls-linea))] bg-[var(--ls-sup)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0)_42%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_30px_-18px_rgba(0,0,0,0.6)]'
+export const TARJETA = 'rounded-[22px] border border-[color-mix(in_srgb,var(--ls-t1)_7%,var(--ls-linea))] bg-[var(--ls-sup)] [background-image:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0)_42%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_30px_-18px_rgba(0,0,0,0.6)]'
 
 /** El color de cada baldosa (Hoy, Ayer, Este mes, Pronóstico, Mes pasado): naranja, ámbar, rosa, violeta y cielo */
-const ACENTOS = [
+export const ACENTOS = [
   ['#FF7A1A', '#FFB36B'],
   ['#F5B942', '#FDE68A'],
   ['#FF5C8A', '#FDA4C4'],
@@ -560,7 +567,7 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
 }
 
 /** La minigráfica de la baldosa: área rellena con el color del periodo, que se dibuja al entrar */
-function MiniArea({ valores, color, id, viva }: { valores: number[]; color: string; id: string; viva: boolean }) {
+export function MiniArea({ valores, color, id, viva }: { valores: number[]; color: string; id: string; viva: boolean }) {
   // Se dibuja al ancho REAL de la baldosa (nada de estirar el SVG: deformaba el punto y la línea se quedaba corta al animarse)
   const caja = useRef<HTMLDivElement>(null)
   const [W, setW] = useState(0)

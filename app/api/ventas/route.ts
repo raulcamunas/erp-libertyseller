@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, productosDelPanel, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
+import { anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
  *
  *   GET ?que=cuentas                                  las cuentas del panel y su estado de lectura (+ las que se pueden añadir)
+ *   GET ?que=resumen&desde=&hasta=[&compDesde=&compHasta=]  todas las cuentas con sus cifras del periodo (el panel de todas)
  *   GET ?cuenta=&desde=&hasta=[&lineasDesde=&lineasHasta=]  las filas del resumen diario, títulos, costes y (si se piden) las líneas de pedido
  *   POST { accion: 'coste', cuenta, sku, coste|null }  el coste por unidad de un SKU
  *   POST { accion: 'costes', cuenta, costes: [{ sku, coste }] }  muchos de golpe (importar), hasta 5.000
@@ -27,6 +28,16 @@ export async function GET(request: NextRequest) {
     if (q.get('que') === 'cuentas') {
       const [cuentas, libres] = await Promise.all([cuentasDelPanel(), cuentasParaAnadir()])
       return NextResponse.json({ cuentas, libres })
+    }
+    // El panel de TODAS las cuentas (vista de pájaro): lo de cada una en el periodo y en el de comparación
+    if (q.get('que') === 'resumen') {
+      const desde = q.get('desde') ?? ''
+      const hasta = q.get('hasta') ?? ''
+      const cDesde = q.get('compDesde')
+      const cHasta = q.get('compHasta')
+      if (!FECHA.test(desde) || !FECHA.test(hasta) || desde > hasta) return fail(400, 'Faltan las fechas.')
+      const ok = (x: string | null) => (x && FECHA.test(x) ? x : null)
+      return NextResponse.json({ resumen: await resumenDeCuentas(desde, hasta, ok(cDesde), ok(cHasta), ok(q.get('serieDesde'))) })
     }
     const cuenta = q.get('cuenta') ?? ''
     const desde = q.get('desde') ?? ''

@@ -39,6 +39,7 @@ import {
   ChartNoAxesCombined,
   Coins,
   PackageSearch,
+  Star,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -475,6 +476,16 @@ export const apps: AppConfig[] = [
     category: 'analytics'
   },
   {
+    id: 'ventas-resenas',
+    name: 'Reseñas',
+    nombreCorto: 'Reseñas',
+    description: 'Las solicitudes de reseña de Amazon en automático, por cliente: campañas, cola y lo pedido cada día',
+    icon: Star,
+    route: '/dashboard/ventas/resenas',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
     // GROWTH PARTNER — el trabajo sobre la cuenta de un cliente.
     //
     // EL CORTE ENTRE ESTE MÓDULO Y AMAZON API, que es la regla que decide dónde
@@ -692,6 +703,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   // El panel de ventas y beneficio de los clientes (Sellerboard propio)
   'ventas',
   'ventas-productos',
+  'ventas-resenas',
   // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
   // de los clientes las llevan los administrativos, persona a persona con la casilla (lib/cuentas/acceso.ts).
   // 'tax-reports' ESTUVO AQUÍ Y SE HA QUITADO. No porque el fichero haya dejado
@@ -1033,9 +1045,9 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     // El «Sellerboard» propio (26 nov 2026): crecerá con más pantallas (como las de Sellerboard)
     id: 'sellerboard',
     name: 'Sellerboard',
-    description: 'Tablero de ventas y beneficio, y productos con su COGS',
+    description: 'Tablero de ventas y beneficio, productos con su COGS y reseñas',
     icon: Coins,
-    apps: ['ventas', 'ventas-productos'],
+    apps: ['ventas', 'ventas-productos', 'ventas-resenas'],
     despuesDe: 'correo',
   },
   {

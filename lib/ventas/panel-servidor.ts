@@ -8,6 +8,54 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import type { FilaPanel } from './panel'
 import { emojisDeClientes } from './emoji-servidor'
+import { totalizar, type Totales } from './panel'
+
+/**
+ * CACHÉ EN MEMORIA (rendimiento, 26 nov 2026): las cuentas (30 s) y el catálogo de cada cuenta (títulos, costes, stock y BSR: 5 min) no cambian a cada
+ * segundo y eran lo más lento de abrir el panel. Guardar un coste, el IVA o añadir una cuenta los tira al momento.
+ */
+const cache = new Map<string, { hasta: number; valor: Promise<unknown> }>()
+function enCache<T>(clave: string, ms: number, leer: () => Promise<T>): Promise<T> {
+  const ahora = Date.now()
+  const c = cache.get(clave)
+  if (c && c.hasta > ahora) return c.valor as Promise<T>
+  const valor = leer()
+  cache.set(clave, { hasta: ahora + ms, valor })
+  valor.catch(() => cache.delete(clave))
+  return valor
+}
+const olvidar = (prefijo: string) => {
+  for (const k of cache.keys()) if (k.startsWith(prefijo)) cache.delete(k)
+}
+
+export const cuentasDelPanel = () => enCache('cuentas', 30_000, leerCuentasDelPanel)
+export const productosDelPanel = (connectionId: string) => enCache(`productos:${connectionId}`, 5 * 60_000, () => leerProductosDelPanel(connectionId))
+
+/** Lo de cada cuenta en un periodo y en el de comparación, para el panel de TODAS las cuentas */
+export interface ResumenDeCuenta {
+  id: string
+  t: Totales
+  c: Totales | null
+  /** Ventas por día del periodo */
+  serie: number[]
+}
+
+export async function resumenDeCuentas(desde: string, hasta: string, compDesde: string | null, compHasta: string | null, serieDesde?: string | null): Promise<ResumenDeCuenta[]> {
+  const cuentas = await cuentasDelPanel()
+  // La curva de ventas: el periodo, y como poco las 2 últimas semanas (con «Hoy» una curva de un punto no dice nada)
+  const inicio = serieDesde && serieDesde < desde ? serieDesde : desde
+  return Promise.all(
+    cuentas.map(async (cu) => {
+      const iva = { pct: cu.iva, porPais: cu.ivaPorPais }
+      const [todas, comp, productos] = await Promise.all([filasDelPanel(cu.id, inicio, hasta), compDesde && compHasta ? filasDelPanel(cu.id, compDesde, compHasta) : Promise.resolve(null), productosDelPanel(cu.id)])
+      const filas = todas.filter((f) => f.dia >= desde && f.dia <= hasta)
+      const dias = new Map<string, number>()
+      for (let d = Date.parse(`${inicio}T00:00:00Z`); d <= Date.parse(`${hasta}T00:00:00Z`); d += 86_400_000) dias.set(new Date(d).toISOString().slice(0, 10), 0)
+      for (const f of todas) dias.set(f.dia, (dias.get(f.dia) ?? 0) + f.ventas)
+      return { id: cu.id, t: totalizar(filas, iva, productos.costes), c: comp ? totalizar(comp, iva, productos.costes) : null, serie: [...dias.values()].map((v) => Math.round(v * 100) / 100) }
+    }),
+  )
+}
 
 export interface CuentaDelPanel {
   id: string
@@ -48,7 +96,7 @@ export interface LineaDelPanel {
 
 const n = (v: unknown) => (v == null ? 0 : Number(v))
 
-export async function cuentasDelPanel(): Promise<CuentaDelPanel[]> {
+async function leerCuentasDelPanel(): Promise<CuentaDelPanel[]> {
   const s = createServiceClient()
   const { data, error } = await s.from('ventas_cuentas').select('*').eq('activa', true)
   if (error) throw error
@@ -146,7 +194,7 @@ export interface BsrDelProducto {
   antes: number | null
 }
 
-export async function productosDelPanel(connectionId: string): Promise<{ titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo: ProductoDelCatalogo[]; stock: Record<string, number>; bsr: Record<string, BsrDelProducto> }> {
+async function leerProductosDelPanel(connectionId: string): Promise<{ titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo: ProductoDelCatalogo[]; stock: Record<string, number>; bsr: Record<string, BsrDelProducto> }> {
   const s = createServiceClient()
   const titulos: Record<string, { titulo: string | null; asin: string | null }> = {}
   const catalogo: ProductoDelCatalogo[] = []
@@ -241,6 +289,7 @@ export async function lineasDelPanel(connectionId: string, desde: string, hasta:
 
 /** Muchos costes de golpe (importar un CSV) */
 export async function guardarCostes(connectionId: string, costes: Array<{ sku: string; coste: number }>, userId: string): Promise<number> {
+  olvidar(`productos:${connectionId}`)
   const filas = costes.map((c) => ({ connection_id: connectionId, sku: c.sku, coste: c.coste, updated_by: userId, updated_at: new Date().toISOString() }))
   for (let i = 0; i < filas.length; i += 500) {
     const { error } = await createServiceClient().from('ventas_costes').upsert(filas.slice(i, i + 500), { onConflict: 'connection_id,sku' })
@@ -250,6 +299,7 @@ export async function guardarCostes(connectionId: string, costes: Array<{ sku: s
 }
 
 export async function guardarCoste(connectionId: string, sku: string, coste: number | null, userId: string): Promise<void> {
+  olvidar(`productos:${connectionId}`)
   const s = createServiceClient()
   if (coste == null) {
     const { error } = await s.from('ventas_costes').delete().eq('connection_id', connectionId).eq('sku', sku)
@@ -272,6 +322,7 @@ export async function cuentasParaAnadir(): Promise<Array<{ id: string; nombre: s
 }
 
 export async function anadirCuenta(connectionId: string): Promise<void> {
+  olvidar('cuentas')
   // Una cuenta de EE. UU., Canadá o México no tiene IVA europeo: ni en las ventas ni en las tarifas
   const { data: con } = await createServiceClient().from('amazon_connections').select('region').eq('id', connectionId).maybeSingle()
   const sinIva = (con as { region?: string } | null)?.region === 'na'
@@ -280,11 +331,13 @@ export async function anadirCuenta(connectionId: string): Promise<void> {
 }
 
 export async function cambiarIvaPorPais(connectionId: string, porPais: boolean): Promise<void> {
+  olvidar('cuentas')
   const { error } = await createServiceClient().from('ventas_cuentas').update({ iva_por_pais: porPais }).eq('connection_id', connectionId)
   if (error) throw error
 }
 
 export async function cambiarIva(connectionId: string, iva: number): Promise<void> {
+  olvidar('cuentas')
   const { error } = await createServiceClient().from('ventas_cuentas').update({ iva_pct: iva }).eq('connection_id', connectionId)
   if (error) throw error
 }

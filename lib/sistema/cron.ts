@@ -190,6 +190,19 @@ export const TAREAS_CRON = [
       'una fila por producto y día. Sin nada del comprador.',
   },
   {
+    /**
+     * CADA 10 MINUTOS: RESEÑAS (Sellerboard propio, 26 nov 2026). Mete en la cola los pedidos de las cuentas con campaña activa y pide la reseña de Amazon
+     * (Solicitations, el botón «Solicitar una reseña») de los que ya toca. ESCRIBE en Amazon: un correo de Amazon al comprador por pedido, una vez.
+     */
+    id: 'resenas',
+    nombre: 'Reseñas (Sellerboard)',
+    ruta: '/api/ventas/resenas/cron',
+    cadaMinutos: 10,
+    que:
+      'Pide a Amazon la reseña de cada pedido de las cuentas con una campaña de reseñas activa, el número de días tras la entrega que diga la campaña ' +
+      '(el mismo correo que el botón «Solicitar una reseña» de Seller Central). Una vez por pedido y sin datos del comprador.',
+  },
+  {
     id: 'fba-seguimiento',
     nombre: 'Seguimiento de envíos a FBA',
     ruta: '/api/fba/cron-seguimiento',
@@ -612,6 +625,7 @@ export const POLITICA_DE_CARGA: Record<TareaCron, { prioridad: PrioridadDeTarea;
   'fba-seguimiento': { prioridad: 'normal' },
   'fba-pedidos': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   ventas: { prioridad: 'baja', ayunoMaxMin: 60 },
+  resenas: { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
   'fba-alertas': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'fba-planificador': { prioridad: 'baja', pesada: true, ayunoMaxMin: 30 * 60 },
   'ads-rendimiento': { prioridad: 'baja', ayunoMaxMin: 6 * 60 },
