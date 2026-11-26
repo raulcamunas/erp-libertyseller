@@ -202,6 +202,8 @@ export interface TarifasDePedido {
   cobrado: number
   /** Promociones, en positivo */
   promo: number
+  /** Unidades enviadas (QuantityShipped): con ellas el historial se rehace solo con el dinero si el informe de pedidos no trae nada */
+  unidades: number
 }
 
 export interface Movimiento {
@@ -275,6 +277,7 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
           let referral = 0
           let fba = 0
           let otras = 0
+          const unidades = Number(it.QuantityShipped ?? 0) || 0
           // Lo cobrado: todos los cargos (Principal, Tax, ShippingCharge, ShippingTax, GiftWrap…). La retención de IVA de Amazon (ItemTaxWithheldList) no
           // entra: es IVA, y el IVA ya se descuenta aparte
           const cobrado = ((it.ItemChargeList as Array<{ ChargeAmount?: Importe }>) ?? []).reduce((s2, x) => s2 + eur(x.ChargeAmount, porEuro), 0)
@@ -292,7 +295,8 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
             previa.otras = r2(previa.otras + otras)
             previa.cobrado = r2(previa.cobrado + cobrado)
             previa.promo = r2(previa.promo + promo)
-          } else salida.tarifas.push({ pedido, sku, marketplace_id: mercado, dia, referral: r2(referral), fba: r2(fba), otras: r2(otras), cobrado: r2(cobrado), promo: r2(promo) })
+            previa.unidades += unidades
+          } else salida.tarifas.push({ pedido, sku, marketplace_id: mercado, dia, referral: r2(referral), fba: r2(fba), otras: r2(otras), cobrado: r2(cobrado), promo: r2(promo), unidades })
         }
       }
       continue

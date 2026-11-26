@@ -1,13 +1,20 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight, Search } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight, Search, TrendingDown, TrendingUp, X } from 'lucide-react'
 import { Area, Cell, ComposedChart, Line, Pie, PieChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { marketplaceById } from '@/lib/types/amazon'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
-import { totalizar, variacion, type FilaPanel, type Periodo, type Totales } from '@/lib/ventas/panel'
-import type { LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import { ivaDeLaCuenta, ivaDeVentas, totalizar, variacion, type FilaPanel, type Iva, type Periodo, type Totales } from '@/lib/ventas/panel'
+import type { BsrDelProducto, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+
+/** Lo que acompaña a cada producto como en Sellerboard: inventario FBA, BSR y sesiones del periodo (por «país|ASIN») */
+export interface ExtrasProductos {
+  stock?: Record<string, number>
+  bsr?: Record<string, BsrDelProducto>
+  sesiones?: Record<string, number> | null
+}
 
 /**
  * VENTAS · LAS PIEZAS DEL PANEL: formatos, banderas, el desglose de una baldosa, la gráfica, el reparto del dinero, la tabla de productos, la de pedidos y la
@@ -58,8 +65,15 @@ export function Chip({ actual, anterior, inverso = false }: { actual: number; an
 
 type FilaDesglose = { texto: string; valor: string; fuerte?: boolean; signo?: 'mas' | 'menos'; hijos?: Array<{ texto: string; valor: string }>; nota?: string; gris?: boolean }
 
-export function filasDeDesglose(t: Totales): FilaDesglose[] {
+export function filasDeDesglose(t: Totales, sesiones?: number | null): FilaDesglose[] {
   const organico = t.ventas - t.ventasPpc
+  const conSesiones: FilaDesglose[] =
+    sesiones === undefined
+      ? []
+      : [
+          { texto: 'Sesiones', valor: sesiones == null ? '—' : entero(sesiones), gris: true },
+          { texto: 'Porcentaje de sesiones por unidad', valor: sesiones ? pct(t.unidades / sesiones, 2) : '—', gris: true },
+        ]
   return [
     { texto: 'Ventas', valor: euros(t.ventas), fuerte: true, hijos: [{ texto: 'Orgánico', valor: euros(organico) }, { texto: 'Publicidad (mismo día)', valor: euros(t.ventasPpc) }] },
     { texto: 'Unidades', valor: entero(t.unidades), hijos: [{ texto: 'Orgánico', valor: entero(t.unidades - t.unidadesPpc) }, { texto: 'Publicidad (mismo día)', valor: entero(t.unidadesPpc) }] },
@@ -82,20 +96,24 @@ export function filasDeDesglose(t: Totales): FilaDesglose[] {
     { texto: 'Coste de los productos', valor: euros(-t.cogs), signo: 'menos', nota: t.unidadesSinCoste ? `${entero(t.unidadesSinCoste)} unidades sin coste puesto` : undefined },
     { texto: 'IVA', valor: euros(-t.iva), signo: 'menos' },
     { texto: 'Ajustes y reembolsos de Amazon', valor: euros(t.ajustes), signo: 'mas' },
+    { texto: 'Ganancia bruta', valor: euros(t.bruto) },
+    { texto: 'Gastos indirectos', valor: euros(0) },
     { texto: 'Ganancia neta', valor: euros(t.neto), fuerte: true },
-    { texto: 'Margen', valor: pct(t.margen), gris: true },
-    { texto: 'ROI', valor: t.roi == null ? '—' : pct(t.roi), gris: true },
-    { texto: 'TACOS (publicidad / ventas)', valor: pct(t.tacos), gris: true },
-    { texto: 'Tasa de reembolso', valor: pct(t.tasaReembolso), gris: true },
+    { texto: 'Pago estimado', valor: euros(t.pago), nota: 'Lo que Amazon te ingresa por esto: ventas menos promociones, tarifas (con su IVA) y reembolsos' },
+    { texto: 'TACOS (publicidad / ventas)', valor: pct(t.tacos, 2), gris: true },
+    { texto: 'Tasa de reembolso', valor: pct(t.tasaReembolso, 2), gris: true },
+    { texto: 'Margen', valor: pct(t.margen, 2), gris: true },
+    { texto: 'ROI', valor: t.roi == null ? '—' : pct(t.roi, 2), gris: true },
+    ...conSesiones,
     { texto: 'Precio medio de venta', valor: euros(t.precioMedio), gris: true },
   ]
 }
 
-export function Desglose({ t }: { t: Totales }) {
+export function Desglose({ t, sesiones, compacto = false }: { t: Totales; sesiones?: number | null; compacto?: boolean }) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set())
   return (
     <div className="flex flex-col">
-      {filasDeDesglose(t).map((f) => {
+      {filasDeDesglose(t, sesiones).map((f) => {
         const abierto = abiertos.has(f.texto)
         return (
           <div key={f.texto} className={`border-b border-[var(--ls-linea)] ${f.gris ? 'bg-[var(--ls-sup2)]' : ''}`}>
@@ -108,7 +126,7 @@ export function Desglose({ t }: { t: Totales }) {
                 else n.add(f.texto)
                 return n
               })}
-              className="flex w-full items-center gap-2 px-3 py-[9px] text-left disabled:cursor-default"
+              className={`flex w-full items-center gap-2 px-3 text-left disabled:cursor-default ${compacto ? 'py-[6px]' : 'py-[9px]'}`}
             >
               <span className="w-[14px] text-[var(--ls-t4)]">{f.hijos ? abierto ? <ChevronDown className="h-[13px] w-[13px]" /> : <ChevronRight className="h-[13px] w-[13px]" /> : null}</span>
               <span className={`flex-1 text-[13px] ${f.fuerte ? 'font-semibold text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{f.texto}</span>
@@ -161,7 +179,7 @@ export const SERIES_GRAFICA = [
 ] as const
 export type SerieGrafica = (typeof SERIES_GRAFICA)[number]['id']
 
-export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado, series = new Set<SerieGrafica>(['ventas', 'neto', 'publicidad']) }: { filas: readonly FilaPanel[]; dias: string[]; ivaPct: number; costes: Record<string, number>; resaltado: { desde: string; hasta: string } | null; series?: ReadonlySet<SerieGrafica> }) {
+export function GraficaVentas({ filas, dias, ivaPct, costes, resaltado, series = new Set<SerieGrafica>(['ventas', 'neto', 'publicidad']) }: { filas: readonly FilaPanel[]; dias: string[]; ivaPct: Iva; costes: Record<string, number>; resaltado: { desde: string; hasta: string } | null; series?: ReadonlySet<SerieGrafica> }) {
   const datos = useMemo(() => {
     const porDia = new Map<string, FilaPanel[]>()
     for (const f of filas) porDia.set(f.dia, [...(porDia.get(f.dia) ?? []), f])
@@ -264,12 +282,13 @@ export function RepartoDelDinero({ t }: { t: Totales }) {
 /* Productos                                                           */
 /* ------------------------------------------------------------------ */
 
-type ColProducto = 'unidades' | 'reembolsos' | 'ventas' | 'publicidad' | 'tarifas' | 'neto' | 'margen' | 'roi' | 'precio'
+type ColProducto = 'unidades' | 'reembolsos' | 'ventas' | 'publicidad' | 'tarifas' | 'neto' | 'margen' | 'roi' | 'precio' | 'bruto' | 'bsr'
 
 export type Agrupar = 'sku' | 'asin' | 'mercado'
 
-export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar = 'sku', onAbrir }: { filas: readonly FilaPanel[]; ivaPct: number; costes: Record<string, number>; titulos: Record<string, { titulo: string | null; asin: string | null }>; buscar: string; agrupar?: Agrupar; onAbrir?: (p: { titulo: string; sub: string; asin: string | null; mkt: string; filas: FilaPanel[] }) => void }) {
+export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar = 'sku', onAbrir, extras }: { filas: readonly FilaPanel[]; ivaPct: Iva; costes: Record<string, number>; titulos: Record<string, { titulo: string | null; asin: string | null }>; buscar: string; agrupar?: Agrupar; onAbrir?: (p: { titulo: string; sub: string; asin: string | null; mkt: string; filas: FilaPanel[] }) => void; extras?: ExtrasProductos }) {
   const [orden, setOrden] = useState<{ col: ColProducto; desc: boolean }>({ col: 'ventas', desc: true })
+  const [mas, setMas] = useState<{ k: string; x: number; y: number } | null>(null)
   const productos = useMemo(() => {
     const por = new Map<string, FilaPanel[]>()
     for (const f of filas) {
@@ -285,14 +304,36 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
         const sku = agrupar === 'mercado' ? '' : conSku.sku
         const asin = agrupar === 'mercado' ? null : (fs.find((f) => f.asin)?.asin ?? titulos[sku]?.asin ?? null)
         const titulo = agrupar === 'mercado' ? `${dominio(mkt)}` : (titulos[sku]?.titulo ?? null)
-        const skus = new Set(fs.map((f) => f.sku).filter(Boolean)).size
-        return { k, mkt, sku, asin, titulo, skus, filas: fs, t: totalizar(fs, ivaPct, costes), coste: costes[sku] ?? null }
+        const listaSkus = [...new Set(fs.map((f) => f.sku).filter(Boolean))]
+        const skus = listaSkus.length
+        // Inventario: el de sus SKU (el almacén es uno para todos los países)
+        const conStock = listaSkus.filter((x) => extras?.stock?.[x] != null)
+        const stock = agrupar === 'mercado' || conStock.length === 0 ? null : conStock.reduce((suma, x) => suma + (extras?.stock?.[x] ?? 0), 0)
+        const bsr = agrupar === 'mercado' ? null : (extras?.bsr?.[sku] ?? null)
+        let sesiones: number | null | undefined = undefined
+        if (extras?.sesiones !== undefined && agrupar !== 'mercado') {
+          if (!extras.sesiones || !asin) sesiones = null
+          else if (agrupar === 'asin') sesiones = Object.entries(extras.sesiones).filter(([c]) => c.endsWith(`|${asin}`)).reduce((suma, [, v]) => suma + v, 0)
+          else sesiones = extras.sesiones[`${mkt}|${asin}`] ?? 0
+        }
+        return { k, mkt, sku, asin, titulo, skus, filas: fs, t: totalizar(fs, ivaPct, costes), coste: costes[sku] ?? null, stock, bsr, sesiones }
       })
       .filter((p) => !q || p.sku.toLowerCase().includes(q) || (p.asin ?? '').toLowerCase().includes(q) || (p.titulo ?? '').toLowerCase().includes(q))
-  }, [filas, ivaPct, costes, titulos, buscar, agrupar])
-  const valor = (p: (typeof productos)[number], c: ColProducto) => (c === 'tarifas' ? p.t.tarifas : c === 'margen' ? (p.t.margen ?? -9) : c === 'roi' ? (p.t.roi ?? -9) : c === 'precio' ? (p.t.precioMedio ?? 0) : c === 'neto' ? p.t.neto : (p.t[c] as number))
+  }, [filas, ivaPct, costes, titulos, buscar, agrupar, extras])
+  const valor = (p: (typeof productos)[number], c: ColProducto) => (c === 'tarifas' ? p.t.tarifas : c === 'margen' ? (p.t.margen ?? -9) : c === 'roi' ? (p.t.roi ?? -9) : c === 'precio' ? (p.t.precioMedio ?? 0) : c === 'neto' ? p.t.neto : c === 'bruto' ? p.t.bruto : c === 'bsr' ? -(p.bsr?.rank ?? 1e12) : (p.t[c] as number))
   const lista = [...productos].sort((a, b) => (orden.desc ? valor(b, orden.col) - valor(a, orden.col) : valor(a, orden.col) - valor(b, orden.col)))
-  const maxVentas = Math.max(1, ...lista.map((p) => p.t.ventas))
+  const abierto = mas ? lista.find((p) => p.k === mas.k) ?? null : null
+  useEffect(() => {
+    if (!mas) return
+    const cerrar = (e: KeyboardEvent) => e.key === 'Escape' && setMas(null)
+    const fuera = () => setMas(null)
+    window.addEventListener('keydown', cerrar)
+    window.addEventListener('resize', fuera)
+    return () => {
+      window.removeEventListener('keydown', cerrar)
+      window.removeEventListener('resize', fuera)
+    }
+  }, [mas])
   const Cab = ({ col, texto }: { col: ColProducto; texto: string }) => (
     <th className="whitespace-nowrap px-2 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">
       <button type="button" onClick={() => setOrden((o) => ({ col, desc: o.col === col ? !o.desc : true }))} className="inline-flex items-center gap-1 hover:text-[var(--ls-t1)]">
@@ -302,9 +343,10 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
     </th>
   )
   if (lista.length === 0) return <p className="px-4 py-8 text-center text-[13px] text-[var(--ls-t4)]">Ningún producto con movimiento en este periodo.</p>
+  const conBsr = agrupar !== 'mercado' && lista.some((p) => p.bsr)
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[980px] text-[12.5px]">
+      <table className="w-full min-w-[1080px] text-[12.5px]">
         <thead className="border-b border-[var(--ls-linea)]">
           <tr>
             <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">Producto</th>
@@ -313,60 +355,145 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
             <Cab col="ventas" texto="Ventas" />
             <Cab col="publicidad" texto="Publicidad" />
             <Cab col="tarifas" texto="Tarifas" />
+            <Cab col="bruto" texto="Ganancia bruta" />
             <Cab col="neto" texto="Ganancia neta" />
             <Cab col="margen" texto="Margen" />
             <Cab col="roi" texto="ROI" />
+            {conBsr && <Cab col="bsr" texto="BSR" />}
             <Cab col="precio" texto="Precio medio" />
+            <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">Información</th>
           </tr>
         </thead>
         <tbody>
-          {lista.map((p, i) => (
-            <tr key={p.k} onClick={() => onAbrir?.({ titulo: p.titulo ?? p.sku, sub: agrupar === 'mercado' ? `${p.skus} productos` : `${p.asin ?? '—'} · SKU ${p.sku}${agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}`, asin: p.asin, mkt: p.mkt, filas: p.filas })} className={`group border-b ${onAbrir ? 'cursor-pointer' : ''} border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)]`} style={{ animation: `ventas-entra 420ms ${Math.min(i, 20) * 25}ms both cubic-bezier(.2,.8,.2,1)` }}>
-              <td className="px-3 py-[9px]">
-                <div className="flex items-center gap-3">
-                  {agrupar === 'mercado' ? (
-                    <span className="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-[12px] bg-[var(--ls-sup2)] text-[24px]">{bandera(p.mkt)}</span>
-                  ) : (
-                    <span className="shrink-0 rounded-[9px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)] transition-transform group-hover:scale-[1.06]">
-                      <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={44} redondeo={7} titulo={p.titulo ?? p.sku} />
-                    </span>
-                  )}
-                  <div className="min-w-0 max-w-[380px]">
-                    <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
-                      {agrupar === 'mercado' ? (
-                        <span>{pais(p.mkt)} · {p.skus} productos</span>
-                      ) : (
-                        <>
-                          <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
-                          <span className="tabular-nums">{p.asin ?? '—'}</span>
+          {lista.map((p, i) => {
+            const pocas = p.stock != null && (p.stock === 0 || p.stock < p.t.unidades)
+            const sube = p.bsr?.antes != null && p.bsr.rank < p.bsr.antes
+            const baja = p.bsr?.antes != null && p.bsr.rank > p.bsr.antes
+            return (
+              <tr key={p.k} onClick={() => onAbrir?.({ titulo: p.titulo ?? p.sku, sub: agrupar === 'mercado' ? `${p.skus} productos` : `${p.asin ?? '—'} · SKU ${p.sku}${agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}`, asin: p.asin, mkt: p.mkt, filas: p.filas })} className={`group border-b ${onAbrir ? 'cursor-pointer' : ''} border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)] ${mas?.k === p.k ? 'bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)]' : ''}`} style={{ animation: `ventas-entra 420ms ${Math.min(i, 20) * 25}ms both cubic-bezier(.2,.8,.2,1)` }}>
+                <td className="px-3 py-[5px]">
+                  <div className="flex items-center gap-[10px]">
+                    {agrupar === 'mercado' ? (
+                      <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[20px]">{bandera(p.mkt)}</span>
+                    ) : (
+                      <span className="shrink-0 rounded-[8px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)] transition-transform group-hover:scale-[1.06]">
+                        <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={34} redondeo={6} titulo={p.titulo ?? p.sku} />
+                      </span>
+                    )}
+                    <div className="min-w-0 max-w-[460px] leading-[1.3]">
+                      <div className="flex items-center gap-[6px] text-[10.5px] text-[var(--ls-t4)]">
+                        {agrupar === 'mercado' ? (
+                          <span>{pais(p.mkt)} · {p.skus} productos</span>
+                        ) : (
+                          <>
+                            <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
+                            <span className="tabular-nums">{p.asin ?? '—'}</span>
+                            <span>·</span>
+                            <span className="truncate">SKU {p.sku}{agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]" title={p.titulo ?? p.sku}>
+                        {p.titulo ?? p.sku}
+                      </div>
+                      {agrupar !== 'mercado' && (
+                        <div className="flex items-center gap-[5px] whitespace-nowrap text-[10.5px] tabular-nums text-[var(--ls-t4)]">
+                          <span>{euros(p.t.precioMedio)}</span>
                           <span>·</span>
-                          <span className="truncate">SKU {p.sku}{agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}</span>
-                        </>
+                          <span>COGS: {p.coste != null ? euros(p.coste) : <span className="text-[var(--ls-t4)]">sin poner</span>}</span>
+                          {p.stock != null && (
+                            <>
+                              <span>·</span>
+                              <span className="inline-flex items-center gap-[3px] font-medium" style={{ color: pocas ? NARANJA : 'var(--ls-t3)' }} title={pocas ? 'Quedan menos unidades en Amazon de las vendidas en este periodo' : 'Unidades vendibles en los almacenes de Amazon'}>
+                                Inventario FBA: {entero(p.stock)}
+                                {pocas && <AlertTriangle className="h-[11px] w-[11px]" strokeWidth={2.4} />}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <div className="truncate text-[12.5px] font-medium text-[var(--ls-t1)]" title={p.titulo ?? p.sku}>
-                      {p.titulo ?? p.sku}
-                    </div>
-                    <div className="mt-[3px] h-[3px] w-full max-w-[220px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
-                      <div className="h-full rounded-full" style={{ width: `${(p.t.ventas / maxVentas) * 100}%`, background: `linear-gradient(90deg, ${NARANJA}, ${NARANJA2})` }} />
-                    </div>
                   </div>
-                </div>
-              </td>
-              <td className="px-2 text-right tabular-nums text-[var(--ls-t1)]">{entero(p.t.unidades)}</td>
-              <td className="px-2 text-right tabular-nums" style={{ color: p.t.reembolsos ? ROJO : 'var(--ls-t4)' }}>{entero(p.t.reembolsos)}</td>
-              <td className="px-2 text-right font-semibold tabular-nums text-[var(--ls-t1)]">{euros(p.t.ventas)}</td>
-              <td className="px-2 text-right tabular-nums text-[var(--ls-t3)]">{p.t.publicidad ? euros(-p.t.publicidad) : '—'}</td>
-              <td className="px-2 text-right tabular-nums text-[var(--ls-t3)]">{euros(p.t.tarifas)}</td>
-              <td className="px-2 text-right font-semibold tabular-nums" style={{ color: p.t.neto >= 0 ? VERDE : ROJO }}>{euros(p.t.neto)}</td>
-              <td className="px-2 text-right tabular-nums text-[var(--ls-t2)]">{pct(p.t.margen, 0)}</td>
-              <td className="whitespace-nowrap px-2 text-right tabular-nums text-[var(--ls-t2)]" title={p.coste == null ? 'Sin coste puesto' : undefined}>{p.t.roi == null ? <span className="text-[var(--ls-t4)]">sin coste</span> : pct(p.t.roi, 0)}</td>
-              <td className="px-2 pr-3 text-right tabular-nums text-[var(--ls-t3)]">{euros(p.t.precioMedio)}</td>
-            </tr>
-          ))}
+                </td>
+                <td className="px-2 text-right tabular-nums text-[var(--ls-t1)]">{entero(p.t.unidades)}</td>
+                <td className="px-2 text-right tabular-nums" style={{ color: p.t.reembolsos ? ROJO : 'var(--ls-t4)' }}>{entero(p.t.reembolsos)}</td>
+                <td className="px-2 text-right font-semibold tabular-nums text-[var(--ls-t1)]">{euros(p.t.ventas)}</td>
+                <td className="px-2 text-right tabular-nums text-[var(--ls-t3)]">{p.t.publicidad ? euros(-p.t.publicidad) : '—'}</td>
+                <td className="px-2 text-right tabular-nums text-[var(--ls-t3)]">{euros(p.t.tarifas)}</td>
+                <td className="px-2 text-right tabular-nums text-[var(--ls-t2)]">{euros(p.t.bruto)}</td>
+                <td className="px-2 text-right font-semibold tabular-nums" style={{ color: p.t.neto >= 0 ? VERDE : ROJO }}>{euros(p.t.neto)}</td>
+                <td className="px-2 text-right tabular-nums text-[var(--ls-t2)]">{pct(p.t.margen, 0)}</td>
+                <td className="whitespace-nowrap px-2 text-right tabular-nums text-[var(--ls-t2)]" title={p.coste == null ? 'Sin coste puesto' : undefined}>{p.t.roi == null ? <span className="text-[var(--ls-t4)]">sin coste</span> : pct(p.t.roi, 0)}</td>
+                {conBsr && (
+                  <td className="whitespace-nowrap px-2 text-right tabular-nums" style={{ color: sube ? VERDE : baja ? ROJO : 'var(--ls-t3)' }} title={p.bsr?.antes != null ? `Hace unos días: ${entero(p.bsr.antes)}` : undefined}>
+                    {p.bsr ? (
+                      <span className="inline-flex items-center gap-1">
+                        {sube && <TrendingUp className="h-[12px] w-[12px]" />}
+                        {baja && <TrendingDown className="h-[12px] w-[12px]" />}
+                        {entero(p.bsr.rank)}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                )}
+                <td className="px-2 text-right tabular-nums text-[var(--ls-t3)]">{euros(p.t.precioMedio)}</td>
+                <td className="px-3 text-right">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      setMas((m) => (m?.k === p.k ? null : { k: p.k, x: r.right, y: r.top }))
+                    }}
+                    className="rounded-[6px] px-2 py-[2px] text-[12px] font-medium text-[#3B82F6] transition-colors hover:bg-[color-mix(in_srgb,#3B82F6_12%,transparent)]"
+                  >
+                    Más
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
+      {abierto && mas && <PanelMas p={abierto} x={mas.x} y={mas.y} agrupar={agrupar} onCerrar={() => setMas(null)} />}
     </div>
+  )
+}
+
+/** El «Más» de Sellerboard: todo el desglose de un producto en una ventanita junto a su fila */
+function PanelMas({ p, x, y, agrupar, onCerrar }: { p: { k: string; mkt: string; sku: string; asin: string | null; titulo: string | null; skus: number; t: Totales; sesiones?: number | null; stock: number | null }; x: number; y: number; agrupar: Agrupar; onCerrar: () => void }) {
+  const ANCHO = 380
+  const alto = typeof window === 'undefined' ? 800 : window.innerHeight
+  const ancho = typeof window === 'undefined' ? 1200 : window.innerWidth
+  const left = Math.max(12, Math.min(x - ANCHO - 12, ancho - ANCHO - 12))
+  const top = Math.max(12, Math.min(y - 40, alto - 640))
+  return (
+    <>
+      <div className="fixed inset-0 z-[80]" onClick={onCerrar} />
+      <div className="fixed z-[81] flex max-h-[calc(100vh-24px)] flex-col overflow-hidden rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.45)]" style={{ left, top, width: ANCHO, animation: 'ventas-entra 220ms both cubic-bezier(.2,.8,.2,1)' }}>
+        <div className="flex items-start gap-3 border-b border-[var(--ls-linea)] px-3 py-3">
+          {agrupar === 'mercado' ? (
+            <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[22px]">{bandera(p.mkt)}</span>
+          ) : (
+            <span className="shrink-0 rounded-[8px] bg-white p-[2px] ring-1 ring-[var(--ls-linea)]">
+              <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={40} redondeo={6} titulo={p.titulo ?? p.sku} />
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] tabular-nums text-[var(--ls-t4)]">{agrupar === 'mercado' ? `${pais(p.mkt)} · ${p.skus} productos` : `${p.asin ?? '—'} · ${p.sku}${agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}`}</div>
+            <div className="line-clamp-2 text-[12.5px] font-medium leading-[1.3] text-[var(--ls-t1)]">{p.titulo ?? p.sku}</div>
+            {p.stock != null && <div className="mt-[2px] text-[11px] text-[var(--ls-t3)]">Inventario FBA: {entero(p.stock)}</div>}
+          </div>
+          <button type="button" onClick={onCerrar} className="rounded-[6px] p-1 text-[var(--ls-t4)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]" aria-label="Cerrar">
+            <X className="h-[15px] w-[15px]" />
+          </button>
+        </div>
+        <div className="overflow-y-auto">
+          <Desglose t={p.t} sesiones={p.sesiones} compacto />
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -381,7 +508,7 @@ const ESTADO: Record<string, { texto: string; color: string }> = {
   partiallyshipped: { texto: 'Enviado en parte', color: COLOR_ESTADO.azul },
 }
 
-export function TablaPedidos({ lineas, titulos, ivaPct, costes, buscar }: { lineas: readonly LineaDelPanel[]; titulos: Record<string, { titulo: string | null; asin: string | null }>; ivaPct: number; costes: Record<string, number>; buscar: string }) {
+export function TablaPedidos({ lineas, titulos, ivaPct, costes, buscar }: { lineas: readonly LineaDelPanel[]; titulos: Record<string, { titulo: string | null; asin: string | null }>; ivaPct: Iva; costes: Record<string, number>; buscar: string }) {
   const q = buscar.trim().toLowerCase()
   const lista = lineas.filter((l) => !q || l.pedido.toLowerCase().includes(q) || l.sku.toLowerCase().includes(q) || (titulos[l.sku]?.titulo ?? '').toLowerCase().includes(q))
   if (lista.length === 0) return <p className="px-4 py-8 text-center text-[13px] text-[var(--ls-t4)]">No hay pedidos en este periodo (el detalle de pedidos se guarda de los últimos 62 días).</p>
@@ -403,8 +530,9 @@ export function TablaPedidos({ lineas, titulos, ivaPct, costes, buscar }: { line
           {lista.map((l, i) => {
             const ventas = l.ventas ?? 0
             // Las tarifas de Amazon vienen con su IVA dentro y se enseñan sin él (lib/ventas/panel.ts)
-            const tarifas = (l.tarifas ?? -0.15 * 1.21 * ventas) / (1 + ivaPct / 100)
-            const iva = Math.max(0, ventas - l.promo) * (ivaPct / (100 + ivaPct))
+            const tarifas = (l.tarifas ?? -0.15 * 1.21 * ventas) / (1 + ivaDeLaCuenta(ivaPct) / 100)
+            const rIva = ivaDeVentas(ivaPct, l.mkt)
+            const iva = Math.max(0, ventas - l.promo) * (rIva / (100 + rIva))
             const cogs = (costes[l.sku] ?? 0) * l.unidades
             const neto = ventas - l.promo + tarifas - iva - cogs
             const est = ESTADO[(l.estado ?? '').toLowerCase()] ?? { texto: l.estado ?? '—', color: 'var(--ls-t3)' }

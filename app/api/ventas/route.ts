@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { anadirCuenta, cambiarIva, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, productosDelPanel } from '@/lib/ventas/panel-servidor'
+import { anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, productosDelPanel, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
@@ -11,6 +11,7 @@ import { anadirCuenta, cambiarIva, cuentasDelPanel, cuentasParaAnadir, filasDelP
  *   POST { accion: 'costes', cuenta, costes: [{ sku, coste }] }  muchos de golpe (importar), hasta 5.000
  *   POST { accion: 'anadir', cuenta }                 da de alta una cuenta en el panel (la lectura empieza sola en la próxima pasada)
  *   POST { accion: 'iva', cuenta, iva }               el IVA que se descuenta en esa cuenta
+ *   POST { accion: 'iva-pais', cuenta, porPais }      «IVA de cada país» (OSS): a cada venta el IVA de su mercado (migración 346)
  * Solo lee de la base, nunca de Amazon (eso lo hace el cron).
  */
 export const dynamic = 'force-dynamic'
@@ -33,12 +34,13 @@ export async function GET(request: NextRequest) {
     if (!UUID.test(cuenta) || !FECHA.test(desde) || !FECHA.test(hasta) || desde > hasta) return fail(400, 'Faltan la cuenta o las fechas.')
     const lDesde = q.get('lineasDesde')
     const lHasta = q.get('lineasHasta')
-    const [filas, productos, lineas] = await Promise.all([
+    const [filas, productos, lineas, sesiones] = await Promise.all([
       filasDelPanel(cuenta, desde, hasta),
       q.get('productos') === '0' ? Promise.resolve(null) : productosDelPanel(cuenta),
       lDesde && lHasta && FECHA.test(lDesde) && FECHA.test(lHasta) ? lineasDelPanel(cuenta, lDesde, lHasta) : Promise.resolve(null),
+      sesionesDelPanel(cuenta, desde, hasta).catch(() => null),
     ])
-    return NextResponse.json({ filas, productos, lineas })
+    return NextResponse.json({ filas, productos, lineas, sesiones })
   } catch (error) {
     return errorResponse(error, 'Ventas: leer el panel')
   }
@@ -76,6 +78,15 @@ export async function POST(request: NextRequest) {
       const iva = Number(b.iva)
       if (!Number.isFinite(iva) || iva < 0 || iva > 30) return fail(400, 'El IVA no es válido.')
       await cambiarIva(b.cuenta, iva)
+      return NextResponse.json({ ok: true })
+    }
+    if (b.accion === 'iva-pais') {
+      try {
+        await cambiarIvaPorPais(b.cuenta, (b as { porPais?: unknown }).porPais === true)
+      } catch (e) {
+        if (/iva_por_pais/.test(String((e as { message?: string })?.message ?? ''))) return fail(409, 'Falta lanzar la migración 346 (IVA de cada país) en Supabase.')
+        throw e
+      }
       return NextResponse.json({ ok: true })
     }
     return fail(400, 'Acción desconocida.')

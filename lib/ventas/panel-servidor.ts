@@ -16,6 +16,8 @@ export interface CuentaDelPanel {
   /** El emoticono del cliente (el de Tareas o, si no está, uno elegido por la IA). null = iniciales */
   emoji: string | null
   iva: number
+  /** «IVA de cada país» (OSS, migración 346): a cada venta, el IVA de su mercado */
+  ivaPorPais: boolean
   mercados: string[]
   estado: {
     pedidosHasta: string | null
@@ -67,6 +69,7 @@ export async function cuentasDelPanel(): Promise<CuentaDelPanel[]> {
         cliente: c ? (nombreCliente.get(c.client_id) ?? null) : null,
         emoji: emojis.get((c ? nombreCliente.get(c.client_id) : null) ?? c?.name ?? '') ?? null,
         iva: n(f.iva_pct),
+        ivaPorPais: f.iva_por_pais === true,
         mercados: c?.marketplace_ids ?? [],
         estado: {
           pedidosHasta: (f.pedidos_leido_hasta as string) ?? null,
@@ -137,22 +140,78 @@ export interface ProductoDelCatalogo {
 }
 
 /** El título y el ASIN de cada SKU (del catálogo que ya lee el ERP), el catálogo entero (para «Productos») y los costes puestos */
-export async function productosDelPanel(connectionId: string): Promise<{ titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo: ProductoDelCatalogo[] }> {
+export interface BsrDelProducto {
+  rank: number
+  /** El de hace unos días (para la flecha), si lo hay */
+  antes: number | null
+}
+
+export async function productosDelPanel(connectionId: string): Promise<{ titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo: ProductoDelCatalogo[]; stock: Record<string, number>; bsr: Record<string, BsrDelProducto> }> {
   const s = createServiceClient()
   const titulos: Record<string, { titulo: string | null; asin: string | null }> = {}
   const catalogo: ProductoDelCatalogo[] = []
+  // Inventario FBA vendible por SKU: el almacén es uno (pan-europeo / EFN), así que se toma el mayor de los países
+  const stock: Record<string, number> = {}
   for (let d = 0; ; d += 1000) {
-    const { data, error } = await s.from('amazon_listings').select('sku, asin, title, marketplace_id, price, currency, is_fba, listing_status').eq('connection_id', connectionId).order('sku').range(d, d + 999)
+    const { data, error } = await s.from('amazon_listings').select('sku, asin, title, marketplace_id, price, currency, is_fba, listing_status, fba_fulfillable_quantity, fba_quantity').eq('connection_id', connectionId).order('sku').range(d, d + 999)
     if (error) break
-    for (const l of (data ?? []) as Array<{ sku: string; asin: string | null; title: string | null; marketplace_id: string; price: number | null; currency: string | null; is_fba: boolean | null; listing_status: string | null }>) {
+    for (const l of (data ?? []) as Array<{ sku: string; asin: string | null; title: string | null; marketplace_id: string; price: number | null; currency: string | null; is_fba: boolean | null; listing_status: string | null; fba_fulfillable_quantity: number | null; fba_quantity: number | null }>) {
       if (!titulos[l.sku] || (!titulos[l.sku].titulo && l.title)) titulos[l.sku] = { titulo: l.title, asin: l.asin }
+      const uds = l.fba_fulfillable_quantity ?? l.fba_quantity
+      if (l.is_fba && uds != null) stock[l.sku] = Math.max(stock[l.sku] ?? 0, Number(uds))
       catalogo.push({ sku: l.sku, mkt: l.marketplace_id, asin: l.asin, titulo: l.title, precio: l.price == null ? null : Number(l.price), moneda: l.currency, fba: Boolean(l.is_fba), activo: !l.listing_status || /active|buyable|discoverable/i.test(l.listing_status) })
     }
     if ((data ?? []).length < 1000) break
   }
   const { data: cs } = await s.from('ventas_costes').select('sku, coste').eq('connection_id', connectionId)
   const costes = Object.fromEntries(((cs ?? []) as Array<{ sku: string; coste: number }>).map((c) => [c.sku, Number(c.coste)]))
-  return { titulos, costes, catalogo }
+  return { titulos, costes, catalogo, stock, bsr: await bsrDelPanel(connectionId) }
+}
+
+/** El BSR de categoría más reciente de cada SKU (últimos 10 días) y el de unos días antes, para la tendencia. Si falla, sin BSR */
+async function bsrDelPanel(connectionId: string): Promise<Record<string, BsrDelProducto>> {
+  const desde = new Date(Date.now() - 10 * 86_400_000).toISOString()
+  const { data, error } = await createServiceClient()
+    .from('amazon_snapshots_bsr')
+    .select('sku, fecha, rank')
+    .eq('connection_id', connectionId)
+    .eq('tipo', 'categoria')
+    .gte('fecha', desde)
+    .order('fecha', { ascending: false })
+    .limit(5000)
+  if (error) return {}
+  const salida: Record<string, BsrDelProducto> = {}
+  const primera: Record<string, string> = {}
+  for (const f of (data ?? []) as Array<{ sku: string; fecha: string; rank: number }>) {
+    const b = salida[f.sku]
+    if (!b) {
+      salida[f.sku] = { rank: f.rank, antes: null }
+      primera[f.sku] = f.fecha
+    } else if (Date.parse(primera[f.sku]) - Date.parse(f.fecha) > 2 * 86_400_000) b.antes = f.rank // la más antigua que quede (va de nueva a vieja)
+    else if (b.rank > f.rank && f.fecha.slice(0, 10) === primera[f.sku].slice(0, 10)) b.rank = f.rank // el mismo día, la mejor categoría
+  }
+  return salida
+}
+
+/** Las sesiones por ASIN y país del periodo (del informe de tráfico, si el cliente lo tiene) */
+export async function sesionesDelPanel(connectionId: string, desde: string, hasta: string): Promise<Record<string, number> | null> {
+  const s = createServiceClient()
+  const { data: con } = await s.from('amazon_connections').select('client_id').eq('id', connectionId).maybeSingle()
+  const clientId = (con as { client_id?: string } | null)?.client_id
+  if (!clientId) return null
+  const salida: Record<string, number> = {}
+  let hay = false
+  for (let d = 0; d < 20_000; d += 1000) {
+    const { data, error } = await s.from('trafico_diario').select('asin, marketplace_id, sesiones').eq('client_id', clientId).gte('fecha', desde).lte('fecha', hasta).range(d, d + 999)
+    if (error) return null
+    for (const f of (data ?? []) as Array<{ asin: string; marketplace_id: string; sesiones: number }>) {
+      hay = true
+      const k = `${f.marketplace_id}|${f.asin}`
+      salida[k] = (salida[k] ?? 0) + Number(f.sesiones || 0)
+    }
+    if ((data ?? []).length < 1000) break
+  }
+  return hay ? salida : null
 }
 
 export async function lineasDelPanel(connectionId: string, desde: string, hasta: string): Promise<LineaDelPanel[]> {
@@ -217,6 +276,11 @@ export async function anadirCuenta(connectionId: string): Promise<void> {
   const { data: con } = await createServiceClient().from('amazon_connections').select('region').eq('id', connectionId).maybeSingle()
   const sinIva = (con as { region?: string } | null)?.region === 'na'
   const { error } = await createServiceClient().from('ventas_cuentas').upsert({ connection_id: connectionId, activa: true, ...(sinIva ? { iva_pct: 0 } : {}) }, { onConflict: 'connection_id' })
+  if (error) throw error
+}
+
+export async function cambiarIvaPorPais(connectionId: string, porPais: boolean): Promise<void> {
+  const { error } = await createServiceClient().from('ventas_cuentas').update({ iva_por_pais: porPais }).eq('connection_id', connectionId)
   if (error) throw error
 }
 

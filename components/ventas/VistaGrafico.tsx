@@ -7,7 +7,7 @@ import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, 
 import { PanelLateral, Segmentado } from '@/components/ui-ls'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { sumarDias, totalizar, type FilaPanel, type Totales } from '@/lib/ventas/panel'
-import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import type { BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 import { AltoEstable, bandera, Buscador, Desglose, entero, euros, fechaCorta, pais, pct, TablaPedidos, TablaProductos, type Agrupar } from './piezas'
 
 /**
@@ -16,7 +16,7 @@ import { AltoEstable, bandera, Buscador, Desglose, entero, euros, fechaCorta, pa
  * de ese mes, semana o día (o del rango entero) y abajo sus productos y pedidos. Se exporta a CSV.
  */
 
-type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number> } | null; lineas: LineaDelPanel[] | null }
+type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; stock?: Record<string, number>; bsr?: Record<string, BsrDelProducto> } | null; lineas: LineaDelPanel[] | null; sesiones?: Record<string, number> | null }
 export type Modo = 'meses' | 'semanas' | 'dias' | 'rango'
 type Unidad = 'euros' | 'numero' | 'porcentaje'
 
@@ -157,7 +157,8 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
   const filasComp = useMemo(() => filtrar(comp), [comp, mercados, skus]) // eslint-disable-line react-hooks/exhaustive-deps
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
   const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
-  const iva = cuenta.iva
+  const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones }), [datos])
+  const iva = useMemo(() => ({ pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais])
   const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
 
   const porCubeta = useMemo(() => {
@@ -399,7 +400,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
         </div>
         <AltoEstable clave={pestana}>
           {pestana === 'productos' ? (
-          <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} agrupar={agrupar} onAbrir={setProducto} />
+          <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} agrupar={agrupar} onAbrir={setProducto} extras={extras} />
         ) : lineas == null ? (
           <p className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-[var(--ls-t4)]">
             <Loader2 className="h-[14px] w-[14px] animate-spin" /> Cargando los pedidos…

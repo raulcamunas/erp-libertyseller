@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { Check, Coins, Download, Eye, EyeOff, Loader2, PackageSearch, Save, Upload } from 'lucide-react'
 import { CabeceraDeModulo } from '@/components/ui-ls'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
-import { hoyEnMadrid, sumarDias, totalizar, type FilaPanel } from '@/lib/ventas/panel'
+import { hoyEnMadrid, ivaDeVentas, sumarDias, totalizar, type FilaPanel } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, ProductoDelCatalogo } from '@/lib/ventas/panel-servidor'
 import { leerCostesCsv } from '@/lib/ventas/costes-csv'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
@@ -79,6 +79,7 @@ export function ProductosVentas() {
     return !Number.isNaN(n) && (n ?? null) !== (guardados[sku] ?? null)
   })
   const ivaNum = cuenta?.iva ?? 21
+  const ivaPorPais = cuenta?.ivaPorPais ?? false
 
   const productos = useMemo(() => {
     if (!datos) return []
@@ -90,10 +91,10 @@ export function ProductosVentas() {
     for (const [sku, fs] of ventas) if (!porSku.has(sku)) porSku.set(sku, { sku, mkt: fs[0].mkt, asin: fs.find((f) => f.asin)?.asin ?? null, titulo: datos.productos?.titulos[sku]?.titulo ?? null, precio: null, moneda: null, fba: false, activo: true })
     return [...porSku.values()].map((c) => {
       const fs = ventas.get(c.sku) ?? []
-      const t = totalizar(fs, ivaNum, {})
+      const t = totalizar(fs, { pct: ivaNum, porPais: ivaPorPais }, {})
       return { ...c, t, velocidad: t.unidades / DIAS }
     })
-  }, [datos, ivaNum])
+  }, [datos, ivaNum, ivaPorPais])
 
   const q = buscar.trim().toLowerCase()
   const lista = productos
@@ -108,7 +109,8 @@ export function ProductosVentas() {
     const cogs = costeDe(p.sku) ?? 0
     if (p.t.unidades > 0) return { valor: p.t.neto / p.t.unidades - cogs, estimado: false }
     if (p.precio == null) return null
-    const iva = p.precio * (ivaNum / (100 + ivaNum))
+    const r = ivaDeVentas({ pct: ivaNum, porPais: ivaPorPais }, p.mkt)
+    const iva = p.precio * (r / (100 + r))
     return { valor: p.precio - 0.15 * p.precio - iva - cogs, estimado: true }
   }
 
@@ -185,6 +187,27 @@ export function ProductosVentas() {
           />
           %
         </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={ivaPorPais}
+          onClick={async () => {
+            if (!cuentaId) return
+            try {
+              await pedir('/api/ventas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'iva-pais', cuenta: cuentaId, porPais: !ivaPorPais }) })
+              setCuentas((cs) => cs?.map((c) => (c.id === cuentaId ? { ...c, ivaPorPais: !ivaPorPais } : c)) ?? cs)
+            } catch (e) {
+              setAviso({ texto: e instanceof Error ? e.message : 'No se ha podido cambiar', bien: false })
+            }
+          }}
+          title="Encendido: a cada venta se le quita el IVA de su país (España 21, Francia 20, Alemania 19, Italia 22…), como quien declara por OSS. Apagado: el IVA de la cuenta para todo. Las tarifas de Amazon siempre con el IVA de la cuenta."
+          className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-[6px] text-[12.5px] text-[var(--ls-t2)]"
+        >
+          <span className="relative h-[18px] w-[32px] rounded-full transition-colors" style={{ background: ivaPorPais ? '#F26212' : 'var(--ls-sup3)' }}>
+            <span className="absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow transition-all" style={{ left: ivaPorPais ? 16 : 2 }} />
+          </span>
+          IVA de cada país (OSS)
+        </button>
       </div>
 
       <section className="mt-3 overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
@@ -270,7 +293,7 @@ export function ProductosVentas() {
                           <span className="w-[38px] tabular-nums text-[var(--ls-t1)]">{p.velocidad.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </span>
                       </td>
-                      <td className="px-3 text-right tabular-nums text-[var(--ls-t2)]">{ivaNum.toLocaleString('es-ES')} %</td>
+                      <td className="px-3 text-right tabular-nums text-[var(--ls-t2)]">{ivaDeVentas({ pct: ivaNum, porPais: ivaPorPais }, p.mkt).toLocaleString('es-ES')} %</td>
                     </tr>
                   )
                 })}

@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { AlertTriangle, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, GitCompareArrows, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
 import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
-import type { CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import type { BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
@@ -18,7 +18,7 @@ import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaD
  * productos, pedidos y cuenta de resultados se ponen en ese periodo. Todas las cuentas de beneficio, en el navegador (lib/ventas/panel.ts).
  */
 
-type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo?: Array<{ sku: string; mkt: string; asin: string | null; titulo: string | null; activo: boolean }> } | null; lineas: LineaDelPanel[] | null }
+type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; stock?: Record<string, number>; bsr?: Record<string, BsrDelProducto>; catalogo?: Array<{ sku: string; mkt: string; asin: string | null; titulo: string | null; activo: boolean }> } | null; lineas: LineaDelPanel[] | null; sesiones?: Record<string, number> | null }
 type Pestana = 'productos' | 'pedidos' | 'resultados'
 
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
@@ -142,7 +142,8 @@ export function TableroVentas() {
   const filasComp = useMemo(() => filtrar(comparacion), [comparacion, filtrar])
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
   const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
-  const iva = cuenta?.iva ?? 21
+  const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones }), [datos])
+  const iva = useMemo(() => ({ pct: cuenta?.iva ?? 21, porPais: cuenta?.ivaPorPais ?? false }), [cuenta?.iva, cuenta?.ivaPorPais])
 
   const totales: Totales[] = useMemo(() => periodos.map((p) => totalizar(filas.filter((f) => enRango(f.dia, p)), iva, costes, p.escala ?? 1)), [periodos, filas, iva, costes])
   const totalesComp: Array<Totales | null> = useMemo(
@@ -377,7 +378,7 @@ export function TableroVentas() {
           {pestana !== 'resultados' && <Buscador valor={buscar} onCambio={setBuscar} />}
         </div>
         <AltoEstable clave={pestana}>
-        {pestana === 'productos' && <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} />}
+        {pestana === 'productos' && <TablaProductos filas={filasElegidas} ivaPct={iva} costes={costes} titulos={titulos} buscar={buscar} extras={extras} />}
         {pestana === 'pedidos' &&
           (lineas == null ? (
             <p className="flex items-center justify-center gap-2 py-10 text-[12.5px] text-[var(--ls-t4)]">

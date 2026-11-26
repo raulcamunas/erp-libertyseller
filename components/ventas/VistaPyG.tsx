@@ -162,7 +162,7 @@ export function VistaPyG({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; hoy: s
   const filasAnio = useMemo(() => filtrar(anio), [anio, mercados, skus]) // eslint-disable-line react-hooks/exhaustive-deps
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
   const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
-  const iva = cuenta.iva
+  const iva = useMemo(() => ({ pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais])
   const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
 
   const tDe = (c: Cubeta, fs: readonly FilaPanel[] = filas) => totalizar(fs.filter((f) => f.dia >= c.desde && f.dia <= c.hasta), iva, costes)

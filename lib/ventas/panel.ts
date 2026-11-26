@@ -17,6 +17,30 @@
 
 export const DIA_MS = 86_400_000
 
+/** El IVA estándar de cada país de Amazon (para el interruptor «IVA de cada país», OSS). Fuera de la UE (EE. UU., Canadá, México), 0 */
+export const IVA_DE_PAIS: Readonly<Record<string, number>> = {
+  A1RKKUPIHCS9HS: 21, // España
+  A13V1IB3VIYZZH: 20, // Francia
+  A1PA6795UKMFR9: 19, // Alemania
+  APJ6JRA9NG5V4: 22, // Italia
+  A1F83G8C2ARO7P: 20, // Reino Unido
+  A1805IZSGTT6HS: 21, // Países Bajos
+  AMEN7PMS3EDWL: 21, // Bélgica
+  A28R8C7NBKEWEA: 23, // Irlanda
+  A1C3SOZRARQ6R3: 23, // Polonia
+  A2NODRKZP88ZB9: 25, // Suecia
+  A33AVAJ2PDY3EV: 20, // Turquía
+  ATVPDKIKX0DER: 0,
+  A2EUQ1WTGCTBG2: 0,
+  A1AM78C64UM0Y8: 0,
+}
+
+/** El IVA de una cuenta: un número (el mismo para todo, como hasta ahora) o, con «IVA de cada país», el de cada mercado para las ventas */
+export type Iva = number | { pct: number; porPais: boolean }
+export const ivaDeLaCuenta = (iva: Iva): number => (typeof iva === 'number' ? iva : iva.pct)
+/** El IVA que se quita a las ventas de un mercado */
+export const ivaDeVentas = (iva: Iva, mkt: string): number => (typeof iva !== 'number' && iva.porPais ? (IVA_DE_PAIS[mkt] ?? iva.pct) : ivaDeLaCuenta(iva))
+
 /** Una fila del resumen tal y como viaja al navegador (compacta) */
 export interface FilaPanel {
   dia: string
@@ -63,6 +87,8 @@ export interface Totales {
   unidadesSinCoste: number
   bruto: number
   neto: number
+  /** Lo que Amazon pagará por esto: ventas − promociones + tarifas CON su IVA ± reembolsos + ajustes (el «Pago estimado» de Sellerboard) */
+  pago: number
   margen: number | null
   roi: number | null
   tacos: number | null
@@ -73,13 +99,15 @@ export interface Totales {
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 export function vacios(): Totales {
-  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
+  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
 }
 
 /** Suma unas filas y saca el beneficio. `costes` = coste por unidad de cada SKU (euros) */
-export function totalizar(filas: readonly FilaPanel[], ivaPct: number, costes: Readonly<Record<string, number>>, escala = 1): Totales {
+export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Readonly<Record<string, number>>, escala = 1): Totales {
   const t = vacios()
-  const sinIva = 1 / (1 + Math.max(0, ivaPct) / 100)
+  const sinIva = 1 / (1 + Math.max(0, ivaDeLaCuenta(ivaPct)) / 100)
+  // El IVA de las ventas, fila a fila (con «IVA de cada país» cada mercado lleva el suyo)
+  let iva = 0
   for (const f of filas) {
     t.ventas += f.ventas
     t.unidades += f.unidades
@@ -96,6 +124,9 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: number, costes: R
     t.reembolsado += f.reembolsado
     t.costeReembolso += f.comisionReembolso * sinIva - f.reembolsado
     t.ajustes += f.ajustes
+    t.pago += f.ventas - f.promo + f.referral + f.fba + f.otras + f.comisionReembolso - f.reembolsado + f.ajustes
+    const r = ivaDeVentas(ivaPct, f.mkt)
+    iva += Math.max(0, f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
     if (f.sku && f.unidades) {
       const c = costes[f.sku]
       if (c != null && c > 0) t.cogs += c * f.unidades
@@ -103,18 +134,18 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: number, costes: R
     }
   }
   t.tarifas = t.referral + t.fba + t.otras
-  t.iva = Math.max(0, t.ventas - t.promo - t.reembolsado) * (ivaPct / (100 + ivaPct))
+  t.iva = Math.max(0, iva)
   t.bruto = t.ventas - t.promo + t.tarifas + t.costeReembolso - t.publicidad - t.iva - t.cogs + t.ajustes
   t.neto = t.bruto
   if (escala !== 1) {
-    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'unidadesSinCoste', 'bruto', 'neto'] as const) {
+    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
       t[k] = t[k] * escala
     }
     t.unidades = Math.round(t.unidades)
     t.pedidos = Math.round(t.pedidos)
     t.reembolsos = Math.round(t.reembolsos)
   }
-  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'bruto', 'neto'] as const) t[k] = r2(t[k])
+  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
   t.margen = t.ventas > 0 ? t.neto / t.ventas : null
   // El ROI solo con TODOS los costes puestos: con la mitad sale disparado (beneficio de todo entre el coste de unos pocos)
   t.roi = t.cogs > 0 && t.unidadesSinCoste === 0 ? t.neto / t.cogs : null

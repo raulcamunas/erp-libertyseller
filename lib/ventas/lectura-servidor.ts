@@ -497,7 +497,8 @@ export async function rehacerResumen(service: Servicio, connectionId: string): P
 /* ------------------------------------------------------------------ */
 
 export const DIAS_HISTORIAL = 730
-const TRAMO_HISTORIAL = 30
+// 28 días + un día de margen a cada lado = 30: el informe de pedidos no admite más
+const TRAMO_HISTORIAL = 28
 
 /**
  * Un tramo [desde, hasta) más antiguo que la ventana de 62 días: el informe de pedidos de esas fechas (se pide en una pasada y se recoge en otra) y el
@@ -569,6 +570,15 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
     if (t) porPedido.delete(`${l.pedido}|${l.sku}`)
     return { pedido: l.pedido, sku: l.sku, marketplace_id: l.marketplace_id, dia: l.dia, asin: l.asin, unidades: l.unidades, ventas: t && t.cobrado > 0 ? t.cobrado : l.ventas, promo: t ? t.promo || l.promo : l.promo, tarifa_referral: t ? t.referral : null, tarifa_fba: t ? t.fba : null, otras_tarifas: t ? t.otras : null, tarifas_reales: Boolean(t) }
   })
+  // Si el informe de pedidos no trae nada (Amazon lo cancela cuando no tiene datos de esas fechas), las ventas salen del propio dinero:
+  // cada envío cobrado, el día en que Amazon lo apuntó, con lo que pagó el comprador y sus comisiones reales
+  const porDinero = lineas.length === 0
+  if (porDinero) {
+    for (const t of porPedido.values()) {
+      if (!dentro(t.dia) || t.cobrado <= 0) continue
+      lineas.push({ pedido: t.pedido, sku: t.sku, marketplace_id: t.marketplace_id, dia: t.dia, asin: null, unidades: t.unidades || 1, ventas: t.cobrado, promo: t.promo, tarifa_referral: t.referral, tarifa_fba: t.fba, otras_tarifas: t.otras, tarifas_reales: true })
+    }
+  }
   // Las comisiones de pedidos que no son de este tramo NO cuentan aquí: son de un tramo vecino, que las casa con su pedido (lee el dinero hasta 15 días después)
   const unicos = [...new Map(movimientos.filter((m) => dentro(m.dia)).map((m) => [m.clave, m])).values()]
   const filas = resumirDias(lineas, unicos).filter((f) => dentro(f.dia))
@@ -577,5 +587,5 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
   if (error) throw error
   await enTrozos(filas.map((f) => ({ connection_id: c.connection_id, ...f })), (t) => service.from('ventas_dia').insert(t))
   await guardar(service, c.connection_id, { historico_informe_id: null, historico_hasta: desde, historico_at: new Date().toISOString() })
-  return `historial ${desde} → ${hasta}: ${lineas.length} líneas, ${filas.length} filas`
+  return `historial ${desde} → ${hasta}: ${lineas.length} líneas${porDinero ? ` sacadas del dinero (informe ${est.estado}, ${pedidos.length} pedidos)` : ''}, ${filas.length} filas`
 }
