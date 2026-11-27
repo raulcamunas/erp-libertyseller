@@ -30,6 +30,12 @@ export async function GET(request: NextRequest) {
       const [cuentas, libres] = await Promise.all([cuentasDelPanel(), cuentasParaAnadir()])
       return NextResponse.json({ cuentas, libres })
     }
+    // Solo el catálogo (títulos, costes, stock, BSR): Gráfico y P&L lo piden aparte y el navegador lo guarda (components/ventas/catalogo.ts)
+    if (q.get('que') === 'productos') {
+      const c = q.get('cuenta') ?? ''
+      if (!UUID.test(c)) return fail(400, 'Falta la cuenta.')
+      return NextResponse.json({ productos: await productosDelPanel(c) })
+    }
     // Costo de envío: los perfiles de la cuenta y cuántos pedidos tienen el coste importado
     if (q.get('que') === 'envio') {
       const c = q.get('cuenta') ?? ''

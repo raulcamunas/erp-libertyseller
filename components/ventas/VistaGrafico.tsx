@@ -1,5 +1,6 @@
 'use client'
 
+import { useCatalogo } from './catalogo'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Calendar, Check, ChevronDown, Download, GitCompareArrows, Globe, Loader2, Settings2 } from 'lucide-react'
@@ -137,7 +138,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
     let vivo = true
     setCargando(true)
     setError(null)
-    const a = pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${rangoTotal.desde}&hasta=${rangoTotal.hasta}`)
+    const a = pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${rangoTotal.desde}&hasta=${rangoTotal.hasta}&productos=0`)
     const b = comparar ? pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${menosUnAnio(rangoTotal.desde)}&hasta=${menosUnAnio(rangoTotal.hasta)}&productos=0&sesiones=0`) : Promise.resolve({ filas: [] as FilaPanel[], productos: null, lineas: null })
     Promise.all([a, b])
       .then(([x, y]) => {
@@ -155,9 +156,11 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
   const filtrar = (fs: readonly FilaPanel[]) => fs.filter((f) => (!mercados || mercados.has(f.mkt)) && (!skus || skus.has(f.sku)))
   const filas = useMemo(() => filtrar(datos?.filas ?? []), [datos, mercados, skus]) // eslint-disable-line react-hooks/exhaustive-deps
   const filasComp = useMemo(() => filtrar(comp), [comp, mercados, skus]) // eslint-disable-line react-hooks/exhaustive-deps
-  const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
-  const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
-  const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones }), [datos])
+  // El catálogo, el mismo que ya bajó el tablero (no se vuelve a pedir)
+  const catalogo = useCatalogo(cuenta.id)
+  const costes = useMemo(() => catalogo?.costes ?? {}, [catalogo])
+  const titulos = useMemo(() => catalogo?.titulos ?? {}, [catalogo])
+  const extras = useMemo(() => ({ stock: catalogo?.stock, bsr: catalogo?.bsr, sesiones: datos?.sesiones }), [catalogo, datos])
   const iva = useMemo(() => ({ ...cuenta.ajustes, pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais, cuenta.ajustes])
   const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
 

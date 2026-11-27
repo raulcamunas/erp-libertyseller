@@ -1,5 +1,6 @@
 'use client'
 
+import { guardarCatalogo, type CatalogoDeCuenta } from './catalogo'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -176,7 +177,11 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
     Promise.all([principal, comp])
       .then(([a, b]) => {
         if (n !== peticion.current) return
-        if (conProductos) cache.current = { ...cache.current, productosDe: cuentaId, productos: a.productos }
+        if (conProductos) {
+          cache.current = { ...cache.current, productosDe: cuentaId, productos: a.productos }
+          // Para Gráfico y P&L: el mismo catálogo, sin volver a pedirlo
+          if (a.productos) guardarCatalogo(cuentaId, a.productos as unknown as CatalogoDeCuenta)
+        }
         setDatos({ ...a, productos: conProductos ? a.productos : cache.current.productos })
         setDatosDe(cuentaId)
         if (b) {
@@ -230,7 +235,10 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
         return { ...p, costes }
       }
       setDatos((d) => (d?.productos ? { ...d, productos: cambiar(d.productos) } : d))
-      if (cache.current.productos) cache.current = { ...cache.current, productos: cambiar(cache.current.productos) }
+      if (cache.current.productos) {
+        cache.current = { ...cache.current, productos: cambiar(cache.current.productos) }
+        guardarCatalogo(cuentaId, cache.current.productos as unknown as CatalogoDeCuenta)
+      }
       toast.success(coste === null ? `COGS de ${sku} quitado` : `COGS de ${sku}: ${euros(coste)}`)
       return true
     },

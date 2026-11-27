@@ -309,12 +309,18 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
   const [orden, setOrden] = useState<{ col: ColProducto; desc: boolean }>({ col: 'ventas', desc: true })
   const [mas, setMas] = useState<{ k: string; boton: HTMLElement } | null>(null)
   const productos = useMemo(() => {
+    // push y no `[...lista, f]`: copiar la lista en cada fila era cuadrático y con 14.000 filas (13 meses de Cobo) colgaba el navegador
     const por = new Map<string, FilaPanel[]>()
     for (const f of filas) {
       if (!f.sku && agrupar !== 'mercado') continue
       const k = agrupar === 'mercado' ? f.mkt : agrupar === 'asin' ? (f.asin ?? titulos[f.sku]?.asin ?? f.sku) : `${f.mkt}|${f.sku}`
-      por.set(k, [...(por.get(k) ?? []), f])
+      const g = por.get(k)
+      if (g) g.push(f)
+      else por.set(k, [f])
     }
+    // Las sesiones por ASIN (todos los países) de una pasada, no buscando en todas por cada producto
+    const sesionesPorAsin = new Map<string, number>()
+    if (agrupar === 'asin' && extras?.sesiones) for (const [c, v] of Object.entries(extras.sesiones)) { const a = c.slice(c.indexOf('|') + 1); sesionesPorAsin.set(a, (sesionesPorAsin.get(a) ?? 0) + v) }
     const q = buscar.trim().toLowerCase()
     return [...por.entries()]
       .map(([k, fs]) => {
@@ -332,7 +338,7 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
         let sesiones: number | null | undefined = undefined
         if (extras?.sesiones !== undefined && agrupar !== 'mercado') {
           if (!extras.sesiones || !asin) sesiones = null
-          else if (agrupar === 'asin') sesiones = Object.entries(extras.sesiones).filter(([c]) => c.endsWith(`|${asin}`)).reduce((suma, [, v]) => suma + v, 0)
+          else if (agrupar === 'asin') sesiones = sesionesPorAsin.get(asin) ?? 0
           else sesiones = extras.sesiones[`${mkt}|${asin}`] ?? 0
         }
         const suma = (c: 'reservado' | 'enviado' | 'noApto' | 'ritmo') => listaSkus.reduce((acc, x) => acc + (extras?.inventario?.[x]?.[c] ?? 0), 0)
@@ -342,7 +348,18 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
       .filter((p) => !q || p.sku.toLowerCase().includes(q) || (p.asin ?? '').toLowerCase().includes(q) || (p.titulo ?? '').toLowerCase().includes(q))
   }, [filas, ivaPct, costes, titulos, buscar, agrupar, extras])
   const valor = (p: (typeof productos)[number], c: ColProducto) => (c === 'tarifas' ? p.t.tarifas : c === 'margen' ? (p.t.margen ?? -9) : c === 'roi' ? (p.t.roi ?? -9) : c === 'precio' ? (p.t.precioMedio ?? 0) : c === 'neto' ? p.t.neto : c === 'bruto' ? p.t.bruto : c === 'bsr' ? -(p.bsr?.rank ?? 1e12) : (p.t[c] as number))
-  const lista = [...productos].sort((a, b) => (orden.desc ? valor(b, orden.col) - valor(a, orden.col) : valor(a, orden.col) - valor(b, orden.col)))
+  const lista = useMemo(() => [...productos].sort((a, b) => (orden.desc ? valor(b, orden.col) - valor(a, orden.col) : valor(a, orden.col) - valor(b, orden.col))), [productos, orden]) // eslint-disable-line react-hooks/exhaustive-deps
+  // DE 100 EN 100: pintar miles de filas con su imagen de golpe dejaba la página sin responder (ShoesF: más de 3.000 productos en 13 meses)
+  const [mostrar, setMostrar] = useState(100)
+  useEffect(() => setMostrar(100), [filas, buscar, agrupar, orden])
+  const finDeLista = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = finDeLista.current
+    if (!el || mostrar >= lista.length) return
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setMostrar((m) => m + 100), { rootMargin: '800px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [mostrar, lista.length])
   const abierto = mas ? lista.find((p) => p.k === mas.k) ?? null : null
   useEffect(() => {
     if (!mas) return
@@ -381,7 +398,7 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
           </tr>
         </thead>
         <tbody>
-          {lista.map((p, i) => {
+          {lista.slice(0, mostrar).map((p, i) => {
             const pocas = p.stock != null && (p.stock === 0 || p.stock < p.t.unidades)
             const sube = p.bsr?.antes != null && p.bsr.rank < p.bsr.antes
             const baja = p.bsr?.antes != null && p.bsr.rank > p.bsr.antes
@@ -470,6 +487,14 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
           })}
         </tbody>
       </table>
+      {mostrar < lista.length && (
+        <div ref={finDeLista} className="flex items-center justify-center gap-3 py-4 text-[12px] text-[var(--ls-t4)]">
+          {mostrar} de {lista.length} productos
+          <button type="button" onClick={() => setMostrar(lista.length)} className="text-[var(--ls-t2)] underline-offset-2 hover:underline">
+            Ver todos
+          </button>
+        </div>
+      )}
       {abierto && mas && <PanelMas p={abierto} boton={mas.boton} agrupar={agrupar} onCerrar={() => setMas(null)} />}
     </div>
   )
