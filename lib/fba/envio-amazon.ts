@@ -364,7 +364,43 @@ export function validarCaja(c: CajaParaValidar): Problema[] {
 
 export function validarCajas(cajas: CajaParaValidar[]): Problema[] {
   if (cajas.length === 0) return [{ nivel: 'error', texto: 'No hay cajas' }]
-  return cajas.flatMap(validarCaja)
+  // Las de «pesado» van en UNA línea (eran nueve avisos iguales): «Cajas 1, 2 y 5 pesan 15 kg o más…»
+  const pesadas = cajas.filter((c) => c.pesoKg != null && c.pesoKg <= LIMITES_CAJA.maxPesoKg && c.pesoKg >= LIMITES_CAJA.pesadoDesdeKg).map((c) => c.numero).sort((a, b) => a - b)
+  const resto = cajas.flatMap(validarCaja).filter((p) => !(p.nivel === 'aviso' && p.texto.includes('«pesado»')))
+  if (pesadas.length) resto.push({ nivel: 'aviso', texto: `${textoCajasPesadas(pesadas)}: llevan la etiqueta de «pesado» por arriba y por un lado` })
+  return resto
+}
+
+/** PURA. «Caja 3 pesa 15 kg o más» / «Cajas 1, 2 y 5 pesan 15 kg o más» */
+export function textoCajasPesadas(numeros: number[]): string {
+  if (numeros.length === 1) return `Caja ${numeros[0]} pesa ${LIMITES_CAJA.pesadoDesdeKg} kg o más`
+  const lista = numeros.length > 1 ? `${numeros.slice(0, -1).join(', ')} y ${numeros[numeros.length - 1]}` : ''
+  return `Cajas ${lista} pesan ${LIMITES_CAJA.pesadoDesdeKg} kg o más`
+}
+
+/** PURA. El siguiente día laborable (lunes a viernes) a partir de mañana: UPS no recoge en fin de semana */
+export function siguienteLaborable(hoy: string): string {
+  let t = Date.parse(`${hoy}T12:00:00Z`) + 86_400_000
+  while ([0, 6].includes(new Date(t).getUTCDay())) t += 86_400_000
+  return new Date(t).toISOString().slice(0, 10)
+}
+
+export const esFinDeSemana = (dia: string): boolean => [0, 6].includes(new Date(`${dia}T12:00:00Z`).getUTCDay())
+
+/**
+ * PURA. Lo que significa un error de Amazon y qué hacer, en cristiano. null si no es uno conocido (entonces se enseña tal cual).
+ * Salen de envíos reales: la dirección que no verifica, la preparación que falta, el responsable de preparar o etiquetar, la recogida en el pasado.
+ */
+export function explicarErrorAmazon(texto: string): { titulo: string; queHacer: string } | null {
+  const t = texto.toLowerCase()
+  if (/address was unable to be verified|no reconoce la direcci/.test(t)) return { titulo: 'Amazon no encuentra la dirección de origen en su callejero', queHacer: 'Pulsa «Reintentar el paso»: el ERP prueba solo otras formas de escribirla. Si sigue, revisa «Sale desde» para que sea igual que «Enviar desde» de Seller Central.' }
+  if (/prep classification.*missing|faltan detalles de preparaci/.test(t)) return { titulo: 'A algún producto le falta la preparación en Amazon', queHacer: 'Pulsa «Reintentar el paso»: el ERP le pone «No necesita preparación» y vuelve a crear el plan.' }
+  if (/(does not require|requires) (prepowner|labelowner)/.test(t)) return { titulo: 'Amazon quiere otro responsable de preparar o etiquetar algún producto', queHacer: 'Pulsa «Reintentar el paso»: el ERP lee lo que pide Amazon y lo corrige solo.' }
+  if (/cannot be in the past|no puede ser en el pasado/.test(t)) return { titulo: 'La hora de recogida ya ha pasado', queHacer: 'Pulsa «Reintentar el paso» (la hora se recalcula) o cambia el día de recogida.' }
+  if (/quota|throttl|too many requests|429/.test(t)) return { titulo: 'Amazon está saturado ahora mismo', queHacer: 'Espera un minuto y pulsa «Reintentar el paso».' }
+  if (/expired|caducad/.test(t)) return { titulo: 'La opción de Amazon ha caducado', queHacer: 'Vuelve a pedirla (cotización o reparto) y confírmala de nuevo.' }
+  if (/weight|peso|dimension|medida/.test(t) && /box|caja/.test(t)) return { titulo: 'Amazon no acepta el peso o las medidas de alguna caja', queHacer: 'Revisa las cajas (máximo 63,5 cm por lado y 23 kg), reábrelas, corrígelas y vuelve a mandarlas.' }
+  return null
 }
 
 export const hayErrores = (ps: Problema[]): boolean => ps.some((p) => p.nivel === 'error')

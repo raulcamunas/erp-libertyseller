@@ -16,6 +16,9 @@ import {
   embalajeAutomatico,
   faseDelPaso,
   fechaDeRecogida,
+  validarCajas,
+  siguienteLaborable,
+  explicarErrorAmazon,
   hayErrores,
   OPERACION_DEL_PASO,
   PASOS_ENVIO,
@@ -300,6 +303,12 @@ ok('plan con dueños', cuerpoCrearPlan({ nombre: 'r', marketplaceId: 'A1RKKUPIHC
 const pp = (msku: string, prepCategory: string | null, po: string | null = null, lo: string | null = null) => ({ msku, prepCategory, prepTypes: prepCategory === 'NONE' ? ['ITEM_NO_PREP'] : [], prepOwnerConstraint: po, labelOwnerConstraint: lo })
 ok('sin categoría = falta preparación', [sinPreparacion(pp('a', null)), sinPreparacion(pp('b', 'UNKNOWN')), sinPreparacion(pp('c', 'NONE'))], [true, true, false])
 ok('dueños desde la preparación', duenosDePreparacion([pp('a', 'NONE'), pp('b', 'FRAGILE'), pp('c', 'FRAGILE', 'SELLER_ONLY', 'NONE_ONLY'), pp('d', 'UNKNOWN')]), { a: { prep: 'NONE' }, c: { prep: 'SELLER', label: 'NONE' }, d: { prep: 'NONE' } })
+
+ok('pesadas en una línea', validarCajas([caja(1, 40, 30, 30, 19), caja(2, 40, 30, 30, 18), caja(3, 40, 30, 30, 9)]).map((p) => p.texto), ['Cajas 1 y 2 pesan 15 kg o más: llevan la etiqueta de «pesado» por arriba y por un lado'])
+ok('viernes → lunes', siguienteLaborable('2026-11-27'), '2026-11-30')
+ok('lunes → martes', siguienteLaborable('2026-11-30'), '2026-12-01')
+ok('error de preparación explicado', explicarErrorAmazon('ERROR: Prep classification for this SKU was missing.')?.titulo, 'A algún producto le falta la preparación en Amazon')
+ok('error desconocido sin explicar', explicarErrorAmazon('algo raro'), null)
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO' : `\n  ${fallos} FALLOS`)
 if (fallos) process.exit(1)

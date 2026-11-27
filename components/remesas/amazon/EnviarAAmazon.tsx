@@ -35,7 +35,7 @@ import {
 import { toast } from 'sonner'
 import { Boton, CifraAnimada, Confirmacion, EsqueletoTarjeta, EstadoVacio, FilaDeKpis, Insignia, Kpi, LineaDeTiempo, Segmentado, Tarjeta, mezcla, ACENTO, type Hito } from '@/components/ui-ls'
 import { COLOR_ESTADO, type TonoEstado } from '@/lib/estilo/denso'
-import { FASES_ENVIO, cuantoQueda, faseDelPaso, type FaseEnvio, type Problema } from '@/lib/fba/envio-amazon'
+import { FASES_ENVIO, cuantoQueda, esFinDeSemana, explicarErrorAmazon, faseDelPaso, siguienteLaborable, type FaseEnvio, type Problema } from '@/lib/fba/envio-amazon'
 import type { EstadoDelEnvio } from '@/lib/fba/envio-amazon-motor'
 import { HOJAS_CAJA, type HojaCaja } from '@/lib/fba/formatos-etiqueta'
 import { invalidarRemesas } from '../comun/useAgencia'
@@ -48,8 +48,8 @@ import { DireccionOrigen } from '../DireccionOrigen'
  * Seis fases, una detrás de otra y siempre a la vista: Inventario → Embalaje → Reparto → Transporte UPS →
  * Etiquetas → Seguimiento. Arriba el modo (manual en Seller Central o desde el ERP) y el estado de la
  * operación de Amazon en curso, en vivo. Lo irreversible (confirmar el reparto, confirmar el transporte,
- * cancelar envíos reales) pide escribir una palabra. El transporte solo se confirma cuando el cliente ha
- * aceptado el coste en su enlace.
+ * cancelar envíos reales) pide escribir una palabra. El transporte lo confirma la agencia (el cliente solo ve
+ * el coste en su enlace).
  *
  * El motor está en lib/fba/envio-amazon-motor.ts; la secuencia y las validaciones, en lib/fba/envio-amazon.ts.
  */
@@ -212,10 +212,7 @@ function CabeceraEnvio({ e, trabajando, bloqueado, onModo, onReintentar }: { e: 
                 )}
               </div>
               {e.error ? (
-                <p className="mt-1 text-[12.5px] leading-[1.5]" style={{ color: COLOR_ESTADO.rojo }}>
-                  Amazon dice: {e.error}
-                  <span className="mt-1 block text-[12px] text-[var(--ls-t3)]">Corrige lo que diga y reintenta el paso, o cancela el plan en «Seguimiento».</span>
-                </p>
+                <ErrorExplicado texto={e.error} />
               ) : (
                 <p className="mt-1 text-[12px] text-[var(--ls-t3)]">
                   {e.inboundPlanId ? <>Plan <span className="font-mono">{e.inboundPlanId}</span></> : 'Todavía no hay plan en Amazon'}
@@ -604,10 +601,8 @@ function ListaDeEnvios({ e }: { e: EstadoDelEnvio }) {
 
 /* 4 · Transporte --------------------------------------------------- */
 
-const manana = (): string => {
-  const d = new Date(Date.now() + 86_400_000)
-  return d.toISOString().slice(0, 10)
-}
+/** El siguiente día laborable: UPS no recoge en fin de semana */
+const manana = (): string => siguienteLaborable(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date()))
 
 function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; trabajando: string | null; enviar: Enviar; ahora: Date }) {
   const [dia, setDia] = useState(e.recogida?.dia ?? manana())
@@ -695,6 +690,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
             <label className="text-[12px] text-[var(--ls-t3)]">
               Día de recogida
               <input type="date" className={campo} value={dia} min={new Date().toISOString().slice(0, 10)} onChange={(v) => setDia(v.target.value)} />
+              {dia && esFinDeSemana(dia) && <span className="mt-1 block text-[11.5px]" style={{ color: COLOR_ESTADO.ambar }}>Es {new Date(`${dia}T12:00:00Z`).getUTCDay() === 6 ? 'sábado' : 'domingo'}: UPS no suele recoger en fin de semana</span>}
             </label>
             <label className="text-[12px] text-[var(--ls-t3)]">
               Contacto
@@ -1027,6 +1023,8 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
   }
   return (
     <div className="space-y-3">
+      <LoQueQueda remesaId={remesaId} e={e} palets={!!palets} />
+
       <Tarjeta indice={0} variante="destacada" acento="remesas" icono={Printer} titulo="Etiquetas de caja y de UPS" subtitulo="Una por caja. Los enlaces de Amazon caducan: se piden al pulsar">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
@@ -1332,6 +1330,87 @@ function DatosRecogidaUps({ e, numeros }: { e: EstadoDelEnvio; numeros: string[]
           Los {numeros.length} números de seguimiento (1Z…) para comprobar los cargos están abajo, con «Copiar para UPS».
         </p>
       )}
+    </Tarjeta>
+  )
+}
+
+/** El error de Amazon en cristiano (qué ha pasado y qué hacer) con el texto original plegado debajo; si no se conoce, el texto tal cual */
+function ErrorExplicado({ texto }: { texto: string }) {
+  const x = explicarErrorAmazon(texto)
+  if (!x)
+    return (
+      <p className="mt-1 text-[12.5px] leading-[1.5]" style={{ color: COLOR_ESTADO.rojo }}>
+        Amazon dice: {texto}
+        <span className="mt-1 block text-[12px] text-[var(--ls-t3)]">Corrige lo que diga y reintenta el paso, o cancela el plan en «Seguimiento».</span>
+      </p>
+    )
+  return (
+    <div className="mt-1 space-y-1 text-[12.5px] leading-[1.5]">
+      <p className="font-semibold" style={{ color: COLOR_ESTADO.rojo }}>{x.titulo}</p>
+      <p className="text-[var(--ls-t2)]">{x.queHacer}</p>
+      <details className="text-[11.5px] text-[var(--ls-t4)]">
+        <summary className="cursor-pointer select-none hover:text-[var(--ls-t2)]">Lo que ha contestado Amazon</summary>
+        <p className="mt-1 break-words font-mono">{texto}</p>
+      </details>
+    </div>
+  )
+}
+
+/**
+ * LO QUE QUEDA PARA QUE SALGA, en orden y con su casilla (se recuerda en este navegador por remesa): imprimir, pegar cada etiqueta en su caja,
+ * la pegatina de «pesado», pedir la recogida y marcarla como enviada. Es la lista que hasta ahora había que llevar de cabeza.
+ */
+function LoQueQueda({ remesaId, e, palets }: { remesaId: string; e: EstadoDelEnvio; palets: boolean }) {
+  const clave = `envio-pasos-${remesaId}`
+  const [hechos, setHechos] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    try {
+      setHechos(JSON.parse(localStorage.getItem(clave) ?? '{}') as Record<string, boolean>)
+    } catch {
+      setHechos({})
+    }
+  }, [clave])
+  const marcar = (id: string) =>
+    setHechos((h) => {
+      const n = { ...h, [id]: !h[id] }
+      try {
+        localStorage.setItem(clave, JSON.stringify(n))
+      } catch {
+        /* sin almacenamiento: la casilla vale mientras la pantalla esté abierta */
+      }
+      return n
+    })
+  const pesado = e.cajas.problemas.find((p) => p.texto.includes('«pesado»'))?.texto ?? null
+  const pasos: Array<{ id: string; texto: string; detalle?: string }> = [
+    { id: 'imprimir', texto: `Imprime las etiquetas: ${e.cajas.cajas} caja${e.cajas.cajas === 1 ? '' : 's'}`, detalle: palets ? 'Y las de palé' : 'Cada hoja lleva la de Amazon y la de UPS' },
+    { id: 'pegar', texto: 'Pega cada etiqueta en su caja', detalle: 'La caja 1 con «Box 1 of …», y así: abajo, «Qué etiqueta va en cada caja»' },
+    ...(pesado ? [{ id: 'pesado', texto: 'Pegatina de «pesado»', detalle: pesado }] : []),
+    palets
+      ? { id: 'recogida', texto: 'Pasa los datos al transportista', detalle: 'Con la referencia del envío y la cita en el almacén' }
+      : { id: 'recogida', texto: `Pide la recogida en UPS${e.recogida?.dia ? ` para el ${fechaDia(e.recogida.dia)}` : ''}`, detalle: 'Con los datos de abajo: se copian con un toque' },
+    { id: 'enviada', texto: 'Cuando se lo lleven, «Marcar como enviada»', detalle: 'Pasa a «Envíos» con su nº FBA' },
+  ]
+  const hechas = pasos.filter((p) => hechos[p.id]).length
+  return (
+    <Tarjeta indice={0} icono={ClipboardCheck} titulo="Lo que queda para que salga" subtitulo={hechas === pasos.length ? 'Todo hecho' : `${hechas} de ${pasos.length} hechos`}>
+      <ol className="space-y-[6px]">
+        {pasos.map((p, i) => {
+          const ok = !!hechos[p.id]
+          return (
+            <li key={p.id}>
+              <button type="button" onClick={() => marcar(p.id)} className="flex w-full items-start gap-3 rounded-[10px] px-2 py-[6px] text-left transition-colors hover:bg-[var(--ls-sup2)]" aria-pressed={ok}>
+                <span className="mt-[1px] flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold" style={ok ? { background: COLOR_ESTADO.verde, borderColor: COLOR_ESTADO.verde, color: '#0b2e17' } : { borderColor: 'var(--ls-linea2)', color: 'var(--ls-t3)' }}>
+                  {ok ? <CheckCircle2 className="h-[13px] w-[13px]" /> : i + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className={`block text-[13px] font-medium ${ok ? 'text-[var(--ls-t4)] line-through' : 'text-[var(--ls-t1)]'}`}>{p.texto}</span>
+                  {p.detalle && <span className="block text-[11.5px] leading-[1.45] text-[var(--ls-t3)]">{p.detalle}</span>}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
     </Tarjeta>
   )
 }
