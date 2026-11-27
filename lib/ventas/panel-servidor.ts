@@ -36,9 +36,20 @@ export const productosDelPanel = (connectionId: string) => enCache(`productos:${
 /** Solo los COGS de una cuenta (el resumen de todas no necesita el catálogo entero: leerlo por cada cuenta era lo que lo hacía lento) */
 export const costesDelPanel = (connectionId: string) =>
   enCache(`costes:${connectionId}`, 5 * 60_000, async () => {
-    const { data } = await createServiceClient().from('ventas_costes').select('sku, coste').eq('connection_id', connectionId)
-    return Object.fromEntries(((data ?? []) as Array<{ sku: string; coste: number }>).map((c) => [c.sku, Number(c.coste)])) as Record<string, number>
+    return leerCostes(connectionId)
   })
+
+/** Todos los COGS de una cuenta, de 1.000 en 1.000: Supabase devuelve como mucho 1.000 filas y ShoesF tiene más de 3.000 */
+async function leerCostes(connectionId: string): Promise<Record<string, number>> {
+  const costes: Record<string, number> = {}
+  for (let d = 0; ; d += 1000) {
+    const { data, error } = await createServiceClient().from('ventas_costes').select('sku, coste').eq('connection_id', connectionId).order('sku').range(d, d + 999)
+    if (error) throw error
+    for (const c of (data ?? []) as Array<{ sku: string; coste: number }>) costes[c.sku] = Number(c.coste)
+    if ((data ?? []).length < 1000) break
+  }
+  return costes
+}
 
 /** Lo de cada cuenta en un periodo y en el de comparación, para el panel de TODAS las cuentas */
 export interface ResumenDeCuenta {
@@ -457,8 +468,7 @@ async function leerProductosDelPanel(connectionId: string): Promise<{ titulos: R
     }
     if ((data ?? []).length < 1000) break
   }
-  const { data: cs } = await s.from('ventas_costes').select('sku, coste').eq('connection_id', connectionId)
-  const costes = Object.fromEntries(((cs ?? []) as Array<{ sku: string; coste: number }>).map((c) => [c.sku, Number(c.coste)]))
+  const costes = await leerCostes(connectionId)
   return { titulos, costes, catalogo, stock, bsr: await bsrDelPanel(connectionId), inventario }
 }
 
