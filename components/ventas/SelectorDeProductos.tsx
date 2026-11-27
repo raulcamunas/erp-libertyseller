@@ -49,7 +49,7 @@ export function SelectorDeProductos({ productos, seleccion, onCambio, className 
     <div ref={caja} className={`relative ${className}`}>
       <div
         onClick={() => setAbierto(true)}
-        className="flex min-h-[44px] cursor-text flex-wrap items-center gap-2 rounded-[14px] border bg-[var(--ls-sup)] px-3 py-[6px] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors"
+        className="flex min-h-[40px] cursor-text flex-wrap items-center gap-2 rounded-[12px] border bg-[var(--ls-sup)] px-3 py-[4px] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors sm:min-h-[44px] sm:rounded-[14px] sm:py-[6px]"
         style={{ borderColor: abierto ? 'color-mix(in srgb, #F26212 45%, var(--ls-linea))' : 'var(--ls-linea)' }}
       >
         <Search className="h-[15px] w-[15px] shrink-0 text-[var(--ls-t4)]" />
@@ -65,7 +65,7 @@ export function SelectorDeProductos({ productos, seleccion, onCambio, className 
           </span>
         ))}
         {elegidos.length > 6 && <span className="text-[12px] text-[var(--ls-t3)]">y {elegidos.length - 6} más</span>}
-        <input value={q} onChange={(e) => setQ(e.target.value)} onFocus={() => setAbierto(true)} placeholder={elegidos.length ? 'Añadir otro producto…' : 'Seleccionar productos para analizarlos solos (título, ASIN o SKU)'} className="min-w-[200px] flex-1 bg-transparent text-[13px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)]" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} onFocus={() => setAbierto(true)} placeholder={elegidos.length ? 'Añadir otro producto…' : 'Filtrar por productos (título, ASIN o SKU)'} className="min-w-[140px] flex-1 bg-transparent text-[16px] text-[var(--ls-t1)] outline-none placeholder:text-[13px] placeholder:text-[var(--ls-t4)] sm:min-w-[200px] sm:text-[13px]" />
         {seleccion && (
           <button type="button" onClick={(e) => (e.stopPropagation(), onCambio(null))} className="rounded-[8px] px-2 py-1 text-[12px] text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]">
             Toda la cuenta

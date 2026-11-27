@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { ArrowUpDown, Calendar, Coins, LayoutGrid, Loader2, RefreshCw, Rows3 } from 'lucide-react'
 import { CifraAnimada, Segmentado } from '@/components/ui-ls'
-import { hoyEnMadrid, sumarDias, type Totales } from '@/lib/ventas/panel'
+import { hoyEnMadrid, sumarDias, sumarTotales, type Totales } from '@/lib/ventas/panel'
 import type { CuentaDelPanel, ResumenDeCuenta } from '@/lib/ventas/panel-servidor'
 import { ACENTOS, Marco, MiniArea, TARJETA } from './TableroVentas'
 import { Chip, entero, euros, pct, ROJO, VERDE } from './piezas'
@@ -238,11 +238,7 @@ export function ResumenDeCuentas() {
 function sumar(ts: Array<Totales | null>): Totales | null {
   const vivos = ts.filter((t): t is Totales => t != null)
   if (!vivos.length) return null
-  const k = ['ventas', 'unidades', 'pedidos', 'reembolsos', 'publicidad', 'neto', 'cogs'] as const
-  const t = { ...vivos[0] }
-  for (const key of k) t[key] = vivos.reduce((s, x) => s + x[key], 0)
-  t.margen = t.ventas > 0 ? t.neto / t.ventas : null
-  return t
+  return sumarTotales(vivos)
 }
 
 function Cifra({ texto, valor, color, delta }: { texto: string; valor: string; color?: string; delta?: React.ReactNode }) {

@@ -234,11 +234,40 @@ export interface DineroLeido {
 const REFERRAL = new Set(['Commission', 'VariableClosingFee', 'FixedClosingFee', 'DigitalServicesFee', 'DigitalServicesFeeFBA'])
 const FBA = /^FBA/i
 /** Las listas de movimientos que NO se suman: la publicidad (va por el informe de Ads) y lo que no es del negocio (préstamos, recobro de deudas, retenciones) */
-const NO_SE_SUMAN = new Set(['ProductAdsPaymentEventList', 'LoanServicingEventList', 'DebtRecoveryEventList', 'TaxWithholdingEventList', 'PayWithAmazonEventList', 'ChargeRefundEventList'])
+const NO_SE_SUMAN = new Set(['ProductAdsPaymentEventList', 'LoanServicingEventList', 'DebtRecoveryEventList', 'TaxWithholdingEventList', 'PayWithAmazonEventList', 'ChargeRefundEventList', 'AdhocDisbursementEventList', 'FailedAdhocDisbursementEventList'])
+/** Ajustes que son movimientos de saldo, no ingresos ni gastos: la reserva que Amazon retiene y suelta, la compensación de deudas y las transferencias fallidas
+ *  (cada uno llega en pareja + y −; contarlos daba beneficio fantasma) */
+const AJUSTES_DE_SALDO = /^(Reserve(Debit|Credit)|Debt ?Adjustment|FailedDisbursement)$/i
+/** Mercados sin IVA (EE. UU., Canadá, México): el impuesto que cobra Amazon lo retiene ella y no es venta */
+const SIN_IVA = new Set(['ATVPDKIKX0DER', 'A2EUQ1WTGCTBG2', 'A1AM78C64UM0Y8'])
 
 function eur(m: Importe, porEuro: Record<string, number>): number {
   if (!m || typeof m.CurrencyAmount !== 'number') return 0
   return aEuros(m.CurrencyAmount, m.CurrencyCode, porEuro)
+}
+
+/** El importe tal cual llega (moneda original y sin convertir), para las claves: con los euros del cambio del día la clave cambiaba cada día y
+ *  el mismo movimiento se volvía a apuntar */
+function crudo(v: unknown): string {
+  const porMoneda = new Map<string, number>()
+  const sumar = (x: unknown) => {
+    if (Array.isArray(x)) return x.forEach(sumar)
+    if (!x || typeof x !== 'object') return
+    const o = x as Record<string, unknown>
+    if (typeof o.CurrencyAmount === 'number') {
+      const m = String(o.CurrencyCode ?? '')
+      porMoneda.set(m, (porMoneda.get(m) ?? 0) + o.CurrencyAmount)
+      return
+    }
+    Object.values(o).forEach(sumar)
+  }
+  sumar(v)
+  return [...porMoneda].map(([m, n]) => `${r2(n)}${m}`).join('+') || '0'
+}
+
+/** Lo retenido por Amazon como impuesto (ItemTaxWithheldList), en euros y con su signo (negativo) */
+function retencion(lista: unknown, porEuro: Record<string, number>): number {
+  return ((lista as Array<{ TaxesWithheld?: Array<{ ChargeAmount?: Importe }> }> | undefined) ?? []).reduce((s, w) => s + (w.TaxesWithheld ?? []).reduce((s2, x) => s2 + eur(x.ChargeAmount, porEuro), 0), 0)
 }
 
 /** Suma todos los importes {CurrencyAmount} que cuelgan de un objeto (para los movimientos de forma variable) */
@@ -254,10 +283,17 @@ function sumaProfunda(v: unknown, porEuro: Record<string, number>): number {
  * Lee UNA página de movimientos (payload.FinancialEvents). `zona` decide el día de los que no son de un mercado concreto. El resultado se puede volver a
  * leer sin duplicar: los movimientos llevan una `clave` estable y las tarifas se identifican por pedido + SKU.
  */
-export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: string, porEuro: Record<string, number>, opciones: { publicidadFacturada?: boolean; diaSinFecha?: string } = {}): DineroLeido {
+export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: string, porEuro: Record<string, number>, opciones: { publicidadFacturada?: boolean; diaSinFecha?: string; vistas?: Map<string, number> } = {}): DineroLeido {
   const salida: DineroLeido = { tarifas: [], movimientos: [] }
   const diaDe = (fecha: unknown, mercado: string) => (typeof fecha === 'string' ? diaEnZona(fecha, zonaDeMercado(mercado)) : null)
-  const vistas = new Map<string, number>()
+  // Cuántas veces ha salido ya la misma clave en ESTA lectura (se comparte entre páginas: quien lee pasa el mismo Map en todas). Dos movimientos
+  // idénticos (mismo instante, tipo e importe) son #1 y #2; releer da las mismas claves y no se duplica nada
+  const vistas = opciones.vistas ?? new Map<string, number>()
+  const conVeces = (base: string) => {
+    const veces = (vistas.get(base) ?? 0) + 1
+    vistas.set(base, veces)
+    return `${base}#${veces}`
+  }
 
   for (const [lista, filas] of Object.entries(eventos)) {
     if (!Array.isArray(filas) || filas.length === 0) continue
@@ -266,9 +302,11 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
       for (const ev of filas as Array<Record<string, unknown>>) {
         const fecha = (ev.postedDate ?? ev.PostedDate) as string | undefined
         const dia = fecha ? diaDe(fecha, mercadoPorDefecto) : null
-        const importe = -eur(ev.transactionValue as Importe, porEuro)
+        // La BASE (sin IVA), como el informe de Ads de los últimos 62 días: transactionValue lleva el IVA que Amazon factura y se recupera
+        const total = (ev.baseValue ?? ev.transactionValue) as Importe
+        const importe = -eur(total, porEuro)
         if (!dia || !importe) continue
-        salida.movimientos.push({ clave: `a|${String(ev.invoiceId ?? '')}|${String(fecha)}|${r2(importe)}`, dia, marketplace_id: mercadoPorDefecto, sku: '', tipo: 'publicidad', unidades: 0, importe: r2(importe), extra: 0, extra_unidades: 0 })
+        salida.movimientos.push({ clave: `a|${String(ev.invoiceId ?? '')}|${String(fecha)}|${crudo(total)}`, dia, marketplace_id: mercadoPorDefecto, sku: '', tipo: 'publicidad', unidades: 0, importe: r2(importe), extra: 0, extra_unidades: 0 })
       }
       continue
     }
@@ -289,7 +327,10 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
           const unidades = Number(it.QuantityShipped ?? 0) || 0
           // Lo cobrado: todos los cargos (Principal, Tax, ShippingCharge, ShippingTax, GiftWrap…). La retención de IVA de Amazon (ItemTaxWithheldList) no
           // entra: es IVA, y el IVA ya se descuenta aparte
-          const cobrado = ((it.ItemChargeList as Array<{ ChargeAmount?: Importe }>) ?? []).reduce((s2, x) => s2 + eur(x.ChargeAmount, porEuro), 0)
+          const cargos = ((it.ItemChargeList as Array<{ ChargeAmount?: Importe }>) ?? []).reduce((s2, x) => s2 + eur(x.ChargeAmount, porEuro), 0)
+          // En EE. UU., Canadá y México el «Tax» es el impuesto que Amazon cobra y RETIENE (ItemTaxWithheldList, en negativo): no es venta
+          const retenido = SIN_IVA.has(mercado) ? retencion(it.ItemTaxWithheldList, porEuro) : 0
+          const cobrado = cargos + retenido
           const promo = -((it.PromotionList as Array<{ PromotionAmount?: Importe }>) ?? []).reduce((s2, x) => s2 + eur(x.PromotionAmount, porEuro), 0)
           for (const f of (it.ItemFeeList as Array<{ FeeType?: string; FeeAmount?: Importe }>) ?? []) {
             const v = eur(f.FeeAmount, porEuro)
@@ -319,12 +360,16 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
         if (!dia) continue
         for (const it of (ev.ShipmentItemAdjustmentList as Array<Record<string, unknown>>) ?? []) {
           const sku = String(it.SellerSKU ?? '')
-          const devuelto = -((it.ItemChargeAdjustmentList as Array<{ ChargeAmount?: Importe }>) ?? []).reduce((s, x) => s + eur(x.ChargeAmount, porEuro), 0)
+          const cargosDevueltos = (it.ItemChargeAdjustmentList as Array<{ ChargeType?: string; ChargeAmount?: Importe }>) ?? []
+          const retenido = SIN_IVA.has(mercado) ? retencion(it.ItemTaxWithheldList, porEuro) : 0
+          const devuelto = -(cargosDevueltos.reduce((s, x) => s + eur(x.ChargeAmount, porEuro), 0) + retenido)
           const promo = ((it.PromotionAdjustmentList as Array<{ PromotionAmount?: Importe }>) ?? []).reduce((s, x) => s + eur(x.PromotionAmount, porEuro), 0)
           const comisiones = ((it.ItemFeeAdjustmentList as Array<{ FeeAmount?: Importe }>) ?? []).reduce((s, x) => s + eur(x.FeeAmount, porEuro), 0)
-          const unidades = Number(it.QuantityShipped ?? 1) || 1
+          // Unidades reembolsadas solo si se devuelve el ARTÍCULO (cargo «Principal»): un reembolso del envío o una concesión no es una unidad devuelta
+          const conArticulo = cargosDevueltos.some((x) => x.ChargeType === 'Principal' && typeof x.ChargeAmount?.CurrencyAmount === 'number' && x.ChargeAmount.CurrencyAmount !== 0)
+          const unidades = conArticulo ? Number(it.QuantityShipped ?? 1) || 1 : 0
           salida.movimientos.push({
-            clave: `r|${pedido}|${sku}|${String(ev.PostedDate)}|${r2(devuelto)}`,
+            clave: conVeces(`r|${pedido}|${sku}|${String(ev.PostedDate)}|${crudo(cargosDevueltos)}`),
             dia,
             marketplace_id: mercado,
             sku,
@@ -341,8 +386,9 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
     }
 
     // El resto: tarifas de la cuenta (almacenamiento, suscripción, cupones, ofertas, retiradas…) y ajustes (Amazon reembolsa inventario perdido o dañado)
-    filas.forEach((ev, n) => {
+    filas.forEach((ev) => {
       const o = ev as Record<string, unknown>
+      if (lista === 'AdjustmentEventList' && AJUSTES_DE_SALDO.test(String(o.AdjustmentType ?? '').trim())) return
       const mercado = mercadoDeCanal((o.MarketplaceName ?? o.StoreName) as string) ?? mercadoPorDefecto
       const fecha = o.PostedDate ?? o.TransactionPostedDate ?? o.postedDate
       // Las TARIFAS DE SERVICIO (almacenamiento mensual y de largo plazo, suscripción, retiradas, eliminación, transporte entrante…) llegan SIN
@@ -351,23 +397,28 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
       const sinFecha = fecha == null && opciones.diaSinFecha ? opciones.diaSinFecha : null
       const dia = sinFecha ?? diaDe(fecha, mercado)
       if (!dia) return
-      const importe = r2(sumaProfunda(o, porEuro))
+      // El TOTAL del evento cuando lo trae: un ajuste lleva AdjustmentAmount y además, por artículo, PerUnitAmount y TotalAmount; sumarlo todo
+      // daba el triple (con una unidad). Igual el reembolso SAFE-T (ReimbursedAmount + su lista)
+      const total = (lista === 'AdjustmentEventList' ? o.AdjustmentAmount : lista === 'SAFETReimbursementEventList' ? o.ReimbursedAmount : undefined) as Importe
+      const conTotal = total && typeof total.CurrencyAmount === 'number'
+      const importe = r2(conTotal ? eur(total, porEuro) : sumaProfunda(o, porEuro))
+      const importeCrudo = conTotal ? crudo(total) : crudo(o)
       if (importe === 0) return
       const items = (o.AdjustmentItemList as Array<{ SellerSKU?: string; Quantity?: string }> | undefined) ?? []
       const sku = items.length === 1 ? (items[0].SellerSKU ?? '') : String(o.SellerSKU ?? '')
       const firma = () => {
         const tipos = ((o.FeeList as Array<{ FeeType?: string }> | undefined) ?? []).map((f) => f.FeeType ?? '').sort().join('+')
-        const base = `s|${lista}|${String(o.AmazonOrderId ?? '')}|${String(o.FeeReason ?? '')}|${tipos}|${String(o.SellerSKU ?? '')}|${String(o.FnSKU ?? '')}|${String(o.ASIN ?? '')}|${importe}`
-        const veces = (vistas.get(base) ?? 0) + 1
-        vistas.set(base, veces)
-        return `${base}#${veces}|${dia}`
+        return `${conVeces(`s|${lista}|${String(o.AmazonOrderId ?? '')}|${String(o.FeeReason ?? '')}|${tipos}|${String(o.SellerSKU ?? '')}|${String(o.FnSKU ?? '')}|${String(o.ASIN ?? '')}|${importeCrudo}`)}|${dia}`
       }
+      // Ajuste o tarifa POR LO QUE ES, no por el signo: los ajustes (reembolsos de inventario, clawbacks…) no llevan IVA; las tarifas sí (también
+      // sus anulaciones, en positivo). Antes un clawback negativo iba a tarifas y se le quitaba un IVA que no tiene
+      const esAjuste = lista === 'SAFETReimbursementEventList' || (lista === 'AdjustmentEventList' && !/PostageBilling/i.test(String(o.AdjustmentType ?? '')))
       salida.movimientos.push({
-        clave: sinFecha ? firma() : `o|${lista}|${String(fecha)}|${String(o.AdjustmentType ?? o.FeeReason ?? o.SellerDealId ?? o.CouponId ?? '')}|${importe}|${n}`,
+        clave: sinFecha ? firma() : conVeces(`o|${lista}|${String(fecha)}|${String(o.AdjustmentType ?? o.FeeReason ?? o.SellerDealId ?? o.CouponId ?? '')}|${sku}|${importeCrudo}`),
         dia,
         marketplace_id: mercado,
         sku,
-        tipo: importe > 0 ? 'ajuste' : 'tarifa_cuenta',
+        tipo: esAjuste ? 'ajuste' : 'tarifa_cuenta',
         unidades: items.length === 1 ? Math.abs(Number(items[0].Quantity ?? 0)) || 0 : 0,
         importe,
         extra: 0,
@@ -489,16 +540,25 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     return f
   }
 
+  // Cada pedido cuenta UNA vez: se apunta a su línea con más unidades (un pedido de 3 SKU contaba 3 pedidos, y el pick & pack y el envío
+  // «por pedido» cobraban 3 paquetes)
+  const dueno = new Map<string, LineaGuardada>()
+  for (const l of lineas) {
+    const d = dueno.get(l.pedido)
+    if (!d || l.unidades > d.unidades || (l.unidades === d.unidades && `${l.marketplace_id}|${l.sku}` < `${d.marketplace_id}|${d.sku}`)) dueno.set(l.pedido, l)
+  }
+
   for (const l of lineas) {
     const k = `${l.marketplace_id}|${l.sku}`
     const p = precio.get(k)
     const ventas = l.ventas ?? (p && p.unidades > 0 ? (p.ventas / p.unidades) * l.unidades : 0)
     const f = fila(l.marketplace_id, l.sku, l.dia, l.asin)
     f.unidades += l.unidades
-    f._pedidos.add(l.pedido)
+    const esDueno = dueno.get(l.pedido) === l
+    if (esDueno) f._pedidos.add(l.pedido)
     if (l.fbm) {
       f.unidades_fbm += l.unidades
-      f._fbm.add(l.pedido)
+      if (esDueno) f._fbm.add(l.pedido)
       f.envio_cobrado += l.envio ?? 0
     }
     f.ventas += ventas

@@ -4,6 +4,7 @@ import { spApiRequest } from '@/lib/amazon/sp-api'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
 import { createServiceClient } from '@/lib/supabase/service'
 import { aEuros } from './lectura'
+import { todasLasPaginas } from './paginas'
 import { TIPOS_FLUJO, type ApunteFlujo, type PagoAmazon, type TipoFlujo } from './flujo'
 
 /**
@@ -25,7 +26,7 @@ interface GrupoAmazon {
   FinancialEventGroupEnd?: string
 }
 
-const faltaTabla = (e: { code?: string; message?: string } | null) => Boolean(e && (e.code === '42P01' || e.code === 'PGRST205' || e.code === '42703' || /does not exist|schema cache/i.test(e.message ?? '')))
+const faltaTabla = (e: unknown) => Boolean(e && typeof e === 'object' && ((e as { code?: string }).code === '42P01' || (e as { code?: string }).code === 'PGRST205' || (e as { code?: string }).code === '42703' || /does not exist|schema cache/i.test((e as { message?: string }).message ?? '')))
 const dia = (x: string | null | undefined) => (x ? x.slice(0, 10) : null)
 const DIA_MS = 86_400_000
 
@@ -103,8 +104,8 @@ export interface FlujoDeCuenta {
 export async function flujoDeCuenta(connectionId: string): Promise<FlujoDeCuenta> {
   const s = createServiceClient()
   const [p, a, c] = await Promise.all([
-    s.from('ventas_pagos').select('grupo, inicio, fin, fecha_pago, estado, estado_pago, importe, moneda, importe_eur, oculto').eq('connection_id', connectionId).order('inicio').limit(5000),
-    s.from('ventas_flujo').select('id, fecha, descripcion, tipo, importe').eq('connection_id', connectionId).order('fecha').limit(10000),
+    todasLasPaginas((d) => s.from('ventas_pagos').select('grupo, inicio, fin, fecha_pago, estado, estado_pago, importe, moneda, importe_eur, oculto').eq('connection_id', connectionId).order('inicio').order('grupo').range(d, d + 999)),
+    todasLasPaginas((d) => s.from('ventas_flujo').select('id, fecha, descripcion, tipo, importe').eq('connection_id', connectionId).order('fecha').order('id').range(d, d + 999)),
     s.from('ventas_cuentas').select('pagos_leido_at').eq('connection_id', connectionId).maybeSingle(),
   ])
   if (faltaTabla(p.error) || faltaTabla(a.error)) return { hayTabla: false, leidoAt: null, pagos: [], apuntes: [] }

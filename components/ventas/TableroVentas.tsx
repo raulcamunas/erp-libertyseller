@@ -162,10 +162,17 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
     // MENOS CARGA A LA BASE (aviso de CPU de Supabase, 26 nov 2026): el catálogo (títulos y costes) se pide UNA vez por cuenta, y la comparación (que es
     // pasado y no cambia) solo cuando cambian la cuenta o las fechas. El refresco solo relee las cifras del periodo.
     const conProductos = cache.current.productosDe !== cuentaId
+    // Al cambiar de cuenta, fuera las cifras de la anterior: se pintaban con el IVA y los ajustes de la nueva hasta que llegaban los datos
+    if (conProductos) {
+      setDatos(null)
+      setComparacion([])
+      setLineas(null)
+      setDatosDe(null)
+    }
     const claveComp = `${cuentaId}|${rangoComparacion?.desde}|${rangoComparacion?.hasta}`
     const conComp = cache.current.compDe !== claveComp
     const principal = pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoPrincipal.desde}&hasta=${rangoPrincipal.hasta}${conProductos ? '' : '&productos=0'}`)
-    const comp = rangoComparacion && conComp ? pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoComparacion.desde}&hasta=${rangoComparacion.hasta}&productos=0`) : Promise.resolve(null)
+    const comp = rangoComparacion && conComp ? pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${rangoComparacion.desde}&hasta=${rangoComparacion.hasta}&productos=0&sesiones=0`) : Promise.resolve(null)
     Promise.all([principal, comp])
       .then(([a, b]) => {
         if (n !== peticion.current) return
@@ -186,7 +193,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
     if (!cuentaId || pestana !== 'pedidos') return
     let vivo = true
     setLineas(null)
-    pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${periodoElegido.desde}&hasta=${periodoElegido.desde}&productos=0&lineasDesde=${periodoElegido.desde}&lineasHasta=${periodoElegido.hasta}`)
+    pedir<Datos>(`/api/ventas?cuenta=${cuentaId}&desde=${periodoElegido.desde}&hasta=${periodoElegido.desde}&productos=0&sesiones=0&lineasDesde=${periodoElegido.desde}&lineasHasta=${periodoElegido.hasta}`)
       .then((r) => vivo && setLineas(r.lineas ?? []))
       .catch(() => vivo && setLineas([]))
     return () => {
@@ -280,7 +287,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
 
   const filtrosBaldosas = (
     <>
-        <Desplegable icono={Calendar} texto={tanda === 'rango' && rango ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (TANDAS.find((t) => t.id === tanda)?.texto ?? '')}>
+        <Desplegable icono={Calendar} texto={tanda === 'rango' && rango ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (TANDAS.find((t) => t.id === tanda)?.texto ?? '')} textoCorto={tanda === 'rango' && rango ? `${fechaCorta(rango.desde).slice(0, 5)}–${fechaCorta(rango.hasta).slice(0, 5)}` : (TANDAS.find((t) => t.id === tanda)?.corto ?? 'Periodo')} crece>
           {(cerrar) => (
             <>
               {TANDAS.map((t) => (
@@ -302,7 +309,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
             </>
           )}
         </Desplegable>
-        <Desplegable icono={Globe} texto={!mercados || mercados.size === mercadosConDatos.length ? 'Todos los países' : `${mercados.size} ${mercados.size === 1 ? 'país' : 'países'}`}>
+        <Desplegable icono={Globe} texto={!mercados || mercados.size === mercadosConDatos.length ? 'Todos los países' : `${mercados.size} ${mercados.size === 1 ? 'país' : 'países'}`} textoCorto={!mercados || mercados.size === mercadosConDatos.length ? '' : String(mercados.size)}>
           {() => (
             <>
               <Opcion activa={!mercados} onClick={() => setMercados(null)}>
@@ -336,12 +343,12 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
     <Marco
       acciones={
         <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-wrap">
-          <Link href="/dashboard/ventas" title="Todas las cuentas" aria-label="Todas las cuentas" className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)] sm:w-auto sm:px-3">
+          <Link href="/dashboard/ventas" title="Todas las cuentas" aria-label="Todas las cuentas" className="inline-flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)] sm:h-11 sm:w-auto sm:rounded-[13px] sm:px-3">
             <ArrowLeft className="h-[14px] w-[14px]" />
             <span className="hidden sm:inline">Todas las cuentas</span>
           </Link>
           {cuentas && <SelectorDeCuenta className="min-w-0 flex-1 sm:flex-none" cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
-          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)] sm:h-11 sm:w-11 sm:rounded-[13px]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           </button>
         </div>
@@ -357,20 +364,38 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       )}
       {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
 
-      {/* Todo en una línea: la vista, los productos y (en Baldosas) el periodo y los países */}
+      {/* Todo en una línea: la vista, los productos y (en Baldosas) el periodo y los países. En el móvil: la vista, el periodo y los países en UNA fila
+          (solo iconos donde hace falta) y debajo los productos */}
       <div className="mb-3 flex flex-wrap items-center gap-2 sm:mb-5 xl:flex-nowrap">
-        <Segmentado
-          etiqueta="Vista"
-          valor={vista}
-          onCambio={setVista}
-          opciones={[
-            { id: 'baldosas', texto: 'Baldosas', icono: LayoutGrid },
-            { id: 'grafico', texto: 'Gráfico', icono: ChartColumnBig },
-            { id: 'pyg', texto: 'P&L', icono: Rows3 },
-          ]}
-        />
+        <div className="flex w-full items-center gap-2 sm:contents">
+          {/* En el móvil solo los iconos (Baldosas, Gráfico, P&L): la fila tiene que dejar sitio al periodo y a los países */}
+          <Segmentado
+            etiqueta="Vista: baldosas, gráfico o P&L"
+            valor={vista}
+            onCambio={setVista}
+            tamano="sm"
+            className="shrink-0 sm:hidden"
+            opciones={[
+              { id: 'baldosas', texto: '', icono: LayoutGrid },
+              { id: 'grafico', texto: '', icono: ChartColumnBig },
+              { id: 'pyg', texto: 'P&L', icono: undefined },
+            ]}
+          />
+          <Segmentado
+            etiqueta="Vista"
+            valor={vista}
+            onCambio={setVista}
+            className="hidden sm:inline-flex"
+            opciones={[
+              { id: 'baldosas', texto: 'Baldosas', icono: LayoutGrid },
+              { id: 'grafico', texto: 'Gráfico', icono: ChartColumnBig },
+              { id: 'pyg', texto: 'P&L', icono: Rows3 },
+            ]}
+          />
+          {vista === 'baldosas' && <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:hidden">{filtrosBaldosas}</div>}
+        </div>
         {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} className="w-full sm:w-auto sm:min-w-[260px] sm:flex-1" />}
-        {vista === 'baldosas' && filtrosBaldosas}
+        {vista === 'baldosas' && <div className="hidden items-center gap-2 sm:contents">{filtrosBaldosas}</div>}
       </div>
       <AltoEstable clave={vista}>
       {cuenta && vista === 'grafico' && <VistaGrafico cuenta={cuenta} hoy={hoy} skus={seleccion} />}
@@ -395,13 +420,13 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
 
       {/* La gráfica y el reparto del dinero */}
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)]">
-        <section className={TARJETA + ' p-5'}>
+        <section className={TARJETA + ' p-4 sm:p-5'}>
           <div className="mb-3 flex flex-wrap items-end gap-3">
             <div>
               <div className={ROTULO}>Evolución diaria</div>
               <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia</div>
             </div>
-            <div className="ml-auto inline-flex flex-wrap items-center rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)]" role="group" aria-label="Qué se dibuja">
+            <div className="ls-sin-barra -mx-1 flex w-[calc(100%+0.5rem)] items-center overflow-x-auto rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)] sm:mx-0 sm:ml-auto sm:inline-flex sm:w-auto sm:flex-wrap" role="group" aria-label="Qué se dibuja">
               {SERIES_GRAFICA.map((x) => {
                 const on = series.has(x.id)
                 return (
@@ -410,7 +435,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
                     type="button"
                     aria-pressed={on}
                     onClick={() => setSeries((s0) => { const n = new Set(s0); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n.size ? n : s0 })}
-                    className="relative flex h-[28px] items-center gap-2 rounded-[9px] px-3 text-[12px] font-medium transition-all duration-200"
+                    className="relative flex h-[28px] shrink-0 items-center gap-2 whitespace-nowrap rounded-[9px] px-[10px] text-[12px] font-medium transition-all duration-200 sm:px-3"
                     style={on ? { background: 'var(--ls-sup)', color: 'var(--ls-t1)', boxShadow: '0 1px 2px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)' } : { color: 'var(--ls-t4)' }}
                     title={x.id === 'ppc' ? 'Ventas que Amazon Ads atribuye a un clic en un anuncio el mismo día' : x.id === 'organico' ? 'Ventas menos las atribuidas a la publicidad' : undefined}
                   >
@@ -429,7 +454,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
           </div>
           <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
         </section>
-        <section className={TARJETA + ' flex flex-col gap-5 p-5'}>
+        <section className={TARJETA + ' flex flex-col gap-4 p-4 sm:gap-5 sm:p-5'}>
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <div className={ROTULO}>{reparto === 'euro' ? periodoElegido.titulo : 'Ventas por canal'}</div>
@@ -488,7 +513,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
               <Loader2 className="h-[14px] w-[14px] animate-spin" /> Cargando los pedidos…
             </p>
           ) : (
-            <TablaPedidos lineas={mercados ? lineas.filter((l) => mercados.has(l.mkt)) : lineas} titulos={titulos} ivaPct={iva} costes={costes} buscar={buscar} />
+            <TablaPedidos lineas={lineas.filter((l) => (!mercados || mercados.has(l.mkt)) && (!seleccion || seleccion.has(l.sku)))} titulos={titulos} ivaPct={iva} costes={costes} buscar={buscar} />
           ))}
         {pestana === 'resultados' && <CuentaDeResultados periodos={periodos} totales={totales} />}
         </AltoEstable>
@@ -550,8 +575,17 @@ export function Marco({ children, acciones, debajo, titulo = 'Sellerboard', subt
         <div className="absolute right-[-120px] top-24 h-[380px] w-[560px] rounded-full opacity-[0.07] blur-[130px]" style={{ background: '#8B5CF6' }} />
         <div className="absolute left-[38%] top-[280px] h-[260px] w-[420px] rounded-full opacity-[0.05] blur-[110px]" style={{ background: '#38BDF8' }} />
       </div>
-      <CabeceraDeModulo icono={icono} acento="marca" titulo={titulo} subtitulo={<span className="hidden sm:inline">{subtitulo}</span>} acciones={acciones} debajo={debajo} />
-      <div className="mt-4">{children}</div>
+      {/* EN EL MÓVIL, SIN EL BLOQUE DEL TÍTULO: la barra de arriba de la app ya dice dónde estás; aquí solo los controles (cuenta, volver a leer…) */}
+      <div className="hidden sm:block">
+        <CabeceraDeModulo icono={icono} acento="marca" titulo={titulo} subtitulo={subtitulo} acciones={acciones} debajo={debajo} />
+      </div>
+      {(acciones || debajo) && (
+        <div className="flex flex-col gap-2 pt-1 sm:hidden">
+          {acciones}
+          {debajo}
+        </div>
+      )}
+      <div className="mt-3 sm:mt-4">{children}</div>
     </div>
   )
 }
@@ -606,7 +640,7 @@ function Baldosa({ contexto, p, i, t, c, comp, ajuste, onAjustar, hoy, serie, ca
       tabIndex={0}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onElegir()}
       aria-pressed={elegida}
-      className="group relative cursor-pointer overflow-hidden rounded-[22px] border p-5 text-left transition-[border-color,box-shadow] duration-300"
+      className="group relative cursor-pointer overflow-hidden rounded-[20px] border p-4 text-left transition-[border-color,box-shadow] duration-300 sm:rounded-[22px] sm:p-5"
       style={{
         borderColor: elegida ? `color-mix(in srgb, ${a} 55%, var(--ls-linea))` : 'color-mix(in srgb, var(--ls-t1) 7%, var(--ls-linea))',
         background: `radial-gradient(140% 90% at 100% 0%, color-mix(in srgb, ${a} ${elegida ? 20 : 11}%, transparent) 0%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0) 42%), var(--ls-sup)`,
@@ -672,7 +706,7 @@ function Baldosa({ contexto, p, i, t, c, comp, ajuste, onAjustar, hoy, serie, ca
               <span>{p.escala ? 'al ritmo de este mes' : '\u00a0'}</span>
             )}
           </div>
-          <div className="-mx-5 mt-2">
+          <div className="-mx-4 mt-2 sm:-mx-5">
             <MiniArea valores={serie} color={a} id={`ba-${i}`} viva={elegida} />
           </div>
           <div className="-mt-1 grid grid-cols-[1fr_1fr_1.25fr] divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[13px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[8px]">
@@ -972,7 +1006,8 @@ function EstadoHistorial({ estado, hoy }: { estado: CuentaDelPanel['estado']; ho
 }
 
 
-function Desplegable({ icono: Icono, texto, children }: { icono: typeof Calendar; texto: string; children: (cerrar: () => void) => React.ReactNode }) {
+/** `textoCorto`: lo que se ve en el móvil ('' = solo el icono). `crece`: en el móvil ocupa el hueco que quede en la fila */
+function Desplegable({ icono: Icono, texto, textoCorto, crece, children }: { icono: typeof Calendar; texto: string; textoCorto?: string; crece?: boolean; children: (cerrar: () => void) => React.ReactNode }) {
   const [abierto, setAbierto] = useState(false)
   const caja = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -982,14 +1017,21 @@ function Desplegable({ icono: Icono, texto, children }: { icono: typeof Calendar
     return () => document.removeEventListener('mousedown', fuera)
   }, [abierto])
   return (
-    <div ref={caja} className="relative">
-      <button type="button" onClick={() => setAbierto((x) => !x)} className="inline-flex h-9 items-center gap-2 rounded-[11px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:text-[var(--ls-t1)] hover:border-[color-mix(in_srgb,var(--ls-t1)_18%,var(--ls-linea))]" aria-expanded={abierto}>
-        <Icono className="h-[14px] w-[14px] text-[var(--ls-t4)]" />
-        {texto}
-        <ChevronDown className={`h-[13px] w-[13px] text-[var(--ls-t4)] transition-transform ${abierto ? 'rotate-180' : ''}`} />
+    <div ref={caja} className={`relative ${crece ? 'min-w-0 flex-1 sm:flex-none' : 'shrink-0'}`}>
+      <button type="button" onClick={() => setAbierto((x) => !x)} title={texto} className={`inline-flex h-9 max-w-full items-center gap-2 rounded-[11px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t2)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:text-[var(--ls-t1)] hover:border-[color-mix(in_srgb,var(--ls-t1)_18%,var(--ls-linea))] ${crece ? 'w-full sm:w-auto' : ''}`} aria-expanded={abierto}>
+        <Icono className="h-[14px] w-[14px] shrink-0 text-[var(--ls-t4)]" />
+        {textoCorto !== undefined ? (
+          <>
+            {textoCorto && <span className="min-w-0 truncate sm:hidden">{textoCorto}</span>}
+            <span className="hidden sm:inline">{texto}</span>
+          </>
+        ) : (
+          texto
+        )}
+        <ChevronDown className={`ml-auto h-[13px] w-[13px] shrink-0 text-[var(--ls-t4)] transition-transform sm:ml-0 ${abierto ? 'rotate-180' : ''}`} />
       </button>
       {abierto && (
-        <motion.div initial={{ opacity: 0, y: -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} className="absolute left-0 top-[42px] z-30 min-w-[260px] rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-1 shadow-[var(--ls-sombra-3)]">
+        <motion.div initial={{ opacity: 0, y: -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.16 }} className="absolute right-0 top-[42px] z-30 w-[min(300px,calc(100vw-2rem))] rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-1 shadow-[var(--ls-sombra-3)] sm:left-0 sm:right-auto sm:w-auto sm:min-w-[260px]">
           {children(() => setAbierto(false))}
         </motion.div>
       )}

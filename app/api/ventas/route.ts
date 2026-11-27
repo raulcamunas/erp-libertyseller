@@ -66,7 +66,8 @@ export async function GET(request: NextRequest) {
       filasDelPanel(cuenta, desde, hasta),
       q.get('productos') === '0' ? Promise.resolve(null) : productosDelPanel(cuenta),
       lDesde && lHasta && FECHA.test(lDesde) && FECHA.test(lHasta) ? lineasDelPanel(cuenta, lDesde, lHasta) : Promise.resolve(null),
-      sesionesDelPanel(cuenta, desde, hasta).catch(() => null),
+      // `sesiones=0`: la petición de la comparación y la de pedidos no las usan (eran 0,7–1 s tirados en cada una)
+      q.get('sesiones') === '0' ? Promise.resolve(null) : sesionesDelPanel(cuenta, desde, hasta).catch(() => null),
     ])
     return NextResponse.json({ filas, productos, lineas, sesiones })
   } catch (error) {

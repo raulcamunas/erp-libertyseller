@@ -138,7 +138,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
     setCargando(true)
     setError(null)
     const a = pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${rangoTotal.desde}&hasta=${rangoTotal.hasta}`)
-    const b = comparar ? pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${menosUnAnio(rangoTotal.desde)}&hasta=${menosUnAnio(rangoTotal.hasta)}&productos=0`) : Promise.resolve({ filas: [] as FilaPanel[], productos: null, lineas: null })
+    const b = comparar ? pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${menosUnAnio(rangoTotal.desde)}&hasta=${menosUnAnio(rangoTotal.hasta)}&productos=0&sesiones=0`) : Promise.resolve({ filas: [] as FilaPanel[], productos: null, lineas: null })
     Promise.all([a, b])
       .then(([x, y]) => {
         if (!vivo) return
@@ -194,7 +194,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
     if (pestana !== 'pedidos') return
     let vivo = true
     setLineas(null)
-    pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${rangoDetalle.desde}&hasta=${rangoDetalle.desde}&productos=0&lineasDesde=${rangoDetalle.desde}&lineasHasta=${rangoDetalle.hasta}`)
+    pedir<Datos>(`/api/ventas?cuenta=${cuenta.id}&desde=${rangoDetalle.desde}&hasta=${rangoDetalle.desde}&productos=0&sesiones=0&lineasDesde=${rangoDetalle.desde}&lineasHasta=${rangoDetalle.hasta}`)
       .then((r) => vivo && setLineas(r.lineas ?? []))
       .catch(() => vivo && setLineas([]))
     return () => {

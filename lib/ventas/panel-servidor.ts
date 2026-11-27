@@ -8,6 +8,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { marketplaceById } from '@/lib/types/amazon'
 import { costePickPack, normalizarAjustes, type AjustesCuenta } from './ajustes'
+import { todasLasPaginas as paginar } from './paginas'
 import { aKg, costeDeFila, REGLAS_CON_TABLA, type ReglaEnvio, type TablaEnvio } from './envio'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
 import type { FilaPanel } from './panel'
@@ -31,6 +32,19 @@ function enCache<T>(clave: string, ms: number, leer: () => Promise<T>): Promise<
 const olvidar = (prefijo: string) => {
   for (const k of cache.keys()) if (k.startsWith(prefijo)) cache.delete(k)
 }
+/** Tira todo lo guardado de una cuenta (y el resumen de todas): al cambiar costes, IVA, ajustes, envío o al añadirla */
+const olvidarCuenta = (connectionId: string) => {
+  for (const p of ['productos:', 'costes:', 'envio:', 'pesos:', 'filas:']) olvidar(`${p}${connectionId}`)
+  olvidar('resumen:')
+  olvidar('cuentas')
+}
+
+/** Todas las filas (páginas de 4 en 4 en paralelo; ver lib/ventas/paginas.ts). Aquí, si falla, lanza */
+async function todasLasPaginas<T>(pagina: (desde: number) => PromiseLike<{ data: unknown; error: unknown }>, tope = 200): Promise<T[]> {
+  const r = await paginar<T>(pagina, tope)
+  if (r.error) throw r.error
+  return r.data
+}
 
 export const cuentasDelPanel = () => enCache('cuentas', 30_000, leerCuentasDelPanel)
 export const productosDelPanel = (connectionId: string) => enCache(`productos:${connectionId}`, 5 * 60_000, () => leerProductosDelPanel(connectionId))
@@ -43,12 +57,8 @@ export const costesDelPanel = (connectionId: string) =>
 /** Todos los COGS de una cuenta, de 1.000 en 1.000: Supabase devuelve como mucho 1.000 filas y ShoesF tiene más de 3.000 */
 async function leerCostes(connectionId: string): Promise<Record<string, number>> {
   const costes: Record<string, number> = {}
-  for (let d = 0; ; d += 1000) {
-    const { data, error } = await createServiceClient().from('ventas_costes').select('sku, coste').eq('connection_id', connectionId).order('sku').range(d, d + 999)
-    if (error) throw error
-    for (const c of (data ?? []) as Array<{ sku: string; coste: number }>) costes[c.sku] = Number(c.coste)
-    if ((data ?? []).length < 1000) break
-  }
+  const filas = await todasLasPaginas<{ sku: string; coste: number }>((d) => createServiceClient().from('ventas_costes').select('sku, coste').eq('connection_id', connectionId).order('sku').range(d, d + 999))
+  for (const c of filas) costes[c.sku] = Number(c.coste)
   return costes
 }
 
@@ -177,8 +187,8 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
   const envio = await conEnvio()
   const filas: FilaPanel[] = []
   const fbm: Array<{ unidades: number; pedidos: number; cobrado: number }> = []
-  for (let d = 0; ; d += 1000) {
-    const { data, error } = await s
+  const crudas = await todasLasPaginas<Record<string, unknown>>((d) =>
+    s
       .from('ventas_dia')
       .select(envio ? `${COLUMNAS_DIA}, unidades_fbm, pedidos_fbm, envio_cobrado` : COLUMNAS_DIA)
       .eq('connection_id', connectionId)
@@ -187,9 +197,10 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
       .order('dia')
       .order('marketplace_id')
       .order('sku')
-      .range(d, d + 999)
-    if (error) throw error
-    for (const r of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+      .range(d, d + 999),
+  )
+  {
+    for (const r of crudas) {
       filas.push({
         dia: String(r.dia),
         mkt: String(r.marketplace_id),
@@ -213,7 +224,6 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
       })
       fbm.push({ unidades: n(r.unidades_fbm), pedidos: n(r.pedidos_fbm), cobrado: n(r.envio_cobrado) })
     }
-    if ((data ?? []).length < 1000) break
   }
   if (!envio || !fbm.some((x) => x.pedidos > 0)) return filas
   // FBM Pick & Pack (Configuración): lo que cuesta preparar los pedidos FBM de cada fila
@@ -295,23 +305,23 @@ export function perfilDeLaFila(perfiles: readonly PerfilEnvio[], dia: string, sk
 const pesosDelCatalogo = (connectionId: string) =>
   enCache(`pesos:${connectionId}`, 5 * 60_000, async () => {
     const salida = new Map<string, number>()
-    for (let d = 0; ; d += 1000) {
-      const { data, error } = await createServiceClient().from('amazon_listings').select('sku, peso, peso_unidad').eq('connection_id', connectionId).not('peso', 'is', null).range(d, d + 999)
-      if (error) break
-      for (const l of (data ?? []) as Array<{ sku: string; peso: number | null; peso_unidad: string | null }>) {
-        const kg = aKg(l.peso, l.peso_unidad)
-        if (kg != null && !salida.has(l.sku)) salida.set(l.sku, kg)
-      }
-      if ((data ?? []).length < 1000) break
+    const filas = await todasLasPaginas<{ sku: string; peso: number | null; peso_unidad: string | null }>((d) =>
+      createServiceClient().from('amazon_listings').select('sku, peso, peso_unidad').eq('connection_id', connectionId).not('peso', 'is', null).order('id').range(d, d + 999),
+    ).catch(() => [])
+    for (const l of filas) {
+      const kg = aKg(l.peso, l.peso_unidad)
+      if (kg != null && !salida.has(l.sku)) salida.set(l.sku, kg)
     }
     return salida
   })
 
 async function envioImportado(connectionId: string, desde: string, hasta: string): Promise<Map<string, { coste: number; pedidos: number }>> {
   const salida = new Map<string, { coste: number; pedidos: number }>()
-  const { data, error } = await createServiceClient().from('ventas_envio_pedidos').select('dia, marketplace_id, sku, coste').eq('connection_id', connectionId).gte('dia', desde).lte('dia', hasta).limit(20_000)
-  if (error) return salida
-  for (const r of (data ?? []) as Array<{ dia: string; marketplace_id: string | null; sku: string | null; coste: number }>) {
+  const filas = await todasLasPaginas<{ dia: string; marketplace_id: string | null; sku: string | null; coste: number }>((d) =>
+    createServiceClient().from('ventas_envio_pedidos').select('dia, marketplace_id, sku, coste').eq('connection_id', connectionId).gte('dia', desde).lte('dia', hasta).order('pedido').range(d, d + 999),
+  ).catch(() => null)
+  if (!filas) return salida
+  for (const r of filas) {
     const k = `${r.dia}|${r.marketplace_id ?? ''}|${r.sku ?? ''}`
     const x = salida.get(k) ?? { coste: 0, pedidos: 0 }
     x.coste += n(r.coste)
@@ -351,7 +361,7 @@ function limpiarTabla(t: unknown): TablaEnvio | null {
 }
 
 export async function guardarPerfilEnvio(connectionId: string, p: Partial<PerfilEnvio>): Promise<string> {
-  olvidar(`envio:${connectionId}`)
+  olvidarCuenta(connectionId)
   const fecha = (x: unknown) => (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : null)
   const fila = {
     connection_id: connectionId,
@@ -381,13 +391,14 @@ export async function guardarPerfilEnvio(connectionId: string, p: Partial<Perfil
 }
 
 export async function borrarPerfilEnvio(connectionId: string, id: string): Promise<void> {
-  olvidar(`envio:${connectionId}`)
+  olvidarCuenta(connectionId)
   const { error } = await createServiceClient().from('ventas_envio_perfiles').delete().eq('id', id).eq('connection_id', connectionId)
   if (error) throw error
 }
 
 /** El coste real de envío de pedidos concretos (CSV «pedido;coste»). Se casa con su día, país y SKU (de los pedidos de los últimos 62 días) */
 export async function importarEnvioPedidos(connectionId: string, filas: Array<{ pedido: string; coste: number }>): Promise<{ guardados: number; sinCasar: number }> {
+  olvidarCuenta(connectionId)
   const s = createServiceClient()
   const pedidos = [...new Set(filas.map((f) => f.pedido))]
   const donde = new Map<string, { dia: string; marketplace_id: string; sku: string }>()
@@ -445,59 +456,50 @@ async function leerProductosDelPanel(connectionId: string): Promise<{ titulos: R
   const stock: Record<string, number> = {}
   const inventario: Record<string, InventarioDelProducto> = {}
   const mayor = (a: number | null, b: unknown) => (b == null ? a : Math.max(a ?? 0, Number(b)))
-  // El desglose (migración 271): reservado, enviado y no apto. Sin las columnas, sin desglose
-  for (let d = 0; ; d += 1000) {
-    const { data, error } = await s.from('amazon_listings').select('sku, is_fba, fba_reserved_quantity, fba_inbound_quantity, fba_unfulfillable_quantity').eq('connection_id', connectionId).eq('is_fba', true).order('sku').range(d, d + 999)
-    if (error) break
-    for (const l of (data ?? []) as Array<{ sku: string; fba_reserved_quantity: number | null; fba_inbound_quantity: number | null; fba_unfulfillable_quantity: number | null }>) {
-      const x = inventario[l.sku] ?? { reservado: null, enviado: null, noApto: null, ritmo: 0 }
-      inventario[l.sku] = { ...x, reservado: mayor(x.reservado, l.fba_reserved_quantity), enviado: mayor(x.enviado, l.fba_inbound_quantity), noApto: mayor(x.noApto, l.fba_unfulfillable_quantity) }
-    }
-    if ((data ?? []).length < 1000) break
-  }
-  // El ritmo: unidades de los últimos 30 días (sin cancelados) entre 30
+  // TODO A LA VEZ (antes eran 5 lecturas en serie de 1.000 en 1.000: ShoesF tardaba 7 s en frío y ahora ~1,5 s)
   const hace30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+  type Desglose = { sku: string; fba_reserved_quantity: number | null; fba_inbound_quantity: number | null; fba_unfulfillable_quantity: number | null }
+  type Listing = { sku: string; asin: string | null; title: string | null; marketplace_id: string; price: number | null; currency: string | null; is_fba: boolean | null; listing_status: string | null; fba_fulfillable_quantity: number | null; fba_quantity: number | null }
+  const [desglose, recientes, listings, costes, bsr] = await Promise.all([
+    // El desglose (migración 271): reservado, enviado y no apto. Sin las columnas, sin desglose
+    todasLasPaginas<Desglose>((d) => s.from('amazon_listings').select('sku, fba_reserved_quantity, fba_inbound_quantity, fba_unfulfillable_quantity').eq('connection_id', connectionId).eq('is_fba', true).order('id').range(d, d + 999)).catch(() => [] as Desglose[]),
+    // El ritmo: unidades de los últimos 30 días (sin cancelados) entre 30
+    todasLasPaginas<{ sku: string; unidades: number | null; estado: string | null }>((d) => s.from('ventas_lineas').select('sku, unidades, estado').eq('connection_id', connectionId).gte('dia', hace30).order('pedido').order('sku').range(d, d + 999)).catch(() => []),
+    todasLasPaginas<Listing>((d) => s.from('amazon_listings').select('sku, asin, title, marketplace_id, price, currency, is_fba, listing_status, fba_fulfillable_quantity, fba_quantity').eq('connection_id', connectionId).order('id').range(d, d + 999)).catch(() => [] as Listing[]),
+    leerCostes(connectionId),
+    bsrDelPanel(connectionId),
+  ])
+  for (const l of desglose) {
+    const x = inventario[l.sku] ?? { reservado: null, enviado: null, noApto: null, ritmo: 0 }
+    inventario[l.sku] = { ...x, reservado: mayor(x.reservado, l.fba_reserved_quantity), enviado: mayor(x.enviado, l.fba_inbound_quantity), noApto: mayor(x.noApto, l.fba_unfulfillable_quantity) }
+  }
   const vendidas: Record<string, number> = {}
-  for (let d = 0; ; d += 1000) {
-    const { data, error } = await s.from('ventas_lineas').select('sku, unidades, estado').eq('connection_id', connectionId).gte('dia', hace30).range(d, d + 999)
-    if (error) break
-    for (const l of (data ?? []) as Array<{ sku: string; unidades: number | null; estado: string | null }>) {
-      if (String(l.estado ?? '').toLowerCase() === 'cancelled') continue
-      vendidas[l.sku] = (vendidas[l.sku] ?? 0) + Number(l.unidades ?? 0)
-    }
-    if ((data ?? []).length < 1000) break
+  for (const l of recientes) {
+    if (String(l.estado ?? '').toLowerCase() === 'cancelled') continue
+    vendidas[l.sku] = (vendidas[l.sku] ?? 0) + Number(l.unidades ?? 0)
   }
   for (const [sku, n] of Object.entries(vendidas)) inventario[sku] = { ...(inventario[sku] ?? { reservado: null, enviado: null, noApto: null, ritmo: 0 }), ritmo: Math.round((n / 30) * 100) / 100 }
-  for (let d = 0; ; d += 1000) {
-    const { data, error } = await s.from('amazon_listings').select('sku, asin, title, marketplace_id, price, currency, is_fba, listing_status, fba_fulfillable_quantity, fba_quantity').eq('connection_id', connectionId).order('sku').range(d, d + 999)
-    if (error) break
-    for (const l of (data ?? []) as Array<{ sku: string; asin: string | null; title: string | null; marketplace_id: string; price: number | null; currency: string | null; is_fba: boolean | null; listing_status: string | null; fba_fulfillable_quantity: number | null; fba_quantity: number | null }>) {
-      if (!titulos[l.sku] || (!titulos[l.sku].titulo && l.title)) titulos[l.sku] = { titulo: l.title, asin: l.asin }
-      const uds = l.fba_fulfillable_quantity ?? l.fba_quantity
-      if (l.is_fba && uds != null) stock[l.sku] = Math.max(stock[l.sku] ?? 0, Number(uds))
-      catalogo.push({ sku: l.sku, mkt: l.marketplace_id, asin: l.asin, titulo: l.title, precio: l.price == null ? null : Number(l.price), moneda: l.currency, fba: Boolean(l.is_fba), activo: !l.listing_status || /active|buyable|discoverable/i.test(l.listing_status) })
-    }
-    if ((data ?? []).length < 1000) break
+  for (const l of listings) {
+    if (!titulos[l.sku] || (!titulos[l.sku].titulo && l.title)) titulos[l.sku] = { titulo: l.title, asin: l.asin }
+    const uds = l.fba_fulfillable_quantity ?? l.fba_quantity
+    if (l.is_fba && uds != null) stock[l.sku] = Math.max(stock[l.sku] ?? 0, Number(uds))
+    catalogo.push({ sku: l.sku, mkt: l.marketplace_id, asin: l.asin, titulo: l.title, precio: l.price == null ? null : Number(l.price), moneda: l.currency, fba: Boolean(l.is_fba), activo: !l.listing_status || /active|buyable|discoverable/i.test(l.listing_status) })
   }
-  const costes = await leerCostes(connectionId)
-  return { titulos, costes, catalogo, stock, bsr: await bsrDelPanel(connectionId), inventario }
+  return { titulos, costes, catalogo, stock, bsr, inventario }
 }
 
 /** El BSR de categoría más reciente de cada SKU (últimos 10 días) y el de unos días antes, para la tendencia. Si falla, sin BSR */
 async function bsrDelPanel(connectionId: string): Promise<Record<string, BsrDelProducto>> {
-  const desde = new Date(Date.now() - 10 * 86_400_000).toISOString()
-  const { data, error } = await createServiceClient()
-    .from('amazon_snapshots_bsr')
-    .select('sku, fecha, rank')
-    .eq('connection_id', connectionId)
-    .eq('tipo', 'categoria')
-    .gte('fecha', desde)
-    .order('fecha', { ascending: false })
-    .limit(5000)
-  if (error) return {}
+  // 4 días bastan para el último y el de «antes» (más de 2 días de diferencia). TODAS las filas: con `.limit(5000)` Supabase daba 1.000, solo
+  // ~1.000 SKU tenían BSR y ninguno tendencia en las cuentas grandes
+  const desde = new Date(Date.now() - 4 * 86_400_000).toISOString()
+  const data = await todasLasPaginas<{ sku: string; fecha: string; rank: number }>((d) =>
+    createServiceClient().from('amazon_snapshots_bsr').select('sku, fecha, rank').eq('connection_id', connectionId).eq('tipo', 'categoria').gte('fecha', desde).order('fecha', { ascending: false }).order('sku').order('rank').range(d, d + 999),
+  ).catch(() => null)
+  if (!data) return {}
   const salida: Record<string, BsrDelProducto> = {}
   const primera: Record<string, string> = {}
-  for (const f of (data ?? []) as Array<{ sku: string; fecha: string; rank: number }>) {
+  for (const f of data) {
     const b = salida[f.sku]
     if (!b) {
       salida[f.sku] = { rank: f.rank, antes: null }
@@ -515,31 +517,34 @@ export async function sesionesDelPanel(connectionId: string, desde: string, hast
   const clientId = (con as { client_id?: string } | null)?.client_id
   if (!clientId) return null
   const salida: Record<string, number> = {}
-  let hay = false
-  for (let d = 0; d < 20_000; d += 1000) {
-    const { data, error } = await s.from('trafico_diario').select('asin, marketplace_id, sesiones').eq('client_id', clientId).gte('fecha', desde).lte('fecha', hasta).range(d, d + 999)
-    if (error) return null
-    for (const f of (data ?? []) as Array<{ asin: string; marketplace_id: string; sesiones: number }>) {
-      hay = true
-      const k = `${f.marketplace_id}|${f.asin}`
-      salida[k] = (salida[k] ?? 0) + Number(f.sesiones || 0)
-    }
-    if ((data ?? []).length < 1000) break
+  const filas = await todasLasPaginas<{ asin: string; marketplace_id: string; sesiones: number }>((d) =>
+    s.from('trafico_diario').select('asin, marketplace_id, sesiones').eq('client_id', clientId).gte('fecha', desde).lte('fecha', hasta).order('fecha').order('marketplace_id').order('asin').range(d, d + 999),
+  20).catch(() => null)
+  if (!filas) return null
+  for (const f of filas) {
+    const k = `${f.marketplace_id}|${f.asin}`
+    salida[k] = (salida[k] ?? 0) + Number(f.sesiones || 0)
   }
-  return hay ? salida : null
+  return filas.length ? salida : null
 }
 
 export async function lineasDelPanel(connectionId: string, desde: string, hasta: string): Promise<LineaDelPanel[]> {
-  const { data, error } = await createServiceClient()
-    .from('ventas_lineas')
-    .select('pedido, sku, marketplace_id, fecha, estado, unidades, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales, asin')
-    .eq('connection_id', connectionId)
-    .gte('dia', desde)
-    .lte('dia', hasta)
-    .order('fecha', { ascending: false })
-    .limit(1500)
-  if (error) throw error
-  return ((data ?? []) as Array<Record<string, unknown>>).map((l) => ({
+  // Todas (hasta 10.000): con `.limit(1500)` Supabase daba 1.000 y Creative Toys enseñaba 1.000 de sus 1.876 líneas de 30 días
+  const data = await todasLasPaginas<Record<string, unknown>>(
+    (d) =>
+      createServiceClient()
+        .from('ventas_lineas')
+        .select('pedido, sku, marketplace_id, fecha, estado, unidades, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales, asin')
+        .eq('connection_id', connectionId)
+        .gte('dia', desde)
+        .lte('dia', hasta)
+        .order('fecha', { ascending: false })
+        .order('pedido')
+        .order('sku')
+        .range(d, d + 999),
+    10,
+  )
+  return data.map((l) => ({
     pedido: String(l.pedido),
     sku: String(l.sku),
     mkt: String(l.marketplace_id),
@@ -593,7 +598,7 @@ export async function cuentasParaAnadir(): Promise<Array<{ id: string; nombre: s
 }
 
 export async function anadirCuenta(connectionId: string): Promise<void> {
-  olvidar('cuentas')
+  olvidarCuenta(connectionId)
   // Una cuenta de EE. UU., Canadá o México no tiene IVA europeo: ni en las ventas ni en las tarifas
   const { data: con } = await createServiceClient().from('amazon_connections').select('region').eq('id', connectionId).maybeSingle()
   const sinIva = (con as { region?: string } | null)?.region === 'na'
@@ -603,8 +608,7 @@ export async function anadirCuenta(connectionId: string): Promise<void> {
 
 /** Los ajustes de la página «Configuración» (migración 353) */
 export async function guardarAjustes(connectionId: string, ajustes: unknown): Promise<AjustesCuenta> {
-  olvidar('cuentas')
-  olvidar('resumen:')
+  olvidarCuenta(connectionId)
   const limpio = normalizarAjustes(ajustes)
   const { error } = await createServiceClient().from('ventas_cuentas').update({ ajustes: limpio }).eq('connection_id', connectionId)
   if (error) {
@@ -615,13 +619,13 @@ export async function guardarAjustes(connectionId: string, ajustes: unknown): Pr
 }
 
 export async function cambiarIvaPorPais(connectionId: string, porPais: boolean): Promise<void> {
-  olvidar('cuentas')
+  olvidarCuenta(connectionId)
   const { error } = await createServiceClient().from('ventas_cuentas').update({ iva_por_pais: porPais }).eq('connection_id', connectionId)
   if (error) throw error
 }
 
 export async function cambiarIva(connectionId: string, iva: number): Promise<void> {
-  olvidar('cuentas')
+  olvidarCuenta(connectionId)
   const { error } = await createServiceClient().from('ventas_cuentas').update({ iva_pct: iva }).eq('connection_id', connectionId)
   if (error) throw error
 }

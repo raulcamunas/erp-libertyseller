@@ -272,14 +272,11 @@ async function pasoPedidos(service: Servicio, c: Cuenta, creds: Parameters<typeo
     const desde = c.pedidos_informe_desde
     const hasta = c.pedidos_informe_hasta
     // Lo que ya había en ese tramo: se conserva lo que vino de los movimientos de dinero (precio real y comisiones reales)
-    const { data: previas, error } = await service
-      .from('ventas_lineas')
-      .select('pedido, sku, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales')
-      .eq('connection_id', c.connection_id)
-      .gte('fecha', desde)
-      .lt('fecha', hasta)
-    if (error) throw error
-    const previa = new Map(((previas ?? []) as Array<Record<string, unknown>>).map((p) => [`${p.pedido}|${p.sku}`, p]))
+    // De 1.000 en 1.000: si el cron se para, el tramo puede pasar de 1.000 líneas y las que no entraban perdían sus comisiones reales
+    const previas = await leerTodo<Record<string, unknown>>((d) =>
+      service.from('ventas_lineas').select('pedido, sku, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales').eq('connection_id', c.connection_id).gte('fecha', desde).lt('fecha', hasta).order('pedido').order('sku').range(d, d + 999),
+    )
+    const previa = new Map(previas.map((p) => [`${p.pedido}|${p.sku}`, p]))
     const filas = leidas.lineas.map((l) => {
       const p = previa.get(`${l.pedido}|${l.sku}`)
       const reales = Boolean(p?.tarifas_reales)
@@ -344,8 +341,10 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
   const hasta = new Date(Math.min(ahora - 3 * MIN, desde.getTime() + 10 * DIA_MS, pedidosHasta))
   if (hasta.getTime() <= desde.getTime()) return null
   const arranque = Date.now()
-  const tarifas: ReturnType<typeof leerDinero>['tarifas'] = []
+  const tarifasSueltas: ReturnType<typeof leerDinero>['tarifas'] = []
   const movimientos: Movimiento[] = []
+  // Las repeticiones de cada clave, compartidas entre páginas (dos movimientos idénticos en páginas distintas son #1 y #2)
+  const vistas = new Map<string, number>()
   let siguiente: string | undefined
   let paginas = 0
   do {
@@ -357,11 +356,12 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
       maxAttempts: 4,
     })
     paginas++
-    const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { diaSinFecha: diaEnZona(hasta, zonaDeMercado(mercado)) ?? hasta.toISOString().slice(0, 10) })
-    tarifas.push(...leido.tarifas)
+    const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { diaSinFecha: diaEnZona(hasta, zonaDeMercado(mercado)) ?? hasta.toISOString().slice(0, 10), vistas })
+    tarifasSueltas.push(...leido.tarifas)
     movimientos.push(...leido.movimientos)
     siguiente = data?.payload?.NextToken
   } while (siguiente)
+  const tarifas = juntarTarifas(tarifasSueltas)
 
   // Las comisiones reales, en su línea de pedido. Las de pedidos que ya no están guardados cuentan el día en que se cobran
   const pedidos = [...new Set(tarifas.map((t) => t.pedido))]
@@ -384,9 +384,8 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
   // Las tarifas sin fecha ya apuntadas en una lectura anterior (el tramo se relee 3 días) no se vuelven a apuntar con otro día
   const yaApuntadas = new Set<string>()
   if (movimientos.some((m) => firmaSinFecha(m.clave))) {
-    const { data: previas, error } = await service.from('ventas_movimientos').select('clave').eq('connection_id', c.connection_id).like('clave', 's|%').gte('dia', new Date(desde.getTime() - 20 * DIA_MS).toISOString().slice(0, 10)).limit(5000)
-    if (error) throw error
-    for (const p of (previas ?? []) as Array<{ clave: string }>) {
+    const previas = await leerTodo<{ clave: string }>((d) => service.from('ventas_movimientos').select('clave').eq('connection_id', c.connection_id).like('clave', 's|%').gte('dia', new Date(desde.getTime() - 20 * DIA_MS).toISOString().slice(0, 10)).order('clave').range(d, d + 999))
+    for (const p of previas) {
       const f = firmaSinFecha(p.clave)
       if (f) yaApuntadas.add(f)
     }
@@ -523,6 +522,28 @@ async function pasoPublicidad(service: Servicio, c: Cuenta, porEuro: Record<stri
 /* 4 · El resumen                                                      */
 /* ------------------------------------------------------------------ */
 
+/** Junta las tarifas del MISMO pedido y SKU que llegan en varias páginas (un pedido enviado en dos envíos): antes se quedaba solo con el último
+ *  y, si iban en el mismo lote, el upsert fallaba entero («cannot affect row a second time») */
+function juntarTarifas(tarifas: ReturnType<typeof leerDinero>['tarifas']): ReturnType<typeof leerDinero>['tarifas'] {
+  const juntas = new Map<string, ReturnType<typeof leerDinero>['tarifas'][number]>()
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  for (const t of tarifas) {
+    const k = `${t.pedido}|${t.sku}`
+    const x = juntas.get(k)
+    if (!x) juntas.set(k, { ...t })
+    else {
+      x.referral = r2(x.referral + t.referral)
+      x.fba = r2(x.fba + t.fba)
+      x.otras = r2(x.otras + t.otras)
+      x.cobrado = r2(x.cobrado + t.cobrado)
+      x.promo = r2(x.promo + t.promo)
+      x.unidades += t.unidades
+      if (t.dia < x.dia) x.dia = t.dia
+    }
+  }
+  return [...juntas.values()]
+}
+
 async function leerTodo<T>(consulta: (desde: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const filas: T[] = []
   for (let desde = 0; ; desde += 1000) {
@@ -539,7 +560,7 @@ export async function rehacerResumen(service: Servicio, connectionId: string): P
   const desde = desplazar(hoy, -DIAS_VENTANA)
   const envio = await conEnvio(service)
   const lineas = await leerTodo<LineaGuardada & { canal?: string | null }>((d) =>
-    service.from('ventas_lineas').select(`pedido, sku, marketplace_id, dia, asin, unidades, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales, canal${envio ? ', envio' : ''}`).eq('connection_id', connectionId).gte('dia', desde).order('pedido').range(d, d + 999),
+    service.from('ventas_lineas').select(`pedido, sku, marketplace_id, dia, asin, unidades, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales, canal${envio ? ', envio' : ''}`).eq('connection_id', connectionId).gte('dia', desde).order('pedido').order('sku').range(d, d + 999),
   )
   const movimientos = await leerTodo<Movimiento>((d) =>
     service.from('ventas_movimientos').select('clave, dia, marketplace_id, sku, tipo, unidades, importe, extra, extra_unidades').eq('connection_id', connectionId).gte('dia', desde).order('clave').range(d, d + 999),
@@ -616,23 +637,37 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
 
   // El dinero de esas fechas (hasta 15 días después: lo que Amazon cobra de los pedidos del final del tramo)
   const arranque = Date.now()
-  const tarifas: ReturnType<typeof leerDinero>['tarifas'] = []
+  const tarifasSueltas: ReturnType<typeof leerDinero>['tarifas'] = []
   const movimientos: Movimiento[] = []
   const finDinero = [desplazar(hasta, 15), hoy].sort()[0]
-  let siguiente: string | undefined
-  do {
-    if (Date.now() - arranque > presupuestoMs) return null // Sin tiempo: el tramo entero se repite en la próxima pasada (el informe sigue ahí)
-    const { data } = await spApiRequest<{ payload?: { FinancialEvents?: Record<string, unknown>; NextToken?: string } }>(creds, 'listFinancialEvents', {
-      method: 'GET',
-      path: '/finances/v0/financialEvents',
-      query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', PostedAfter: `${[desplazar(desde, -1), limite].sort().reverse()[0]}T00:00:00Z`, PostedBefore: `${finDinero}T00:00:00Z` },
-      maxAttempts: 4,
-    })
-    const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { publicidadFacturada: true })
-    tarifas.push(...leido.tarifas)
-    movimientos.push(...leido.movimientos)
-    siguiente = data?.payload?.NextToken
-  } while (siguiente)
+  const vistas = new Map<string, number>()
+  // TRES VENTANAS: el tramo [desde, hasta) y sus márgenes (el día anterior y los 15 siguientes, solo para casar comisiones con pedidos). Las tarifas
+  // SIN FECHA (almacenamiento, suscripción, retiradas…) cuentan solo en la del tramo, al último día: los márgenes se solapan con los tramos
+  // vecinos y allí se contarían dos veces. Antes el historial las tiraba todas
+  const mas = (a: string, b: string) => (a > b ? a : b)
+  const menos = (a: string, b: string) => (a < b ? a : b)
+  const ventanas = [
+    { despues: mas(desplazar(desde, -1), limite), antes: menos(desde, hoy), sinFecha: false },
+    { despues: mas(desde, limite), antes: menos(hasta, hoy), sinFecha: true },
+    { despues: mas(hasta, limite), antes: finDinero, sinFecha: false },
+  ].filter((v) => v.despues < v.antes)
+  for (const v of ventanas) {
+    let siguiente: string | undefined
+    do {
+      if (Date.now() - arranque > presupuestoMs) return null // Sin tiempo: el tramo entero se repite en la próxima pasada (el informe sigue ahí)
+      const { data } = await spApiRequest<{ payload?: { FinancialEvents?: Record<string, unknown>; NextToken?: string } }>(creds, 'listFinancialEvents', {
+        method: 'GET',
+        path: '/finances/v0/financialEvents',
+        query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', PostedAfter: `${v.despues}T00:00:00Z`, PostedBefore: `${v.antes}T00:00:00Z` },
+        maxAttempts: 4,
+      })
+      const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { publicidadFacturada: true, vistas, ...(v.sinFecha ? { diaSinFecha: desplazar(v.antes, -1) } : {}) })
+      tarifasSueltas.push(...leido.tarifas)
+      movimientos.push(...leido.movimientos)
+      siguiente = data?.payload?.NextToken
+    } while (siguiente)
+  }
+  const tarifas = juntarTarifas(tarifasSueltas)
 
   // Las líneas con su precio y sus comisiones reales
   const porPedido = new Map(tarifas.map((t) => [`${t.pedido}|${t.sku}`, t]))

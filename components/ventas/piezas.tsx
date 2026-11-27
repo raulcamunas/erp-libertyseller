@@ -89,7 +89,16 @@ export function filasDeDesglose(t: Totales, sesiones?: number | null): FilaDesgl
     { texto: 'Reembolsos', valor: entero(t.reembolsos) },
     { texto: 'Promociones', valor: euros(-t.promo), signo: 'menos' },
     { texto: 'Costes publicitarios', valor: euros(-t.publicidad), signo: 'menos' },
-    { texto: 'Coste de los reembolsos', valor: euros(t.costeReembolso), signo: 'menos', hijos: [{ texto: 'Devuelto al comprador', valor: euros(-t.reembolsado) }, { texto: 'Comisiones que devuelve Amazon', valor: euros(t.costeReembolso + t.reembolsado) }] },
+    {
+      texto: 'Coste de los reembolsos',
+      valor: euros(t.costeReembolso),
+      signo: 'menos',
+      hijos: [
+        { texto: 'Devuelto al comprador', valor: euros(-t.reembolsado) },
+        { texto: 'Comisiones que devuelve Amazon', valor: euros(t.costeReembolso + t.reembolsado - t.valorDevuelto) },
+        ...(t.valorDevuelto ? [{ texto: 'Valor de los artículos devueltos', valor: euros(t.valorDevuelto) }] : []),
+      ],
+    },
     {
       texto: 'Tarifas de Amazon',
       valor: euros(t.tarifas),
@@ -109,7 +118,7 @@ export function filasDeDesglose(t: Totales, sesiones?: number | null): FilaDesgl
     { texto: 'Ganancia bruta', valor: euros(t.bruto) },
     { texto: 'Gastos indirectos', valor: euros(0) },
     { texto: 'Ganancia neta', valor: euros(t.neto), fuerte: true },
-    { texto: 'Pago estimado', valor: euros(t.pago), nota: 'Lo que Amazon te ingresa por esto: ventas menos promociones, tarifas (con su IVA) y reembolsos' },
+    { texto: 'Pago estimado', valor: euros(t.pago), nota: 'Lo que Amazon te ingresa por esto: ventas menos promociones, tarifas (con su IVA), reembolsos y publicidad' },
     { texto: 'TACOS (publicidad / ventas)', valor: pct(t.tacos, 2), gris: true },
     { texto: 'Tasa de reembolso', valor: pct(t.tasaReembolso, 2), gris: true },
     { texto: 'Margen', valor: pct(t.margen, 2), gris: true },
@@ -635,10 +644,16 @@ export function CuentaDeResultados({ periodos, totales }: { periodos: Periodo[];
     { texto: 'Otras tarifas', f: (t) => euros(t.otras) },
     { texto: 'Coste de los productos', f: (t) => euros(-t.cogs) },
     { texto: 'IVA', f: (t) => euros(-t.iva) },
+    // Las mismas líneas que el desglose: sumadas dan la ganancia neta (antes faltaban el envío FBM y el pick & pack)
+    ...(totales.some((t) => t.envio) ? [{ texto: 'Costo de envío (FBM)', f: (t: Totales) => euros(-t.envio) }] : []),
+    ...(totales.some((t) => t.pickpack) ? [{ texto: 'FBM Pick & Pack', f: (t: Totales) => euros(-t.pickpack) }] : []),
     { texto: 'Ajustes de Amazon', f: (t) => euros(t.ajustes) },
     { texto: 'Ganancia neta', f: (t) => euros(t.neto), fuerte: true, neto: true },
+    { texto: 'Pago estimado', f: (t) => euros(t.pago) },
     { texto: 'Margen', f: (t) => pct(t.margen) },
+    { texto: 'ROI', f: (t) => (t.roi == null ? '—' : pct(t.roi)) },
     { texto: 'TACOS', f: (t) => pct(t.tacos) },
+    { texto: 'Tasa de reembolso', f: (t) => pct(t.tasaReembolso) },
   ]
   return (
     <div className="overflow-x-auto">

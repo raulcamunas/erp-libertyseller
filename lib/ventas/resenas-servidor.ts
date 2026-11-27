@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { todasLasPaginas } from './paginas'
 import { connectionCredentials } from '@/lib/amazon/data'
 import { spApiRequest } from '@/lib/amazon/sp-api'
 import { AmazonApiError } from '@/lib/amazon/errors'
@@ -291,13 +292,16 @@ async function leerDetalleResenas(cuenta: string): Promise<DetalleResenas> {
   const desde = new Date(Date.parse(`${hoy}T00:00:00Z`) - 40 * DIA_MS).toISOString()
   const [cam, env] = await Promise.all([
     s.from('resenas_campanas').select(COLUMNAS_CAMPANA).eq('connection_id', cuenta).order('prioridad'),
-    s
-      .from('resenas_envios')
-      .select('pedido, marketplace_id, compra_at, programado_at, estado, enviada_at, intentos, detalle, skus, importe, campana_id')
-      .eq('connection_id', cuenta)
-      .gte('compra_at', desde)
-      .order('programado_at', { ascending: false })
-      .limit(5000),
+    todasLasPaginas((d) =>
+      s
+        .from('resenas_envios')
+        .select('pedido, marketplace_id, compra_at, programado_at, estado, enviada_at, intentos, detalle, skus, importe, campana_id')
+        .eq('connection_id', cuenta)
+        .gte('compra_at', desde)
+        .order('programado_at', { ascending: false })
+        .order('pedido')
+        .range(d, d + 999),
+    ),
   ])
   if (cam.error) throw cam.error
   if (env.error) throw env.error

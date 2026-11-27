@@ -7,7 +7,7 @@
  *   ventas  − promociones + tarifas de Amazon (negativas) + coste de los reembolsos − publicidad − IVA − coste de los productos + ajustes  = ganancia neta
  *
  *   · coste de los reembolsos = − lo devuelto al comprador + lo que Amazon devuelve o cobra de comisiones por el reembolso
- *   · IVA = (ventas − promociones − lo devuelto) × iva / (100 + iva)   (las ventas de Amazon llevan el IVA dentro)
+ *   · IVA = (ventas − promociones − lo devuelto) × iva / (100 + iva), con su signo (un día con solo reembolsos recupera IVA)
  *   · ajustes = lo que Amazon reembolsa (inventario perdido o dañado, cargos al comprador): suma
  *
  * LAS TARIFAS DE AMAZON, SIN SU IVA (26 nov 2026, cuadrando con Sellerboard): Amazon da las comisiones, la tarifa FBA, la suscripción y las comisiones de los
@@ -92,6 +92,8 @@ export interface Totales {
   envio: number
   /** FBM Pick & Pack (en positivo) */
   pickpack: number
+  /** El coste de los artículos reembolsados que vuelven al stock (en positivo, dentro de «Coste de los reembolsos», como «Valor de los artículos devueltos» de Sellerboard) */
+  valorDevuelto: number
   /** Unidades vendidas de SKU sin coste puesto: el beneficio está inflado por ellas */
   unidadesSinCoste: number
   bruto: number
@@ -108,7 +110,7 @@ export interface Totales {
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 export function vacios(): Totales {
-  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, envio: 0, pickpack: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
+  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, envio: 0, pickpack: 0, valorDevuelto: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
 }
 
 /** Suma unas filas y saca el beneficio. `costes` = coste por unidad de cada SKU (euros) */
@@ -119,8 +121,13 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
   const quitarIva = 1 / (1 + pct / 100)
   // Las tarifas llevan IVA que se recupera (se cuentan sin él) salvo que la Configuración diga que no, o antes de su fecha
   const factorTarifas = (dia: string) => (aj.tarifasConIva === false || (aj.tarifasIvaDesde && dia < aj.tarifasIvaDesde) ? 1 : quitarIva)
-  // El IVA de las ventas, fila a fila (con «IVA de cada país» cada mercado lleva el suyo)
+  // El IVA de las ventas, fila a fila (con «IVA de cada país» cada mercado lleva el suyo). CON SU SIGNO: el reembolso cae casi siempre otro día
+  // que la venta, y recortar a 0 fila a fila tiraba el IVA que se recupera (ShoesF: ~1.000 € al mes de IVA de más)
   let iva = 0
+  // Lo que no va al ritmo de las ventas (tarifas de la cuenta y ajustes de Amazon: filas sin SKU ni unidades), para no multiplicarlo en el pronóstico
+  let fijoOtras = 0
+  let fijoAjustes = 0
+  let fijoPago = 0
   for (const f of filas) {
     const sinIva = factorTarifas(f.dia)
     t.ventas += f.ventas
@@ -140,34 +147,70 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
     t.ajustes += f.ajustes
     t.envio += f.envio ?? 0
     t.pickpack += f.pickpack ?? 0
-    t.pago += f.ventas - f.promo + f.referral + f.fba + f.otras + f.comisionReembolso - f.reembolsado + f.ajustes
+    // Lo que Amazon paga (el «Pago estimado» de Sellerboard): ventas − promociones + tarifas con su IVA ± reembolsos + ajustes − publicidad
+    t.pago += f.ventas - f.promo + f.referral + f.fba + f.otras + f.comisionReembolso - f.reembolsado + f.ajustes - f.publicidad
+    if (!f.sku && !f.unidades) {
+      fijoOtras += f.otras * sinIva
+      fijoAjustes += f.ajustes
+      fijoPago += f.otras + f.ajustes
+    }
     const r = aj.ivaVentas === false || (aj.ivaVentasDesde && f.dia < aj.ivaVentasDesde) ? 0 : ivaDeVentas(ivaPct, f.mkt)
-    iva += Math.max(0, f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
-    if (f.sku && f.unidades) {
+    iva += (f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
+    if (f.sku) {
       const c = costes[f.sku]
-      if (c != null && c > 0) t.cogs += c * f.unidades
-      else t.unidadesSinCoste += f.unidades
+      if (f.unidades) {
+        if (c != null && c > 0) t.cogs += c * f.unidades
+        else t.unidadesSinCoste += f.unidades
+      }
+      // Lo reembolsado vuelve al almacén: su coste se recupera (Sellerboard: «Valor de los artículos devueltos»)
+      if (f.reembolsos && c != null && c > 0) t.valorDevuelto += c * f.reembolsos
     }
   }
+  t.costeReembolso += t.valorDevuelto
   t.tarifas = t.referral + t.fba + t.otras
-  t.iva = Math.max(0, iva)
+  t.iva = iva
   // «Agregar IVA local a los costes de publicidad»: Amazon Ads factura sin IVA y hay quien no lo recupera
-  if (aj.ivaPublicidad) t.publicidad *= 1 + pct / 100
+  if (aj.ivaPublicidad) {
+    t.pago -= t.publicidad * (pct / 100)
+    t.publicidad *= 1 + pct / 100
+  }
   t.bruto = t.ventas - t.promo + t.tarifas + t.costeReembolso - t.publicidad - t.iva - t.cogs - t.envio - t.pickpack + t.ajustes
   t.neto = t.bruto
   if (escala !== 1) {
-    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
+    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'valorDevuelto', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
       t[k] = t[k] * escala
     }
+    // Las tarifas de la cuenta (suscripción, almacenamiento) y los ajustes se cobran una vez: no se multiplican por el ritmo del mes
+    const sobra = escala - 1
+    t.otras -= fijoOtras * sobra
+    t.tarifas -= fijoOtras * sobra
+    t.ajustes -= fijoAjustes * sobra
+    t.bruto -= (fijoOtras + fijoAjustes) * sobra
+    t.neto = t.bruto
+    t.pago -= fijoPago * sobra
     t.unidades = Math.round(t.unidades)
     t.pedidos = Math.round(t.pedidos)
     t.reembolsos = Math.round(t.reembolsos)
   }
-  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
+  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'valorDevuelto', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
   // «Utilizar las ventas netas para calcular el margen»: sobre las ventas sin IVA
   const base = aj.margenSobreNeto ? t.ventas - t.iva : t.ventas
   t.margen = base > 0 ? t.neto / base : null
   // El ROI solo con TODOS los costes puestos: con la mitad sale disparado (beneficio de todo entre el coste de unos pocos)
+  t.roi = t.cogs > 0 && t.unidadesSinCoste === 0 ? t.neto / t.cogs : null
+  t.tacos = t.ventas > 0 ? t.publicidad / t.ventas : null
+  t.tasaReembolso = t.unidades > 0 ? t.reembolsos / t.unidades : null
+  t.precioMedio = t.unidades > 0 ? t.ventas / t.unidades : null
+  return t
+}
+
+/** Suma los totales de varias cuentas (el «Todas las cuentas»): todas las cifras que se suman, y los cocientes recalculados sobre la suma */
+export function sumarTotales(lista: readonly Totales[]): Totales {
+  const t = vacios()
+  const aditivos = ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'valorDevuelto', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const
+  for (const x of lista) for (const k of aditivos) t[k] += x[k]
+  for (const k of aditivos) t[k] = r2(t[k])
+  t.margen = t.ventas > 0 ? t.neto / t.ventas : null
   t.roi = t.cogs > 0 && t.unidadesSinCoste === 0 ? t.neto / t.cogs : null
   t.tacos = t.ventas > 0 ? t.publicidad / t.ventas : null
   t.tasaReembolso = t.unidades > 0 ? t.reembolsos / t.unidades : null
@@ -197,12 +240,13 @@ export interface Periodo extends Rango {
 export type Tanda = 'clasica' | 'dias' | 'semanas' | 'meses' | 'trimestres' | 'rango'
 export type Comparar = 'anio' | 'anterior' | 'no'
 
-export const TANDAS: Array<{ id: Tanda; texto: string }> = [
-  { id: 'clasica', texto: 'Hoy · Ayer · Este mes · Pronóstico · Mes pasado' },
-  { id: 'dias', texto: 'Hoy · Ayer · 7 · 14 · 30 días' },
-  { id: 'semanas', texto: 'Esta semana y las 3 anteriores' },
-  { id: 'meses', texto: 'Este mes y los 3 anteriores' },
-  { id: 'trimestres', texto: 'Este trimestre y los 3 anteriores' },
+/** `corto`: lo que se ve en el móvil */
+export const TANDAS: Array<{ id: Tanda; texto: string; corto: string }> = [
+  { id: 'clasica', texto: 'Hoy · Ayer · Este mes · Pronóstico · Mes pasado', corto: 'Hoy · Mes · Pronóstico' },
+  { id: 'dias', texto: 'Hoy · Ayer · 7 · 14 · 30 días', corto: 'Días' },
+  { id: 'semanas', texto: 'Esta semana y las 3 anteriores', corto: 'Semanas' },
+  { id: 'meses', texto: 'Este mes y los 3 anteriores', corto: 'Meses' },
+  { id: 'trimestres', texto: 'Este trimestre y los 3 anteriores', corto: 'Trimestres' },
 ]
 
 export const sumarDias = (dia: string, n: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + n * DIA_MS).toISOString().slice(0, 10)
