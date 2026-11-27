@@ -481,23 +481,40 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
   // quién puede preparar y etiquetar cada uno. Si Amazon no contesta, se sigue como siempre (y el plan aprende de su error)
   const desdeAmazon: api.Duenos = {}
   let prepFijada: string[] = []
+  const prepAvisos: string[] = []
+  const mskus = [...new Set(lineas.filter((l) => l.unidades > 0).map((l) => l.sku))]
+  let prep: api.PrepDeSku[] = []
   try {
-    const mskus = [...new Set(lineas.filter((l) => l.unidades > 0).map((l) => l.sku))]
-    const prep = await api.leerPreparacion(ctx.creds, f.marketplace_id as string, mskus)
-    const faltan = prep.filter(api.sinPreparacion).map((p) => p.msku)
-    if (faltan.length) {
+    prep = await api.leerPreparacion(ctx.creds, f.marketplace_id as string, mskus)
+  } catch (e) {
+    prepAvisos.push(`leer: ${e instanceof Error ? e.message : String(e)}`.slice(0, 400))
+  }
+  // Los que Amazon ya dijo en un intento anterior que no tienen categoría (FBA_INB_0182, «resource 'SKU'»): se fijan aunque la lectura falle
+  const { data: previas } = await ctx.service.from('fba_inbound_operaciones').select('problemas').eq('remesa_id', f.id).eq('paso', 'plan').eq('estado', 'fallo').order('created_at', { ascending: false }).limit(5)
+  const yaDichos = new Set<string>()
+  for (const o of previas ?? []) {
+    for (const p of (o.problemas ?? []) as Array<{ code?: string | null; details?: string | null; message?: string | null }>) {
+      if (p.code !== 'FBA_INB_0182' && !/prep classification/i.test(p.message ?? '')) continue
+      const m = /resource '([^']+)'/.exec(p.details ?? '')
+      if (m && mskus.includes(m[1])) yaDichos.add(m[1])
+    }
+  }
+  const faltan = [...new Set([...prep.filter(api.sinPreparacion).map((p) => p.msku), ...yaDichos])]
+  if (faltan.length) {
+    try {
       const op = await api.fijarSinPreparacion(ctx.creds, f.marketplace_id as string, faltan)
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 2000))
         const st = await api.estadoDeOperacion(ctx.creds, op.operationId)
         if (st.estado === 'ok') { prepFijada = faltan; break }
-        if (st.estado === 'fallo') break
+        if (st.estado === 'fallo') { prepAvisos.push(`fijar: ${st.texto}`.slice(0, 400)); break }
       }
+    } catch (e) {
+      prepAvisos.push(`fijar: ${e instanceof Error ? e.message : String(e)}`.slice(0, 400))
     }
-    Object.assign(desdeAmazon, api.duenosDePreparacion(prep.map((p) => (prepFijada.includes(p.msku) ? { ...p, prepCategory: 'NONE', prepTypes: ['ITEM_NO_PREP'] } : p))))
-  } catch {
-    // Sin la lectura de la preparación, el plan sale con SELLER y corrige lo que Amazon diga
   }
+  Object.assign(desdeAmazon, api.duenosDePreparacion(prep.map((p) => (prepFijada.includes(p.msku) ? { ...p, prepCategory: 'NONE', prepTypes: ['ITEM_NO_PREP'] } : p))))
+  for (const sku of prepFijada) desdeAmazon[sku] = { ...desdeAmazon[sku], prep: 'NONE' }
 
   const cuerpo = api.cuerpoCrearPlan({
     nombre: f.nombre ?? `Remesa ${f.fecha_envio}`,
@@ -549,7 +566,7 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
       }
       throw ultimo
     },
-    { referencias: cuerpo.items.length, unidades: cuerpo.items.reduce((s, i) => s + i.quantity, 0), origen: cuerpo.sourceAddress.postalCode, ...(prepFijada.length ? { sinPreparacionFijada: prepFijada } : {}) },
+    { referencias: cuerpo.items.length, unidades: cuerpo.items.reduce((s, i) => s + i.quantity, 0), origen: cuerpo.sourceAddress.postalCode, prepLeida: prep.length, ...(faltan.length ? { sinPreparacion: faltan } : {}), ...(prepFijada.length ? { sinPreparacionFijada: prepFijada } : {}), ...(prepAvisos.length ? { prepAvisos } : {}) },
     {
       inbound_plan_id: null,
       packing_option_id: null,
