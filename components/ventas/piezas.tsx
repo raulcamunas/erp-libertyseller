@@ -345,7 +345,7 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
       <table className="w-full min-w-[1080px] text-[12.5px]">
         <thead className="border-b border-[var(--ls-linea)]">
           <tr>
-            <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)]">Producto</th>
+            <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-[var(--ls-t4)] max-sm:sticky max-sm:left-0 max-sm:z-[2] max-sm:bg-[var(--ls-sup)] max-sm:shadow-[6px_0_10px_-8px_rgba(0,0,0,0.6)]">Producto</th>
             <Cab col="unidades" texto="Unidades" />
             <Cab col="reembolsos" texto="Reemb." />
             <Cab col="ventas" texto="Ventas" />
@@ -367,7 +367,8 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
             const baja = p.bsr?.antes != null && p.bsr.rank > p.bsr.antes
             return (
               <tr key={p.k} onClick={() => onAbrir?.({ titulo: p.titulo ?? p.sku, sub: agrupar === 'mercado' ? `${p.skus} productos` : `${p.asin ?? '—'} · SKU ${p.sku}${agrupar === 'asin' && p.skus > 1 ? ` y ${p.skus - 1} más` : ''}`, asin: p.asin, mkt: p.mkt, filas: p.filas })} className={`group border-b ${onAbrir ? 'cursor-pointer' : ''} border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)] ${mas?.k === p.k ? 'bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)]' : ''}`} style={{ animation: `ventas-entra 420ms ${Math.min(i, 20) * 25}ms both cubic-bezier(.2,.8,.2,1)` }}>
-                <td className="px-3 py-[5px]">
+                {/* En el móvil la columna del producto se queda fija y las cifras se pasan de lado */}
+                <td className="px-3 py-[5px] max-sm:sticky max-sm:left-0 max-sm:z-[1] max-sm:bg-[var(--ls-sup)] max-sm:shadow-[6px_0_10px_-8px_rgba(0,0,0,0.6)]">
                   <div className="flex items-center gap-[10px]">
                     {agrupar === 'mercado' ? (
                       <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] bg-[var(--ls-sup2)] text-[20px]">{bandera(p.mkt)}</span>
@@ -376,7 +377,7 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
                         <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={34} redondeo={6} titulo={p.titulo ?? p.sku} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
                       </span>
                     )}
-                    <div className="min-w-0 max-w-[460px] leading-[1.3]">
+                    <div className="min-w-0 max-w-[132px] overflow-hidden leading-[1.3] sm:max-w-[460px]">
                       <div className="flex items-center gap-[6px] text-[10.5px] text-[var(--ls-t4)]">
                         {agrupar === 'mercado' ? (
                           <span>{pais(p.mkt)} · {p.skus} productos</span>

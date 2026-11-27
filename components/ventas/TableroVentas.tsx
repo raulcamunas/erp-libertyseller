@@ -72,6 +72,36 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   const cuenta = cuentas?.find((c) => c.id === cuentaId) ?? null
   const periodoElegido = periodos.find((p) => p.id === elegido) ?? periodos[0]
 
+  // MÓVIL: las baldosas se pasan de lado. La que queda en el centro es la elegida (los productos de abajo la siguen), y al abrir se enseña la elegida
+  const carrusel = useRef<HTMLDivElement>(null)
+  const elegidoRef = useRef(elegido)
+  elegidoRef.current = elegido
+  useEffect(() => {
+    const el = carrusel.current
+    if (!el) return
+    const enCarrusel = () => el.scrollWidth > el.clientWidth + 4 && getComputedStyle(el).display === 'flex'
+    const hijo = el.querySelector<HTMLElement>(`[data-periodo="${elegidoRef.current}"]`)
+    if (hijo && enCarrusel()) { const r = el.getBoundingClientRect(), h = hijo.getBoundingClientRect(); el.scrollLeft += h.left + h.width / 2 - (r.left + r.width / 2) }
+    let t: ReturnType<typeof setTimeout> | undefined
+    const alMover = () => {
+      clearTimeout(t)
+      t = setTimeout(() => {
+        if (!enCarrusel()) return
+        const r = el.getBoundingClientRect()
+        const centro = r.left + r.width / 2
+        let mejor: { id: string; d: number } | null = null
+        for (const h of Array.from(el.querySelectorAll<HTMLElement>('[data-periodo]'))) {
+          const b = h.getBoundingClientRect()
+          const d = Math.abs(b.left + b.width / 2 - centro)
+          if (!mejor || d < mejor.d) mejor = { id: h.dataset.periodo ?? '', d }
+        }
+        if (mejor?.id && mejor.id !== elegidoRef.current) setElegido(mejor.id)
+      }, 140)
+    }
+    el.addEventListener('scroll', alMover, { passive: true })
+    return () => { el.removeEventListener('scroll', alMover); clearTimeout(t) }
+  }, [periodos.length, vista])
+
   // Las cuentas
   const cargarCuentas = useCallback(async () => {
     const r = await pedir<{ cuentas: CuentaDelPanel[]; libres: Array<{ id: string; nombre: string; cliente: string | null }> }>('/api/ventas?que=cuentas')
@@ -302,9 +332,12 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       )}
 
       {/* Las baldosas */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      {/* En el móvil, como Sellerboard: una baldosa por pantalla y se pasa de lado (con imán); desde sm, la rejilla de siempre */}
+      <div ref={carrusel} className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:pb-0 xl:grid-cols-5 [&::-webkit-scrollbar]:hidden">
         {periodos.map((p, i) => (
+          <div key={`${tanda}-${p.id}`} data-periodo={p.id} className="w-[86%] max-w-[380px] shrink-0 snap-center sm:w-auto sm:max-w-none">
           <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} onReembolsos={() => setMotivos(p)} />
+          </div>
         ))}
       </div>
 
