@@ -107,6 +107,7 @@ import {
   type ProductoEntrais,
 } from '@/lib/entrais/api'
 import { leerBloqueados } from '@/lib/entrais/bloqueados'
+import { conTope, maximosPorTope } from '@/lib/entrais/topes'
 import { OrigenError, textoConfig, type ConectorOrigen, type ContextoOrigen, type FicheroOrigen } from './tipos'
 
 /** Los proveedores a los que este conector sabe llamar */
@@ -162,7 +163,9 @@ function celda(valor: string | number): string {
  */
 function aCsv(
   productos: ProductoEntrais[],
-  bloqueados: Set<string>
+  bloqueados: Set<string>,
+  /** Topes de unidades vigentes (lib/entrais/topes.ts): el stock no pasa de lo que queda del tope */
+  maximos: Map<string, number> = new Map()
 ): { csv: string; negativos: number; bloqueadosACero: number } {
   let negativos = 0
   let bloqueadosACero = 0
@@ -187,7 +190,7 @@ function aCsv(
         celda(p.ean ?? ''),
         // Con su signo. Ver la nota de arriba: el lector lo capa y AVISA, y
         // ese aviso es lo que dice qué artículos están sobrevendidos.
-        celda(bloqueado ? 0 : Math.trunc(p.stock)),
+        celda(bloqueado ? 0 : maximos.has(String(p.code)) ? conTope(String(p.code), Math.max(0, Math.trunc(p.stock)), maximos) : Math.trunc(p.stock)),
         celda(p.price.toFixed(2)),
         celda((p.digitalCanon ?? 0).toFixed(2)),
         celda(p.digital ? 'SI' : 'NO'),
@@ -277,7 +280,8 @@ async function traerCatalogo(ctx: ContextoOrigen): Promise<Catalogo> {
   }
 
   const bloqueados = await leerBloqueados()
-  const { csv, negativos, bloqueadosACero } = aCsv(productos, bloqueados)
+  const maximos = await maximosPorTope()
+  const { csv, negativos, bloqueadosACero } = aCsv(productos, bloqueados, maximos)
   const bytes = Buffer.from(csv, 'utf8')
 
   if (bytes.byteLength > ctx.maxBytes) {

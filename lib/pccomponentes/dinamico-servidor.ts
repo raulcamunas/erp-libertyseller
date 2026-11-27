@@ -6,6 +6,7 @@ import { comisionDe, precioMinimoParaMargen } from './margenes'
 import { decidirPrecio, type MotivoDinamico } from './dinamico'
 import { FRASE_DE_CONFIRMACION, leerTodasLasOfertas, ofertasDeProductos, subirOfertas } from './mirakl'
 import { productosDelProveedor } from './proveedor'
+import { conTope, maximosPorTope } from '@/lib/entrais/topes'
 import type { OfertaParaSubir } from './datos'
 
 /**
@@ -116,6 +117,8 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
   const { ofertas } = await leerTodasLasOfertas(5000, { forzar: true })
   const porSku = new Map(ofertas.map((o) => [o.sku, o]))
 
+  const maximos = await maximosPorTope()
+
   // EL STOCK, del proveedor (el catálogo que trae el ciclo de stock, sin gastar llamadas). Sin él, el stock no se toca y no se crean ofertas
   let stockDe: Map<string, number> | null = null
   try {
@@ -163,7 +166,8 @@ export async function pasadaSiToca(opciones: { forzar?: boolean; forzarEnsayo?: 
     const e = deEntrais.get(sku) ?? null
     const ean = o?.ean ?? e?.ean ?? null
     if (!ean) continue
-    const stock = stockDe ? Math.max(0, stockDe.get(sku) ?? 0) : (o?.cantidad ?? 0)
+    // Con tope de unidades (oferta limitada del distribuidor), nunca más de lo que queda del tope en Amazon + PcComponentes
+    const stock = conTope(sku, stockDe ? Math.max(0, stockDe.get(sku) ?? 0) : (o?.cantidad ?? 0), maximos)
     // Sin oferta todavía: se crea solo si hay stock y se sabe el stock del proveedor
     if (!o && (!stockDe || stock <= 0)) continue
 

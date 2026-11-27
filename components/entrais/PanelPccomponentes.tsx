@@ -11,6 +11,7 @@ import { juzgar, type JuicioDeMercado } from '@/lib/pccomponentes/margenes'
 import { cx } from '@/components/remesas/comun/ui'
 import { PreciosDinamicos } from './PreciosDinamicos'
 import { VentasPcc } from './VentasPcc'
+import { TopesDeUnidades } from './TopesDeUnidades'
 
 /**
  * ENTRAIS · PCCOMPONENTES: EL PANEL DE SU TIENDA.
@@ -29,7 +30,7 @@ export type EstadoDelPanel =
   | { tipo: 'sin_clave'; mensaje: string }
   | { tipo: 'error'; mensaje: string }
 
-type Pestana = 'ofertas' | 'probar' | 'mercado' | 'dinamicos' | 'ventas'
+type Pestana = 'ofertas' | 'probar' | 'mercado' | 'dinamicos' | 'ventas' | 'topes'
 
 const euros = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`)
 const POR_PAGINA = 50
@@ -144,6 +145,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
               ['probar', 'Probar un producto'],
               ['mercado', 'Mercado y margen'],
               ['dinamicos', 'Precios dinámicos'],
+              ['topes', 'Topes'],
             ] as const
           ).map(([id, rotulo]) => (
             <button
@@ -198,6 +200,7 @@ export function PanelPccomponentes({ estado }: { estado: EstadoDelPanel }) {
             {pestana === 'mercado' && <MercadoYMargen ofertas={lista?.ofertas ?? []} />}
             {pestana === 'dinamicos' && <PreciosDinamicos />}
             {pestana === 'ventas' && <VentasPcc />}
+            {pestana === 'topes' && <TopesDeUnidades />}
           </div>
         </>
       )}
