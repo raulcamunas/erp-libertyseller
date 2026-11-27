@@ -7,6 +7,8 @@ const sb = '"ASIN";"SKU";"Title";"Cost";"VAT"\n"B0F";"T7-0CG9-DSP7";"Juego; adul
 const r = leerCostesCsv(sb)
 ok('lee el export de Sellerboard (comillas, ; y coma decimal)', r.costes.length === 2 && r.costes[0].sku === 'T7-0CG9-DSP7' && r.costes[0].coste === 3.25 && r.costes[1].coste === 13.42, JSON.stringify(r))
 ok('sin cabecera: SKU y coste', leerCostesCsv('ABC;4,5\nDEF;1.234,50').costes[1]?.coste === 1234.5)
+ok('una pulgada (") en el título no se come la fila', leerCostesCsv('SKU;ASIN;Producto;Canal;COGS\n46464;B0G;Lenovo Idea Tab 11" 2.5K;FBM;168,35\n1;B1;Otro 15" y 17";FBM;2').costes.map((c) => `${c.sku}=${c.coste}`).join() === '46464=168.35,1=2')
+ok('las comillas al empezar el campo siguen valiendo', leerCostesCsv('"SKU";"Cost"\n"A;B";"3,5"').costes[0]?.sku === 'A;B')
 const real = '/Users/raulcamunas/Downloads/Creative_Toys_Espa_a_Productos_(2026_11_26_19_54_40_570)_sellerboard.com.csv'
 if (existsSync(real)) {
   const x = leerCostesCsv(readFileSync(real, 'utf8'))

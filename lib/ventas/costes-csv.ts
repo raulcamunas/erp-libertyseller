@@ -18,7 +18,7 @@ export function partirLinea(linea: string, sep: string): string[] {
         i++
       } else if (c === '"') dentro = false
       else campo += c
-    } else if (c === '"') dentro = true
+    } else if (c === '"' && campo.trim() === '') dentro = true // Solo abre comillas al EMPEZAR el campo: «Tablet 11" 2.5K» es una pulgada, no una comilla
     else if (c === sep) {
       out.push(campo)
       campo = ''
