@@ -138,6 +138,24 @@ console.log('=== cuadre con Sellerboard (27 nov 2026) ===')
   ok('un pedido con dos SKU es un pedido (y un paquete FBM)', rd.reduce((x, f) => x + f.pedidos, 0) === 1 && rd.reduce((x, f) => x + f.pedidos_fbm, 0) === 1)
 }
 
+console.log('=== ajustes nuevos de la Configuración ===')
+{
+  const f = (extra: Partial<FilaPanel> = {}): FilaPanel => ({ dia: '2026-11-10', mkt: 'A1RKKUPIHCS9HS', sku: 'X', asin: null, unidades: 1, pedidos: 1, ventas: 121, promo: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, reembolsos: 0, reembolsado: 0, comisionReembolso: 0, ajustes: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, ...extra })
+  const base = { pct: 21, porPais: false }
+  const ent = totalizar([f({ sku: '', unidades: 0, pedidos: 0, ventas: 0, otras: -121, entrante: -121 })], { ...base, ignorarEntrantes: true }, {})
+  ok('ignorar envíos entrantes: no cuentan como tarifa', casi(ent.otras, 0) && casi(ent.pago, -121))
+  const vcs = totalizar([f({ ivaAmazon: 19 })], { ...base, vcs: true }, {})
+  ok('VCS: el IVA de Amazon manda', casi(vcs.iva, 19))
+  const sinDato = totalizar([f()], { ...base, vcs: true }, {})
+  ok('VCS sin dato: con el %', casi(sinDato.iva, 21))
+  const dev = totalizar([f({ unidades: 0, pedidos: 0, ventas: 0, reembolsos: 2, devueltasVendibles: 1, devueltasInservibles: 1 })], base, { X: 10 })
+  ok('devuelto: 2 reembolsadas − 1 inservible = 10 €', casi(dev.valorDevuelto, 10))
+  const pend = totalizar([f({ unidades: 0, pedidos: 0, ventas: 0, reembolsos: 2, devueltasVendibles: 0 })], { ...base, devolucionesPendientes: true }, { X: 10 })
+  ok('devoluciones pendientes no a la venta: nada hasta que vuelvan', casi(pend.valorDevuelto, 0))
+  const fifo = totalizar([f({ unidades: 2, cogs: 15 })], base, { X: 10 })
+  ok('COGS FIFO de la fila manda sobre el de la ficha', casi(fifo.cogs, 15))
+}
+
 console.log('=== suma de todas las cuentas ===')
 {
   const f = (ventas: number, pub: number): FilaPanel => ({ dia: '2026-11-10', mkt: 'A1RKKUPIHCS9HS', sku: 'X', asin: null, unidades: 1, pedidos: 1, ventas, promo: 0, referral: -10, fba: 0, otras: 0, estimadas: 0, reembolsos: 0, reembolsado: 0, comisionReembolso: 0, ajustes: 0, publicidad: pub, ventasPpc: 0, unidadesPpc: 0 })

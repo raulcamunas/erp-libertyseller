@@ -15,7 +15,7 @@ import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
 import { VistaPyG } from './VistaPyG'
-import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, MotivosDeReembolso, entero, euros, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, RepartoPorCanal, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
+import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, MotivosDeReembolso, entero, euros, ponerMonedaDelPanel, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, RepartoPorCanal, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
 
 /**
  * VENTAS · EL TABLERO (el «Sellerboard» propio, 26 nov 2026). Una cuenta arriba; cinco baldosas con su periodo (Hoy, Ayer, Este mes, Pronóstico, Mes
@@ -247,6 +247,29 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones, inventario: datos?.productos?.inventario, onCoste }), [datos, onCoste])
   const iva = useMemo(() => ({ ...cuenta?.ajustes, pct: cuenta?.iva ?? 21, porPais: cuenta?.ivaPorPais ?? false }), [cuenta?.iva, cuenta?.ivaPorPais, cuenta?.ajustes])
 
+  // «Habilitar el cambio de moneda en el panel» (Configuración): las cifras se enseñan en la moneda elegida, con el cambio del día
+  const conCambio = Boolean(cuenta?.ajustes?.cambioMoneda)
+  const [moneda, setMoneda] = useState('EUR')
+  const [porEuro, setPorEuro] = useState<Record<string, number> | null>(null)
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem('ventas-moneda')
+      if (m) setMoneda(m)
+    } catch {
+      /* sin preferencia */
+    }
+  }, [])
+  useEffect(() => {
+    if (!conCambio || porEuro) return
+    fetch('/api/ventas?que=cambios', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { porEuro?: Record<string, number> } | null) => j?.porEuro && setPorEuro(j.porEuro))
+      .catch(() => undefined)
+  }, [conCambio, porEuro])
+  const monedaVista = conCambio && porEuro && (moneda === 'EUR' || porEuro[moneda]) ? moneda : 'EUR'
+  ponerMonedaDelPanel(monedaVista, monedaVista === 'EUR' ? 1 : (porEuro?.[monedaVista] ?? 1))
+  useEffect(() => () => ponerMonedaDelPanel('EUR', 1), [])
+
   const totales: Totales[] = useMemo(() => periodos.map((p) => totalizar(filas.filter((f) => enRango(f.dia, p)), iva, costes, p.escala ?? 1)), [periodos, filas, iva, costes])
   const totalesComp: Array<Totales | null> = useMemo(
     () => comparados.map((r) => (r ? totalizar(filasComp.filter((f) => enRango(f.dia, r)), iva, costes) : null)),
@@ -355,6 +378,28 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
             <ArrowLeft className="h-[14px] w-[14px]" />
             <span className="hidden sm:inline">Todas las cuentas</span>
           </Link>
+          {conCambio && (
+            <select
+              value={monedaVista}
+              onChange={(e) => {
+                setMoneda(e.target.value)
+                try {
+                  localStorage.setItem('ventas-moneda', e.target.value)
+                } catch {
+                  /* da igual */
+                }
+              }}
+              aria-label="Moneda del panel"
+              title="Moneda en la que se enseñan las cifras (cambio del día)"
+              className="h-10 shrink-0 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2 text-[16px] text-[var(--ls-t1)] sm:h-11 sm:text-[13px]"
+            >
+              {['EUR', 'USD', 'GBP', 'PLN', 'SEK', 'MXN', 'CAD'].filter((m) => m === 'EUR' || porEuro?.[m]).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          )}
           {cuentas && <SelectorDeCuenta className="min-w-0 flex-1 sm:flex-none" cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
           <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)] sm:h-11 sm:w-11 sm:rounded-[13px]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}

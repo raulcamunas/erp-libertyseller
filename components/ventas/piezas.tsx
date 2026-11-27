@@ -32,9 +32,17 @@ export const VERDE = COLOR_ESTADO.verde
 export const ROJO = COLOR_ESTADO.rojo
 
 // SIEMPRE con dos decimales y punto de miles también en las de 4 cifras (en es-ES, 1322 € saldría sin punto). `_dec` se ignora: Raúl quiere los céntimos en todas partes
-const FORMATO_EUROS = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' } as Intl.NumberFormatOptions)
+const formato = (moneda: string) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: moneda, minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' } as Intl.NumberFormatOptions)
+// «Habilitar el cambio de moneda en el panel» (Configuración): todas las cifras están en euros y se enseñan en la moneda elegida con el cambio del día.
+// Lo pone el tablero mientras está abierto (`ponerMonedaDelPanel`) y lo quita al salir: el resto de pantallas siguen en euros
+let monedaPanel = { codigo: 'EUR', factor: 1, fmt: formato('EUR') }
+export function ponerMonedaDelPanel(codigo: string, factor: number) {
+  if (monedaPanel.codigo === codigo && monedaPanel.factor === factor) return
+  monedaPanel = { codigo, factor: factor > 0 ? factor : 1, fmt: formato(codigo) }
+}
+export const monedaDelPanel = () => monedaPanel.codigo
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const euros = (n: number | null | undefined, _dec = 2) => (n == null || !Number.isFinite(n) ? '—' : FORMATO_EUROS.format(Math.abs(n) < 0.005 ? 0 : n))
+export const euros = (n: number | null | undefined, _dec = 2) => (n == null || !Number.isFinite(n) ? '—' : monedaPanel.fmt.format(Math.abs(n * monedaPanel.factor) < 0.005 ? 0 : n * monedaPanel.factor))
 export const entero = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : Math.round(n).toLocaleString('es-ES'))
 export const pct = (n: number | null | undefined, dec = 1) => (n == null || !Number.isFinite(n) ? '—' : `${(n * 100).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })} %`)
 export const fechaCorta = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' })

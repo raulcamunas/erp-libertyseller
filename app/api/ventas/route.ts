@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { buzonesParaInforme } from '@/lib/ventas/informe-diario-servidor'
+import { tiposDeCambio } from '@/lib/divisas/servidor'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { canalesDeVentas, borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, guardarAjustes, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
+import { canalesDeVentas, borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, guardarAjustes, lotesDeCoste, guardarLotes, borrarLote, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
@@ -29,6 +31,16 @@ export async function GET(request: NextRequest) {
     if (q.get('que') === 'cuentas') {
       const [cuentas, libres] = await Promise.all([cuentasDelPanel(), cuentasParaAnadir()])
       return NextResponse.json({ cuentas, libres })
+    }
+    // Los cambios del día (cuántas unidades de cada moneda vale 1 €), para «cambio de moneda en el panel»
+    if (q.get('que') === 'cambios') return NextResponse.json({ porEuro: (await tiposDeCambio()).porEuro })
+    // Los buzones del ERP desde los que puede salir el informe diario (Configuración)
+    if (q.get('que') === 'buzones') return NextResponse.json({ buzones: await buzonesParaInforme() })
+    // Los lotes de COGS (FIFO) de una cuenta
+    if (q.get('que') === 'lotes') {
+      const c = q.get('cuenta') ?? ''
+      if (!UUID.test(c)) return fail(400, 'Falta la cuenta.')
+      return NextResponse.json({ lotes: await lotesDeCoste(c) })
     }
     // Solo el catálogo (títulos, costes, stock, BSR): Gráfico y P&L lo piden aparte y el navegador lo guarda (components/ventas/catalogo.ts)
     if (q.get('que') === 'productos') {
@@ -134,6 +146,28 @@ export async function POST(request: NextRequest) {
       const iva = Number(b.iva)
       if (!Number.isFinite(iva) || iva < 0 || iva > 30) return fail(400, 'El IVA no es válido.')
       await cambiarIva(b.cuenta, iva)
+      return NextResponse.json({ ok: true })
+    }
+    // Lotes de COGS (FIFO, migración 354): añadir uno o importar muchos, y borrar
+    if (b.accion === 'lotes') {
+      const lista = Array.isArray((b as { lotes?: unknown }).lotes) ? ((b as { lotes: unknown[] }).lotes as Array<Record<string, unknown>>) : []
+      const limpios = lista
+        .map((x) => ({ sku: typeof x.sku === 'string' ? x.sku.trim() : '', fecha: String(x.fecha ?? ''), unidades: Math.round(Number(x.unidades)), coste: Number(x.coste), nota: typeof x.nota === 'string' ? x.nota.slice(0, 200) : null }))
+        .filter((x) => x.sku && x.sku.length <= 200 && FECHA.test(x.fecha) && Number.isFinite(x.unidades) && x.unidades > 0 && x.unidades <= 1_000_000 && Number.isFinite(x.coste) && x.coste >= 0 && x.coste <= 100_000)
+        .slice(0, 5000)
+        .map((x) => ({ ...x, coste: Math.round(x.coste * 100) / 100 }))
+      if (limpios.length === 0) return fail(400, 'No hay ningún lote válido (SKU, fecha, unidades y coste).')
+      try {
+        return NextResponse.json({ ok: true, guardados: await guardarLotes(b.cuenta, limpios, sesion.userId) })
+      } catch (e) {
+        if (/ventas_costes_lotes/.test(String((e as { message?: string })?.message ?? ''))) return fail(409, 'Falta lanzar la migración 354 en Supabase.')
+        throw e
+      }
+    }
+    if (b.accion === 'lote-borrar') {
+      const id = (b as { id?: unknown }).id
+      if (typeof id !== 'string' || !UUID.test(id)) return fail(400, 'Falta el lote.')
+      await borrarLote(b.cuenta, id)
       return NextResponse.json({ ok: true })
     }
     // Los ajustes de la cuenta (página «Configuración», migración 353)

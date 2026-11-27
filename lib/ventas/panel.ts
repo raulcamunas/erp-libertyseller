@@ -67,6 +67,17 @@ export interface FilaPanel {
   envio?: number
   /** Lo que cuesta preparar esos pedidos FBM (FBM Pick & Pack de la Configuración) */
   pickpack?: number
+  /** Migración 354 (todo opcional): tarifas de la cuenta por tipo, ya incluidas en `otras` (en negativo, con IVA como llegan) */
+  entrante?: number
+  almacenamiento?: number
+  suscripcion?: number
+  /** Devoluciones de FBA de ese día y SKU: las que vuelven vendibles y las que no */
+  devueltasVendibles?: number
+  devueltasInservibles?: number
+  /** El IVA que calculó Amazon (ventas − reembolsos), para VCS. null/undefined = no hay dato */
+  ivaAmazon?: number | null
+  /** El coste de los productos de la fila ya calculado (FIFO por lotes). Sin él: COGS de la ficha × unidades */
+  cogs?: number
 }
 
 export interface Totales {
@@ -130,6 +141,8 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
   let fijoPago = 0
   for (const f of filas) {
     const sinIva = factorTarifas(f.dia)
+    // «Ignorar costes FBA de envíos entrantes»: el transporte y la colocación de los envíos a Amazon no cuentan como gasto (sí en el pago)
+    const otrasF = aj.ignorarEntrantes ? f.otras - (f.entrante ?? 0) : f.otras
     t.ventas += f.ventas
     t.unidades += f.unidades
     t.pedidos += f.pedidos
@@ -140,7 +153,7 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
     t.unidadesPpc += f.unidadesPpc
     t.referral += f.referral * sinIva
     t.fba += f.fba * sinIva
-    t.otras += f.otras * sinIva
+    t.otras += otrasF * sinIva
     t.estimadas += f.estimadas * sinIva
     t.reembolsado += f.reembolsado
     t.costeReembolso += f.comisionReembolso * sinIva - f.reembolsado
@@ -150,20 +163,30 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
     // Lo que Amazon paga (el «Pago estimado» de Sellerboard): ventas − promociones + tarifas con su IVA ± reembolsos + ajustes − publicidad
     t.pago += f.ventas - f.promo + f.referral + f.fba + f.otras + f.comisionReembolso - f.reembolsado + f.ajustes - f.publicidad
     if (!f.sku && !f.unidades) {
-      fijoOtras += f.otras * sinIva
+      fijoOtras += otrasF * sinIva
       fijoAjustes += f.ajustes
       fijoPago += f.otras + f.ajustes
     }
-    const r = aj.ivaVentas === false || (aj.ivaVentasDesde && f.dia < aj.ivaVentasDesde) ? 0 : ivaDeVentas(ivaPct, f.mkt)
-    iva += (f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
+    const sinIvaVentas = aj.ivaVentas === false || (aj.ivaVentasDesde && f.dia < aj.ivaVentasDesde)
+    // «Servicio de cálculo del IVA de Amazon» (VCS): el IVA que calculó Amazon pedido a pedido, si la fila lo trae; si no, con el %
+    if (!sinIvaVentas && aj.vcs && f.ivaAmazon != null) iva += f.ivaAmazon
+    else {
+      const r = sinIvaVentas ? 0 : ivaDeVentas(ivaPct, f.mkt)
+      iva += (f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
+    }
     if (f.sku) {
       const c = costes[f.sku]
-      if (f.unidades) {
+      if (f.cogs != null) t.cogs += f.cogs
+      else if (f.unidades) {
         if (c != null && c > 0) t.cogs += c * f.unidades
         else t.unidadesSinCoste += f.unidades
       }
-      // Lo reembolsado vuelve al almacén: su coste se recupera (Sellerboard: «Valor de los artículos devueltos»)
-      if (f.reembolsos && c != null && c > 0) t.valorDevuelto += c * f.reembolsos
+      // Lo reembolsado vuelve al almacén: su coste se recupera (Sellerboard: «Valor de los artículos devueltos»), menos lo que vuelve inservible.
+      // «Asume que las devoluciones pendientes no están a la venta»: solo lo que YA ha vuelto vendible
+      if (c != null && c > 0) {
+        if (aj.devolucionesPendientes) t.valorDevuelto += c * (f.devueltasVendibles ?? 0)
+        else t.valorDevuelto += c * (f.reembolsos - (f.devueltasInservibles ?? 0))
+      }
     }
   }
   t.costeReembolso += t.valorDevuelto

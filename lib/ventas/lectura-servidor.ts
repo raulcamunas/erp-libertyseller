@@ -108,12 +108,29 @@ async function conEnvio(service: Servicio): Promise<boolean> {
   hayEnvio = { valor: !error, at: Date.now() }
   return hayEnvio.valor
 }
+/** ¿Está lanzada la migración 354 (configuración completa: tarifas por tipo, devoluciones, IVA de Amazon)? */
+let hay354: { valor: boolean; at: number } | null = null
+async function con354(service: Servicio): Promise<boolean> {
+  if (hay354 && (hay354.valor || Date.now() - hay354.at < 10 * MIN)) return hay354.valor
+  const { error } = await service.from('ventas_dia').select('lineas_fbm').limit(1)
+  hay354 = { valor: !error, at: Date.now() }
+  return hay354.valor
+}
 const SIN_ENVIO_DIA = ['unidades_fbm', 'pedidos_fbm', 'envio_cobrado'] as const
-const filaDia = <T extends Record<string, unknown>>(f: T, envio: boolean): Record<string, unknown> => {
-  if (envio) return f
+const SIN_354_DIA = ['lineas_fbm', 'tarifa_entrante', 'tarifa_almacenamiento', 'tarifa_suscripcion', 'devueltas_vendibles', 'devueltas_inservibles', 'iva_amazon'] as const
+/** La fila del resumen sin las columnas de migraciones que aún no estén lanzadas (`m354` por defecto: se mira la base una vez) */
+const filaDia = <T extends Record<string, unknown>>(f: T, envio: boolean, m354 = hay354?.valor ?? false): Record<string, unknown> => {
+  if (envio && m354) return f
   const copia: Record<string, unknown> = { ...f }
-  for (const k of SIN_ENVIO_DIA) delete copia[k]
+  if (!envio) for (const k of SIN_ENVIO_DIA) delete copia[k]
+  if (!m354) for (const k of SIN_354_DIA) delete copia[k]
   return copia
+}
+const sinIva354 = <T extends { iva?: number }>(m: T, m354: boolean) => {
+  if (m354) return m
+  const { iva: _iva, ...resto } = m
+  void _iva
+  return resto
 }
 
 function mensajeDe(e: unknown): string {
@@ -362,6 +379,7 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
     siguiente = data?.payload?.NextToken
   } while (siguiente)
   const tarifas = juntarTarifas(tarifasSueltas)
+  const m354 = await con354(service)
 
   // Las comisiones reales, en su línea de pedido. Las de pedidos que ya no están guardados cuentan el día en que se cobran
   const pedidos = [...new Set(tarifas.map((t) => t.pedido))]
@@ -375,7 +393,7 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
   for (const t of tarifas) {
     const l = lineas.get(`${t.pedido}|${t.sku}`)
     if (l) {
-      actualizar.push({ ...l, ventas: t.cobrado > 0 ? t.cobrado : l.ventas, promo: t.promo || l.promo, tarifa_referral: t.referral, tarifa_fba: t.fba, otras_tarifas: t.otras, tarifas_reales: true })
+      actualizar.push({ ...l, ventas: t.cobrado > 0 ? t.cobrado : l.ventas, promo: t.promo || l.promo, tarifa_referral: t.referral, tarifa_fba: t.fba, otras_tarifas: t.otras, tarifas_reales: true, ...(m354 ? { iva_amazon: t.iva ?? null } : {}) })
     } else if (t.referral + t.fba + t.otras !== 0) {
       movimientos.push({ clave: `t|${t.pedido}|${t.sku}`, dia: t.dia, marketplace_id: t.marketplace_id, sku: t.sku, tipo: 'tarifa_pedido', unidades: 0, importe: Math.round((t.referral + t.fba + t.otras) * 100) / 100, extra: 0, extra_unidades: 0 })
     }
@@ -394,7 +412,7 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
     const f = firmaSinFecha(m.clave)
     return !f || !yaApuntadas.has(f)
   })
-  const unicos = [...new Map(nuevos.map((m) => [m.clave, { connection_id: c.connection_id, ...m }])).values()]
+  const unicos = [...new Map(nuevos.map((m) => [m.clave, { connection_id: c.connection_id, ...sinIva354(m, m354) }])).values()]
   await enTrozos(unicos, (t) => service.from('ventas_movimientos').upsert(t, { onConflict: 'connection_id,clave' }))
   await guardar(service, c.connection_id, { finanzas_leido_hasta: hasta.toISOString(), finanzas_leido_at: new Date().toISOString(), finanzas_leido_desde: c.finanzas_leido_hasta ? undefined : desde.toISOString() })
   return `dinero ${desde.toISOString().slice(0, 10)} → ${hasta.toISOString().slice(0, 10)}: ${paginas} páginas, ${actualizar.length} pedidos con comisión real, ${unicos.length} movimientos`
@@ -555,26 +573,42 @@ async function leerTodo<T>(consulta: (desde: number) => PromiseLike<{ data: unkn
   }
 }
 
+/** Las devoluciones de FBA desde un día, por día (del mercado principal) y SKU: vendibles (vuelven al stock) o no */
+async function devolucionesDelResumen(service: Servicio, connectionId: string, desde: string): Promise<Array<{ dia: string; sku: string; unidades: number; vendible: boolean; mercado: string }>> {
+  const { data: con } = await service.from('amazon_connections').select('default_marketplace_id, marketplace_ids').eq('id', connectionId).maybeSingle()
+  const mercado = (con as { default_marketplace_id?: string | null; marketplace_ids?: string[] | null } | null)?.default_marketplace_id ?? (con as { marketplace_ids?: string[] | null } | null)?.marketplace_ids?.[0] ?? 'A1RKKUPIHCS9HS'
+  const filas = await leerTodo<{ fecha: string; sku: string; unidades: number; disposicion: string | null }>((d) =>
+    service.from('ventas_devoluciones').select('fecha, sku, unidades, disposicion').eq('connection_id', connectionId).gte('fecha', `${desde}T00:00:00Z`).order('fecha').order('pedido').order('sku').order('lpn').range(d, d + 999),
+  ).catch(() => [])
+  return filas.map((f) => ({ dia: diaEnZona(f.fecha, zonaDeMercado(mercado)) ?? f.fecha.slice(0, 10), sku: f.sku, unidades: Number(f.unidades) || 1, vendible: /^sellable$/i.test(String(f.disposicion ?? '').trim()), mercado }))
+}
+
 export async function rehacerResumen(service: Servicio, connectionId: string): Promise<number> {
   const hoy = hoyEn()
   const desde = desplazar(hoy, -DIAS_VENTANA)
   const envio = await conEnvio(service)
-  const lineas = await leerTodo<LineaGuardada & { canal?: string | null }>((d) =>
-    service.from('ventas_lineas').select(`pedido, sku, marketplace_id, dia, asin, unidades, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales, canal${envio ? ', envio' : ''}`).eq('connection_id', connectionId).gte('dia', desde).order('pedido').order('sku').range(d, d + 999),
-  )
-  const movimientos = await leerTodo<Movimiento>((d) =>
-    service.from('ventas_movimientos').select('clave, dia, marketplace_id, sku, tipo, unidades, importe, extra, extra_unidades').eq('connection_id', connectionId).gte('dia', desde).order('clave').range(d, d + 999),
-  )
+  const m354 = await con354(service)
+  const [lineas, movimientos, devoluciones] = await Promise.all([
+    leerTodo<LineaGuardada & { canal?: string | null }>((d) =>
+      service.from('ventas_lineas').select(`pedido, sku, marketplace_id, dia, asin, unidades, ventas, promo, tarifa_referral, tarifa_fba, otras_tarifas, tarifas_reales, canal${envio ? ', envio' : ''}${m354 ? ', iva_amazon' : ''}`).eq('connection_id', connectionId).gte('dia', desde).order('pedido').order('sku').range(d, d + 999),
+    ),
+    leerTodo<Movimiento>((d) =>
+      service.from('ventas_movimientos').select(`clave, dia, marketplace_id, sku, tipo, unidades, importe, extra, extra_unidades${m354 ? ', iva' : ''}`).eq('connection_id', connectionId).gte('dia', desde).order('clave').range(d, d + 999),
+    ),
+    // Las devoluciones de FBA (vendibles o no) para el coste de lo devuelto. Sin la tabla (migración 348) o sin la 354, ninguna
+    m354 ? devolucionesDelResumen(service, connectionId, desde) : Promise.resolve([]),
+  ])
   // Una tarifa suelta de un pedido que SÍ está entre las líneas no cuenta (ya está en su línea)
   const hayLinea = new Set(lineas.map((l) => `t|${l.pedido}|${l.sku}`))
   const filas = resumirDias(
-    lineas.map(({ canal, ...l }) => ({ ...l, fbm: canal === 'fbm', envio: l.envio == null ? null : Number(l.envio), unidades: Number(l.unidades), ventas: l.ventas == null ? null : Number(l.ventas), promo: Number(l.promo), tarifa_referral: l.tarifa_referral == null ? null : Number(l.tarifa_referral), tarifa_fba: l.tarifa_fba == null ? null : Number(l.tarifa_fba), otras_tarifas: l.otras_tarifas == null ? null : Number(l.otras_tarifas) })),
+    lineas.map(({ canal, ...l }) => ({ ...l, fbm: canal === 'fbm', envio: l.envio == null ? null : Number(l.envio), iva_amazon: l.iva_amazon == null ? null : Number(l.iva_amazon), unidades: Number(l.unidades), ventas: l.ventas == null ? null : Number(l.ventas), promo: Number(l.promo), tarifa_referral: l.tarifa_referral == null ? null : Number(l.tarifa_referral), tarifa_fba: l.tarifa_fba == null ? null : Number(l.tarifa_fba), otras_tarifas: l.otras_tarifas == null ? null : Number(l.otras_tarifas) })),
     // Las comisiones de pedidos que no están entre las líneas (anteriores a la ventana) no cuentan aquí: las cuenta el historial con su pedido
-    movimientos.filter((m) => m.tipo !== 'tarifa_pedido' && !hayLinea.has(m.clave)).map((m) => ({ ...m, importe: Number(m.importe), extra: Number(m.extra), unidades: Number(m.unidades), extra_unidades: Number(m.extra_unidades) })),
+    movimientos.filter((m) => m.tipo !== 'tarifa_pedido' && !hayLinea.has(m.clave)).map((m) => ({ ...m, importe: Number(m.importe), extra: Number(m.extra), unidades: Number(m.unidades), extra_unidades: Number(m.extra_unidades), iva: m.iva == null ? undefined : Number(m.iva) })),
+    devoluciones,
   ).filter((f) => f.dia >= desde)
   const { error } = await service.from('ventas_dia').delete().eq('connection_id', connectionId).gte('dia', desde)
   if (error) throw error
-  await enTrozos(filas.map((f) => filaDia({ connection_id: connectionId, ...f }, envio)), (t) => service.from('ventas_dia').insert(t))
+  await enTrozos(filas.map((f) => filaDia({ connection_id: connectionId, ...f }, envio, m354)), (t) => service.from('ventas_dia').insert(t))
   // La poda: lo de detalle que ya no entra en la ventana (el resumen de esos días se queda)
   const corte = desplazar(hoy, -(DIAS_VENTANA + 5))
   await service.from('ventas_lineas').delete().eq('connection_id', connectionId).lt('dia', corte)
@@ -674,7 +708,7 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
   const lineas: LineaGuardada[] = pedidos.filter((l) => dentro(l.dia)).map((l) => {
     const t = porPedido.get(`${l.pedido}|${l.sku}`)
     if (t) porPedido.delete(`${l.pedido}|${l.sku}`)
-    return { pedido: l.pedido, sku: l.sku, marketplace_id: l.marketplace_id, dia: l.dia, asin: l.asin, unidades: l.unidades, ventas: t && t.cobrado > 0 ? t.cobrado : l.ventas, promo: t ? t.promo || l.promo : l.promo, tarifa_referral: t ? t.referral : null, tarifa_fba: t ? t.fba : null, otras_tarifas: t ? t.otras : null, tarifas_reales: Boolean(t), fbm: l.canal === 'fbm', envio: l.envio }
+    return { pedido: l.pedido, sku: l.sku, marketplace_id: l.marketplace_id, dia: l.dia, asin: l.asin, unidades: l.unidades, ventas: t && t.cobrado > 0 ? t.cobrado : l.ventas, promo: t ? t.promo || l.promo : l.promo, tarifa_referral: t ? t.referral : null, tarifa_fba: t ? t.fba : null, otras_tarifas: t ? t.otras : null, tarifas_reales: Boolean(t), fbm: l.canal === 'fbm', envio: l.envio, iva_amazon: t?.iva ?? null }
   })
   // Si el informe de pedidos no trae nada (Amazon lo cancela cuando no tiene datos de esas fechas), las ventas salen del propio dinero:
   // cada envío cobrado, el día en que Amazon lo apuntó, con lo que pagó el comprador y sus comisiones reales
@@ -682,7 +716,7 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
   if (porDinero) {
     for (const t of porPedido.values()) {
       if (!dentro(t.dia) || t.cobrado <= 0) continue
-      lineas.push({ pedido: t.pedido, sku: t.sku, marketplace_id: t.marketplace_id, dia: t.dia, asin: null, unidades: t.unidades || 1, ventas: t.cobrado, promo: t.promo, tarifa_referral: t.referral, tarifa_fba: t.fba, otras_tarifas: t.otras, tarifas_reales: true })
+      lineas.push({ pedido: t.pedido, sku: t.sku, marketplace_id: t.marketplace_id, dia: t.dia, asin: null, unidades: t.unidades || 1, ventas: t.cobrado, promo: t.promo, tarifa_referral: t.referral, tarifa_fba: t.fba, otras_tarifas: t.otras, tarifas_reales: true, iva_amazon: t.iva ?? null })
     }
   }
   // Las comisiones de pedidos que no son de este tramo NO cuentan aquí: son de un tramo vecino, que las casa con su pedido (lee el dinero hasta 15 días después)
@@ -692,7 +726,8 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
   const { error } = await service.from('ventas_dia').delete().eq('connection_id', c.connection_id).gte('dia', desde).lt('dia', hasta)
   if (error) throw error
   const envio = await conEnvio(service)
-  await enTrozos(filas.map((f) => filaDia({ connection_id: c.connection_id, ...f }, envio)), (t) => service.from('ventas_dia').insert(t))
+  const m354 = await con354(service)
+  await enTrozos(filas.map((f) => filaDia({ connection_id: c.connection_id, ...f }, envio, m354)), (t) => service.from('ventas_dia').insert(t))
   await guardar(service, c.connection_id, { historico_informe_id: null, historico_hasta: desde, historico_at: new Date().toISOString() })
   return `historial ${desde} → ${hasta}: ${lineas.length} líneas${porDinero ? ` sacadas del dinero (informe ${est.estado}, ${pedidos.length} pedidos)` : ''}, ${filas.length} filas`
 }

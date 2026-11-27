@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Calculator, Globe, Info, Loader2, Package, Plus, Receipt, Settings, SlidersHorizontal, Wallet } from 'lucide-react'
+import { Calculator, Globe, Info, Loader2, Package, Plus, Receipt, Settings, SlidersHorizontal, Trash2, Upload, Wallet } from 'lucide-react'
 import { PanelLateral } from '@/components/ui-ls'
 import { marketplaceById } from '@/lib/types/amazon'
 import { AJUSTES_POR_DEFECTO, normalizarAjustes, type AjustesCuenta } from '@/lib/ventas/ajustes'
@@ -143,6 +143,13 @@ function AjustesDeCuenta({ cuenta, onCerrar, onGuardado }: { cuenta: CuentaDelPa
   const [porPais, setPorPais] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [buzones, setBuzones] = useState<Array<{ id: string; direccion: string }>>([])
+  useEffect(() => {
+    if (!cuenta || buzones.length) return
+    pedir<{ buzones: Array<{ id: string; direccion: string }> }>('/api/ventas?que=buzones')
+      .then((r) => setBuzones(r.buzones))
+      .catch(() => undefined)
+  }, [cuenta, buzones.length])
   useEffect(() => {
     if (!cuenta) return
     setA(normalizarAjustes(cuenta.ajustes))
@@ -164,6 +171,11 @@ function AjustesDeCuenta({ cuenta, onCerrar, onGuardado }: { cuenta: CuentaDelPa
     if (!Number.isFinite(pct) || pct < 0 || pct > 30) {
       setError('El IVA de la cuenta tiene que ir de 0 a 30.')
       setPestana('iva')
+      return
+    }
+    if ((a.informeCorreo && !a.informeBuzon) || (!a.informeCorreo && a.informeBuzon)) {
+      setError('Para el informe diario hacen falta el correo y el buzón desde el que sale.')
+      setPestana('otras')
       return
     }
     setGuardando(true)
@@ -227,6 +239,9 @@ function AjustesDeCuenta({ cuenta, onCerrar, onGuardado }: { cuenta: CuentaDelPa
             <Fila etiqueta="Ventanilla única de la Unión (OSS)" ayuda="Cada venta lleva el IVA de su país (Francia 20 %, Alemania 19 %, Italia 22 %…).">
               <Casilla valor={porPais} onCambio={setPorPais} />
             </Fila>
+            <Fila etiqueta="Servicio de cálculo del IVA de Amazon (VCS)" ayuda="El IVA que Amazon calcula y factura en cada pedido (y devuelve en cada reembolso), en vez de calcularlo con el %. Los pedidos que Amazon aún no ha cobrado se calculan con el %.">
+              <Casilla valor={a.vcs} onCambio={(v) => cambiar('vcs', v)} />
+            </Fila>
           </Seccion>
           <Seccion titulo="IVA sobre las comisiones de Amazon">
             <Fila etiqueta="Las tarifas de Amazon incluyen el IVA y podré recuperarlo" ayuda="Las tarifas se cuentan sin su IVA desde la fecha de inicio. Apagado: se cuentan enteras.">
@@ -283,10 +298,42 @@ function AjustesDeCuenta({ cuenta, onCerrar, onGuardado }: { cuenta: CuentaDelPa
             <Fila etiqueta="Ignorar órdenes multicanal" ayuda="Los envíos de Logística multicanal (pedidos de otras tiendas que sirve Amazon) nunca cuentan como ventas.">
               <span className="text-[12px] text-[var(--ls-t4)]">Siempre</span>
             </Fila>
-            <Fila etiqueta="Tarifas de almacenamiento" ayuda="Van al mes en el que Amazon las cobra (como la opción por defecto de Sellerboard).">
-              <span className="text-[12px] text-[var(--ls-t4)]">Mes en que se cobran</span>
+            <Fila etiqueta="Ignorar reembolsos aplazados hasta que se liberen" ayuda="Amazon no da los movimientos aplazados hasta que los libera: los reembolsos cuentan el día en que se liberan.">
+              <span className="text-[12px] text-[var(--ls-t4)]">Siempre</span>
+            </Fila>
+            <Fila etiqueta="No mostrar la devolución del envío y el envoltorio de FBA" ayuda="No cambia el beneficio: el desglose no los separa del resto de lo devuelto.">
+              <span className="text-[12px] text-[var(--ls-t4)]">Siempre</span>
+            </Fila>
+            <Fila etiqueta="Ignorar costes FBA de envíos entrantes" ayuda="El transporte y la colocación de los envíos a Amazon no cuentan como gasto (sí en el pago estimado).">
+              <Casilla valor={a.ignorarEntrantes} onCambio={(v) => cambiar('ignorarEntrantes', v)} />
+            </Fila>
+            <Fila etiqueta="Aplicar las tarifas de almacenamiento a" ayuda="Amazon cobra a principios de mes el almacenamiento del mes anterior.">
+              <select value={a.almacenamiento} onChange={(e) => cambiar('almacenamiento', e.target.value === 'corresponde' ? 'corresponde' : 'cobro')} className={`${CAMPO} w-[220px] text-[16px] sm:text-[13px]`}>
+                <option value="cobro">Mes en el que Amazon cobra la tarifa</option>
+                <option value="corresponde">Mes al que corresponde (retroactivamente)</option>
+              </select>
+            </Fila>
+            <Fila etiqueta="Amortizar las tarifas de Amazon diariamente" ayuda="Almacenamiento y suscripción repartidos entre los días de su mes, en vez de todo el día del cobro.">
+              <Casilla valor={a.amortizar} onCambio={(v) => cambiar('amortizar', v)} />
+            </Fila>
+            <Fila etiqueta="Asume que las devoluciones pendientes no están a la venta (afecta a los COGS)" ayuda="Solo se recupera el coste de lo que ya ha vuelto vendible al almacén. Apagado: el de todo lo reembolsado, menos lo que vuelve inservible.">
+              <Casilla valor={a.devolucionesPendientes} onCambio={(v) => cambiar('devolucionesPendientes', v)} />
+            </Fila>
+            <Fila etiqueta="COGS para unidades sobrevendidas (FIFO)" ayuda="Con lotes de COGS (abajo), lo que se vende sin lote que lo cubra.">
+              <select value={a.fifoSobrevendidas} onChange={(e) => cambiar('fifoSobrevendidas', e.target.value === 'cero' || e.target.value === 'fijo' ? e.target.value : 'ultimo')} className={`${CAMPO} w-[160px] text-[16px] sm:text-[13px]`}>
+                <option value="ultimo">Último lote</option>
+                <option value="cero">Cero</option>
+                <option value="fijo">Fijo (el COGS de la ficha)</option>
+              </select>
+            </Fila>
+            <Fila etiqueta="Coste de envío FBM para pedidos con varios productos" ayuda="Con perfiles de envío: un envío por pedido, o la suma de lo de cada producto.">
+              <select value={a.envioVarios} onChange={(e) => cambiar('envioVarios', e.target.value === 'suma' ? 'suma' : 'uno')} className={`${CAMPO} w-[220px] text-[16px] sm:text-[13px]`}>
+                <option value="uno">Un solo envío por pedido</option>
+                <option value="suma">Suma de los costes de todos los productos</option>
+              </select>
             </Fila>
           </Seccion>
+          {cuenta && <LotesDeCoste cuenta={cuenta.id} />}
         </div>
       )}
 
@@ -295,6 +342,27 @@ function AjustesDeCuenta({ cuenta, onCerrar, onGuardado }: { cuenta: CuentaDelPa
           <Seccion titulo="Flujo de caja">
             <Fila etiqueta="Considerar pagos de Amazon a partir de" ayuda="Los pagos anteriores no cuentan en el flujo de caja (vacío = todos los de los últimos 2 años).">
               <input type="date" value={a.flujoDesde ?? ''} onChange={(e) => cambiar('flujoDesde', e.target.value || null)} className={`${CAMPO} w-[160px]`} />
+            </Fila>
+          </Seccion>
+          <Seccion titulo="Informes y panel">
+            <Fila etiqueta="Enviar informes de ventas todos los días" ayuda="Cada mañana (desde las 8): lo de ayer comparado con el mismo día de la semana anterior.">
+              <div className="flex flex-col items-end gap-2">
+                <input value={a.informeCorreo ?? ''} onChange={(e) => cambiar('informeCorreo', e.target.value || null)} placeholder="correo@ejemplo.com" inputMode="email" className={`${CAMPO} w-[220px] text-[16px] sm:text-[13px]`} />
+                <select value={a.informeBuzon ?? ''} onChange={(e) => cambiar('informeBuzon', e.target.value || null)} className={`${CAMPO} w-[220px] text-[16px] sm:text-[13px]`}>
+                  <option value="">Enviar desde…</option>
+                  {buzones.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.direccion}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </Fila>
+            <Fila etiqueta="Habilitar el cambio de moneda en el panel" ayuda="Un selector en el tablero para ver las cifras en dólares, libras, zlotys… con el cambio del día.">
+              <Casilla valor={a.cambioMoneda} onCambio={(v) => cambiar('cambioMoneda', v)} />
+            </Fila>
+            <Fila etiqueta="Ignorar listados inactivos" ayuda="En Productos, el filtro «Mostrar inactivos» (por defecto se ocultan).">
+              <span className="text-[12px] text-[var(--ls-t4)]">En Productos</span>
             </Fila>
           </Seccion>
           <Nota>Los datos se guardan 2 años, lo mismo que Amazon deja leer hacia atrás.</Nota>
@@ -375,4 +443,116 @@ function Dinero({ valor, onCambio, desactivado }: { valor: number | null; onCamb
 
 function Nota({ children }: { children: React.ReactNode }) {
   return <p className="mt-1 rounded-[12px] bg-[var(--ls-sup2)] px-4 py-3 text-[12px] leading-relaxed text-[var(--ls-t3)]">{children}</p>
+}
+
+/* ------------------------------------------------------------------ */
+/* Lotes de COGS (FIFO)                                                */
+/* ------------------------------------------------------------------ */
+
+interface Lote {
+  id: string
+  sku: string
+  fecha: string
+  unidades: number
+  coste: number
+  nota: string | null
+}
+
+/** Los lotes de compra de cada SKU: el coste de lo vendido sale del lote más antiguo que quede (FIFO). Sin lotes, el COGS fijo de la ficha */
+function LotesDeCoste({ cuenta }: { cuenta: string }) {
+  const [lotes, setLotes] = useState<Lote[] | null>(null)
+  const [nuevo, setNuevo] = useState({ sku: '', fecha: new Date().toISOString().slice(0, 10), unidades: '', coste: '' })
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [buscar, setBuscar] = useState('')
+  const fichero = useRef<HTMLInputElement>(null)
+  const cargar = useCallback(() => {
+    pedir<{ lotes: Lote[] }>(`/api/ventas?que=lotes&cuenta=${cuenta}`)
+      .then((r) => setLotes(r.lotes))
+      .catch((e) => setAviso(e instanceof Error ? e.message : String(e)))
+  }, [cuenta])
+  useEffect(() => cargar(), [cargar])
+  const num = (t: string) => Number(t.replace(/\s|€/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'))
+  const guardar = async (lista: Array<{ sku: string; fecha: string; unidades: number; coste: number }>) => {
+    try {
+      const r = await enviar<{ guardados: number }>({ accion: 'lotes', cuenta, lotes: lista })
+      setAviso(`${r.guardados} ${r.guardados === 1 ? 'lote guardado' : 'lotes guardados'}.`)
+      cargar()
+      return true
+    } catch (e) {
+      setAviso(e instanceof Error ? e.message : String(e))
+      return false
+    }
+  }
+  const importar = async (f: File) => {
+    const lineas = (await f.text()).replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim())
+    const sep = (lineas[0] ?? '').includes(';') ? ';' : ','
+    const lista = lineas
+      .map((l) => l.split(sep).map((x) => x.trim().replace(/^"|"$/g, '')))
+      .filter((c) => !/^sku$/i.test(c[0] ?? ''))
+      .map((c) => {
+        const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(c[1] ?? '')
+        return { sku: c[0] ?? '', fecha: m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : (c[1] ?? ''), unidades: Math.round(num(c[2] ?? '')), coste: num(c[3] ?? '') }
+      })
+    if (fichero.current) fichero.current.value = ''
+    await guardar(lista)
+  }
+  const visibles = (lotes ?? []).filter((l) => !buscar.trim() || l.sku.toLowerCase().includes(buscar.trim().toLowerCase()))
+  return (
+    <Seccion titulo="Lotes de COGS (FIFO)">
+      <div className="flex flex-col gap-3 p-4">
+        <p className="text-[12px] leading-snug text-[var(--ls-t4)]">Cada compra de un SKU con su fecha, unidades y coste por unidad. Lo vendido gasta primero el lote más antiguo. Los SKU sin lotes usan el COGS de la ficha. CSV: «sku;fecha;unidades;coste».</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1.4fr_1fr_0.7fr_0.8fr_auto]">
+          <input value={nuevo.sku} onChange={(e) => setNuevo({ ...nuevo, sku: e.target.value })} placeholder="SKU" className={`${CAMPO} col-span-2 text-[16px] sm:col-span-1 sm:text-[13px]`} />
+          <input type="date" value={nuevo.fecha} onChange={(e) => setNuevo({ ...nuevo, fecha: e.target.value })} className={`${CAMPO} text-[16px] sm:text-[13px]`} />
+          <input value={nuevo.unidades} onChange={(e) => setNuevo({ ...nuevo, unidades: e.target.value })} placeholder="Uds." inputMode="numeric" className={`${CAMPO} text-right text-[16px] sm:text-[13px]`} />
+          <input value={nuevo.coste} onChange={(e) => setNuevo({ ...nuevo, coste: e.target.value })} placeholder="€/ud." inputMode="decimal" className={`${CAMPO} text-right text-[16px] sm:text-[13px]`} />
+          <button
+            type="button"
+            onClick={async () => {
+              if (await guardar([{ sku: nuevo.sku.trim(), fecha: nuevo.fecha, unidades: Math.round(num(nuevo.unidades)), coste: num(nuevo.coste) }])) setNuevo({ ...nuevo, sku: '', unidades: '', coste: '' })
+            }}
+            className="h-10 rounded-[10px] px-4 text-[12.5px] font-semibold text-[#141414]"
+            style={{ background: 'linear-gradient(135deg,#F26212,#FF8A3D)' }}
+          >
+            Añadir
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => fichero.current?.click()} className="inline-flex items-center gap-2 text-[12.5px] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]">
+            <Upload className="h-[14px] w-[14px]" /> Importar CSV
+          </button>
+          <input ref={fichero} type="file" accept=".csv,.txt,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && importar(e.target.files[0])} />
+          {(lotes?.length ?? 0) > 8 && <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar SKU" className={`${CAMPO} ml-auto w-[160px] text-[16px] sm:text-[13px]`} />}
+        </div>
+        {aviso && <p className="text-[12px] text-[var(--ls-t3)]">{aviso}</p>}
+        {lotes && lotes.length > 0 && (
+          <div className="max-h-[260px] overflow-y-auto rounded-[10px] border border-[var(--ls-linea)]">
+            {visibles.slice(0, 300).map((l) => (
+              <div key={l.id} className="flex items-center gap-3 border-b border-[var(--ls-linea)] px-3 py-2 text-[12.5px] last:border-0">
+                <span className="min-w-0 flex-1 truncate text-[var(--ls-t1)]" title={l.sku}>
+                  {l.sku}
+                </span>
+                <span className="tabular-nums text-[var(--ls-t3)]">{fechaCorta(l.fecha)}</span>
+                <span className="w-[52px] text-right tabular-nums text-[var(--ls-t2)]">{l.unidades} ud.</span>
+                <span className="w-[72px] text-right tabular-nums text-[var(--ls-t1)]">{euros(l.coste)}</span>
+                <button
+                  type="button"
+                  aria-label={`Borrar el lote de ${l.sku}`}
+                  onClick={async () => {
+                    if (!window.confirm(`¿Borrar el lote de ${l.sku} del ${fechaCorta(l.fecha)}?`)) return
+                    await enviar({ accion: 'lote-borrar', cuenta, id: l.id }).catch((e) => setAviso(String(e)))
+                    cargar()
+                  }}
+                  className="rounded-[6px] p-1 text-[var(--ls-t4)] hover:text-[#F87171]"
+                >
+                  <Trash2 className="h-[13px] w-[13px]" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {lotes && lotes.length === 0 && <p className="text-[12px] text-[var(--ls-t4)]">Sin lotes: el COGS sale del de cada ficha (Productos).</p>}
+      </div>
+    </Seccion>
+  )
 }

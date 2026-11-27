@@ -22,6 +22,25 @@ export interface AjustesCuenta {
   margenSobreNeto: boolean
   /** Flujo de caja: los pagos de Amazon cuentan desde este día */
   flujoDesde: string | null
+  /** «Servicio de cálculo del IVA de Amazon» (VCS): el IVA que calcula Amazon en cada pedido en vez de calcularlo con el % (migración 354) */
+  vcs: boolean
+  /** «Ignorar costes FBA de envíos entrantes»: fuera el transporte y la colocación de los envíos a Amazon */
+  ignorarEntrantes: boolean
+  /** «Aplicar las tarifas de almacenamiento a»: el mes en que Amazon las cobra o el mes al que corresponden (el anterior) */
+  almacenamiento: 'cobro' | 'corresponde'
+  /** «Amortizar las tarifas de Amazon diariamente»: almacenamiento y suscripción repartidos entre los días de su mes */
+  amortizar: boolean
+  /** «Asume que las devoluciones pendientes no están a la venta»: solo recupera el coste de lo que ya ha vuelto vendible */
+  devolucionesPendientes: boolean
+  /** «COGS para unidades sobrevendidas (FIFO)»: cuando se vende más de lo que hay en los lotes */
+  fifoSobrevendidas: 'ultimo' | 'cero' | 'fijo'
+  /** «Coste de envío FBM para pedidos con varios productos»: la suma de lo de cada producto o un solo envío */
+  envioVarios: 'suma' | 'uno'
+  /** «Enviar informes de ventas todos los días»: a qué correo (vacío = no) y desde qué buzón del ERP (módulo Correo) */
+  informeCorreo: string | null
+  informeBuzon: string | null
+  /** «Habilitar el cambio de moneda en el panel» */
+  cambioMoneda: boolean
 }
 
 export const AJUSTES_POR_DEFECTO: AjustesCuenta = {
@@ -36,6 +55,16 @@ export const AJUSTES_POR_DEFECTO: AjustesCuenta = {
   pickPrecioPrimeros: null,
   margenSobreNeto: false,
   flujoDesde: null,
+  vcs: false,
+  ignorarEntrantes: false,
+  almacenamiento: 'cobro',
+  amortizar: false,
+  devolucionesPendientes: false,
+  fifoSobrevendidas: 'ultimo',
+  envioVarios: 'uno',
+  informeCorreo: null,
+  informeBuzon: null,
+  cambioMoneda: false,
 }
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/
@@ -63,6 +92,16 @@ export function normalizarAjustes(x: unknown): AjustesCuenta {
     pickPrecioPrimeros: o.pickPrecioPrimeros == null || o.pickPrecioPrimeros === '' ? null : dinero(o.pickPrecioPrimeros, 0),
     margenSobreNeto: bool('margenSobreNeto'),
     flujoDesde: fecha(o.flujoDesde),
+    vcs: bool('vcs'),
+    ignorarEntrantes: bool('ignorarEntrantes'),
+    almacenamiento: o.almacenamiento === 'corresponde' ? 'corresponde' : 'cobro',
+    amortizar: bool('amortizar'),
+    devolucionesPendientes: bool('devolucionesPendientes'),
+    fifoSobrevendidas: o.fifoSobrevendidas === 'cero' || o.fifoSobrevendidas === 'fijo' ? o.fifoSobrevendidas : 'ultimo',
+    envioVarios: o.envioVarios === 'suma' ? 'suma' : 'uno',
+    informeCorreo: typeof o.informeCorreo === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.informeCorreo.trim()) ? o.informeCorreo.trim().slice(0, 200) : null,
+    informeBuzon: typeof o.informeBuzon === 'string' && /^[0-9a-f-]{36}$/i.test(o.informeBuzon) ? o.informeBuzon : null,
+    cambioMoneda: bool('cambioMoneda'),
   }
 }
 

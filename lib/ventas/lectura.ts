@@ -209,6 +209,8 @@ export interface TarifasDePedido {
   promo: number
   /** Unidades enviadas (QuantityShipped): con ellas el historial se rehace solo con el dinero si el informe de pedidos no trae nada */
   unidades: number
+  /** El IVA que Amazon calculó y cobró (cargos Tax, ShippingTax, GiftWrapTax…): para «Servicio de cálculo del IVA de Amazon» (VCS) */
+  iva?: number
 }
 
 export interface Movimiento {
@@ -221,6 +223,8 @@ export interface Movimiento {
   importe: number
   extra: number
   extra_unidades: number
+  /** En un reembolso: el IVA que Amazon devuelve al comprador (en positivo; migración 354) */
+  iva?: number
 }
 
 /** La firma de una tarifa sin fecha (su clave sin el `|<día>` del final): la misma firma en días cercanos es la misma tarifa leída dos veces */
@@ -331,6 +335,7 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
           // En EE. UU., Canadá y México el «Tax» es el impuesto que Amazon cobra y RETIENE (ItemTaxWithheldList, en negativo): no es venta
           const retenido = SIN_IVA.has(mercado) ? retencion(it.ItemTaxWithheldList, porEuro) : 0
           const cobrado = cargos + retenido
+          const iva = SIN_IVA.has(mercado) ? 0 : ((it.ItemChargeList as Array<{ ChargeType?: string; ChargeAmount?: Importe }>) ?? []).filter((x) => /Tax$/i.test(x.ChargeType ?? '')).reduce((s2, x) => s2 + eur(x.ChargeAmount, porEuro), 0)
           const promo = -((it.PromotionList as Array<{ PromotionAmount?: Importe }>) ?? []).reduce((s2, x) => s2 + eur(x.PromotionAmount, porEuro), 0)
           for (const f of (it.ItemFeeList as Array<{ FeeType?: string; FeeAmount?: Importe }>) ?? []) {
             const v = eur(f.FeeAmount, porEuro)
@@ -345,8 +350,9 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
             previa.otras = r2(previa.otras + otras)
             previa.cobrado = r2(previa.cobrado + cobrado)
             previa.promo = r2(previa.promo + promo)
+            previa.iva = r2((previa.iva ?? 0) + iva)
             previa.unidades += unidades
-          } else salida.tarifas.push({ pedido, sku, marketplace_id: mercado, dia, referral: r2(referral), fba: r2(fba), otras: r2(otras), cobrado: r2(cobrado), promo: r2(promo), unidades })
+          } else salida.tarifas.push({ pedido, sku, marketplace_id: mercado, dia, referral: r2(referral), fba: r2(fba), otras: r2(otras), cobrado: r2(cobrado), promo: r2(promo), unidades, iva: r2(iva) })
         }
       }
       continue
@@ -366,6 +372,7 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
           const promo = ((it.PromotionAdjustmentList as Array<{ PromotionAmount?: Importe }>) ?? []).reduce((s, x) => s + eur(x.PromotionAmount, porEuro), 0)
           const comisiones = ((it.ItemFeeAdjustmentList as Array<{ FeeAmount?: Importe }>) ?? []).reduce((s, x) => s + eur(x.FeeAmount, porEuro), 0)
           // Unidades reembolsadas solo si se devuelve el ARTÍCULO (cargo «Principal»): un reembolso del envío o una concesión no es una unidad devuelta
+          const ivaDevuelto = SIN_IVA.has(mercado) ? 0 : -cargosDevueltos.filter((x) => /Tax$/i.test(x.ChargeType ?? '')).reduce((s, x) => s + eur(x.ChargeAmount, porEuro), 0)
           const conArticulo = cargosDevueltos.some((x) => x.ChargeType === 'Principal' && typeof x.ChargeAmount?.CurrencyAmount === 'number' && x.ChargeAmount.CurrencyAmount !== 0)
           const unidades = conArticulo ? Number(it.QuantityShipped ?? 1) || 1 : 0
           salida.movimientos.push({
@@ -379,6 +386,7 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
             importe: r2(devuelto - promo),
             extra: r2(comisiones),
             extra_unidades: 0,
+            iva: r2(ivaDevuelto),
           })
         }
       }
@@ -469,6 +477,8 @@ export interface LineaGuardada {
   /** Pedido FBM (lo envía el vendedor) y lo cobrado por el envío: para el coste de envío (migración 349) */
   fbm?: boolean
   envio?: number | null
+  /** El IVA que Amazon cobró en la línea (cuando llega el dinero; migración 354) */
+  iva_amazon?: number | null
 }
 
 export interface FilaDia {
@@ -495,6 +505,23 @@ export interface FilaDia {
   unidades_fbm: number
   pedidos_fbm: number
   envio_cobrado: number
+  /** Migración 354: líneas FBM (pedido × SKU), tarifas de la cuenta por tipo (ya incluidas en otras_tarifas), devoluciones y el IVA de Amazon */
+  lineas_fbm: number
+  tarifa_entrante: number
+  tarifa_almacenamiento: number
+  tarifa_suscripcion: number
+  devueltas_vendibles: number
+  devueltas_inservibles: number
+  /** null = ninguna línea ni reembolso de la fila trae el IVA de Amazon */
+  iva_amazon: number | null
+}
+
+/** De qué tipo es una tarifa de la cuenta, por su clave (que lleva la lista, el motivo y los tipos de tarifa) */
+export function tipoDeTarifa(clave: string): 'entrante' | 'almacenamiento' | 'suscripcion' | null {
+  if (/InboundTransportation|InboundConvenience|InboundPlacement|InboundDefect|PartneredCarrier/i.test(clave)) return 'entrante'
+  if (/Storage/i.test(clave)) return 'almacenamiento'
+  if (/Subscription/i.test(clave)) return 'suscripcion'
+  return null
 }
 
 /** Comisión de venta por defecto cuando un SKU todavía no tiene ninguna real: el 15 % de casi todas las categorías, CON el 21 % de IVA dentro, como
@@ -505,7 +532,8 @@ export const REFERRAL_POR_DEFECTO = 0.15 * 1.21
  * Junta las líneas de pedido y los movimientos en una fila por país × SKU × día. Las líneas sin precio toman el precio medio de ese SKU; las que aún no
  * tienen sus tarifas reales las estiman con lo que Amazon ha cobrado a ese SKU (proporción de comisión y tarifa FBA por unidad) o, si nunca, un 15 %.
  */
-export function resumirDias(lineas: readonly LineaGuardada[], movimientos: readonly Movimiento[]): FilaDia[] {
+/** `devoluciones`: las de FBA (para el coste de lo devuelto: vendibles e inservibles por día y SKU), en el mercado principal de la cuenta */
+export function resumirDias(lineas: readonly LineaGuardada[], movimientos: readonly Movimiento[], devoluciones: ReadonlyArray<{ dia: string; sku: string; unidades: number; vendible: boolean; mercado: string }> = []): FilaDia[] {
   // Lo aprendido de cada SKU con tarifas reales
   const aprendido = new Map<string, { ventas: number; referral: number; fba: number; otras: number; unidades: number }>()
   const precio = new Map<string, { ventas: number; unidades: number }>()
@@ -533,7 +561,7 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     const k = `${dia}|${mercado}|${sku}`
     let f = filas.get(k)
     if (!f) {
-      f = { marketplace_id: mercado, sku, dia, asin, unidades: 0, pedidos: 0, ventas: 0, promo: 0, tarifa_referral: 0, tarifa_fba: 0, otras_tarifas: 0, tarifas_estimadas: 0, reembolsos: 0, reembolsado: 0, comision_reembolso: 0, ajustes: 0, publicidad: 0, ventas_ppc: 0, unidades_ppc: 0, unidades_fbm: 0, pedidos_fbm: 0, envio_cobrado: 0, _pedidos: new Set(), _fbm: new Set() }
+      f = { marketplace_id: mercado, sku, dia, asin, unidades: 0, pedidos: 0, ventas: 0, promo: 0, tarifa_referral: 0, tarifa_fba: 0, otras_tarifas: 0, tarifas_estimadas: 0, reembolsos: 0, reembolsado: 0, comision_reembolso: 0, ajustes: 0, publicidad: 0, ventas_ppc: 0, unidades_ppc: 0, unidades_fbm: 0, pedidos_fbm: 0, envio_cobrado: 0, lineas_fbm: 0, tarifa_entrante: 0, tarifa_almacenamiento: 0, tarifa_suscripcion: 0, devueltas_vendibles: 0, devueltas_inservibles: 0, iva_amazon: null, _pedidos: new Set(), _fbm: new Set() }
       filas.set(k, f)
     }
     if (!f.asin && asin) f.asin = asin
@@ -556,8 +584,10 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     f.unidades += l.unidades
     const esDueno = dueno.get(l.pedido) === l
     if (esDueno) f._pedidos.add(l.pedido)
+    if (l.iva_amazon != null) f.iva_amazon = (f.iva_amazon ?? 0) + l.iva_amazon
     if (l.fbm) {
       f.unidades_fbm += l.unidades
+      f.lineas_fbm++
       if (esDueno) f._fbm.add(l.pedido)
       f.envio_cobrado += l.envio ?? 0
     }
@@ -591,6 +621,7 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
       f.reembolsos += m.unidades
       f.reembolsado += m.importe
       f.comision_reembolso += m.extra
+      if (m.iva != null) f.iva_amazon = (f.iva_amazon ?? 0) - m.iva
     } else if (m.tipo === 'tarifa_pedido') {
       // Tarifas reales de un pedido que ya no está entre las líneas guardadas: cuentan el día en que se cobran
       const f = fila(m.marketplace_id, m.sku, m.dia, null)
@@ -598,8 +629,19 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     } else {
       const f = fila(m.marketplace_id, m.sku, m.dia, null)
       if (m.tipo === 'ajuste') f.ajustes += m.importe
-      else f.otras_tarifas += m.importe
+      else {
+        f.otras_tarifas += m.importe
+        const t = tipoDeTarifa(m.clave)
+        if (t === 'entrante') f.tarifa_entrante += m.importe
+        else if (t === 'almacenamiento') f.tarifa_almacenamiento += m.importe
+        else if (t === 'suscripcion') f.tarifa_suscripcion += m.importe
+      }
     }
+  }
+  for (const d of devoluciones) {
+    const f = fila(d.mercado, d.sku, d.dia, null)
+    if (d.vendible) f.devueltas_vendibles += d.unidades
+    else f.devueltas_inservibles += d.unidades
   }
 
   return [...filas.values()].map(({ _pedidos, _fbm, ...f }) => ({
@@ -618,6 +660,10 @@ export function resumirDias(lineas: readonly LineaGuardada[], movimientos: reado
     ajustes: r2(f.ajustes),
     publicidad: r2(f.publicidad),
     ventas_ppc: r2(f.ventas_ppc),
+    tarifa_entrante: r2(f.tarifa_entrante),
+    tarifa_almacenamiento: r2(f.tarifa_almacenamiento),
+    tarifa_suscripcion: r2(f.tarifa_suscripcion),
+    iva_amazon: f.iva_amazon == null ? null : r2(f.iva_amazon),
   }))
 }
 

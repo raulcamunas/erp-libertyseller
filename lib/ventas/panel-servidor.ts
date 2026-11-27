@@ -8,6 +8,7 @@
 import { createServiceClient } from '@/lib/supabase/service'
 import { marketplaceById } from '@/lib/types/amazon'
 import { costePickPack, normalizarAjustes, type AjustesCuenta } from './ajustes'
+import { costesFifo, moverTarifasMensuales, rangoDeMensuales } from './ajustes-filas'
 import { todasLasPaginas as paginar } from './paginas'
 import { aKg, costeDeFila, REGLAS_CON_TABLA, type ReglaEnvio, type TablaEnvio } from './envio'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
@@ -34,7 +35,7 @@ const olvidar = (prefijo: string) => {
 }
 /** Tira todo lo guardado de una cuenta (y el resumen de todas): al cambiar costes, IVA, ajustes, envío o al añadirla */
 const olvidarCuenta = (connectionId: string) => {
-  for (const p of ['productos:', 'costes:', 'envio:', 'pesos:', 'filas:']) olvidar(`${p}${connectionId}`)
+  for (const p of ['productos:', 'costes:', 'envio:', 'pesos:', 'filas:', 'ajustes:', 'lotes:', 'fifo:']) olvidar(`${p}${connectionId}`)
   olvidar('resumen:')
   olvidar('cuentas')
 }
@@ -182,77 +183,167 @@ async function conEnvio(): Promise<boolean> {
   return hayEnvio.valor
 }
 
+/** ¿Está lanzada la migración 354 (tarifas por tipo, devoluciones, IVA de Amazon, lotes)? */
+let hay354: { valor: boolean; at: number } | null = null
+async function con354(): Promise<boolean> {
+  if (hay354 && (hay354.valor || Date.now() - hay354.at < 10 * 60_000)) return hay354.valor
+  const { error } = await createServiceClient().from('ventas_dia').select('lineas_fbm').limit(1)
+  hay354 = { valor: !error, at: Date.now() }
+  return hay354.valor
+}
+const COLUMNAS_354 = 'tarifa_entrante, tarifa_almacenamiento, tarifa_suscripcion, lineas_fbm, devueltas_vendibles, devueltas_inservibles, iva_amazon'
+
+/** Los ajustes de una cuenta (Configuración) y su mercado principal. 30 s */
+const ajustesDeCuenta = (connectionId: string) =>
+  enCache(`ajustes:${connectionId}`, 30_000, async () => {
+    const s = createServiceClient()
+    const [{ data: cu }, { data: con }] = await Promise.all([
+      s.from('ventas_cuentas').select('*').eq('connection_id', connectionId).maybeSingle(),
+      s.from('amazon_connections').select('default_marketplace_id, marketplace_ids').eq('id', connectionId).maybeSingle(),
+    ])
+    const c = con as { default_marketplace_id?: string | null; marketplace_ids?: string[] | null } | null
+    return { ajustes: normalizarAjustes((cu as { ajustes?: unknown } | null)?.ajustes), mercado: c?.default_marketplace_id ?? c?.marketplace_ids?.[0] ?? 'A1RKKUPIHCS9HS' }
+  })
+
 export async function filasDelPanel(connectionId: string, desde: string, hasta: string): Promise<FilaPanel[]> {
   const s = createServiceClient()
-  const envio = await conEnvio()
-  const filas: FilaPanel[] = []
-  const fbm: Array<{ unidades: number; pedidos: number; cobrado: number }> = []
-  const crudas = await todasLasPaginas<Record<string, unknown>>((d) =>
-    s
-      .from('ventas_dia')
-      .select(envio ? `${COLUMNAS_DIA}, unidades_fbm, pedidos_fbm, envio_cobrado` : COLUMNAS_DIA)
-      .eq('connection_id', connectionId)
-      .gte('dia', desde)
-      .lte('dia', hasta)
-      .order('dia')
-      .order('marketplace_id')
-      .order('sku')
-      .range(d, d + 999),
-  )
-  {
-    for (const r of crudas) {
-      filas.push({
-        dia: String(r.dia),
-        mkt: String(r.marketplace_id),
-        sku: String(r.sku),
-        asin: (r.asin as string) ?? null,
-        unidades: n(r.unidades),
-        pedidos: n(r.pedidos),
-        ventas: n(r.ventas),
-        promo: n(r.promo),
-        referral: n(r.tarifa_referral),
-        fba: n(r.tarifa_fba),
-        otras: n(r.otras_tarifas),
-        estimadas: n(r.tarifas_estimadas),
-        reembolsos: n(r.reembolsos),
-        reembolsado: n(r.reembolsado),
-        comisionReembolso: n(r.comision_reembolso),
-        ajustes: n(r.ajustes),
-        publicidad: n(r.publicidad),
-        ventasPpc: n(r.ventas_ppc),
-        unidadesPpc: n(r.unidades_ppc),
-      })
-      fbm.push({ unidades: n(r.unidades_fbm), pedidos: n(r.pedidos_fbm), cobrado: n(r.envio_cobrado) })
+  const [envio, m354, { ajustes, mercado }] = await Promise.all([conEnvio(), con354(), ajustesDeCuenta(connectionId)])
+  let filas: FilaPanel[] = []
+  const fbm: Array<{ unidades: number; pedidos: number; cobrado: number; lineas: number }> = []
+  const columnas = [COLUMNAS_DIA, envio ? 'unidades_fbm, pedidos_fbm, envio_cobrado' : '', m354 ? COLUMNAS_354 : ''].filter(Boolean).join(', ')
+  const crudas = await todasLasPaginas<Record<string, unknown>>((d) => s.from('ventas_dia').select(columnas).eq('connection_id', connectionId).gte('dia', desde).lte('dia', hasta).order('dia').order('marketplace_id').order('sku').range(d, d + 999))
+  for (const r of crudas) {
+    const f: FilaPanel = {
+      dia: String(r.dia),
+      mkt: String(r.marketplace_id),
+      sku: String(r.sku),
+      asin: (r.asin as string) ?? null,
+      unidades: n(r.unidades),
+      pedidos: n(r.pedidos),
+      ventas: n(r.ventas),
+      promo: n(r.promo),
+      referral: n(r.tarifa_referral),
+      fba: n(r.tarifa_fba),
+      otras: n(r.otras_tarifas),
+      estimadas: n(r.tarifas_estimadas),
+      reembolsos: n(r.reembolsos),
+      reembolsado: n(r.reembolsado),
+      comisionReembolso: n(r.comision_reembolso),
+      ajustes: n(r.ajustes),
+      publicidad: n(r.publicidad),
+      ventasPpc: n(r.ventas_ppc),
+      unidadesPpc: n(r.unidades_ppc),
     }
+    if (m354) {
+      if (r.tarifa_entrante) f.entrante = n(r.tarifa_entrante)
+      if (r.tarifa_almacenamiento) f.almacenamiento = n(r.tarifa_almacenamiento)
+      if (r.tarifa_suscripcion) f.suscripcion = n(r.tarifa_suscripcion)
+      if (r.devueltas_vendibles) f.devueltasVendibles = n(r.devueltas_vendibles)
+      if (r.devueltas_inservibles) f.devueltasInservibles = n(r.devueltas_inservibles)
+      if (r.iva_amazon != null) f.ivaAmazon = n(r.iva_amazon)
+    }
+    filas.push(f)
+    fbm.push({ unidades: n(r.unidades_fbm), pedidos: n(r.pedidos_fbm), cobrado: n(r.envio_cobrado), lineas: n(r.lineas_fbm) })
   }
-  if (!envio || !fbm.some((x) => x.pedidos > 0)) return filas
-  // FBM Pick & Pack (Configuración): lo que cuesta preparar los pedidos FBM de cada fila
-  const ajustes = normalizarAjustes(((await s.from('ventas_cuentas').select('*').eq('connection_id', connectionId).maybeSingle()).data as { ajustes?: unknown } | null)?.ajustes)
-  if (ajustes.pickPaquete > 0 || ajustes.pickArticulo > 0 || (ajustes.pickPrimeros && ajustes.pickPrecioPrimeros)) {
+
+  // FBM: pick & pack y coste de envío (antes de mover tarifas: van por fila y las filas nuevas no tienen pedidos)
+  if (envio && fbm.some((x) => x.pedidos > 0 || x.lineas > 0)) {
+    // «Coste de envío FBM para pedidos con varios productos»: «suma» = un envío por cada producto del pedido; «uno» = un envío por pedido
+    const pedidosDe = (x: (typeof fbm)[number]) => (ajustes.envioVarios === 'suma' && m354 && x.lineas ? x.lineas : x.pedidos)
+    if (ajustes.pickPaquete > 0 || ajustes.pickArticulo > 0 || (ajustes.pickPrimeros && ajustes.pickPrecioPrimeros)) {
+      filas.forEach((f, i) => {
+        if (fbm[i].pedidos) f.pickpack = costePickPack(ajustes, fbm[i].pedidos, fbm[i].unidades)
+      })
+    }
+    // El coste de envío de los pedidos FBM de cada fila: lo importado por pedido manda; el resto, según el perfil que le toque
+    const [perfiles, importados] = await Promise.all([perfilesDeEnvio(connectionId), envioImportado(connectionId, desde, hasta)])
+    // El peso de cada producto (solo si algún perfil va por peso) y el cambio del dólar (solo si alguno está en dólares)
+    const pesos = perfiles.some((p) => p.regla === 'peso') ? await pesosDelCatalogo(connectionId) : new Map<string, number>()
+    const porEuroUsd = perfiles.some((p) => p.moneda === 'USD') ? ((await tiposDeCambio()).porEuro.USD ?? 1) : 1
     filas.forEach((f, i) => {
-      if (fbm[i].pedidos) f.pickpack = costePickPack(ajustes, fbm[i].pedidos, fbm[i].unidades)
+      const x = fbm[i]
+      const pedidos = pedidosDe(x)
+      if (!pedidos) return
+      const imp = importados.get(`${f.dia}|${f.mkt}|${f.sku}`)
+      const resto = imp ? Math.max(0, pedidos - imp.pedidos) / pedidos : 1
+      const p = perfilDeLaFila(perfiles, f.dia, f.sku)
+      const porRegla = !p
+        ? x.cobrado
+        : costeDeFila(
+            { regla: p.regla, importe: p.importe, tabla: p.tabla ?? null, porEuro: p.moneda === 'USD' ? porEuroUsd : 1 },
+            { pedidos, unidades: x.unidades, cobrado: x.cobrado, precioUnidad: f.unidades > 0 ? f.ventas / f.unidades : 0, pais: marketplaceById(f.mkt)?.countryCode ?? '', pesoUnidadKg: pesos.get(f.sku) ?? null }
+          )
+      f.envio = Math.round(((imp?.coste ?? 0) + porRegla * resto) * 100) / 100
     })
   }
-  // El coste de envío de los pedidos FBM de cada fila: lo importado por pedido manda; el resto, según el perfil que le toque
-  const [perfiles, importados] = await Promise.all([perfilesDeEnvio(connectionId), envioImportado(connectionId, desde, hasta)])
-  // El peso de cada producto (solo si algún perfil va por peso) y el cambio del dólar (solo si alguno está en dólares)
-  const pesos = perfiles.some((p) => p.regla === 'peso') ? await pesosDelCatalogo(connectionId) : new Map<string, number>()
-  const porEuroUsd = perfiles.some((p) => p.moneda === 'USD') ? ((await tiposDeCambio()).porEuro.USD ?? 1) : 1
-  filas.forEach((f, i) => {
-    const x = fbm[i]
-    if (!x.pedidos) return
-    const imp = importados.get(`${f.dia}|${f.mkt}|${f.sku}`)
-    const resto = imp ? Math.max(0, x.pedidos - imp.pedidos) / x.pedidos : 1
-    const p = perfilDeLaFila(perfiles, f.dia, f.sku)
-    const porRegla = !p
-      ? x.cobrado
-      : costeDeFila(
-          { regla: p.regla, importe: p.importe, tabla: p.tabla ?? null, porEuro: p.moneda === 'USD' ? porEuroUsd : 1 },
-          { pedidos: x.pedidos, unidades: x.unidades, cobrado: x.cobrado, precioUnidad: f.unidades > 0 ? f.ventas / f.unidades : 0, pais: marketplaceById(f.mkt)?.countryCode ?? '', pesoUnidadKg: pesos.get(f.sku) ?? null }
-        )
-    f.envio = Math.round(((imp?.coste ?? 0) + porRegla * resto) * 100) / 100
-  })
+
+  if (m354) {
+    // Almacenamiento al mes al que corresponde y/o tarifas mensuales amortizadas: hacen falta las de fuera del periodo (el mes de antes y el de después)
+    if (ajustes.almacenamiento === 'corresponde' || ajustes.amortizar) {
+      const r = rangoDeMensuales(desde, hasta)
+      const mensuales = await todasLasPaginas<{ dia: string; tarifa_almacenamiento: number; tarifa_suscripcion: number }>((d) =>
+        s.from('ventas_dia').select('dia, marketplace_id, sku, tarifa_almacenamiento, tarifa_suscripcion').eq('connection_id', connectionId).gte('dia', r.desde).lte('dia', r.hasta).or('tarifa_almacenamiento.neq.0,tarifa_suscripcion.neq.0').order('dia').order('marketplace_id').order('sku').range(d, d + 999),
+      ).catch(() => [])
+      filas = moverTarifasMensuales(filas, mensuales.map((m) => ({ dia: String(m.dia), almacenamiento: n(m.tarifa_almacenamiento), suscripcion: n(m.tarifa_suscripcion) })), ajustes, desde, hasta, mercado)
+    }
+    // COGS FIFO: el coste de lo vendido sale de los lotes de compra (los SKU que los tengan)
+    const fifo = await cogsFifo(connectionId, hasta, ajustes.fifoSobrevendidas).catch(() => null)
+    if (fifo && fifo.size) {
+      for (const f of filas) {
+        if (!f.sku || !f.unidades) continue
+        const c = fifo.get(`${f.sku}|${f.dia}`)
+        if (c != null) f.cogs = Math.round(c * f.unidades * 100) / 100
+      }
+    }
+  }
   return filas
+}
+
+/** Los lotes de COGS de una cuenta (migración 354) */
+export interface LoteDeCosteGuardado {
+  id: string
+  sku: string
+  fecha: string
+  unidades: number
+  coste: number
+  nota: string | null
+}
+export const lotesDeCoste = (connectionId: string) =>
+  enCache(`lotes:${connectionId}`, 5 * 60_000, async (): Promise<LoteDeCosteGuardado[]> => {
+    const filas = await todasLasPaginas<Record<string, unknown>>((d) => createServiceClient().from('ventas_costes_lotes').select('id, sku, fecha, unidades, coste, nota').eq('connection_id', connectionId).order('sku').order('fecha').order('id').range(d, d + 999)).catch(() => [])
+    return filas.map((l) => ({ id: String(l.id), sku: String(l.sku), fecha: String(l.fecha), unidades: n(l.unidades), coste: n(l.coste), nota: (l.nota as string) ?? null }))
+  })
+
+/** El coste medio por unidad de cada SKU y día según sus lotes (FIFO), con las ventas desde el primer lote. 5 min */
+const cogsFifo = (connectionId: string, hasta: string, sobrevendidas: 'ultimo' | 'cero' | 'fijo') =>
+  enCache(`fifo:${connectionId}|${hasta}|${sobrevendidas}`, 5 * 60_000, async (): Promise<Map<string, number>> => {
+    const lotes = await lotesDeCoste(connectionId)
+    if (!lotes.length) return new Map()
+    const skus = [...new Set(lotes.map((l) => l.sku))]
+    const primero = lotes.reduce((m, l) => (l.fecha < m ? l.fecha : m), lotes[0].fecha)
+    const ventas: Array<{ sku: string; dia: string; unidades: number }> = []
+    for (let i = 0; i < skus.length; i += 150) {
+      const trozo = skus.slice(i, i + 150)
+      const filas = await todasLasPaginas<{ sku: string; dia: string; unidades: number }>((d) => createServiceClient().from('ventas_dia').select('sku, dia, marketplace_id, unidades').eq('connection_id', connectionId).in('sku', trozo).gte('dia', primero).lte('dia', hasta).gt('unidades', 0).order('dia').order('marketplace_id').order('sku').range(d, d + 999))
+      ventas.push(...filas.map((f) => ({ sku: String(f.sku), dia: String(f.dia), unidades: n(f.unidades) })))
+    }
+    return costesFifo(lotes, ventas, sobrevendidas, await costesDelPanel(connectionId))
+  })
+
+/** Guarda lotes (importar o añadir uno) y borra; tira las cachés de la cuenta */
+export async function guardarLotes(connectionId: string, lotes: Array<{ sku: string; fecha: string; unidades: number; coste: number; nota?: string | null }>, userId: string): Promise<number> {
+  olvidarCuenta(connectionId)
+  const filas = lotes.map((l) => ({ connection_id: connectionId, sku: l.sku, fecha: l.fecha, unidades: l.unidades, coste: l.coste, nota: l.nota ?? null, created_by: userId }))
+  for (let i = 0; i < filas.length; i += 500) {
+    const { error } = await createServiceClient().from('ventas_costes_lotes').insert(filas.slice(i, i + 500))
+    if (error) throw error
+  }
+  return filas.length
+}
+export async function borrarLote(connectionId: string, id: string): Promise<void> {
+  olvidarCuenta(connectionId)
+  const { error } = await createServiceClient().from('ventas_costes_lotes').delete().eq('connection_id', connectionId).eq('id', id)
+  if (error) throw error
 }
 
 /* ------------------------------------------------------------------ */
@@ -561,9 +652,7 @@ export async function lineasDelPanel(connectionId: string, desde: string, hasta:
 
 /** Muchos costes de golpe (importar un CSV) */
 export async function guardarCostes(connectionId: string, costes: Array<{ sku: string; coste: number }>, userId: string): Promise<number> {
-  olvidar(`productos:${connectionId}`)
-  olvidar(`costes:${connectionId}`)
-  olvidar('resumen:')
+  olvidarCuenta(connectionId)
   const filas = costes.map((c) => ({ connection_id: connectionId, sku: c.sku, coste: c.coste, updated_by: userId, updated_at: new Date().toISOString() }))
   for (let i = 0; i < filas.length; i += 500) {
     const { error } = await createServiceClient().from('ventas_costes').upsert(filas.slice(i, i + 500), { onConflict: 'connection_id,sku' })
@@ -573,9 +662,7 @@ export async function guardarCostes(connectionId: string, costes: Array<{ sku: s
 }
 
 export async function guardarCoste(connectionId: string, sku: string, coste: number | null, userId: string): Promise<void> {
-  olvidar(`productos:${connectionId}`)
-  olvidar(`costes:${connectionId}`)
-  olvidar('resumen:')
+  olvidarCuenta(connectionId)
   const s = createServiceClient()
   if (coste == null) {
     const { error } = await s.from('ventas_costes').delete().eq('connection_id', connectionId).eq('sku', sku)
