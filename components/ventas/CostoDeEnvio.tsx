@@ -370,13 +370,6 @@ function EditarPerfil({ perfil, onCerrar, onGuardar }: { perfil: Partial<PerfilE
  * puede ser sin límite, ∞). Cada pedido FBM paga el importe de su país y del primer tope que no supera.
  */
 function EditorTabla({ tabla, regla, moneda, onCambio }: { tabla: TablaEnvio; regla: ReglaEnvio; moneda?: string; onCambio: (t: TablaEnvio) => void }) {
-  const texto = (v: number | null) => (v == null ? '' : String(v).replace('.', ','))
-  const num = (t: string) => {
-    const x = t.trim().replace(',', '.')
-    if (x === '') return null
-    const n = Number(x)
-    return Number.isFinite(n) && n >= 0 ? n : null
-  }
   const usadas = new Set(tabla.filas.map((f) => f.zona))
   const celda = 'h-9 w-full rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-right text-[13px] tabular-nums text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc)]'
   const unidadTope = regla === 'precio' ? simbolo(moneda) : regla === 'peso' ? 'kg' : 'uds.'
@@ -396,7 +389,7 @@ function EditorTabla({ tabla, regla, moneda, onCambio }: { tabla: TablaEnvio; re
               {tabla.topes.map((t, i) => (
                 <th key={i} className="min-w-[96px] px-[6px] pb-2 pt-1">
                   <div className="flex items-center gap-1">
-                    <input value={texto(t)} placeholder="∞" onChange={(e) => onCambio({ ...tabla, topes: tabla.topes.map((x, j) => (j === i ? num(e.target.value) : x)) })} className={celda} aria-label={`Tope de la columna ${i + 1}`} title="Hasta este valor (vacío = sin límite)" />
+                    <CeldaNumero valor={t} placeholder="∞" onCambio={(v) => onCambio({ ...tabla, topes: tabla.topes.map((x, j) => (j === i ? v : x)) })} className={celda} etiqueta={`Tope de la columna ${i + 1}`} />
                     <span className="text-[11px] font-normal text-[var(--ls-t4)]">{unidadTope}</span>
                     {tabla.topes.length > 1 && (
                       <button type="button" onClick={() => onCambio({ topes: tabla.topes.filter((_, j) => j !== i), filas: tabla.filas.map((f) => ({ ...f, importes: f.importes.filter((_, j) => j !== i) })) })} className="text-[var(--ls-t4)] hover:text-[#F87171]" title="Quitar la columna">
@@ -423,13 +416,12 @@ function EditorTabla({ tabla, regla, moneda, onCambio }: { tabla: TablaEnvio; re
                 {tabla.topes.map((_, j) => (
                   <td key={j} className="px-[6px] py-[6px]">
                     <div className="flex items-center gap-1">
-                      <input
-                        inputMode="decimal"
-                        value={texto(f.importes[j] ?? null)}
+                      <CeldaNumero
+                        valor={f.importes[j] ?? null}
                         placeholder="—"
-                        onChange={(e) => onCambio({ ...tabla, filas: tabla.filas.map((x, k) => (k === i ? { ...x, importes: tabla.topes.map((__, m) => (m === j ? num(e.target.value) : (x.importes[m] ?? null))) } : x)) })}
+                        onCambio={(v) => onCambio({ ...tabla, filas: tabla.filas.map((x, k) => (k === i ? { ...x, importes: tabla.topes.map((__, m) => (m === j ? v : (x.importes[m] ?? null))) } : x)) })}
                         className={celda}
-                        aria-label={`Importe de ${f.zona}, columna ${j + 1}`}
+                        etiqueta={`Importe de ${f.zona}, columna ${j + 1}`}
                       />
                       <span className="text-[11px] text-[var(--ls-t4)]">{simbolo(moneda)}</span>
                     </div>
@@ -482,5 +474,39 @@ function EditorTabla({ tabla, regla, moneda, onCambio }: { tabla: TablaEnvio; re
         {regla === 'peso' && ' El peso sale del de cada producto en Amazon.'}
       </p>
     </div>
+  )
+}
+
+/**
+ * Una celda de número que deja escribir la coma: guarda lo escrito tal cual («3,» o «3,6») y solo pasa el número. Si se le pasaba el número
+ * y se volvía a pintar, «3,» se quedaba en «3» y no había forma de poner decimales.
+ */
+function CeldaNumero({ valor, onCambio, placeholder, className, etiqueta }: { valor: number | null; onCambio: (v: number | null) => void; placeholder: string; className: string; etiqueta: string }) {
+  const aTexto = (v: number | null) => (v == null ? '' : String(v).replace('.', ','))
+  const [texto, setTexto] = useState(aTexto(valor))
+  const escribiendo = useRef(false)
+  useEffect(() => {
+    if (!escribiendo.current) setTexto(aTexto(valor))
+  }, [valor])
+  return (
+    <input
+      inputMode="decimal"
+      value={texto}
+      placeholder={placeholder}
+      aria-label={etiqueta}
+      onFocus={() => (escribiendo.current = true)}
+      onBlur={() => {
+        escribiendo.current = false
+        setTexto(aTexto(valor))
+      }}
+      onChange={(e) => {
+        const t = e.target.value.replace(/[^\d.,]/g, '')
+        setTexto(t)
+        const limpio = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t
+        const n = limpio === '' ? null : Number(limpio)
+        onCambio(n == null || Number.isFinite(n) ? n : null)
+      }}
+      className={className}
+    />
   )
 }
