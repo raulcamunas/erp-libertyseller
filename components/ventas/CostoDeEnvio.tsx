@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CalendarRange, Loader2, Package, Pencil, Plus, Receipt, Trash2, Truck, Upload } from 'lucide-react'
+import { CalendarRange, Loader2, Package, Pencil, Plus, Receipt, Trash2, Truck, Upload, X } from 'lucide-react'
 import { PanelLateral } from '@/components/ui-ls'
 import type { CuentaDelPanel, PerfilEnvio } from '@/lib/ventas/panel-servidor'
 import { aNumeroCoste, partirLinea } from '@/lib/ventas/costes-csv'
+import { REGLAS_CON_TABLA, TABLA_INICIAL, type ReglaEnvio, type TablaEnvio } from '@/lib/ventas/envio'
 import { Marco, TARJETA } from './TableroVentas'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
-import { entero, euros, fechaCorta } from './piezas'
+import { entero, fechaCorta } from './piezas'
 
 /**
  * VENTAS · COSTO DE ENVÍO (como la página de Sellerboard). Lo que cuesta mandar los pedidos FBM (los que envía el vendedor), por perfiles: a qué
@@ -24,12 +25,26 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
 }
 const enviar = <T,>(cuerpo: Record<string, unknown>) => pedir<T>('/api/ventas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) })
 
-const REGLA: Record<PerfilEnvio['regla'], string> = {
+const REGLA: Record<ReglaEnvio, string> = {
+  ninguno: 'Sin gastos de envío',
   cobrado: 'Los gastos de envío equivalen al importe cobrado al cliente',
+  precio: 'Los gastos de envío se basan en el precio del pedido',
+  unidades: 'Los gastos de envío dependen del número de unidades',
+  peso: 'Los gastos de envío se basan en el peso del paquete',
   pedido: 'Un importe fijo por pedido',
   unidad: 'Un importe fijo por unidad',
 }
-const textoRegla = (p: Pick<PerfilEnvio, 'regla' | 'importe'>) => (p.regla === 'cobrado' ? REGLA.cobrado : p.regla === 'pedido' ? `${euros(p.importe)} por pedido` : `${euros(p.importe)} por unidad`)
+/** Las que se ofrecen (las de Sellerboard y el importe fijo por pedido). «Por unidad» solo sale si un perfil ya la tiene */
+const REGLAS_OFRECIDAS: ReglaEnvio[] = ['ninguno', 'cobrado', 'precio', 'unidades', 'peso', 'pedido']
+const simbolo = (m?: string) => (m === 'USD' ? '$' : '€')
+const textoRegla = (p: Pick<PerfilEnvio, 'regla' | 'importe' | 'moneda'>) =>
+  p.regla === 'pedido' ? `${p.importe.toLocaleString('es-ES', { minimumFractionDigits: 2 })} ${simbolo(p.moneda)} por pedido` : p.regla === 'unidad' ? `${p.importe.toLocaleString('es-ES', { minimumFractionDigits: 2 })} ${simbolo(p.moneda)} por unidad` : REGLA[p.regla]
+
+/** Los países de la tabla (los mercados de Amazon en Europa y EE. UU.) */
+const ZONAS: Array<[string, string]> = [
+  ['ES', 'España'], ['FR', 'Francia'], ['IT', 'Italia'], ['DE', 'Alemania'], ['NL', 'Países Bajos'], ['BE', 'Bélgica'], ['PT', 'Portugal'], ['PL', 'Polonia'], ['SE', 'Suecia'], ['IE', 'Irlanda'], ['GB', 'Reino Unido'], ['US', 'Estados Unidos'], ['resto', 'Resto del mundo'],
+]
+const TOPE: Record<string, string> = { precio: 'Precio máximo del pedido', unidades: 'Unidades máximas del pedido', peso: 'Peso máximo del paquete (kg)' }
 const textoProductos = (p: Pick<PerfilEnvio, 'productos_modo' | 'skus'>) => (p.productos_modo === 'todos' ? 'Todos los productos' : p.productos_modo === 'solo' ? `Solo ${p.skus.length} productos` : `Todos menos ${p.skus.length}`)
 const textoPeriodo = (p: Pick<PerfilEnvio, 'desde' | 'hasta'>) => (!p.desde && !p.hasta ? 'Sin límite' : `${p.desde ? fechaCorta(p.desde) : 'Siempre'} – ${p.hasta ? fechaCorta(p.hasta) : 'sin fin'}`)
 
@@ -105,7 +120,7 @@ export function CostoDeEnvio() {
             <div className="text-[15px] font-semibold text-[var(--ls-t1)]">Perfiles de expedición</div>
             <div className="text-[12px] text-[var(--ls-t4)]">Si un pedido encaja en varios, se aplica el de prioridad más alta (1 = el primero)</div>
           </div>
-          <button type="button" disabled={!d?.hayTabla} onClick={() => setEditando({ nombre: perfiles.length ? 'Nuevo perfil' : 'Por defecto', prioridad: perfiles.length + 1, productos_modo: 'todos', skus: [], regla: 'pedido', importe: 0 })} className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] px-4 text-[12.5px] font-semibold text-[#141414] disabled:opacity-50" style={{ background: 'linear-gradient(135deg,#F26212,#FF8A3D)' }}>
+          <button type="button" disabled={!d?.hayTabla} onClick={() => setEditando({ nombre: perfiles.length ? 'Nuevo perfil' : 'Por defecto', prioridad: perfiles.length + 1, productos_modo: 'todos', skus: [], regla: 'precio', importe: 0, tabla: TABLA_INICIAL, moneda: 'EUR' })} className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] px-4 text-[12.5px] font-semibold text-[#141414] disabled:opacity-50" style={{ background: 'linear-gradient(135deg,#F26212,#FF8A3D)' }}>
             <Plus className="h-[14px] w-[14px]" /> Añadir perfil
           </button>
         </div>
@@ -239,7 +254,7 @@ function EditarPerfil({ perfil, onCerrar, onGuardar }: { perfil: Partial<PerfilE
       descripcion="Cómo se calcula lo que cuesta enviar los pedidos FBM de estos productos y fechas."
       icono={Truck}
       acento="marca"
-      ancho={500}
+      ancho={680}
       pie={
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onCerrar} className="h-11 rounded-[11px] border border-[var(--ls-linea)] px-4 text-[13px] text-[var(--ls-t2)]">
@@ -249,11 +264,19 @@ function EditarPerfil({ perfil, onCerrar, onGuardar }: { perfil: Partial<PerfilE
             type="button"
             disabled={guardando}
             onClick={async () => {
+              const fijo = p.regla === 'pedido' || p.regla === 'unidad'
               const n = aNumeroCoste(importe)
-              if (p.regla !== 'cobrado' && (n == null || n < 0)) return setError('Pon el importe en euros (por ejemplo 4,95).')
+              if (fijo && (n == null || n < 0)) return setError('Pon el importe (por ejemplo 4,95).')
+              const conTabla = REGLAS_CON_TABLA.includes(p.regla as ReglaEnvio)
+              if (conTabla) {
+                const t = p.tabla ?? TABLA_INICIAL
+                if (!t.filas.some((f) => f.importes.some((v) => v != null))) return setError('Rellena al menos un importe en la tabla.')
+                const topes = t.topes.filter((x): x is number => x != null)
+                if (topes.some((x, i) => i > 0 && x <= topes[i - 1])) return setError('Los topes de las columnas tienen que ir de menor a mayor.')
+              }
               setGuardando(true)
               try {
-                await onGuardar({ ...p, importe: p.regla === 'cobrado' ? 0 : (n ?? 0), skus: skus.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean) })
+                await onGuardar({ ...p, importe: fijo ? (n ?? 0) : 0, tabla: conTabla ? (p.tabla ?? TABLA_INICIAL) : null, moneda: p.moneda ?? 'EUR', skus: skus.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean) })
               } catch (e) {
                 setError(e instanceof Error ? e.message : String(e))
               } finally {
@@ -292,21 +315,32 @@ function EditarPerfil({ perfil, onCerrar, onGuardar }: { perfil: Partial<PerfilE
           </div>
         </div>
         <div>
-          <label className={etiqueta}>Regla de cálculo</label>
-          <div className="flex flex-col gap-2">
-            {(['cobrado', 'pedido', 'unidad'] as const).map((r) => (
-              <label key={r} className="flex cursor-pointer items-center gap-2 rounded-[11px] border px-3 py-[10px] text-[13px] text-[var(--ls-t2)]" style={{ borderColor: p.regla === r ? '#F26212' : 'var(--ls-linea)', background: p.regla === r ? 'color-mix(in srgb,#F26212 10%,transparent)' : 'transparent' }}>
-                <input type="radio" checked={p.regla === r} onChange={() => setP({ ...p, regla: r })} className="accent-[#F26212]" />
+          <label className={etiqueta}>Regla de cálculo de los gastos de envío</label>
+          <select value={p.regla ?? 'cobrado'} onChange={(e) => setP({ ...p, regla: e.target.value as ReglaEnvio, tabla: REGLAS_CON_TABLA.includes(e.target.value as ReglaEnvio) ? (p.tabla ?? TABLA_INICIAL) : p.tabla })} className={campo}>
+            {[...REGLAS_OFRECIDAS, ...(p.regla === 'unidad' ? (['unidad'] as ReglaEnvio[]) : [])].map((r) => (
+              <option key={r} value={r}>
                 {REGLA[r]}
-              </label>
+              </option>
             ))}
-          </div>
-          {p.regla && p.regla !== 'cobrado' && (
+          </select>
+          {(p.regla === 'pedido' || p.regla === 'unidad' || REGLAS_CON_TABLA.includes(p.regla as ReglaEnvio)) && (
             <div className="mt-3 flex items-center gap-2">
-              <input inputMode="decimal" value={importe} onChange={(e) => setImporte(e.target.value)} placeholder="4,95" className={`${campo} !w-[120px] text-right`} />
-              <span className="text-[13px] text-[var(--ls-t3)]">€ {p.regla === 'pedido' ? 'por pedido' : 'por unidad'}</span>
+              <label className="text-[12px] text-[var(--ls-t3)]">Moneda</label>
+              <select value={p.moneda ?? 'EUR'} onChange={(e) => setP({ ...p, moneda: e.target.value === 'USD' ? 'USD' : 'EUR' })} className={`${campo} !h-9 !w-[90px]`}>
+                <option value="EUR">€</option>
+                <option value="USD">$</option>
+              </select>
             </div>
           )}
+          {(p.regla === 'pedido' || p.regla === 'unidad') && (
+            <div className="mt-3 flex items-center gap-2">
+              <input inputMode="decimal" value={importe} onChange={(e) => setImporte(e.target.value)} placeholder="4,95" className={`${campo} !w-[120px] text-right`} />
+              <span className="text-[13px] text-[var(--ls-t3)]">
+                {simbolo(p.moneda)} {p.regla === 'pedido' ? 'por pedido' : 'por unidad'}
+              </span>
+            </div>
+          )}
+          {REGLAS_CON_TABLA.includes(p.regla as ReglaEnvio) && <EditorTabla tabla={p.tabla ?? TABLA_INICIAL} regla={p.regla as ReglaEnvio} moneda={p.moneda} onCambio={(tabla) => setP({ ...p, tabla })} />}
         </div>
         <div>
           <label className={etiqueta}>Productos</label>
@@ -328,5 +362,125 @@ function EditarPerfil({ perfil, onCerrar, onGuardar }: { perfil: Partial<PerfilE
         </div>
       </div>
     </PanelLateral>
+  )
+}
+
+/**
+ * LA TABLA DE SELLERBOARD: un país por fila («resto del mundo» para los demás) y un tope por columna (precio, unidades o peso máximo; la última
+ * puede ser sin límite, ∞). Cada pedido FBM paga el importe de su país y del primer tope que no supera.
+ */
+function EditorTabla({ tabla, regla, moneda, onCambio }: { tabla: TablaEnvio; regla: ReglaEnvio; moneda?: string; onCambio: (t: TablaEnvio) => void }) {
+  const texto = (v: number | null) => (v == null ? '' : String(v).replace('.', ','))
+  const num = (t: string) => {
+    const x = t.trim().replace(',', '.')
+    if (x === '') return null
+    const n = Number(x)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  const usadas = new Set(tabla.filas.map((f) => f.zona))
+  const celda = 'h-9 w-full rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-right text-[13px] tabular-nums text-[var(--ls-t1)] outline-none focus:border-[var(--ls-acc)]'
+  const unidadTope = regla === 'precio' ? simbolo(moneda) : regla === 'peso' ? 'kg' : 'uds.'
+  return (
+    <div className="mt-4">
+      <div className="overflow-x-auto rounded-[12px] border border-[var(--ls-linea)]">
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[var(--ls-sup2)]">
+            <tr>
+              <th rowSpan={2} className="min-w-[150px] px-3 py-2 text-left font-semibold text-[var(--ls-t2)]">Zona de expedición</th>
+              <th colSpan={tabla.topes.length} className="px-3 pt-2 text-center text-[11.5px] font-semibold text-[var(--ls-t2)]">
+                {TOPE[regla]}
+              </th>
+              <th rowSpan={2} className="w-[34px]" />
+            </tr>
+            <tr>
+              {tabla.topes.map((t, i) => (
+                <th key={i} className="min-w-[96px] px-[6px] pb-2 pt-1">
+                  <div className="flex items-center gap-1">
+                    <input value={texto(t)} placeholder="∞" onChange={(e) => onCambio({ ...tabla, topes: tabla.topes.map((x, j) => (j === i ? num(e.target.value) : x)) })} className={celda} aria-label={`Tope de la columna ${i + 1}`} title="Hasta este valor (vacío = sin límite)" />
+                    <span className="text-[11px] font-normal text-[var(--ls-t4)]">{unidadTope}</span>
+                    {tabla.topes.length > 1 && (
+                      <button type="button" onClick={() => onCambio({ topes: tabla.topes.filter((_, j) => j !== i), filas: tabla.filas.map((f) => ({ ...f, importes: f.importes.filter((_, j) => j !== i) })) })} className="text-[var(--ls-t4)] hover:text-[#F87171]" title="Quitar la columna">
+                        <X className="h-[13px] w-[13px]" />
+                      </button>
+                    )}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {tabla.filas.map((f, i) => (
+              <tr key={i} className="border-t border-[var(--ls-linea)]">
+                <td className="px-2 py-[6px]">
+                  <select value={f.zona} onChange={(e) => onCambio({ ...tabla, filas: tabla.filas.map((x, j) => (j === i ? { ...x, zona: e.target.value } : x)) })} className="h-9 w-full rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-2 text-[13px] text-[var(--ls-t1)] outline-none">
+                    {ZONAS.filter(([z]) => z === f.zona || !usadas.has(z)).map(([z, nombre]) => (
+                      <option key={z} value={z}>
+                        {z === 'ES' ? 'Envíos nacionales (España)' : nombre}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                {tabla.topes.map((_, j) => (
+                  <td key={j} className="px-[6px] py-[6px]">
+                    <div className="flex items-center gap-1">
+                      <input
+                        inputMode="decimal"
+                        value={texto(f.importes[j] ?? null)}
+                        placeholder="—"
+                        onChange={(e) => onCambio({ ...tabla, filas: tabla.filas.map((x, k) => (k === i ? { ...x, importes: tabla.topes.map((__, m) => (m === j ? num(e.target.value) : (x.importes[m] ?? null))) } : x)) })}
+                        className={celda}
+                        aria-label={`Importe de ${f.zona}, columna ${j + 1}`}
+                      />
+                      <span className="text-[11px] text-[var(--ls-t4)]">{simbolo(moneda)}</span>
+                    </div>
+                  </td>
+                ))}
+                <td className="pr-2 text-center">
+                  {tabla.filas.length > 1 && (
+                    <button type="button" onClick={() => onCambio({ ...tabla, filas: tabla.filas.filter((_, j) => j !== i) })} className="text-[var(--ls-t4)] hover:text-[#F87171]" title="Quitar la fila">
+                      <Trash2 className="h-[13px] w-[13px]" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={usadas.size >= ZONAS.length}
+          onClick={() => {
+            const libre = ZONAS.find(([z]) => !usadas.has(z))?.[0]
+            if (!libre) return
+            // «Resto del mundo» siempre la última
+            const filas = [...tabla.filas.filter((x) => x.zona !== 'resto'), { zona: libre, importes: tabla.topes.map(() => null) }, ...tabla.filas.filter((x) => x.zona === 'resto')]
+            onCambio({ ...tabla, filas })
+          }}
+          className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--ls-linea)] px-3 text-[12.5px] text-[var(--ls-t2)] hover:text-[var(--ls-t1)] disabled:opacity-40"
+        >
+          <Plus className="h-[13px] w-[13px]" /> Añadir fila
+        </button>
+        <button
+          type="button"
+          disabled={tabla.topes.length >= 8}
+          onClick={() => {
+            // La nueva va antes de la de «sin límite»
+            const fin = tabla.topes[tabla.topes.length - 1] === null
+            const pos = fin ? tabla.topes.length - 1 : tabla.topes.length
+            const meter = <T,>(xs: T[], v: T) => [...xs.slice(0, pos), v, ...xs.slice(pos)]
+            onCambio({ topes: meter(tabla.topes, null as number | null), filas: tabla.filas.map((f) => ({ ...f, importes: meter(tabla.topes.map((_, m) => f.importes[m] ?? null), null as number | null) })) })
+          }}
+          className="inline-flex h-9 items-center gap-1 rounded-[10px] border border-[var(--ls-linea)] px-3 text-[12.5px] text-[var(--ls-t2)] hover:text-[var(--ls-t1)] disabled:opacity-40"
+        >
+          <Plus className="h-[13px] w-[13px]" /> Añadir columna
+        </button>
+      </div>
+      <p className="mt-2 text-[11.5px] leading-[1.5] text-[var(--ls-t4)]">
+        Cada pedido FBM paga el importe de su país (el del mercado de Amazon) y de la primera columna que no supera. Vacío en la cabecera = sin límite. Un hueco vacío = lo cobrado al cliente.
+        {regla === 'peso' && ' El peso sale del de cada producto en Amazon.'}
+      </p>
+    </div>
   )
 }

@@ -6,6 +6,9 @@
  */
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { marketplaceById } from '@/lib/types/amazon'
+import { aKg, costeDeFila, REGLAS_CON_TABLA, type ReglaEnvio, type TablaEnvio } from './envio'
+import { tiposDeCambio } from '@/lib/divisas/servidor'
 import type { FilaPanel } from './panel'
 import { emojisDeClientes } from './emoji-servidor'
 import { totalizar, type Totales } from './panel'
@@ -200,13 +203,21 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
   if (!envio || !fbm.some((x) => x.pedidos > 0)) return filas
   // El coste de envío de los pedidos FBM de cada fila: lo importado por pedido manda; el resto, según el perfil que le toque
   const [perfiles, importados] = await Promise.all([perfilesDeEnvio(connectionId), envioImportado(connectionId, desde, hasta)])
+  // El peso de cada producto (solo si algún perfil va por peso) y el cambio del dólar (solo si alguno está en dólares)
+  const pesos = perfiles.some((p) => p.regla === 'peso') ? await pesosDelCatalogo(connectionId) : new Map<string, number>()
+  const porEuroUsd = perfiles.some((p) => p.moneda === 'USD') ? ((await tiposDeCambio()).porEuro.USD ?? 1) : 1
   filas.forEach((f, i) => {
     const x = fbm[i]
     if (!x.pedidos) return
     const imp = importados.get(`${f.dia}|${f.mkt}|${f.sku}`)
     const resto = imp ? Math.max(0, x.pedidos - imp.pedidos) / x.pedidos : 1
     const p = perfilDeLaFila(perfiles, f.dia, f.sku)
-    const porRegla = !p || p.regla === 'cobrado' ? x.cobrado : p.regla === 'pedido' ? p.importe * x.pedidos : p.importe * x.unidades
+    const porRegla = !p
+      ? x.cobrado
+      : costeDeFila(
+          { regla: p.regla, importe: p.importe, tabla: p.tabla ?? null, porEuro: p.moneda === 'USD' ? porEuroUsd : 1 },
+          { pedidos: x.pedidos, unidades: x.unidades, cobrado: x.cobrado, precioUnidad: f.unidades > 0 ? f.ventas / f.unidades : 0, pais: marketplaceById(f.mkt)?.countryCode ?? '', pesoUnidadKg: pesos.get(f.sku) ?? null }
+        )
     f.envio = Math.round(((imp?.coste ?? 0) + porRegla * resto) * 100) / 100
   })
   return filas
@@ -224,15 +235,26 @@ export interface PerfilEnvio {
   hasta: string | null
   productos_modo: 'todos' | 'solo' | 'excepto'
   skus: string[]
-  regla: 'cobrado' | 'pedido' | 'unidad'
+  regla: ReglaEnvio
   importe: number
+  /** Las reglas por tabla (precio, unidades, peso): país × tope. Migración 351 */
+  tabla?: TablaEnvio | null
+  moneda?: 'EUR' | 'USD'
 }
+
+const COLUMNAS_PERFIL_349 = 'id, nombre, prioridad, desde, hasta, productos_modo, skus, regla, importe'
+const COLUMNAS_PERFIL = `${COLUMNAS_PERFIL_349}, tabla, moneda`
 
 const perfilesDeEnvio = (connectionId: string) =>
   enCache(`envio:${connectionId}`, 60_000, async (): Promise<PerfilEnvio[]> => {
-    const { data, error } = await createServiceClient().from('ventas_envio_perfiles').select('id, nombre, prioridad, desde, hasta, productos_modo, skus, regla, importe').eq('connection_id', connectionId).order('prioridad').order('created_at')
+    const s0 = createServiceClient()
+    const leer = (cols: string) => s0.from('ventas_envio_perfiles').select(cols).eq('connection_id', connectionId).order('prioridad').order('created_at')
+    let r = await leer(COLUMNAS_PERFIL)
+    // Sin la migración 351 (tabla y moneda) se leen las de antes
+    if (r.error) r = await leer(COLUMNAS_PERFIL_349)
+    const { data, error } = r
     if (error) return []
-    return ((data ?? []) as Array<Record<string, unknown>>).map((p) => ({ ...(p as unknown as PerfilEnvio), importe: n(p.importe), skus: (p.skus as string[]) ?? [] }))
+    return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((p) => ({ ...(p as unknown as PerfilEnvio), importe: n(p.importe), skus: (p.skus as string[]) ?? [] }))
   })
 
 /** El perfil que se lleva una fila (día y SKU): el primero por prioridad que la acepta. Ninguno = lo cobrado al comprador */
@@ -246,6 +268,22 @@ export function perfilDeLaFila(perfiles: readonly PerfilEnvio[], dia: string, sk
   }
   return null
 }
+
+/** El peso de una unidad de cada SKU (kg), del catálogo de Amazon. 5 min */
+const pesosDelCatalogo = (connectionId: string) =>
+  enCache(`pesos:${connectionId}`, 5 * 60_000, async () => {
+    const salida = new Map<string, number>()
+    for (let d = 0; ; d += 1000) {
+      const { data, error } = await createServiceClient().from('amazon_listings').select('sku, peso, peso_unidad').eq('connection_id', connectionId).not('peso', 'is', null).range(d, d + 999)
+      if (error) break
+      for (const l of (data ?? []) as Array<{ sku: string; peso: number | null; peso_unidad: string | null }>) {
+        const kg = aKg(l.peso, l.peso_unidad)
+        if (kg != null && !salida.has(l.sku)) salida.set(l.sku, kg)
+      }
+      if ((data ?? []).length < 1000) break
+    }
+    return salida
+  })
 
 async function envioImportado(connectionId: string, desde: string, hasta: string): Promise<Map<string, { coste: number; pedidos: number }>> {
   const salida = new Map<string, { coste: number; pedidos: number }>()
@@ -264,16 +302,30 @@ async function envioImportado(connectionId: string, desde: string, hasta: string
 export async function costoDeEnvio(connectionId: string): Promise<{ hayTabla: boolean; perfiles: PerfilEnvio[]; importados: number; ultimoImportado: string | null }> {
   const s = createServiceClient()
   const [p, i] = await Promise.all([
-    s.from('ventas_envio_perfiles').select('id, nombre, prioridad, desde, hasta, productos_modo, skus, regla, importe').eq('connection_id', connectionId).order('prioridad').order('created_at'),
+    (async () => {
+      const leer = (cols: string) => s.from('ventas_envio_perfiles').select(cols).eq('connection_id', connectionId).order('prioridad').order('created_at')
+      const r = await leer(COLUMNAS_PERFIL)
+      return r.error ? leer(COLUMNAS_PERFIL_349) : r
+    })(),
     s.from('ventas_envio_pedidos').select('updated_at', { count: 'exact' }).eq('connection_id', connectionId).order('updated_at', { ascending: false }).limit(1),
   ])
   if (p.error) return { hayTabla: false, perfiles: [], importados: 0, ultimoImportado: null }
   return {
     hayTabla: true,
-    perfiles: ((p.data ?? []) as Array<Record<string, unknown>>).map((x) => ({ ...(x as unknown as PerfilEnvio), importe: n(x.importe), skus: (x.skus as string[]) ?? [] })),
+    perfiles: ((p.data ?? []) as unknown as Array<Record<string, unknown>>).map((x) => ({ ...(x as unknown as PerfilEnvio), importe: n(x.importe), skus: (x.skus as string[]) ?? [] })),
     importados: i.count ?? 0,
     ultimoImportado: ((i.data ?? [])[0] as { updated_at?: string } | undefined)?.updated_at ?? null,
   }
+}
+
+/** Una tabla tal como llega de la pantalla, saneada: topes crecientes (el último puede ser sin límite), importes ≥ 0, países en mayúsculas */
+function limpiarTabla(t: unknown): TablaEnvio | null {
+  const x = t as TablaEnvio | null
+  if (!x || !Array.isArray(x.topes) || !Array.isArray(x.filas)) return null
+  const num = (v: unknown) => (v === null || v === '' || v === undefined ? null : Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v) * 100) / 100 : null)
+  const topes = x.topes.slice(0, 12).map(num)
+  const filas = x.filas.slice(0, 60).map((f) => ({ zona: String(f.zona ?? '').trim().slice(0, 12) === 'resto' ? 'resto' : String(f.zona ?? '').trim().toUpperCase().slice(0, 2), importes: topes.map((_, i) => num(f.importes?.[i])) })).filter((f) => f.zona)
+  return { topes, filas }
 }
 
 export async function guardarPerfilEnvio(connectionId: string, p: Partial<PerfilEnvio>): Promise<string> {
@@ -287,18 +339,22 @@ export async function guardarPerfilEnvio(connectionId: string, p: Partial<Perfil
     hasta: fecha(p.hasta),
     productos_modo: p.productos_modo === 'solo' || p.productos_modo === 'excepto' ? p.productos_modo : 'todos',
     skus: Array.isArray(p.skus) ? p.skus.filter((x) => typeof x === 'string').slice(0, 2000) : [],
-    regla: p.regla === 'pedido' || p.regla === 'unidad' ? p.regla : 'cobrado',
+    regla: (['ninguno', 'cobrado', 'pedido', 'unidad', 'precio', 'unidades', 'peso'] as const).includes(p.regla as ReglaEnvio) ? (p.regla as ReglaEnvio) : 'cobrado',
     importe: Math.max(0, Math.min(10_000, Math.round(Number(p.importe ?? 0) * 100) / 100)) || 0,
+    ...(REGLAS_CON_TABLA.includes(p.regla as ReglaEnvio) ? { tabla: limpiarTabla(p.tabla) } : {}),
+    ...(p.moneda ? { moneda: p.moneda === 'USD' ? 'USD' : 'EUR' } : {}),
     updated_at: new Date().toISOString(),
   }
   const s = createServiceClient()
+  // Sin la migración 351, las reglas nuevas, la tabla y la moneda no caben: se dice claro
+  const claro = (e: { message: string }) => (/tabla|moneda|regla_check/i.test(e.message) ? new Error('Falta lanzar la migración 351 (costo de envío por tablas).') : e)
   if (p.id) {
     const { error } = await s.from('ventas_envio_perfiles').update(fila).eq('id', p.id).eq('connection_id', connectionId)
-    if (error) throw error
+    if (error) throw claro(error)
     return p.id
   }
   const { data, error } = await s.from('ventas_envio_perfiles').insert(fila).select('id').single()
-  if (error) throw error
+  if (error) throw claro(error)
   return (data as { id: string }).id
 }
 
