@@ -638,7 +638,8 @@ export const cotizacionVigente = (caduca: string | null, ahora = new Date()): bo
 
 /**
  * La fecha en que la mercancía está lista para que la recojan (readyToShipWindow.start). Amazon la pide
- * en ISO con hora; se acepta 'YYYY-MM-DD' (hoy o después, como mucho a 30 días) y se pone a las 09:00 UTC.
+ * en ISO con hora; se acepta 'YYYY-MM-DD' (hoy o después, como mucho a 30 días) y se pone a las 09:00 UTC, o, si es hoy y ya han
+ * pasado, a la próxima media hora (nunca en el pasado).
  */
 export function fechaDeRecogida(dia: string, ahora = new Date()): { ok: true; iso: string } | { ok: false; error: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return { ok: false, error: 'La fecha de recogida tiene que ser un día (AAAA-MM-DD)' }
@@ -647,7 +648,11 @@ export function fechaDeRecogida(dia: string, ahora = new Date()): { ok: true; is
   const hoy = Date.parse(`${ahora.toISOString().slice(0, 10)}T00:00:00Z`)
   if (t < hoy) return { ok: false, error: 'La recogida no puede ser en el pasado' }
   if (t > hoy + 30 * 86_400_000) return { ok: false, error: 'La recogida no puede ser a más de 30 días' }
-  return { ok: true, iso: new Date(t).toISOString() }
+  // HOY con las 09:00 UTC ya pasadas: Amazon no acepta una ventana que empieza en el pasado (contesta 400 y solo enseña un aviso de palés).
+  // Se manda la próxima media hora en punto, con margen
+  const minimo = ahora.getTime() + 20 * 60_000
+  const inicio = t >= minimo ? t : Math.ceil(minimo / 1_800_000) * 1_800_000
+  return { ok: true, iso: new Date(inicio).toISOString() }
 }
 
 /* ------------------------------------------------------------------ */

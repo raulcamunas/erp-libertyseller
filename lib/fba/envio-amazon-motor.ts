@@ -615,7 +615,10 @@ async function lanzarTransporte(ctx: Ctx): Promise<void> {
   if (!ctx.fila.placement_option_id) throw new FalloDelEnvio('Falta el reparto confirmado')
   const envios = (d.envios ?? []).map((e) => e.shipmentId)
   if (!envios.length) throw new FalloDelEnvio('El reparto no tiene envíos')
-  const cuerpo = api.cuerpoGenerarTransporte(ctx.fila.placement_option_id, envios, d.recogida.iso, d.recogida.contacto, d.palets ?? null)
+  // La hora se recalcula en cada intento: la guardada puede haber pasado ya (un reintento horas después)
+  const fecha = fechaDeRecogida(d.recogida.dia)
+  if (!fecha.ok) throw new FalloDelEnvio(`${fecha.error}. Cambia el día de recogida`)
+  const cuerpo = api.cuerpoGenerarTransporte(ctx.fila.placement_option_id, envios, fecha.iso, d.recogida.contacto, d.palets ?? null)
   await lanzar(ctx, 'transporte_generar', () => api.generarOpcionesTransporte(ctx.creds, plan(ctx), cuerpo), { envios: envios.length, recogida: d.recogida.dia, palets: d.palets?.cantidad ?? 0 })
 }
 

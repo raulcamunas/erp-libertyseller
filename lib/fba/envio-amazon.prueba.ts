@@ -227,6 +227,8 @@ ok('ventana caducada descartada', primeraVentana(vs, AHORA)?.deliveryWindowOptio
 console.log('\n=== RECOGIDA ===')
 ok('mañana vale', fechaDeRecogida('2026-11-15', AHORA), { ok: true, iso: '2026-11-15T09:00:00.000Z' })
 ok('ayer no', fechaDeRecogida('2026-11-13', AHORA).ok, false)
+ok('hoy pasadas las 9 UTC: la próxima media hora', fechaDeRecogida('2026-11-27', new Date('2026-11-27T09:59:00Z')), { ok: true, iso: '2026-11-27T10:30:00.000Z' })
+ok('hoy temprano: a las 9 UTC', fechaDeRecogida('2026-11-27', new Date('2026-11-27T06:00:00Z')), { ok: true, iso: '2026-11-27T09:00:00.000Z' })
 ok('a 40 días no', fechaDeRecogida('2026-12-24', AHORA).ok, false)
 ok('formato raro', fechaDeRecogida('15/11/2026', AHORA).ok, false)
 
