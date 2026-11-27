@@ -7,13 +7,17 @@ import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
 import { marketplaceById } from '@/lib/types/amazon'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { ivaDeLaCuenta, ivaDeVentas, totalizar, variacion, type FilaPanel, type Iva, type Periodo, type Totales } from '@/lib/ventas/panel'
-import type { BsrDelProducto, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import type { BsrDelProducto, InventarioDelProducto, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 
 /** Lo que acompaña a cada producto como en Sellerboard: inventario FBA, BSR y sesiones del periodo (por «país|ASIN») */
 export interface ExtrasProductos {
   stock?: Record<string, number>
   bsr?: Record<string, BsrDelProducto>
   sesiones?: Record<string, number> | null
+  /** Reservado, enviado, no apto y ritmo de 30 días por SKU */
+  inventario?: Record<string, InventarioDelProducto>
+  /** Guardar el COGS de un SKU desde la tabla (null = quitarlo) */
+  onCoste?: (sku: string, coste: number | null) => Promise<boolean>
 }
 
 /**
@@ -320,7 +324,9 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
           else if (agrupar === 'asin') sesiones = Object.entries(extras.sesiones).filter(([c]) => c.endsWith(`|${asin}`)).reduce((suma, [, v]) => suma + v, 0)
           else sesiones = extras.sesiones[`${mkt}|${asin}`] ?? 0
         }
-        return { k, mkt, sku, asin, titulo, skus, filas: fs, t: totalizar(fs, ivaPct, costes), coste: costes[sku] ?? null, stock, bsr, sesiones }
+        const suma = (c: 'reservado' | 'enviado' | 'noApto' | 'ritmo') => listaSkus.reduce((acc, x) => acc + (extras?.inventario?.[x]?.[c] ?? 0), 0)
+        const inv = agrupar === 'mercado' || !extras?.inventario ? null : { reservado: suma('reservado'), enviado: suma('enviado'), noApto: suma('noApto'), ritmo: suma('ritmo') }
+        return { k, mkt, sku, asin, titulo, skus, filas: fs, t: totalizar(fs, ivaPct, costes), coste: costes[sku] ?? null, stock, bsr, sesiones, inv }
       })
       .filter((p) => !q || p.sku.toLowerCase().includes(q) || (p.asin ?? '').toLowerCase().includes(q) || (p.titulo ?? '').toLowerCase().includes(q))
   }, [filas, ivaPct, costes, titulos, buscar, agrupar, extras])
@@ -400,14 +406,11 @@ export function TablaProductos({ filas, ivaPct, costes, titulos, buscar, agrupar
                         <div className="flex items-center gap-[5px] whitespace-nowrap text-[10.5px] tabular-nums text-[var(--ls-t4)]">
                           <span>{euros(p.t.precioMedio)}</span>
                           <span>·</span>
-                          <span>COGS: {p.coste != null ? euros(p.coste) : <span className="text-[var(--ls-t4)]">sin poner</span>}</span>
+                          {extras?.onCoste && agrupar === 'sku' ? <EditarCoste coste={p.coste} onGuardar={(v) => extras.onCoste!(p.sku, v)} /> : <span>COGS: {p.coste != null ? euros(p.coste) : <span className="text-[var(--ls-t4)]">sin poner</span>}</span>}
                           {p.stock != null && (
                             <>
                               <span>·</span>
-                              <span className="inline-flex items-center gap-[3px] font-medium" style={{ color: pocas ? NARANJA : 'var(--ls-t3)' }} title={pocas ? 'Quedan menos unidades en Amazon de las vendidas en este periodo' : 'Unidades vendibles en los almacenes de Amazon'}>
-                                Inventario FBA: {entero(p.stock)}
-                                {pocas && <AlertTriangle className="h-[11px] w-[11px]" strokeWidth={2.4} />}
-                              </span>
+                              <InventarioFba stock={p.stock} inv={p.inv} coste={p.coste} pocas={pocas} />
                             </>
                           )}
                         </div>
@@ -790,5 +793,129 @@ export function MotivosDeReembolso({ cuenta, desde, hasta, skus, mercados }: { c
         })}
       </div>
     </div>
+  )
+}
+
+/** Días que tarda una reposición (fabricar + mandar a Amazon), como el «plazo» por defecto de Sellerboard: «días hasta el próximo pedido» = días que quedan − esto */
+export const PLAZO_REPOSICION_DIAS = 45
+
+/**
+ * «INVENTARIO FBA: N» CON SU FICHA AL PASAR EL RATÓN (o al tocar, en el móvil), como Sellerboard: días que quedan, días hasta el próximo pedido,
+ * ritmo de venta, valor, reservado, enviado y no apto. En rojo cuando ya toca pedir.
+ */
+function InventarioFba({ stock, inv, coste, pocas }: { stock: number; inv: { reservado: number; enviado: number; noApto: number; ritmo: number } | null; coste: number | null; pocas: boolean }) {
+  const ancla = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ x: number; y: number; arriba: boolean } | null>(null)
+  const ritmo = inv?.ritmo ?? 0
+  const dias = ritmo > 0 ? Math.floor(stock / ritmo) : null
+  const proximo = dias === null ? null : Math.max(0, dias - PLAZO_REPOSICION_DIAS)
+  const urge = proximo !== null && proximo <= 0
+  const cerca = proximo !== null && proximo > 0 && proximo <= 14
+  const color = urge ? ROJO : pocas || cerca ? NARANJA : 'var(--ls-t3)'
+  const abrir = () => {
+    const r = ancla.current?.getBoundingClientRect()
+    if (!r) return
+    const arriba = r.bottom + 190 > window.innerHeight
+    setPos({ x: Math.max(8, Math.min(r.left, window.innerWidth - 400)), y: arriba ? r.top - 8 : r.bottom + 8, arriba })
+  }
+  useEffect(() => {
+    if (!pos) return
+    const cerrar = () => setPos(null)
+    window.addEventListener('scroll', cerrar, true)
+    return () => window.removeEventListener('scroll', cerrar, true)
+  }, [pos])
+  const celda = (rotulo: string, valor: ReactNode, rojo = false) => (
+    <div className="min-w-0">
+      <div className="text-[11px] leading-[1.3] text-[var(--ls-t4)]">{rotulo}</div>
+      <div className="mt-[3px] inline-flex items-center gap-1 text-[15px] font-semibold tabular-nums" style={{ color: rojo ? ROJO : 'var(--ls-t1)' }}>
+        {rojo && <AlertTriangle className="h-[13px] w-[13px]" strokeWidth={2.4} />}
+        {valor}
+      </div>
+    </div>
+  )
+  return (
+    <>
+      <span
+        ref={ancla}
+        onMouseEnter={abrir}
+        onMouseLeave={() => setPos(null)}
+        onClick={(e) => (e.stopPropagation(), pos ? setPos(null) : abrir())}
+        className="inline-flex cursor-help items-center gap-[3px] font-medium underline decoration-dotted underline-offset-2"
+        style={{ color }}
+      >
+        <TrendingUp className="h-[11px] w-[11px]" />
+        Inventario FBA: {entero(stock)}
+        {(pocas || urge) && <AlertTriangle className="h-[11px] w-[11px]" strokeWidth={2.4} />}
+      </span>
+      {pos && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-[80] w-[min(392px,calc(100vw-16px))] rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4 shadow-[var(--ls-sombra-3)]"
+          style={{ left: pos.x, top: pos.y, transform: pos.arriba ? 'translateY(-100%)' : undefined }}
+        >
+          <div className="grid grid-cols-4 gap-x-4 gap-y-3 whitespace-normal">
+            {celda('Días de inventario (FBA) que quedan', dias === null ? '—' : entero(dias))}
+            {celda('Días hasta el próximo pedido', proximo === null ? '—' : entero(proximo), urge)}
+            {celda('Ritmo (uds./día, 30 días)', ritmo.toLocaleString('es-ES', { maximumFractionDigits: 2 }))}
+            {celda('Valor del inventario', coste == null ? '—' : euros((stock + (inv?.reservado ?? 0)) * coste))}
+            {celda('Disponible', entero(stock))}
+            {celda('Reservado', inv ? entero(inv.reservado) : '—')}
+            {celda('Enviado a FBA', inv ? entero(inv.enviado) : '—')}
+            {celda('No apto', inv ? entero(inv.noApto) : '—')}
+          </div>
+          <p className="mt-3 border-t border-[var(--ls-linea)] pt-2 text-[10.5px] leading-[1.4] text-[var(--ls-t4)]">
+            Próximo pedido = días que quedan − {PLAZO_REPOSICION_DIAS} días de reposición. El valor, a COGS (disponible + reservado).
+          </p>
+        </div>
+      )}
+    </>
+  )
+}
+
+/** El COGS de la fila, editable con un clic (Enter guarda, Esc cancela, vacío lo quita) */
+function EditarCoste({ coste, onGuardar }: { coste: number | null; onGuardar: (v: number | null) => Promise<boolean> }) {
+  const [editando, setEditando] = useState(false)
+  const [texto, setTexto] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const guardar = async () => {
+    const limpio = texto.trim().replace(/\s|€/g, '').replace(',', '.')
+    const v = limpio === '' ? null : Number(limpio)
+    if (v !== null && (!Number.isFinite(v) || v < 0)) return
+    if (v === coste) return setEditando(false)
+    setGuardando(true)
+    const ok = await onGuardar(v === null ? null : Math.round(v * 100) / 100)
+    setGuardando(false)
+    if (ok) setEditando(false)
+  }
+  if (!editando)
+    return (
+      <button
+        type="button"
+        onClick={(e) => (e.stopPropagation(), setTexto(coste == null ? '' : String(coste).replace('.', ',')), setEditando(true))}
+        className="rounded-[4px] px-[2px] text-[var(--ls-acc)] underline decoration-dotted underline-offset-2 hover:bg-[var(--ls-sup2)]"
+        title="Cambiar el COGS"
+      >
+        COGS: {coste != null ? euros(coste) : 'poner'}
+      </button>
+    )
+  return (
+    <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      COGS:
+      <input
+        autoFocus
+        inputMode="decimal"
+        value={texto}
+        disabled={guardando}
+        onChange={(e) => setTexto(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void guardar()
+          if (e.key === 'Escape') setEditando(false)
+        }}
+        onBlur={() => void guardar()}
+        className="h-[20px] w-[70px] rounded-[5px] border border-[var(--ls-acc)] bg-[var(--ls-sup)] px-1 text-right text-[11px] text-[var(--ls-t1)] outline-none"
+        placeholder="0,00"
+      />
+      €
+    </span>
   )
 }

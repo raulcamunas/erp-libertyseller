@@ -1,13 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, ArrowLeft, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
 import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
 import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
-import type { BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
+import type { InventarioDelProducto, BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
@@ -20,7 +21,7 @@ import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaD
  * productos, pedidos y cuenta de resultados se ponen en ese periodo. Todas las cuentas de beneficio, en el navegador (lib/ventas/panel.ts).
  */
 
-type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; stock?: Record<string, number>; bsr?: Record<string, BsrDelProducto>; catalogo?: Array<{ sku: string; mkt: string; asin: string | null; titulo: string | null; activo: boolean }> } | null; lineas: LineaDelPanel[] | null; sesiones?: Record<string, number> | null }
+type Datos = { filas: FilaPanel[]; productos: { titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; stock?: Record<string, number>; bsr?: Record<string, BsrDelProducto>; inventario?: Record<string, InventarioDelProducto>; catalogo?: Array<{ sku: string; mkt: string; asin: string | null; titulo: string | null; activo: boolean }> } | null; lineas: LineaDelPanel[] | null; sesiones?: Record<string, number> | null }
 type Pestana = 'productos' | 'pedidos' | 'resultados'
 
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
@@ -177,7 +178,30 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   const filasComp = useMemo(() => filtrar(comparacion), [comparacion, filtrar])
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
   const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
-  const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones }), [datos])
+  // El COGS se cambia desde la fila del producto: se guarda y se cambia aquí mismo (las baldosas y la tabla se recalculan sin volver a leer)
+  const onCoste = useCallback(
+    async (sku: string, coste: number | null): Promise<boolean> => {
+      if (!cuentaId) return false
+      const r = await fetch('/api/ventas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'coste', cuenta: cuentaId, sku, coste }) })
+      const j = await r.json().catch(() => null)
+      if (!r.ok) {
+        toast.error(j?.error ?? 'No se ha podido guardar el COGS')
+        return false
+      }
+      const cambiar = (p: NonNullable<Datos['productos']>) => {
+        const costes = { ...p.costes }
+        if (coste === null) delete costes[sku]
+        else costes[sku] = coste
+        return { ...p, costes }
+      }
+      setDatos((d) => (d?.productos ? { ...d, productos: cambiar(d.productos) } : d))
+      if (cache.current.productos) cache.current = { ...cache.current, productos: cambiar(cache.current.productos) }
+      toast.success(coste === null ? `COGS de ${sku} quitado` : `COGS de ${sku}: ${euros(coste)}`)
+      return true
+    },
+    [cuentaId]
+  )
+  const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones, inventario: datos?.productos?.inventario, onCoste }), [datos, onCoste])
   const iva = useMemo(() => ({ pct: cuenta?.iva ?? 21, porPais: cuenta?.ivaPorPais ?? false }), [cuenta?.iva, cuenta?.ivaPorPais])
 
   const totales: Totales[] = useMemo(() => periodos.map((p) => totalizar(filas.filter((f) => enRango(f.dia, p)), iva, costes, p.escala ?? 1)), [periodos, filas, iva, costes])

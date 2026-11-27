@@ -340,12 +340,46 @@ export interface BsrDelProducto {
   antes: number | null
 }
 
-async function leerProductosDelPanel(connectionId: string): Promise<{ titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo: ProductoDelCatalogo[]; stock: Record<string, number>; bsr: Record<string, BsrDelProducto> }> {
+/** El desglose del inventario FBA de un SKU (como el desplegable de Sellerboard) y su ritmo de venta de los últimos 30 días */
+export interface InventarioDelProducto {
+  reservado: number | null
+  enviado: number | null
+  noApto: number | null
+  /** Unidades al día vendidas en los últimos 30 días (todos los países) */
+  ritmo: number
+}
+
+async function leerProductosDelPanel(connectionId: string): Promise<{ titulos: Record<string, { titulo: string | null; asin: string | null }>; costes: Record<string, number>; catalogo: ProductoDelCatalogo[]; stock: Record<string, number>; bsr: Record<string, BsrDelProducto>; inventario: Record<string, InventarioDelProducto> }> {
   const s = createServiceClient()
   const titulos: Record<string, { titulo: string | null; asin: string | null }> = {}
   const catalogo: ProductoDelCatalogo[] = []
   // Inventario FBA vendible por SKU: el almacén es uno (pan-europeo / EFN), así que se toma el mayor de los países
   const stock: Record<string, number> = {}
+  const inventario: Record<string, InventarioDelProducto> = {}
+  const mayor = (a: number | null, b: unknown) => (b == null ? a : Math.max(a ?? 0, Number(b)))
+  // El desglose (migración 271): reservado, enviado y no apto. Sin las columnas, sin desglose
+  for (let d = 0; ; d += 1000) {
+    const { data, error } = await s.from('amazon_listings').select('sku, is_fba, fba_reserved_quantity, fba_inbound_quantity, fba_unfulfillable_quantity').eq('connection_id', connectionId).eq('is_fba', true).order('sku').range(d, d + 999)
+    if (error) break
+    for (const l of (data ?? []) as Array<{ sku: string; fba_reserved_quantity: number | null; fba_inbound_quantity: number | null; fba_unfulfillable_quantity: number | null }>) {
+      const x = inventario[l.sku] ?? { reservado: null, enviado: null, noApto: null, ritmo: 0 }
+      inventario[l.sku] = { ...x, reservado: mayor(x.reservado, l.fba_reserved_quantity), enviado: mayor(x.enviado, l.fba_inbound_quantity), noApto: mayor(x.noApto, l.fba_unfulfillable_quantity) }
+    }
+    if ((data ?? []).length < 1000) break
+  }
+  // El ritmo: unidades de los últimos 30 días (sin cancelados) entre 30
+  const hace30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+  const vendidas: Record<string, number> = {}
+  for (let d = 0; ; d += 1000) {
+    const { data, error } = await s.from('ventas_lineas').select('sku, unidades, estado').eq('connection_id', connectionId).gte('dia', hace30).range(d, d + 999)
+    if (error) break
+    for (const l of (data ?? []) as Array<{ sku: string; unidades: number | null; estado: string | null }>) {
+      if (String(l.estado ?? '').toLowerCase() === 'cancelled') continue
+      vendidas[l.sku] = (vendidas[l.sku] ?? 0) + Number(l.unidades ?? 0)
+    }
+    if ((data ?? []).length < 1000) break
+  }
+  for (const [sku, n] of Object.entries(vendidas)) inventario[sku] = { ...(inventario[sku] ?? { reservado: null, enviado: null, noApto: null, ritmo: 0 }), ritmo: Math.round((n / 30) * 100) / 100 }
   for (let d = 0; ; d += 1000) {
     const { data, error } = await s.from('amazon_listings').select('sku, asin, title, marketplace_id, price, currency, is_fba, listing_status, fba_fulfillable_quantity, fba_quantity').eq('connection_id', connectionId).order('sku').range(d, d + 999)
     if (error) break
@@ -359,7 +393,7 @@ async function leerProductosDelPanel(connectionId: string): Promise<{ titulos: R
   }
   const { data: cs } = await s.from('ventas_costes').select('sku, coste').eq('connection_id', connectionId)
   const costes = Object.fromEntries(((cs ?? []) as Array<{ sku: string; coste: number }>).map((c) => [c.sku, Number(c.coste)]))
-  return { titulos, costes, catalogo, stock, bsr: await bsrDelPanel(connectionId) }
+  return { titulos, costes, catalogo, stock, bsr: await bsrDelPanel(connectionId), inventario }
 }
 
 /** El BSR de categoría más reciente de cada SKU (últimos 10 días) y el de unos días antes, para la tendencia. Si falla, sin BSR */
