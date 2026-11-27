@@ -20,18 +20,25 @@ console.log('=== los periodos son las liquidaciones ===')
     { id: 'm2', fecha: '2026-10-20', descripcion: 'Mercancía', tipo: 'compra' as const, importe: -3000 },
   ]
   const f = construirFlujo(pagos, apuntes, '2026-11-03', 2)
-  ok('dos cerrados (los de 1 día de diferencia van juntos), el abierto y 2 de pronóstico', f.length === 5, JSON.stringify(f.map((p) => [p.desde, p.hasta])))
-  ok('el primero va del 1 al 15 de octubre', f[0].desde === '2026-10-01' && f[0].hasta === '2026-10-15')
-  ok('primer periodo: inversión y los dos pagos', f[0].porTipo.inversion === 10000 && f[0].porTipo.pago === 999.14, JSON.stringify(f[0].porTipo))
-  ok('el pago en libras dice su importe', f[0].entradas.some((e) => e.descripcion.includes('-0,75 GBP')))
+  // Tramos de 14 días anclados al 28/10 (fin del último pago): 01–14/10 · 15–28/10 · 29/10–11/11 (abierto, hoy dentro) · 2 de pronóstico
+  ok('tramos de 14 días anclados al último pago', JSON.stringify(f.map((p) => [p.desde, p.hasta])) === JSON.stringify([['2026-10-01', '2026-10-14'], ['2026-10-15', '2026-10-28'], ['2026-10-29', '2026-11-11'], ['2026-11-12', '2026-11-25'], ['2026-11-26', '2026-12-09']]), JSON.stringify(f.map((p) => [p.desde, p.hasta])))
+  ok('primer tramo: inversión y el pago del 14', f[0].porTipo.inversion === 10000 && f[0].porTipo.pago === 1000, JSON.stringify(f[0].porTipo))
+  ok('el pago en libras (fin el 15) va al segundo y dice su importe', f[1].entradas.some((e) => e.descripcion.includes('-0,75 GBP')))
   ok('efectivo al final del segundo: 10000 + 999,14 + 2000 − 3000', f[1].efectivo === 9999.14, String(f[1].efectivo))
-  ok('el abierto es pronóstico con su saldo', f[2].previsto && f[2].porTipo.pago === 500)
-  ok('los siguientes llevan la media de los pagos (999,14 y 2000)', f[3].porTipo.pago === 1499.57 && f[4].porTipo.pago === 1499.57, JSON.stringify(f[3].porTipo))
-  ok('diferencia = suma del periodo', f[1].diferencia === -1000)
+  ok('el abierto es pronóstico con su saldo', f[2].previsto && f[2].porTipo.pago === 500 && !f[1].previsto)
+  ok('los siguientes llevan la media de los pagos (1000 y 1999,14)', f[3].porTipo.pago === 1499.57 && f[4].porTipo.pago === 1499.57, JSON.stringify(f[3].porTipo))
+  ok('diferencia = suma del periodo', f[1].diferencia === -1000.86, String(f[1].diferencia))
   const sinPronostico = construirFlujo(pagos, apuntes, '2026-11-03', 0)
-  ok('sin pronóstico solo queda el abierto', sinPronostico.length === 3)
+  ok('sin pronóstico solo queda el abierto', sinPronostico.length === 3, String(sinPronostico.length))
   const oculto = construirFlujo(pagos.map((p) => (p.grupo === 'g2' ? { ...p, oculto: true } : p)), [], '2026-11-03', 0)
   ok('un pago borrado no cuenta', !oculto.some((p) => p.entradas.some((e) => e.ref === 'g2')))
+}
+
+console.log('=== liquidaciones cada 2-3 días no se encadenan ===')
+{
+  const pagos = ['2026-01-02', '2026-01-04', '2026-01-06', '2026-01-08', '2026-01-10', '2026-01-12'].map((f, i) => pago(`c${i}`, f, f, 100))
+  const f = construirFlujo(pagos, [], '2026-01-20', 0)
+  ok('seis pagos en un tramo de 14 días: un periodo, no seis', f.filter((p) => !p.previsto).length === 1 && f[0].porTipo.pago === 600, JSON.stringify(f.map((p) => [p.desde, p.hasta, p.porTipo.pago])))
 }
 
 console.log('=== sin pagos todavía ===')

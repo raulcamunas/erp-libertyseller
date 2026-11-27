@@ -65,7 +65,6 @@ export interface PeriodoFlujo {
 const r2 = (n: number) => Math.round(n * 100) / 100
 const DIA = 86_400_000
 export const sumarDias = (dia: string, n: number) => new Date(Date.parse(`${dia}T00:00:00Z`) + n * DIA).toISOString().slice(0, 10)
-const diasEntre = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DIA)
 const ddmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
 const ceros = (): Record<TipoFlujo, number> => ({ pago: 0, inversion: 0, gasto: 0, compra: 0, dividendo: 0, iva: 0 })
 
@@ -84,34 +83,28 @@ export function construirFlujo(pagos: PagoAmazon[], apuntes: ApunteFlujo[], hoy:
   const cerrados = visibles.filter((p) => !p.abierto && p.fin).sort((a, b) => (a.fin as string).localeCompare(b.fin as string))
   const abiertos = visibles.filter((p) => p.abierto || !p.fin)
 
-  // Los cortes: el fin de cada liquidación cerrada (las de varias monedas o mercados que acaban a 2 días o menos van juntas)
-  const cortes: string[] = []
-  for (const p of cerrados) {
-    const fin = p.fin as string
-    const ultimo = cortes[cortes.length - 1]
-    if (ultimo && diasEntre(ultimo, fin) <= 2) cortes[cortes.length - 1] = fin > ultimo ? fin : ultimo
-    else cortes.push(fin)
-  }
-
+  // LOS PERIODOS SON TRAMOS FIJOS DE 14 DÍAS (como Sellerboard), anclados al fin de la última liquidación pagada: un periodo por pago daba
+  // decenas de puntos en cuentas que cobran cada 3 días. Lo que acaba después del ancla es pronóstico
+  const ultimoFin = cerrados.length ? (cerrados[cerrados.length - 1].fin as string) : null
+  const ancla = ultimoFin ?? sumarDias(hoy, -1)
+  const primeraFecha = [...cerrados.map((p) => p.fin as string), ...apuntes.map((a) => a.fecha)].filter(Boolean).sort()[0] ?? ancla
   const periodos: Array<{ desde: string; hasta: string; previsto: boolean }> = []
-  const primeraFecha = [...cerrados.map((p) => p.inicio ?? p.fin), ...apuntes.map((a) => a.fecha)].filter(Boolean).sort()[0] as string | undefined
-  cortes.forEach((c, i) => {
-    const desde = i === 0 ? [primeraFecha ?? sumarDias(c, -13), sumarDias(c, -13)].sort()[0] : sumarDias(cortes[i - 1], 1)
-    periodos.push({ desde, hasta: c, previsto: false })
-  })
-  // El abierto: desde el último corte (o el inicio de la liquidación abierta) hasta ~14 días después
-  const desdeAbierto = cortes.length ? sumarDias(cortes[cortes.length - 1], 1) : (abiertos.map((p) => p.inicio).filter(Boolean).sort()[0] as string | undefined) ?? primeraFecha ?? hoy
-  const finAbierto = [sumarDias(desdeAbierto, 13), hoy].sort().reverse()[0]
-  periodos.push({ desde: desdeAbierto, hasta: finAbierto, previsto: true })
-  // Los siguientes: hasta cubrir los apuntes con fecha futura y los periodos de pronóstico pedidos
+  for (let hasta = ancla; ; hasta = sumarDias(hasta, -14)) {
+    periodos.unshift({ desde: sumarDias(hasta, -13), hasta, previsto: false })
+    if (sumarDias(hasta, -13) <= primeraFecha) break
+    if (periodos.length > 400) break
+  }
+  // El abierto (lo que Amazon lleva acumulado) y los siguientes: hasta cubrir hoy, los apuntes futuros y los periodos de pronóstico pedidos
   const ultimoApunte = apuntes.map((a) => a.fecha).sort().reverse()[0]
   let extra = 0
-  while (extra < pronostico || (ultimoApunte && ultimoApunte > periodos[periodos.length - 1].hasta)) {
+  do {
     const desde = sumarDias(periodos[periodos.length - 1].hasta, 1)
     periodos.push({ desde, hasta: sumarDias(desde, 13), previsto: true })
-    extra++
-    if (extra > 60) break
-  }
+    if (periodos[periodos.length - 1].hasta >= hoy) extra++
+  } while (periodos[periodos.length - 1].hasta < hoy || extra <= pronostico || (ultimoApunte && ultimoApunte > periodos[periodos.length - 1].hasta))
+  // Pronóstico = lo que acaba hoy o después (si Amazon lleva semanas sin cerrar, los tramos de en medio son pasados sin pago, no pronóstico)
+  for (const p of periodos) p.previsto = p.hasta >= hoy
+  const iAbierto = periodos.findIndex((p) => p.previsto)
 
   const dondeVa = (fecha: string) => {
     if (fecha < periodos[0].desde) return 0
@@ -120,7 +113,6 @@ export function construirFlujo(pagos: PagoAmazon[], apuntes: ApunteFlujo[], hoy:
   }
   const crudas: Array<Omit<EntradaFlujo, 'efectivo'> & { i: number }> = []
   for (const p of cerrados) crudas.push({ clave: `a|${p.grupo}`, fecha: p.fin as string, descripcion: descripcionDePago(p), tipo: 'pago', importe: r2(p.importe), origen: 'amazon', ref: p.grupo, previsto: false, i: dondeVa(p.fin as string) })
-  const iAbierto = cortes.length
   for (const p of abiertos) crudas.push({ clave: `a|${p.grupo}`, fecha: periodos[iAbierto].hasta, descripcion: `${descripcionDePago(p)} (aún sin pagar)`, tipo: 'pago', importe: r2(p.importe), origen: 'amazon', ref: p.grupo, previsto: true, i: iAbierto })
   for (const a of apuntes) {
     const i = dondeVa(a.fecha)

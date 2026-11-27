@@ -39,29 +39,28 @@ export async function leerPagosDeAmazon(connectionId: string, creds?: Parameters
     credenciales = r.credentials
   }
   const { porEuro } = await tiposDeCambio()
-  const grupos: GrupoAmazon[] = []
-  // Amazon guarda 2 años; si no acepta tanto, se pide medio año
-  for (const dias of [700, 179]) {
-    grupos.length = 0
-    try {
-      let siguiente: string | undefined
-      let paginas = 0
-      do {
-        const { data } = await spApiRequest<{ payload?: { FinancialEventGroupList?: GrupoAmazon[]; NextToken?: string } }>(credenciales, 'listFinancialEventGroups', {
-          method: 'GET',
-          path: '/finances/v0/financialEventGroups',
-          query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', FinancialEventGroupStartedAfter: new Date(Date.now() - dias * DIA_MS).toISOString() },
-          maxAttempts: 4,
-        })
-        grupos.push(...(data?.payload?.FinancialEventGroupList ?? []))
-        siguiente = data?.payload?.NextToken
-        paginas++
-      } while (siguiente && paginas < 40)
-      break
-    } catch (e) {
-      if (dias === 179) throw e
-    }
+  // EN TRAMOS DE 90 DÍAS (con inicio y fin): pedido de una vez, Amazon devolvía solo las primeras ~100 y la cuenta se quedaba en enero
+  const porId = new Map<string, GrupoAmazon>()
+  const fin = Date.now() - 3 * 60_000
+  for (let desde = fin - 700 * DIA_MS; desde < fin; desde += 90 * DIA_MS) {
+    const hasta = Math.min(fin, desde + 90 * DIA_MS)
+    let siguiente: string | undefined
+    let paginas = 0
+    do {
+      const { data } = await spApiRequest<{ payload?: { FinancialEventGroupList?: GrupoAmazon[]; NextToken?: string } }>(credenciales, 'listFinancialEventGroups', {
+        method: 'GET',
+        path: '/finances/v0/financialEventGroups',
+        query: siguiente
+          ? { NextToken: siguiente, MaxResultsPerPage: '100', FinancialEventGroupStartedAfter: new Date(desde).toISOString(), FinancialEventGroupStartedBefore: new Date(hasta).toISOString() }
+          : { MaxResultsPerPage: '100', FinancialEventGroupStartedAfter: new Date(desde).toISOString(), FinancialEventGroupStartedBefore: new Date(hasta).toISOString() },
+        maxAttempts: 4,
+      })
+      for (const g of data?.payload?.FinancialEventGroupList ?? []) if (g.FinancialEventGroupId) porId.set(g.FinancialEventGroupId, g)
+      siguiente = data?.payload?.NextToken
+      paginas++
+    } while (siguiente && paginas < 20)
   }
+  const grupos = [...porId.values()]
   const ahora = new Date().toISOString()
   const filas = grupos
     .filter((g) => g.FinancialEventGroupId)
