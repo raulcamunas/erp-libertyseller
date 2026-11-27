@@ -1,5 +1,5 @@
 import { periodosDe, rangoAComparar, totalizar, type FilaPanel } from './panel'
-import { leerDinero, parsearPedidosVentas, resumirDias } from './lectura'
+import { firmaSinFecha, leerDinero, parsearPedidosVentas, resumirDias } from './lectura'
 
 let fallos = 0
 const ok = (que: string, c: boolean, detalle = '') => {
@@ -53,6 +53,28 @@ console.log('=== el informe de pedidos ===')
   ok('libras a euros con envío y la promoción aparte', uk != null && casi(uk.ventas as number, 90 / 0.85) && casi(uk.promo, 10 / 0.85), JSON.stringify(uk))
   ok('el día es el de Londres para el Reino Unido', uk?.dia === '2026-11-25')
   ok('un pendiente sin precio llega sin precio (se estima al resumir)', r.lineas.find((l) => l.sku === 'ES1')?.ventas === null)
+}
+
+console.log('=== las tarifas de servicio SIN fecha (almacenamiento, suscripción, retiradas) ===')
+{
+  const eur = (n: number) => ({ CurrencyAmount: n, CurrencyCode: 'EUR' })
+  const eventos = {
+    ServiceFeeEventList: [
+      { FeeReason: 'FBA Storage Fee', FeeList: [{ FeeType: 'FBAStorageFee', FeeAmount: eur(-296.64) }] },
+      { FeeList: [{ FeeType: 'Subscription', FeeAmount: eur(-39) }] },
+      { AmazonOrderId: 'RET-1', SellerSKU: 'A', FeeList: [{ FeeType: 'FBARemovalFee', FeeAmount: eur(-1.2) }] },
+      { AmazonOrderId: 'RET-1', SellerSKU: 'A', FeeList: [{ FeeType: 'FBARemovalFee', FeeAmount: eur(-1.2) }] },
+    ],
+  }
+  const sin = leerDinero(eventos, 'A1RKKUPIHCS9HS', { EUR: 1 })
+  ok('sin día del tramo se siguen descartando (historial)', sin.movimientos.length === 0)
+  const d = leerDinero(eventos, 'A1RKKUPIHCS9HS', { EUR: 1 }, { diaSinFecha: '2026-11-10' })
+  ok('con el día del tramo entran las cuatro', d.movimientos.length === 4 && d.movimientos.every((m) => m.dia === '2026-11-10' && m.tipo === 'tarifa_cuenta'), JSON.stringify(d.movimientos))
+  ok('suman lo de Amazon', casi(d.movimientos.reduce((x, m) => x + m.importe, 0), -338.04))
+  ok('dos retiradas iguales no se pisan', new Set(d.movimientos.map((m) => m.clave)).size === 4)
+  const otra = leerDinero(eventos, 'A1RKKUPIHCS9HS', { EUR: 1 }, { diaSinFecha: '2026-11-11' })
+  ok('releída otro día, misma firma (no se apunta dos veces)', otra.movimientos.every((m, i) => firmaSinFecha(m.clave) === firmaSinFecha(d.movimientos[i].clave)))
+  ok('las claves con fecha no tienen firma', firmaSinFecha('o|AdjustmentEventList|2026-11-01|X|1|0') === null)
 }
 
 console.log('=== los movimientos de dinero ===')

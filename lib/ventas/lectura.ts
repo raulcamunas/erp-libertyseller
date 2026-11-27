@@ -223,6 +223,9 @@ export interface Movimiento {
   extra_unidades: number
 }
 
+/** La firma de una tarifa sin fecha (su clave sin el `|<día>` del final): la misma firma en días cercanos es la misma tarifa leída dos veces */
+export const firmaSinFecha = (clave: string): string | null => (clave.startsWith('s|') ? clave.slice(0, clave.lastIndexOf('|')) : null)
+
 export interface DineroLeido {
   tarifas: TarifasDePedido[]
   movimientos: Movimiento[]
@@ -251,9 +254,10 @@ function sumaProfunda(v: unknown, porEuro: Record<string, number>): number {
  * Lee UNA página de movimientos (payload.FinancialEvents). `zona` decide el día de los que no son de un mercado concreto. El resultado se puede volver a
  * leer sin duplicar: los movimientos llevan una `clave` estable y las tarifas se identifican por pedido + SKU.
  */
-export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: string, porEuro: Record<string, number>, opciones: { publicidadFacturada?: boolean } = {}): DineroLeido {
+export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: string, porEuro: Record<string, number>, opciones: { publicidadFacturada?: boolean; diaSinFecha?: string } = {}): DineroLeido {
   const salida: DineroLeido = { tarifas: [], movimientos: [] }
   const diaDe = (fecha: unknown, mercado: string) => (typeof fecha === 'string' ? diaEnZona(fecha, zonaDeMercado(mercado)) : null)
+  const vistas = new Map<string, number>()
 
   for (const [lista, filas] of Object.entries(eventos)) {
     if (!Array.isArray(filas) || filas.length === 0) continue
@@ -341,14 +345,25 @@ export function leerDinero(eventos: Record<string, unknown>, mercadoPorDefecto: 
       const o = ev as Record<string, unknown>
       const mercado = mercadoDeCanal((o.MarketplaceName ?? o.StoreName) as string) ?? mercadoPorDefecto
       const fecha = o.PostedDate ?? o.TransactionPostedDate ?? o.postedDate
-      const dia = diaDe(fecha, mercado)
+      // Las TARIFAS DE SERVICIO (almacenamiento mensual y de largo plazo, suscripción, retiradas, eliminación, transporte entrante…) llegan SIN
+      // fecha: van al día del tramo leído (`diaSinFecha`) con una clave que acaba en `|<día>`; quien guarda descarta las ya apuntadas
+      // (misma firma en los últimos días). Antes se tiraban y el panel no las restaba
+      const sinFecha = fecha == null && opciones.diaSinFecha ? opciones.diaSinFecha : null
+      const dia = sinFecha ?? diaDe(fecha, mercado)
       if (!dia) return
       const importe = r2(sumaProfunda(o, porEuro))
       if (importe === 0) return
       const items = (o.AdjustmentItemList as Array<{ SellerSKU?: string; Quantity?: string }> | undefined) ?? []
-      const sku = items.length === 1 ? (items[0].SellerSKU ?? '') : ''
+      const sku = items.length === 1 ? (items[0].SellerSKU ?? '') : String(o.SellerSKU ?? '')
+      const firma = () => {
+        const tipos = ((o.FeeList as Array<{ FeeType?: string }> | undefined) ?? []).map((f) => f.FeeType ?? '').sort().join('+')
+        const base = `s|${lista}|${String(o.AmazonOrderId ?? '')}|${String(o.FeeReason ?? '')}|${tipos}|${String(o.SellerSKU ?? '')}|${String(o.FnSKU ?? '')}|${String(o.ASIN ?? '')}|${importe}`
+        const veces = (vistas.get(base) ?? 0) + 1
+        vistas.set(base, veces)
+        return `${base}#${veces}|${dia}`
+      }
       salida.movimientos.push({
-        clave: `o|${lista}|${String(fecha)}|${String(o.AdjustmentType ?? o.FeeReason ?? o.SellerDealId ?? o.CouponId ?? '')}|${importe}|${n}`,
+        clave: sinFecha ? firma() : `o|${lista}|${String(fecha)}|${String(o.AdjustmentType ?? o.FeeReason ?? o.SellerDealId ?? o.CouponId ?? '')}|${importe}|${n}`,
         dia,
         marketplace_id: mercado,
         sku,

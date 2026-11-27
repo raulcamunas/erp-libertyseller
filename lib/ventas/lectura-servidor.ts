@@ -21,13 +21,14 @@ import { spApiRequest } from '@/lib/amazon/sp-api'
 import { llamarAds } from '@/lib/ads/datos'
 import { AdsError } from '@/lib/ads/oauth'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
-import { diaEnZona } from '@/lib/fba/pedidos'
+import { diaEnZona, zonaDeMercado } from '@/lib/fba/pedidos'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   INFORME_DEVOLUCIONES,
   INFORME_PEDIDOS_VENTAS,
   parsearDevoluciones,
+  firmaSinFecha,
   leerDinero,
   MERCADO_DE_PAIS,
   movimientosDePublicidad,
@@ -342,7 +343,7 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
       maxAttempts: 4,
     })
     paginas++
-    const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro)
+    const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { diaSinFecha: diaEnZona(hasta, zonaDeMercado(mercado)) ?? hasta.toISOString().slice(0, 10) })
     tarifas.push(...leido.tarifas)
     movimientos.push(...leido.movimientos)
     siguiente = data?.payload?.NextToken
@@ -366,7 +367,21 @@ async function pasoDinero(service: Servicio, c: Cuenta, creds: Parameters<typeof
     }
   }
   await enTrozos(actualizar, (t) => service.from('ventas_lineas').upsert(t, { onConflict: 'connection_id,pedido,sku' }))
-  const unicos = [...new Map(movimientos.map((m) => [m.clave, { connection_id: c.connection_id, ...m }])).values()]
+  // Las tarifas sin fecha ya apuntadas en una lectura anterior (el tramo se relee 3 días) no se vuelven a apuntar con otro día
+  const yaApuntadas = new Set<string>()
+  if (movimientos.some((m) => firmaSinFecha(m.clave))) {
+    const { data: previas, error } = await service.from('ventas_movimientos').select('clave').eq('connection_id', c.connection_id).like('clave', 's|%').gte('dia', new Date(desde.getTime() - 20 * DIA_MS).toISOString().slice(0, 10)).limit(5000)
+    if (error) throw error
+    for (const p of (previas ?? []) as Array<{ clave: string }>) {
+      const f = firmaSinFecha(p.clave)
+      if (f) yaApuntadas.add(f)
+    }
+  }
+  const nuevos = movimientos.filter((m) => {
+    const f = firmaSinFecha(m.clave)
+    return !f || !yaApuntadas.has(f)
+  })
+  const unicos = [...new Map(nuevos.map((m) => [m.clave, { connection_id: c.connection_id, ...m }])).values()]
   await enTrozos(unicos, (t) => service.from('ventas_movimientos').upsert(t, { onConflict: 'connection_id,clave' }))
   await guardar(service, c.connection_id, { finanzas_leido_hasta: hasta.toISOString(), finanzas_leido_at: new Date().toISOString(), finanzas_leido_desde: c.finanzas_leido_hasta ? undefined : desde.toISOString() })
   return `dinero ${desde.toISOString().slice(0, 10)} → ${hasta.toISOString().slice(0, 10)}: ${paginas} páginas, ${actualizar.length} pedidos con comisión real, ${unicos.length} movimientos`
