@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle, ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight, Search, TrendingDown, TrendingUp, X } from 'lucide-react'
 import { Area, Cell, ComposedChart, Line, Pie, PieChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ImagenDeProducto } from '@/components/productos/ImagenDeProducto'
@@ -816,7 +817,7 @@ function InventarioFba({ stock, inv, coste, pocas }: { stock: number; inv: { res
     const r = ancla.current?.getBoundingClientRect()
     if (!r) return
     const arriba = r.bottom + 190 > window.innerHeight
-    setPos({ x: Math.max(8, Math.min(r.left, window.innerWidth - 400)), y: arriba ? r.top - 8 : r.bottom + 8, arriba })
+    setPos({ x: Math.max(8, Math.min(r.left, window.innerWidth - 400)), y: arriba ? r.top - 6 : r.bottom + 6, arriba })
   }
   useEffect(() => {
     if (!pos) return
@@ -847,7 +848,9 @@ function InventarioFba({ stock, inv, coste, pocas }: { stock: number; inv: { res
         Inventario FBA: {entero(stock)}
         {(pocas || urge) && <AlertTriangle className="h-[11px] w-[11px]" strokeWidth={2.4} />}
       </span>
-      {pos && (
+      {pos &&
+        typeof document !== 'undefined' &&
+        createPortal(
         <div
           role="tooltip"
           className="pointer-events-none fixed z-[80] w-[min(392px,calc(100vw-16px))] rounded-[14px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-4 shadow-[var(--ls-sombra-3)]"
@@ -866,8 +869,9 @@ function InventarioFba({ stock, inv, coste, pocas }: { stock: number; inv: { res
           <p className="mt-3 border-t border-[var(--ls-linea)] pt-2 text-[10.5px] leading-[1.4] text-[var(--ls-t4)]">
             Próximo pedido = días que quedan − {PLAZO_REPOSICION_DIAS} días de reposición. El valor, a COGS (disponible + reservado).
           </p>
-        </div>
-      )}
+        </div>,
+          document.body
+        )}
     </>
   )
 }
