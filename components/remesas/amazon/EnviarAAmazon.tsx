@@ -1130,6 +1130,8 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
         </>
       )}
 
+      {!palets && <DatosRecogidaUps e={e} numeros={Object.values(numerosUps).flat()} />}
+
       {cajasAmazon.length > 0 && (
         <Tarjeta indice={palets ? 3 : 1} icono={Boxes} titulo="Qué etiqueta va en cada caja" subtitulo="Emparejadas por contenido y peso con las cajas del ERP">
           <div className="space-y-3">
@@ -1272,5 +1274,64 @@ function FaseSeguimiento({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; 
         }}
       />
     </div>
+  )
+}
+
+/**
+ * LOS DATOS PARA PEDIR LA RECOGIDA EN UPS, en el orden de su formulario y cada uno con su botón de copiar: empresa, dirección, ciudad,
+ * código postal, teléfono, paquetes, peso y servicio (UPS Standard nacional: lo que pone la etiqueta del UPS de Amazon dentro de España).
+ */
+function DatosRecogidaUps({ e, numeros }: { e: EstadoDelEnvio; numeros: string[] }) {
+  const d = e.direccion
+  const contacto = e.recogida?.contacto ?? null
+  const nacional = (d?.pais ?? 'ES').toUpperCase() === 'ES'
+  const filas: Array<{ rotulo: string; valor: string | null }> = [
+    { rotulo: 'Empresa o nombre', valor: d?.empresa || d?.nombre || null },
+    { rotulo: 'Nombre de contacto', valor: contacto?.nombre ?? d?.nombre ?? null },
+    { rotulo: 'Línea de dirección 1', valor: d?.linea1 ?? null },
+    { rotulo: 'Dirección (línea 2)', valor: d?.linea2 || null },
+    { rotulo: 'Ciudad', valor: d?.ciudad ?? null },
+    { rotulo: 'Código postal', valor: d?.codigoPostal ?? null },
+    { rotulo: 'Teléfono', valor: contacto?.telefono ?? d?.telefono ?? null },
+    { rotulo: 'Paquetes en la recogida', valor: e.cajas.cajas ? String(e.cajas.cajas) : null },
+    { rotulo: 'Peso total (kg)', valor: e.cajas.pesoKg ? String(Math.round(e.cajas.pesoKg * 10) / 10).replace('.', ',') : null },
+    { rotulo: 'Servicio de UPS', valor: nacional ? 'UPS Standard (servicios nacionales)' : 'UPS Standard (servicios internacionales)' },
+    { rotulo: 'Día de recogida', valor: e.recogida?.dia ? e.recogida.dia.split('-').reverse().join('/') : null },
+  ]
+  const copiar = async (texto: string, que: string) => {
+    try {
+      await navigator.clipboard.writeText(texto)
+      toast.success(`${que} copiado`)
+    } catch {
+      toast.error('No se ha podido copiar: selecciónalo y cópialo a mano')
+    }
+  }
+  return (
+    <Tarjeta indice={1} icono={Truck} titulo="Datos para pedir la recogida en UPS" subtitulo="Tal cual van en el formulario de recogida de UPS. Pulsa en cada uno para copiarlo">
+      <div className="grid gap-[6px] sm:grid-cols-2">
+        {filas
+          .filter((f) => f.valor)
+          .map((f) => (
+            <button
+              key={f.rotulo}
+              type="button"
+              onClick={() => void copiar(f.rotulo === 'Servicio de UPS' ? 'UPS Standard' : (f.valor as string), f.rotulo)}
+              className="group flex min-w-0 items-center justify-between gap-3 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 py-[7px] text-left transition-colors hover:border-[var(--ls-acc)]"
+              title="Copiar"
+            >
+              <span className="min-w-0">
+                <span className="block text-[11px] text-[var(--ls-t4)]">{f.rotulo}</span>
+                <span className="block truncate text-[13px] font-medium text-[var(--ls-t1)]">{f.valor}</span>
+              </span>
+              <Copy className="h-[14px] w-[14px] shrink-0 text-[var(--ls-t4)] group-hover:text-[var(--ls-acc)]" />
+            </button>
+          ))}
+      </div>
+      {numeros.length > 0 && (
+        <p className="mt-2 text-[12px] text-[var(--ls-t3)]">
+          Los {numeros.length} números de seguimiento (1Z…) para comprobar los cargos están abajo, con «Copiar para UPS».
+        </p>
+      )}
+    </Tarjeta>
   )
 }
