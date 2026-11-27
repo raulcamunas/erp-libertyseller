@@ -113,5 +113,14 @@ console.log('\n=== 24 nov 2026: una cuenta con remesas ya no se queda fuera toda
   ok('lo que no se ha leído nunca se lee aunque haya `hoy`', nunca.length === 1)
 }
 
+{
+  // Una copia de otro mercado que ya se leyó (Yolanda: Italia) se sigue leyendo cada noche, aunque las remesas sean de España
+  const p = planDeLectura({ remesas: [], conexiones: [{ id: 'y', mercado: 'A1RKKUPIHCS9HS', conStockFba: true }], leidoHasta: new Map([['y|A1RKKUPIHCS9HS', '2026-11-26'], ['y|APJ6JRA9NG5V4', '2026-11-20']]), hoy: '2026-11-27' })
+  ok('la copia de Italia parada también se lee', p.some((u) => u.mercado === 'APJ6JRA9NG5V4') && p.length === 2, JSON.stringify(p))
+  ok('y va primero la más atrasada', p[0].mercado === 'APJ6JRA9NG5V4')
+  const inactiva = planDeLectura({ remesas: [], conexiones: [], leidoHasta: new Map([['z|APJ6JRA9NG5V4', '2026-11-20']]), hoy: '2026-11-27' })
+  ok('la de una cuenta que ya no está activa, no', inactiva.length === 0)
+}
+
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)
 if (fallos > 0) process.exit(1)

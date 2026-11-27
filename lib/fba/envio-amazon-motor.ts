@@ -15,6 +15,7 @@ import {
   embalajeAutomatico,
   esPasoEnvio,
   fechaDeRecogida,
+  siguienteLaborable,
   hayErrores,
   hayQueMandarCajasOtraVez,
   pasoEnCurso,
@@ -609,6 +610,20 @@ async function lanzarCajas(ctx: Ctx): Promise<void> {
   await lanzar(ctx, 'cajas', () => api.mandarCajas(ctx.creds, plan(ctx), cuerpo), { grupos: reparto.grupos.length, cajas: cajas.cajas.length, pesoKg: cajas.pesoTotalKg }, { envio_cajas_bloqueadas_at: new Date().toISOString() })
 }
 
+async function cotizarSola(ctx: Ctx, envios: DestinoDeEnvio[]): Promise<void> {
+  if (!envios.length || datosDe(ctx).palets) return
+  const dir = await direccionDe(ctx.fila.client_id, ctx.service)
+  const nombre = (dir?.nombre || dir?.empresa || '').trim()
+  const telefono = (dir?.telefono ?? '').trim()
+  if (!nombre || !telefono) return
+  const dia = siguienteLaborable(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date()))
+  const fecha = fechaDeRecogida(dia)
+  if (!fecha.ok) return
+  const recogida = { dia, iso: fecha.iso, contacto: { nombre: nombre.slice(0, 80), telefono: telefono.slice(0, 30), email: (dir?.email ?? '').trim().slice(0, 120) || null } }
+  if (!(await moverPaso(ctx, 'transporte_datos', { envio_paso: 'transporte_generar', envio_datos: { ...datosDe(ctx), recogida, palets: null } }))) return
+  await lanzarTransporte(ctx)
+}
+
 async function lanzarTransporte(ctx: Ctx): Promise<void> {
   const d = datosDe(ctx)
   if (!d.recogida) throw new FalloDelEnvio('Falta la fecha de recogida')
@@ -742,6 +757,10 @@ async function trasExito(ctx: Ctx, paso: PasoEnvio): Promise<void> {
       }
       await guardar(ctx, { envio_paso: 'transporte_datos', envio_datos: { ...d, envios } })
       await registrarEnHistorial({ remesaId: ctx.fila.id, actor: 'agencia', userId: ctx.userId, accion: 'envio_amazon', hasta: 'reparto_confirmado', detalle: { envios: envios.map((e) => e.confirmacion ?? e.shipmentId), coste: num(ctx.fila.coste_reparto) } }, ctx.service)
+      // LA COTIZACIÓN DE UPS, SOLA (Raúl, 27 nov 2026): con el reparto confirmado se pide ya, para el siguiente día laborable y con el contacto
+      // de la dirección del cliente. Se llega al transporte con el precio puesto; si el día o el contacto no valen, se cambian y se vuelve a pedir.
+      // Paquetería: los palés se piden a mano desde el mismo paso. Si falta el contacto, se queda esperando los datos como antes
+      await cotizarSola(ctx, envios).catch((e) => console.error('[envío] cotización automática:', e instanceof Error ? e.message : e))
       return
     }
 

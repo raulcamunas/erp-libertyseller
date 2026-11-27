@@ -90,6 +90,15 @@ export function planDeLectura(entrada: {
     if (!c.conStockFba && !entrada.leidoHasta.has(k)) continue
     extras.set(k, { conexion: c.id, mercado: c.mercado, primera: null, conRemesas: false })
   }
+  /* ---------- 3) las copias de otros mercados que ya se leyeron alguna vez ---------- */
+  // Una lectura que existe se sigue leyendo cada noche (de cuentas activas). Si no, se queda parada y, como el panel prefiere la copia con más
+  // historia (D35), acaba enseñando ventas de hace una semana: Yolanda, Italia leída a mano el 20 nov y España al día
+  const activas = new Set(entrada.conexiones.map((c) => c.id))
+  for (const k of entrada.leidoHasta.keys()) {
+    const [conexion, mercado] = k.split('|')
+    if (!conexion || !mercado || !activas.has(conexion) || conRemesas.has(k) || extras.has(k)) continue
+    extras.set(k, { conexion, mercado, primera: null, conRemesas: false })
+  }
   const atraso = (k: string) => entrada.leidoHasta.get(k) ?? '' // '' pesa menos que cualquier fecha: lo que no se ha leído nunca va primero
   return [...conRemesas.entries(), ...extras.entries()]
     .filter(([k]) => !entrada.hoy || atraso(k) < entrada.hoy)
