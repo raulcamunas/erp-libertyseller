@@ -90,16 +90,37 @@ export function ResumenDeCuentas() {
       if (v === 'tabla' || v === 'tarjetas') setVista(v)
     } catch {}
   }, [])
+  // AL MOMENTO: lo último que se vio de cada periodo se enseña nada más entrar (guardado en este navegador) mientras llegan los números nuevos
+  const leerGuardado = <T,>(k: string): T | null => {
+    try {
+      const v = localStorage.getItem(k)
+      return v ? (JSON.parse(v) as T) : null
+    } catch {
+      return null
+    }
+  }
+  const guardar = (k: string, v: unknown) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v))
+    } catch {
+      /* sin almacenamiento: se espera a la red como antes */
+    }
+  }
   useEffect(() => {
+    const ya = leerGuardado<CuentaDelPanel[]>('ventas-resumen-cuentas')
+    if (ya) setCuentas(ya)
     pedir<{ cuentas: CuentaDelPanel[] }>('/api/ventas?que=cuentas')
-      .then((x) => setCuentas(x.cuentas))
+      .then((x) => (setCuentas(x.cuentas), guardar('ventas-resumen-cuentas', x.cuentas)))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }, [])
   useEffect(() => {
     const n = ++peticion.current
     setCargando(true)
-    pedir<{ resumen: ResumenDeCuenta[] }>(`/api/ventas?que=resumen&desde=${r.desde}&hasta=${r.hasta}&compDesde=${r.comp.desde}&compHasta=${r.comp.hasta}&serieDesde=${[sumarDias(hoy, -13), r.desde].sort()[0]}`)
-      .then((x) => n === peticion.current && (setResumen(x.resumen), setError(null)))
+    const url = `/api/ventas?que=resumen&desde=${r.desde}&hasta=${r.hasta}&compDesde=${r.comp.desde}&compHasta=${r.comp.hasta}&serieDesde=${[sumarDias(hoy, -13), r.desde].sort()[0]}`
+    const ya = leerGuardado<ResumenDeCuenta[]>(`ventas-resumen:${url}`)
+    if (ya) setResumen(ya)
+    pedir<{ resumen: ResumenDeCuenta[] }>(url)
+      .then((x) => n === peticion.current && (setResumen(x.resumen), setError(null), guardar(`ventas-resumen:${url}`, x.resumen)))
       .catch((e) => n === peticion.current && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => n === peticion.current && setCargando(false))
   }, [r, hoy, reloj])
@@ -196,13 +217,13 @@ export function ResumenDeCuentas() {
       </div>
 
       {!resumen || !cuentas ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1400px]:grid-cols-4">
           {[0, 1, 2].map((k) => (
             <div key={k} className={`${TARJETA} h-[270px] animate-pulse`} />
           ))}
         </div>
       ) : vista === 'tarjetas' ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1400px]:grid-cols-4">
           {filas.map(({ c, r: x }, i) => (
             <TarjetaCuenta key={c.id} c={c} r={x} i={i} />
           ))}
@@ -255,7 +276,7 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
   const t = r?.t
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: Math.min(i, 12) * 0.04, ease: [0.2, 0.8, 0.2, 1] }}>
-      <Link href={`/dashboard/ventas?cuenta=${c.id}`} className={`${TARJETA} group relative block overflow-hidden p-5 transition-transform duration-200 hover:-translate-y-[2px]`}>
+      <Link href={`/dashboard/ventas?cuenta=${c.id}`} className={`${TARJETA} group relative block overflow-hidden p-4 transition-transform duration-200 hover:-translate-y-[2px]`}>
         <div aria-hidden className="pointer-events-none absolute -right-10 -top-16 h-[160px] w-[240px] rounded-full opacity-[0.14] blur-[60px] transition-opacity group-hover:opacity-[0.24]" style={{ background: a }} />
         <div className="flex items-center gap-3">
           <Emoji c={c} />
@@ -265,15 +286,15 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
           </div>
           {c.estado.error && <span className="h-2 w-2 shrink-0 rounded-full bg-[#F87171]" title={c.estado.error} />}
         </div>
-        <div className="mt-4 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
+        <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
         <div className="flex items-baseline gap-2">
-          <CifraAnimada valor={t?.ventas ?? 0} formato={(v) => euros(v)} className="text-[28px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)]" />
+          <CifraAnimada valor={t?.ventas ?? 0} formato={(v) => euros(v)} className="text-[23px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)]" />
           {t && <Chip actual={t.ventas} anterior={r?.c?.ventas} />}
         </div>
-        <div className="-mx-5 mt-2">
-          <MiniArea valores={r?.serie ?? []} color={a} id={`rc-${c.id.slice(0, 8)}`} viva />
+        <div className="-mx-4 mt-1">
+          <MiniArea valores={r?.serie ?? []} color={a} id={`rc-${c.id.slice(0, 8)}`} viva alto={34} />
         </div>
-        <div className="mt-1 grid grid-cols-4 divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[13px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[8px]">
+        <div className="mt-1 grid grid-cols-4 divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[11px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[6px]">
           <Mini texto="Uds." valor={entero(t?.unidades ?? 0)} />
           <Mini texto="Reemb." valor={entero(t?.reembolsos ?? 0)} color={t?.reembolsos ? ROJO : undefined} />
           <Mini texto="PPC" valor={euros(-(t?.publicidad ?? 0))} />
@@ -286,9 +307,9 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
 
 function Mini({ texto, valor, color }: { texto: string; valor: string; color?: string }) {
   return (
-    <div className="min-w-0 px-[10px]">
-      <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">{texto}</div>
-      <div className="truncate text-[12.5px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
+    <div className="min-w-0 px-[8px]">
+      <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--ls-t4)]">{texto}</div>
+      <div className="truncate text-[11.5px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
         {valor}
       </div>
     </div>

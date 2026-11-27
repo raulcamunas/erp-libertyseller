@@ -628,7 +628,7 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
 }
 
 /** La minigráfica de la baldosa: área rellena con el color del periodo, que se dibuja al entrar */
-export function MiniArea({ valores, color, id, viva }: { valores: number[]; color: string; id: string; viva: boolean }) {
+export function MiniArea({ valores, color, id, viva, alto = 46 }: { valores: number[]; color: string; id: string; viva: boolean; alto?: number }) {
   // Se dibuja al ancho REAL de la baldosa (nada de estirar el SVG: deformaba el punto y la línea se quedaba corta al animarse)
   const caja = useRef<HTMLDivElement>(null)
   const [W, setW] = useState(0)
@@ -641,7 +641,7 @@ export function MiniArea({ valores, color, id, viva }: { valores: number[]; colo
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const H = 46
+  const H = alto
   const PAD_X = 10
   const ARRIBA = 6
   const ABAJO = 4

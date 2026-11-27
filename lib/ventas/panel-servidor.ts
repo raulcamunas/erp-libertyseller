@@ -30,6 +30,12 @@ const olvidar = (prefijo: string) => {
 
 export const cuentasDelPanel = () => enCache('cuentas', 30_000, leerCuentasDelPanel)
 export const productosDelPanel = (connectionId: string) => enCache(`productos:${connectionId}`, 5 * 60_000, () => leerProductosDelPanel(connectionId))
+/** Solo los COGS de una cuenta (el resumen de todas no necesita el catálogo entero: leerlo por cada cuenta era lo que lo hacía lento) */
+export const costesDelPanel = (connectionId: string) =>
+  enCache(`costes:${connectionId}`, 5 * 60_000, async () => {
+    const { data } = await createServiceClient().from('ventas_costes').select('sku, coste').eq('connection_id', connectionId)
+    return Object.fromEntries(((data ?? []) as Array<{ sku: string; coste: number }>).map((c) => [c.sku, Number(c.coste)])) as Record<string, number>
+  })
 
 /** Lo de cada cuenta en un periodo y en el de comparación, para el panel de TODAS las cuentas */
 export interface ResumenDeCuenta {
@@ -40,19 +46,23 @@ export interface ResumenDeCuenta {
   serie: number[]
 }
 
-export async function resumenDeCuentas(desde: string, hasta: string, compDesde: string | null, compHasta: string | null, serieDesde?: string | null): Promise<ResumenDeCuenta[]> {
+/** El resumen se guarda 1 minuto por periodo: volver al panel o cambiar de periodo y volver es al momento (los datos se leen de Amazon cada 5 min) */
+export const resumenDeCuentas = (desde: string, hasta: string, compDesde: string | null, compHasta: string | null, serieDesde?: string | null): Promise<ResumenDeCuenta[]> =>
+  enCache(`resumen:${desde}|${hasta}|${compDesde}|${compHasta}|${serieDesde ?? ''}`, 60_000, () => leerResumenDeCuentas(desde, hasta, compDesde, compHasta, serieDesde))
+
+async function leerResumenDeCuentas(desde: string, hasta: string, compDesde: string | null, compHasta: string | null, serieDesde?: string | null): Promise<ResumenDeCuenta[]> {
   const cuentas = await cuentasDelPanel()
   // La curva de ventas: el periodo, y como poco las 2 últimas semanas (con «Hoy» una curva de un punto no dice nada)
   const inicio = serieDesde && serieDesde < desde ? serieDesde : desde
   return Promise.all(
     cuentas.map(async (cu) => {
       const iva = { pct: cu.iva, porPais: cu.ivaPorPais }
-      const [todas, comp, productos] = await Promise.all([filasDelPanel(cu.id, inicio, hasta), compDesde && compHasta ? filasDelPanel(cu.id, compDesde, compHasta) : Promise.resolve(null), productosDelPanel(cu.id)])
+      const [todas, comp, costes] = await Promise.all([filasDelPanel(cu.id, inicio, hasta), compDesde && compHasta ? filasDelPanel(cu.id, compDesde, compHasta) : Promise.resolve(null), costesDelPanel(cu.id)])
       const filas = todas.filter((f) => f.dia >= desde && f.dia <= hasta)
       const dias = new Map<string, number>()
       for (let d = Date.parse(`${inicio}T00:00:00Z`); d <= Date.parse(`${hasta}T00:00:00Z`); d += 86_400_000) dias.set(new Date(d).toISOString().slice(0, 10), 0)
       for (const f of todas) dias.set(f.dia, (dias.get(f.dia) ?? 0) + f.ventas)
-      return { id: cu.id, t: totalizar(filas, iva, productos.costes), c: comp ? totalizar(comp, iva, productos.costes) : null, serie: [...dias.values()].map((v) => Math.round(v * 100) / 100) }
+      return { id: cu.id, t: totalizar(filas, iva, costes), c: comp ? totalizar(comp, iva, costes) : null, serie: [...dias.values()].map((v) => Math.round(v * 100) / 100) }
     }),
   )
 }
@@ -470,6 +480,8 @@ export async function lineasDelPanel(connectionId: string, desde: string, hasta:
 /** Muchos costes de golpe (importar un CSV) */
 export async function guardarCostes(connectionId: string, costes: Array<{ sku: string; coste: number }>, userId: string): Promise<number> {
   olvidar(`productos:${connectionId}`)
+  olvidar(`costes:${connectionId}`)
+  olvidar('resumen:')
   const filas = costes.map((c) => ({ connection_id: connectionId, sku: c.sku, coste: c.coste, updated_by: userId, updated_at: new Date().toISOString() }))
   for (let i = 0; i < filas.length; i += 500) {
     const { error } = await createServiceClient().from('ventas_costes').upsert(filas.slice(i, i + 500), { onConflict: 'connection_id,sku' })
@@ -480,6 +492,8 @@ export async function guardarCostes(connectionId: string, costes: Array<{ sku: s
 
 export async function guardarCoste(connectionId: string, sku: string, coste: number | null, userId: string): Promise<void> {
   olvidar(`productos:${connectionId}`)
+  olvidar(`costes:${connectionId}`)
+  olvidar('resumen:')
   const s = createServiceClient()
   if (coste == null) {
     const { error } = await s.from('ventas_costes').delete().eq('connection_id', connectionId).eq('sku', sku)
