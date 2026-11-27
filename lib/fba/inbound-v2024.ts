@@ -118,7 +118,7 @@ export async function sondaInbound(creds: AmazonCredentials): Promise<{ ok: true
  * COBRA por unidad, y aquí el cliente ya imprime y pega las etiquetas antes de encajar. Las referencias con
  * «ASIN como FNSKU» (etiqueta del fabricante) van con labelOwner NONE.
  */
-export function cuerpoCrearPlan(p: { nombre: string; marketplaceId: string; origen: DireccionOrigen; lineas: LineaParaPlan[]; sinEtiqueta?: Set<string> }) {
+export function cuerpoCrearPlan(p: { nombre: string; marketplaceId: string; origen: DireccionOrigen; lineas: LineaParaPlan[]; sinEtiqueta?: Set<string>; duenos?: Duenos }) {
   const o = p.origen
   return {
     name: p.nombre.slice(0, 40),
@@ -138,8 +138,32 @@ export function cuerpoCrearPlan(p: { nombre: string; marketplaceId: string; orig
     },
     items: p.lineas
       .filter((l) => l.unidades > 0)
-      .map((l) => ({ msku: l.sku, quantity: l.unidades, prepOwner: 'SELLER', labelOwner: p.sinEtiqueta?.has(l.sku) ? 'NONE' : 'SELLER' })),
+      .map((l) => ({ msku: l.sku, quantity: l.unidades, prepOwner: p.duenos?.[l.sku]?.prep ?? 'SELLER', labelOwner: p.duenos?.[l.sku]?.label ?? (p.sinEtiqueta?.has(l.sku) ? 'NONE' : 'SELLER') })),
   }
+}
+
+/**
+ * QUIÉN PREPARA Y QUIÉN ETIQUETA, POR SKU, cuando Amazon no acepta el SELLER de siempre. Amazon decide por producto si necesita preparación
+ * (bolsa, plástico de burbujas…) y lo dice al crear el plan: «X does not require prepOwner but SELLER was assigned. Accepted values: [NONE]».
+ * Lo que dice se apunta aquí y se manda igual en el plan y en las cajas.
+ */
+export type Duenos = Record<string, { prep?: string; label?: string }>
+
+/** PURA. Los dueños que pide Amazon en el error de createInboundPlan (todos los que nombre), o null si el error no es ese */
+export function duenosDelError(e: unknown): Duenos | null {
+  if (!(e instanceof AmazonApiError)) return null
+  const texto = [e.message, ...e.issues.map((i) => i.message ?? '')].join('\n')
+  const re = /(\S+?) (?:does not require|requires) (prepOwner|labelOwner) but (\w+) was assigned\.?\s*Accepted values:\s*\[([A-Z_,\s]*)\]/g
+  const out: Duenos = {}
+  for (const m of Array.from(texto.matchAll(re))) {
+    const validos = m[4].split(',').map((x) => x.trim()).filter(Boolean)
+    if (!validos.length) continue
+    // Si vale SELLER (lo nuestro: el cliente prepara y etiqueta, sin cobro de Amazon), SELLER; si no, el primero que acepte
+    const valor = validos.includes('SELLER') ? 'SELLER' : validos[0]
+    const sku = m[1].replace(/^ERROR:\s*/, '')
+    out[sku] = { ...out[sku], [m[2] === 'prepOwner' ? 'prep' : 'label']: valor }
+  }
+  return Object.keys(out).length ? out : null
 }
 
 /* ------------------------------------------------------------------ */
@@ -305,7 +329,7 @@ export const confirmarEmbalaje = (creds: AmazonCredentials, planId: string, pack
  * `quantity: 1` por caja: cada caja lleva su contenido y su peso (dos cajas del mismo envío casi nunca pesan
  * lo mismo). `BOX_CONTENT_PROVIDED` porque decimos qué va dentro; las otras fuentes tienen tarifa.
  */
-export function cuerpoCajas(grupos: Array<{ packingGroupId: string; cajas: CajaDeGrupo[] }>, sinEtiqueta?: Set<string>) {
+export function cuerpoCajas(grupos: Array<{ packingGroupId: string; cajas: CajaDeGrupo[] }>, sinEtiqueta?: Set<string>, duenos?: Duenos) {
   return {
     packageGroupings: grupos.map((g) => ({
       packingGroupId: g.packingGroupId,
@@ -314,7 +338,7 @@ export function cuerpoCajas(grupos: Array<{ packingGroupId: string; cajas: CajaD
         contentInformationSource: 'BOX_CONTENT_PROVIDED',
         dimensions: { unitOfMeasurement: 'CM', length: c.largoCm, width: c.anchoCm, height: c.altoCm },
         weight: { unit: 'KG', value: c.pesoKg },
-        items: c.contenido.map((x) => ({ msku: x.msku, quantity: x.unidades, prepOwner: 'SELLER', labelOwner: sinEtiqueta?.has(x.msku) ? 'NONE' : 'SELLER' })),
+        items: c.contenido.map((x) => ({ msku: x.msku, quantity: x.unidades, prepOwner: duenos?.[x.msku]?.prep ?? 'SELLER', labelOwner: duenos?.[x.msku]?.label ?? (sinEtiqueta?.has(x.msku) ? 'NONE' : 'SELLER') })),
       })),
     })),
   }

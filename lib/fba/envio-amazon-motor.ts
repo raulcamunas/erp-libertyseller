@@ -81,6 +81,8 @@ export interface DatosDelEnvio {
   recogida?: { dia: string; iso: string; contacto: api.Contacto | null }
   /** Envío por palés (LTL). Sin esto, paquetería */
   palets?: DatosPalets | null
+  /** Quién prepara y etiqueta cada SKU cuando Amazon no acepta SELLER (lo dice al crear el plan). Se manda igual en las cajas */
+  duenos?: api.Duenos
   /** Seguimiento del envío de palés con transporte propio (BOL) */
   seguimientoLtl?: { bol: string; fletes: string[]; at: string; estado?: 'ok' | 'pendiente'; operationId?: string | null } | null
   opcionesTransporte?: OpcionTransporte[]
@@ -481,7 +483,10 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
     origen: direccion as DireccionOrigen,
     lineas,
     sinEtiqueta: sinEtiquetaDe(lineas),
+    duenos: datosDe(ctx).duenos,
   })
+  const duenos: api.Duenos = { ...(datosDe(ctx).duenos ?? {}) }
+  const conDuenos = (c: typeof cuerpo) => ({ ...c, items: api.cuerpoCrearPlan({ nombre: c.name, marketplaceId: f.marketplace_id as string, origen: direccion as DireccionOrigen, lineas, sinEtiqueta: sinEtiquetaDe(lineas), duenos }).items })
   const anteriores = [...(datosDe(ctx).planesCancelados ?? [])]
   if (f.inbound_plan_id) anteriores.push(f.inbound_plan_id)
   await lanzar(
@@ -494,16 +499,31 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
       const variantes = api.variantesDeDireccion(direccion as DireccionOrigen)
       let ultimo: unknown = null
       for (const [n, origen] of variantes.entries()) {
-        const intento = n === 0 ? cuerpo : { ...cuerpo, sourceAddress: api.cuerpoCrearPlan({ nombre: cuerpo.name, marketplaceId: f.marketplace_id as string, origen, lineas }).sourceAddress }
-        try {
-          if (n > 0) await new Promise((r) => setTimeout(r, 1200)) // createInboundPlan admite pocas llamadas por segundo
-          const r = await api.crearPlan(ctx.creds, intento)
-          await guardar(ctx, { inbound_plan_id: r.inboundPlanId })
-          return n === 0 ? r : { ...r, direccionUsada: { linea1: origen.linea1, ciudad: origen.ciudad, provincia: origen.provincia, intento: n + 1 } }
-        } catch (e) {
-          if (!api.esDireccionSinVerificar(e)) throw e
-          ultimo = e
+        const base = n === 0 ? cuerpo : { ...cuerpo, sourceAddress: api.cuerpoCrearPlan({ nombre: cuerpo.name, marketplaceId: f.marketplace_id as string, origen, lineas }).sourceAddress }
+        // Si Amazon dice que un SKU no lleva preparación (o etiqueta) del vendedor, se apunta lo que acepta y se repite: como mucho una vez por referencia
+        let direccionMala = false
+        for (let vuelta = 0; vuelta <= cuerpo.items.length + 1; vuelta++) {
+          const intento = conDuenos(base)
+          try {
+            if (n > 0 || vuelta > 0) await new Promise((r) => setTimeout(r, 1200)) // createInboundPlan admite pocas llamadas por segundo
+            const r = await api.crearPlan(ctx.creds, intento)
+            await guardar(ctx, { inbound_plan_id: r.inboundPlanId, ...(Object.keys(duenos).length ? { envio_datos: { ...datosDe(ctx), duenos } } : {}) })
+            const extra = Object.keys(duenos).length ? { duenos } : {}
+            return n === 0 ? { ...r, ...extra } : { ...r, ...extra, direccionUsada: { linea1: origen.linea1, ciudad: origen.ciudad, provincia: origen.provincia, intento: n + 1 } }
+          } catch (e) {
+            const pide = api.duenosDelError(e)
+            if (pide && Object.entries(pide).some(([sku, d]) => duenos[sku]?.prep !== (d.prep ?? duenos[sku]?.prep) || duenos[sku]?.label !== (d.label ?? duenos[sku]?.label))) {
+              for (const [sku, d] of Object.entries(pide)) duenos[sku] = { ...duenos[sku], ...d }
+              ultimo = e
+              continue
+            }
+            if (!api.esDireccionSinVerificar(e)) throw e
+            ultimo = e
+            direccionMala = true
+            break
+          }
         }
+        if (!direccionMala) throw ultimo
       }
       throw ultimo
     },
@@ -546,7 +566,7 @@ async function lanzarCajas(ctx: Ctx): Promise<void> {
     await guardar(ctx, { envio_paso: 'cajas_conflicto', envio_error: reparto.problemas.join('. '), envio_cajas_bloqueadas_at: null })
     return
   }
-  const cuerpo = api.cuerpoCajas(reparto.grupos, sinEtiquetaDe(lineas))
+  const cuerpo = api.cuerpoCajas(reparto.grupos, sinEtiquetaDe(lineas), datosDe(ctx).duenos)
   await lanzar(ctx, 'cajas', () => api.mandarCajas(ctx.creds, plan(ctx), cuerpo), { grupos: reparto.grupos.length, cajas: cajas.cajas.length, pesoKg: cajas.pesoTotalKg }, { envio_cajas_bloqueadas_at: new Date().toISOString() })
 }
 

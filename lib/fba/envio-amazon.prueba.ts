@@ -2,6 +2,8 @@
  * PRUEBAS DEL ENVÍO A AMAZON DESDE EL ERP. Sin red: respuestas de Amazon de mentira.
  *   npx tsx lib/fba/envio-amazon.prueba.ts
  */
+import { AmazonApiError } from '@/lib/amazon/errors'
+import { duenosDelError } from './inbound-v2024'
 import {
   accionesPermitidas,
   cajasBloqueadas,
@@ -285,6 +287,13 @@ ok('sin cobro confirma sin aceptación', accionesPermitidas({ modo: 'api', paso:
 ok('con cobro no confirma sin aceptación', accionesPermitidas({ modo: 'api', paso: 'transporte_listo', conError: false, clienteAcepto: false, anulableHasta: null }).includes('confirmar_transporte'), false)
 ok('seguimiento solo con palés', [accionesPermitidas({ modo: 'api', paso: 'etiquetas', conError: false, clienteAcepto: true, anulableHasta: null, conPalets: true }).includes('guardar_seguimiento'), accionesPermitidas({ modo: 'api', paso: 'etiquetas', conError: false, clienteAcepto: true, anulableHasta: null }).includes('guardar_seguimiento')], [true, false])
 ok('etiquetas de palé', consultaEtiquetasPalet(1, 'a4_4'), { PageType: 'PackageLabel_A4_4', LabelType: 'PALLET', NumberOfPallets: 1 })
+
+const errPrep = new AmazonApiError({ kind: 'bad_request' as never, message: 'createInboundPlan ha devuelto 400 (BadRequest): ERROR: FBA152668-36 does not require prepOwner but SELLER was assigned. Accepted values: [NONE]', humanMessage: '', httpStatus: 400 })
+ok('dueño de la preparación que pide Amazon', duenosDelError(errPrep), { 'FBA152668-36': { prep: 'NONE' } })
+const errVarios = new AmazonApiError({ kind: 'bad_request' as never, message: 'x', humanMessage: '', issues: [{ message: 'ERROR: A1 requires prepOwner but NONE was assigned. Accepted values: [AMAZON, SELLER]' }, { message: 'ERROR: B2 does not require labelOwner but SELLER was assigned. Accepted values: [NONE]' }] })
+ok('varios a la vez, prefiere SELLER', duenosDelError(errVarios), { A1: { prep: 'SELLER' }, B2: { label: 'NONE' } })
+ok('otro error no es de dueños', duenosDelError(new Error('nada')), null)
+ok('plan con dueños', cuerpoCrearPlan({ nombre: 'r', marketplaceId: 'A1RKKUPIHCS9HS', origen: dir, lineas: [{ sku: 'A', unidades: 1 }], duenos: { A: { prep: 'NONE' } } }).items[0], { msku: 'A', quantity: 1, prepOwner: 'NONE', labelOwner: 'SELLER' })
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO' : `\n  ${fallos} FALLOS`)
 if (fallos) process.exit(1)
