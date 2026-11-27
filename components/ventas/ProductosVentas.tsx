@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Coins, Download, Eye, EyeOff, Loader2, PackageSearch, Save, Upload } from 'lucide-react'
 import { CabeceraDeModulo } from '@/components/ui-ls'
@@ -84,7 +84,12 @@ export function ProductosVentas() {
   const productos = useMemo(() => {
     if (!datos) return []
     const ventas = new Map<string, FilaPanel[]>()
-    for (const f of datos.filas) if (f.sku) ventas.set(f.sku, [...(ventas.get(f.sku) ?? []), f])
+    for (const f of datos.filas) {
+      if (!f.sku) continue
+      const l = ventas.get(f.sku)
+      if (l) l.push(f)
+      else ventas.set(f.sku, [f])
+    }
     const porSku = new Map<string, ProductoDelCatalogo>()
     for (const c of datos.productos?.catalogo ?? []) if (!porSku.has(c.sku) || (!porSku.get(c.sku)?.activo && c.activo)) porSku.set(c.sku, c)
     // Lo que se ha vendido y no está en el catálogo leído también sale
@@ -97,12 +102,37 @@ export function ProductosVentas() {
   }, [datos, ivaNum, ivaPorPais])
 
   const q = buscar.trim().toLowerCase()
-  const lista = productos
-    .filter((p) => (verInactivos || p.activo || p.t.unidades > 0) && (!q || p.sku.toLowerCase().includes(q) || (p.asin ?? '').toLowerCase().includes(q) || (p.titulo ?? '').toLowerCase().includes(q)))
-    .filter((p) => (fCanal === 'todos' ? true : fCanal === 'fba' ? p.fba : !p.fba))
-    .filter((p) => (fCogs === 'todos' ? true : fCogs === 'con' ? (costeDe(p.sku) ?? 0) > 0 : !((costeDe(p.sku) ?? 0) > 0)))
-    .sort((a, b) => b.velocidad - a.velocidad || a.sku.localeCompare(b.sku))
-  const sinCoste = productos.filter((p) => (p.activo || p.t.unidades > 0) && !((costeDe(p.sku) ?? 0) > 0)).length
+  // El filtro de COGS mira lo que se está escribiendo solo con «Sin COGS» / «Con COGS»: con «Cualquier COGS», escribir no vuelve a filtrar miles de filas
+  const escritoParaFiltrar = fCogs === 'todos' ? null : escrito
+  const lista = useMemo(() => {
+    const coste = (sku: string) => {
+      if (escritoParaFiltrar && sku in escritoParaFiltrar) {
+        const n = aNumero(escritoParaFiltrar[sku])
+        return n == null || Number.isNaN(n) ? null : n
+      }
+      return guardados[sku] ?? null
+    }
+    return productos
+      .filter((p) => (verInactivos || p.activo || p.t.unidades > 0) && (!q || p.sku.toLowerCase().includes(q) || (p.asin ?? '').toLowerCase().includes(q) || (p.titulo ?? '').toLowerCase().includes(q)))
+      .filter((p) => (fCanal === 'todos' ? true : fCanal === 'fba' ? p.fba : !p.fba))
+      .filter((p) => (fCogs === 'todos' ? true : fCogs === 'con' ? (coste(p.sku) ?? 0) > 0 : !((coste(p.sku) ?? 0) > 0)))
+      .sort((a, b) => b.velocidad - a.velocidad || a.sku.localeCompare(b.sku))
+  }, [productos, verInactivos, q, fCanal, fCogs, escritoParaFiltrar, guardados])
+  const sinCoste = useMemo(() => productos.filter((p) => (p.activo || p.t.unidades > 0) && !((guardados[p.sku] ?? 0) > 0)).length, [productos, guardados])
+
+  // SE PINTAN DE 100 EN 100: con miles de productos (Cobo Family) pintar todo de golpe colgaba el navegador. Al bajar salen más solas
+  const [mostrar, setMostrar] = useState(100)
+  useEffect(() => setMostrar(100), [cuentaId, q, fCanal, fCogs, verInactivos])
+  const finDeLista = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = finDeLista.current
+    if (!el) return
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setMostrar((m) => m + 100), { rootMargin: '600px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [lista.length, mostrar])
+  const escribir = useCallback((sku: string, v: string) => setEscrito((x) => ({ ...x, [sku]: v })), [])
+  const guardarRef = useRef<() => void>(() => {})
 
   /** Beneficio por unidad: con lo vendido (30 días) y el COGS; sin ventas, estimado con el precio, un 15 % de comisión y el IVA */
   const beneficio = (p: (typeof productos)[number]) => {
@@ -131,6 +161,9 @@ export function ProductosVentas() {
       setGuardando(false)
     }
   }
+
+  guardarRef.current = () => void guardar()
+  const alEnter = useCallback(() => guardarRef.current(), [])
 
   const exportar = () => {
     const filas = [['SKU', 'ASIN', 'Producto', 'Canal', 'COGS', 'Unidades al dia'], ...lista.map((p) => [p.sku, p.asin ?? '', (p.titulo ?? '').replace(/;/g, ','), p.fba ? 'FBA' : 'FBM', (costeDe(p.sku) ?? '').toString().replace('.', ','), p.velocidad.toFixed(2).replace('.', ',')])]
@@ -231,74 +264,22 @@ export function ProductosVentas() {
                 </tr>
               </thead>
               <tbody>
-                {lista.map((p, i) => {
-                  const b = beneficio(p)
-                  const sucio = p.sku in escrito && cambios.includes(p.sku)
-                  const malo = p.sku in escrito && Number.isNaN(aNumero(escrito[p.sku]))
-                  return (
-                    <tr key={p.sku} className={`border-b border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)] ${p.activo ? '' : 'opacity-55'}`} style={{ animation: `ventas-entra 380ms ${Math.min(i, 25) * 18}ms both cubic-bezier(.2,.8,.2,1)` }}>
-                      <td className="px-3 py-[8px]">
-                        <div className="flex items-center gap-3">
-                          <span className="shrink-0 rounded-[9px]">
-                            <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={42} redondeo={7} titulo={p.titulo ?? p.sku} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
-                          </span>
-                          <div className="min-w-0 max-w-[620px]">
-                            <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
-                              <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
-                              <span className="tabular-nums">{p.asin ?? '—'}</span>·<span className="truncate">SKU {p.sku}</span>
-                            </div>
-                            <div className="truncate text-[var(--ls-t1)]" title={p.titulo ?? p.sku}>
-                              {p.titulo ?? p.sku}
-                            </div>
-                            <div className="text-[11px] tabular-nums text-[var(--ls-t4)]">{p.precio != null ? `${p.precio.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${p.moneda === 'EUR' || !p.moneda ? '€' : p.moneda}` : 'sin precio'}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-2">
-                        <span className="rounded-[6px] px-[7px] py-[2px] text-[11px] font-semibold" style={p.fba ? { color: '#60A5FA', background: 'color-mix(in srgb, #60A5FA 14%, transparent)' } : { color: 'var(--ls-acc)', background: 'color-mix(in srgb, var(--ls-acc) 12%, transparent)' }}>
-                          #{p.fba ? 'FBA' : 'FBM'}
-                        </span>
-                        {!p.activo && <span className="ml-1 text-[10.5px] text-[var(--ls-t4)]">inactivo</span>}
-                      </td>
-                      <td className="px-2 text-right">
-                        <span className="inline-flex items-center gap-1">
-                          <input
-                            value={p.sku in escrito ? escrito[p.sku] : guardados[p.sku] != null ? String(guardados[p.sku]).replace('.', ',') : ''}
-                            onChange={(e) => setEscrito((x) => ({ ...x, [p.sku]: e.target.value }))}
-                            onKeyDown={(e) => e.key === 'Enter' && void guardar()}
-                            placeholder="0,00"
-                            inputMode="decimal"
-                            className="h-8 w-[92px] rounded-[8px] border bg-[var(--ls-sup2)] px-2 text-right text-[13px] tabular-nums text-[var(--ls-t1)] outline-none transition-colors focus:border-[var(--ls-acc)]"
-                            style={{ borderColor: malo ? ROJO : sucio ? 'var(--ls-acc)' : 'var(--ls-linea)' }}
-                            aria-label={`COGS de ${p.sku}`}
-                          />
-                          <span className="text-[var(--ls-t4)]">€</span>
-                        </span>
-                      </td>
-                      <td className="px-2 text-right tabular-nums">
-                        {b == null ? (
-                          <span className="text-[var(--ls-t4)]">—</span>
-                        ) : (
-                          <span style={{ color: b.valor >= 0 ? VERDE : ROJO }} className="font-semibold" title={b.estimado ? 'Sin ventas en 30 días: estimado con el precio, un 15 % de comisión y el IVA' : undefined}>
-                            {euros(b.valor)}
-                            {b.estimado && <span className="ml-1 text-[10px] font-normal text-[var(--ls-t4)]">est.</span>}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2 text-right">
-                        <span className="inline-flex items-center gap-2">
-                          <span className="h-[5px] w-[56px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
-                            <span className="block h-full rounded-full" style={{ width: `${Math.min(1, p.velocidad / Math.max(0.01, lista[0]?.velocidad ?? 1)) * 100}%`, background: 'linear-gradient(90deg, #F26212, #FF8A3D)' }} />
-                          </span>
-                          <span className="w-[38px] tabular-nums text-[var(--ls-t1)]">{p.velocidad.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </span>
-                      </td>
-                      <td className="px-3 text-right tabular-nums text-[var(--ls-t2)]">{ivaDeVentas({ pct: ivaNum, porPais: ivaPorPais }, p.mkt).toLocaleString('es-ES')} %</td>
-                    </tr>
-                  )
+                {lista.slice(0, mostrar).map((p, i) => {
+                  const escritoSku = p.sku in escrito ? escrito[p.sku] : undefined
+                  const n = escritoSku === undefined ? undefined : aNumero(escritoSku)
+                  const malo = n !== undefined && Number.isNaN(n)
+                  const sucio = n !== undefined && !malo && (n ?? null) !== (guardados[p.sku] ?? null)
+                  const valor = escritoSku !== undefined ? escritoSku : guardados[p.sku] != null ? String(guardados[p.sku]).replace('.', ',') : ''
+                  return <FilaProducto key={p.sku} p={p} i={i} valor={valor} sucio={sucio} malo={malo} b={beneficio(p)} maxVel={lista[0]?.velocidad ?? 1} iva={ivaDeVentas({ pct: ivaNum, porPais: ivaPorPais }, p.mkt)} onEscribir={escribir} onEnter={alEnter} />
                 })}
               </tbody>
             </table>
+            {mostrar < lista.length && (
+              <div ref={finDeLista} className="flex items-center justify-center gap-2 py-4 text-[12px] text-[var(--ls-t4)]">
+                <Loader2 className="h-[13px] w-[13px] animate-spin" /> {mostrar} de {lista.length.toLocaleString('es-ES')} productos
+                <button type="button" onClick={() => setMostrar(lista.length)} className="ml-2 underline hover:text-[var(--ls-t2)]">ver todos</button>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -347,3 +328,70 @@ function Chips<T extends string>({ valor, onCambio, opciones }: { valor: T; onCa
     </div>
   )
 }
+
+type Producto = ProductoDelCatalogo & { t: ReturnType<typeof totalizar>; velocidad: number }
+
+/** Una fila: solo se vuelve a pintar si cambia lo suyo (escribir un COGS no repinta las otras mil) */
+const FilaProducto = memo(function FilaProducto({ p, i, valor, sucio, malo, b, maxVel, iva, onEscribir, onEnter }: { p: Producto; i: number; valor: string; sucio: boolean; malo: boolean; b: { valor: number; estimado: boolean } | null; maxVel: number; iva: number; onEscribir: (sku: string, v: string) => void; onEnter: () => void }) {
+  return (
+    <tr className={`border-b border-[var(--ls-linea)] transition-colors hover:bg-[color-mix(in_srgb,var(--ls-sup2)_70%,transparent)] ${p.activo ? '' : 'opacity-55'}`} style={i < 25 ? { animation: `ventas-entra 380ms ${i * 18}ms both cubic-bezier(.2,.8,.2,1)` } : undefined}>
+      <td className="px-3 py-[8px]">
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 rounded-[9px]">
+            <ImagenDeProducto asin={p.asin} mkt={p.mkt} lado={42} redondeo={7} titulo={p.titulo ?? p.sku} borde={false} className="shadow-[0_1px_4px_rgba(0,0,0,0.35)]" />
+          </span>
+          <div className="min-w-0 max-w-[620px]">
+            <div className="flex items-center gap-2 text-[11px] text-[var(--ls-t4)]">
+              <span title={pais(p.mkt)}>{bandera(p.mkt)}</span>
+              <span className="tabular-nums">{p.asin ?? '—'}</span>·<span className="truncate">SKU {p.sku}</span>
+            </div>
+            <div className="truncate text-[var(--ls-t1)]" title={p.titulo ?? p.sku}>
+              {p.titulo ?? p.sku}
+            </div>
+            <div className="text-[11px] tabular-nums text-[var(--ls-t4)]">{p.precio != null ? `${p.precio.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${p.moneda === 'EUR' || !p.moneda ? '€' : p.moneda}` : 'sin precio'}</div>
+          </div>
+        </div>
+      </td>
+      <td className="px-2">
+        <span className="rounded-[6px] px-[7px] py-[2px] text-[11px] font-semibold" style={p.fba ? { color: '#60A5FA', background: 'color-mix(in srgb, #60A5FA 14%, transparent)' } : { color: 'var(--ls-acc)', background: 'color-mix(in srgb, var(--ls-acc) 12%, transparent)' }}>
+          #{p.fba ? 'FBA' : 'FBM'}
+        </span>
+        {!p.activo && <span className="ml-1 text-[10.5px] text-[var(--ls-t4)]">inactivo</span>}
+      </td>
+      <td className="px-2 text-right">
+        <span className="inline-flex items-center gap-1">
+          <input
+            value={valor}
+            onChange={(e) => onEscribir(p.sku, e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onEnter()}
+            placeholder="0,00"
+            inputMode="decimal"
+            className="h-8 w-[92px] rounded-[8px] border bg-[var(--ls-sup2)] px-2 text-right text-[13px] tabular-nums text-[var(--ls-t1)] outline-none transition-colors focus:border-[var(--ls-acc)]"
+            style={{ borderColor: malo ? ROJO : sucio ? 'var(--ls-acc)' : 'var(--ls-linea)' }}
+            aria-label={`COGS de ${p.sku}`}
+          />
+          <span className="text-[var(--ls-t4)]">€</span>
+        </span>
+      </td>
+      <td className="px-2 text-right tabular-nums">
+        {b == null ? (
+          <span className="text-[var(--ls-t4)]">—</span>
+        ) : (
+          <span style={{ color: b.valor >= 0 ? VERDE : ROJO }} className="font-semibold" title={b.estimado ? 'Sin ventas en 30 días: estimado con el precio, un 15 % de comisión y el IVA' : undefined}>
+            {euros(b.valor)}
+            {b.estimado && <span className="ml-1 text-[10px] font-normal text-[var(--ls-t4)]">est.</span>}
+          </span>
+        )}
+      </td>
+      <td className="px-2 text-right">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-[5px] w-[56px] overflow-hidden rounded-full bg-[var(--ls-sup2)]">
+            <span className="block h-full rounded-full" style={{ width: `${Math.min(1, p.velocidad / Math.max(0.01, maxVel)) * 100}%`, background: 'linear-gradient(90deg, #F26212, #FF8A3D)' }} />
+          </span>
+          <span className="w-[38px] tabular-nums text-[var(--ls-t1)]">{p.velocidad.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </span>
+      </td>
+      <td className="px-3 text-right tabular-nums text-[var(--ls-t2)]">{iva.toLocaleString('es-ES')} %</td>
+    </tr>
+  )
+}, (a, b) => a.p === b.p && a.valor === b.valor && a.sucio === b.sucio && a.malo === b.malo && a.maxVel === b.maxVel && a.iva === b.iva && a.i === b.i && a.b?.valor === b.b?.valor && a.b?.estimado === b.b?.estimado)

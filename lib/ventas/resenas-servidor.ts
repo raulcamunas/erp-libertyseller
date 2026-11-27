@@ -15,6 +15,18 @@ import { campanaDelPedido, cuandoPedir, DIAS_MAXIMO, instanteEnMadrid, pedidoDeR
 
 type Servicio = ReturnType<typeof createServiceClient>
 const DIA_MS = 86_400_000
+
+/* Caché corta en memoria (rendimiento, 27 nov 2026): el resumen y el detalle de cada cuenta 30 s. Se olvida al tocar campañas o envíos */
+const cache = new Map<string, { hasta: number; valor: Promise<unknown> }>()
+function enCache<T>(clave: string, ms: number, leer: () => Promise<T>): Promise<T> {
+  const c = cache.get(clave)
+  if (c && c.hasta > Date.now()) return c.valor as Promise<T>
+  const valor = leer()
+  cache.set(clave, { hasta: Date.now() + ms, valor })
+  valor.catch(() => cache.delete(clave))
+  return valor
+}
+const olvidarResenas = () => cache.clear()
 const ACCION = 'productReviewAndSellerFeedback'
 const COLUMNAS_CAMPANA = 'id, connection_id, nombre, prioridad, activa, desde, hasta, dias_tras_entrega, hora, excluir_fbm, excluir_promo, mercados, productos_modo, skus'
 
@@ -203,38 +215,33 @@ export interface ResumenResenasCuenta {
 }
 
 /** Por cuenta: enviadas hoy (Madrid), en 7 y 30 días, en cola y campañas */
-export async function resumenResenas(): Promise<{ sinTabla?: boolean; cuentas: ResumenResenasCuenta[] }> {
+export const resumenResenas = () => enCache('resumen', 30_000, leerResumenResenas)
+
+/** Cuántas enviadas hoy, en 7 y en 30 días y cuántas en cola, por cuenta. Con recuentos (head): antes se bajaban hasta 50.000 filas para contarlas
+ * y la base solo devuelve 1.000 por petición, así que además contaba de menos */
+async function leerResumenResenas(): Promise<{ sinTabla?: boolean; cuentas: ResumenResenasCuenta[] }> {
   const s = createServiceClient()
   const hoy = hoyEnMadrid()
   const inicioHoy = instanteEnMadrid(hoy, 0).getTime()
-  const hace30 = new Date(inicioHoy - 29 * DIA_MS).toISOString()
-  const [cam, env, cola] = await Promise.all([
-    s.from('resenas_campanas').select('connection_id, activa'),
-    s.from('resenas_envios').select('connection_id, enviada_at').eq('estado', 'enviada').gte('enviada_at', hace30).limit(50_000),
-    s.from('resenas_envios').select('connection_id').eq('estado', 'en_cola').limit(50_000),
-  ])
+  const desde = (dias: number) => new Date(inicioHoy - dias * DIA_MS).toISOString()
+  const [cam, vc] = await Promise.all([s.from('resenas_campanas').select('connection_id, activa'), s.from('ventas_cuentas').select('connection_id').eq('activa', true)])
   if (faltaTabla(cam.error)) return { sinTabla: true, cuentas: [] }
   if (cam.error) throw cam.error
-  const por = new Map<string, ResumenResenasCuenta>()
-  const de = (id: string) => {
-    let r = por.get(id)
-    if (!r) por.set(id, (r = { cuenta: id, hoy: 0, dias7: 0, dias30: 0, enCola: 0, activas: 0, campanas: 0 }))
-    return r
+  const ids = [...new Set([...((cam.data ?? []) as Array<{ connection_id: string }>).map((c) => c.connection_id), ...((vc.data ?? []) as Array<{ connection_id: string }>).map((c) => c.connection_id)])]
+  const contar = async (id: string, estado: string, desdeIso?: string) => {
+    let q = s.from('resenas_envios').select('pedido', { count: 'exact', head: true }).eq('connection_id', id).eq('estado', estado)
+    if (desdeIso) q = q.gte('enviada_at', desdeIso)
+    const { count } = await q
+    return count ?? 0
   }
-  for (const c of (cam.data ?? []) as Array<{ connection_id: string; activa: boolean }>) {
-    const r = de(c.connection_id)
-    r.campanas++
-    if (c.activa) r.activas++
-  }
-  for (const e of (env.data ?? []) as Array<{ connection_id: string; enviada_at: string }>) {
-    const r = de(e.connection_id)
-    const t = Date.parse(e.enviada_at)
-    r.dias30++
-    if (t >= inicioHoy - 6 * DIA_MS) r.dias7++
-    if (t >= inicioHoy) r.hoy++
-  }
-  for (const e of (cola.data ?? []) as Array<{ connection_id: string }>) de(e.connection_id).enCola++
-  return { cuentas: [...por.values()] }
+  const cuentas = await Promise.all(
+    ids.map(async (id) => {
+      const [hoyN, d7, d30, enCola] = await Promise.all([contar(id, 'enviada', desde(0)), contar(id, 'enviada', desde(6)), contar(id, 'enviada', desde(29)), contar(id, 'en_cola')])
+      const suyas = ((cam.data ?? []) as Array<{ connection_id: string; activa: boolean }>).filter((c) => c.connection_id === id)
+      return { cuenta: id, hoy: hoyN, dias7: d7, dias30: d30, enCola, activas: suyas.filter((c) => c.activa).length, campanas: suyas.length }
+    })
+  )
+  return { cuentas: cuentas.filter((c) => c.campanas > 0 || c.dias30 > 0 || c.enCola > 0) }
 }
 
 export interface EnvioDeResena {
@@ -276,7 +283,9 @@ export interface DetalleResenas {
   envios: EnvioDeResena[]
 }
 
-export async function detalleResenas(cuenta: string): Promise<DetalleResenas> {
+export const detalleResenas = (cuenta: string) => enCache(`detalle:${cuenta}`, 30_000, () => leerDetalleResenas(cuenta))
+
+async function leerDetalleResenas(cuenta: string): Promise<DetalleResenas> {
   const s = createServiceClient()
   const hoy = hoyEnMadrid()
   const desde = new Date(Date.parse(`${hoy}T00:00:00Z`) - 40 * DIA_MS).toISOString()
@@ -336,13 +345,15 @@ export async function detalleResenas(cuenta: string): Promise<DetalleResenas> {
   }
   // TODOS los pedidos de la cuenta (de ventas_lineas, que se guarda 62 días), con su reseña si la tiene
   const lineas: Array<{ pedido: string; sku: string; marketplace_id: string; fecha: string; canal: string | null; promo: number; ventas: number | null; unidades: number; estado: string | null }> = []
-  for (let k = 0; k < 30_000; k += 1000) {
-    const { data, error } = await s.from('ventas_lineas').select('pedido, sku, marketplace_id, fecha, canal, promo, ventas, unidades, estado').eq('connection_id', cuenta).gte('fecha', desde).order('fecha', { ascending: false }).range(k, k + 999)
+  // Todas las páginas A LA VEZ (antes de 1.000 en 1.000, una detrás de otra): primero se cuenta, luego se piden juntas
+  const consulta = () => s.from('ventas_lineas').select('pedido, sku, marketplace_id, fecha, canal, promo, ventas, unidades, estado').eq('connection_id', cuenta).gte('fecha', desde)
+  const [{ count }, reembolsados] = await Promise.all([s.from('ventas_lineas').select('pedido', { count: 'exact', head: true }).eq('connection_id', cuenta).gte('fecha', desde), pedidosReembolsados(s, cuenta, desde.slice(0, 10))])
+  const paginas = Math.min(30, Math.ceil((count ?? 0) / 1000))
+  const trozos = await Promise.all(Array.from({ length: paginas }, (_, k) => consulta().order('fecha', { ascending: false }).order('pedido').order('sku').range(k * 1000, k * 1000 + 999)))
+  for (const { data, error } of trozos) {
     if (error) throw error
     lineas.push(...((data ?? []) as typeof lineas))
-    if ((data ?? []).length < 1000) break
   }
-  const reembolsados = await pedidosReembolsados(s, cuenta, desde.slice(0, 10))
   const envioDe = new Map(envios.map((e) => [e.pedido, e]))
   const pedidos = new Map<string, PedidoConResena>()
   for (const l of lineas) {
@@ -369,6 +380,7 @@ export async function detalleResenas(cuenta: string): Promise<DetalleResenas> {
 
 /** Crea o cambia una campaña. Devuelve su id */
 export async function guardarCampana(cuenta: string, c: Partial<Campana> & { id?: string }, userId: string): Promise<string> {
+  olvidarResenas()
   const s = createServiceClient()
   const fila = {
     connection_id: cuenta,
@@ -397,6 +409,7 @@ export async function guardarCampana(cuenta: string, c: Partial<Campana> & { id?
 }
 
 export async function borrarCampana(cuenta: string, id: string): Promise<void> {
+  olvidarResenas()
   const s = createServiceClient()
   // Lo que estaba en cola de esa campaña se descarta (lo enviado se queda como está)
   await s.from('resenas_envios').update({ estado: 'descartada', detalle: 'Campaña borrada' }).eq('connection_id', cuenta).eq('campana_id', id).eq('estado', 'en_cola')
@@ -406,6 +419,7 @@ export async function borrarCampana(cuenta: string, id: string): Promise<void> {
 
 /** Saca un pedido de la cola (o lo vuelve a meter) */
 export async function cambiarEnvio(cuenta: string, pedido: string, accion: 'descartar' | 'recuperar'): Promise<void> {
+  olvidarResenas()
   const s = createServiceClient()
   const q = s.from('resenas_envios').update(accion === 'descartar' ? { estado: 'descartada', detalle: 'Descartada a mano' } : { estado: 'en_cola', detalle: null, intentos: 0 }).eq('connection_id', cuenta).eq('pedido', pedido)
   const { error } = await (accion === 'descartar' ? q.eq('estado', 'en_cola') : q.in('estado', ['descartada', 'error']))
