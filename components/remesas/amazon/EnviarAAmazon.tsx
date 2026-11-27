@@ -231,7 +231,7 @@ function CabeceraEnvio({ e, trabajando, bloqueado, onModo, onReintentar }: { e: 
         </div>
       ) : (
         <p className="text-[12.5px] leading-[1.5] text-[var(--ls-t3)]">
-          {e.conConexion ? 'Puedes pasar este envío a «Desde el ERP»: el plan, las cajas, el reparto, el UPS de Amazon y las etiquetas se hacen aquí, y el cliente acepta el coste del transporte en su enlace.' : 'Este cliente no tiene la cuenta de Amazon conectada: el envío se hace en Seller Central.'}
+          {e.conConexion ? 'Puedes pasar este envío a «Desde el ERP»: el plan, las cajas, el reparto, el UPS de Amazon y las etiquetas se hacen aquí, y la agencia confirma el coste del transporte.' : 'Este cliente no tiene la cuenta de Amazon conectada: el envío se hace en Seller Central.'}
         </p>
       )}
     </Tarjeta>
@@ -748,8 +748,8 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
             )}
           </Tarjeta>
 
-          <Tarjeta indice={2} icono={UserCheck} titulo="Aceptación del cliente" subtitulo="En su enlace, antes de confirmar">
-            {e.aceptacion ? (
+          {e.aceptacion && (
+          <Tarjeta indice={2} icono={UserCheck} titulo="Aceptación del cliente" subtitulo="De antes: ahora el transporte lo confirma la agencia">
               <div className="space-y-1 text-[12.5px] text-[var(--ls-t2)]">
                 <p className="flex items-center gap-2 font-semibold" style={{ color: COLOR_ESTADO.verde }}>
                   <CheckCircle2 className="h-4 w-4" /> Aceptado por {e.aceptacion.nombre ?? 'el cliente'}
@@ -759,15 +759,8 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
                   {e.aceptacion.ip ? ` · IP ${e.aceptacion.ip}` : ''}
                 </p>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Insignia tono="ambar" vivo>
-                  Esperando al cliente
-                </Insignia>
-                <p className="text-[12.5px] leading-[1.5] text-[var(--ls-t3)]">Le sale en su enlace, en la fase «Envío», con el botón «Acepto el coste del transporte». Mándale el enlace si no lo tiene.</p>
-              </div>
-            )}
           </Tarjeta>
+          )}
         </div>
       )}
 
@@ -834,7 +827,7 @@ function FaseTransporte({ e, trabajando, enviar, ahora }: { e: EstadoDelEnvio; t
         palabra="TRANSPORTE"
         titulo="Confirmar el transporte con Amazon"
         textoConfirmar="Confirmar transporte"
-        descripcion={e.sinCobro ? 'Amazon reserva la entrega con transporte propio: no hay cargo. Después hay que imprimir las etiquetas y pasarle al transportista el nº de envío para que pida la cita en el almacén.' : `Se acepta el cargo de ${dinero(e.costeTransporte, e.moneda)} que Amazon cobra en la cuenta del cliente (aceptado por ${e.aceptacion?.nombre ?? 'el cliente'}). Se puede anular sin coste durante unas 24 h en paquetería.`}
+        descripcion={e.sinCobro ? 'Amazon reserva la entrega con transporte propio: no hay cargo. Después hay que imprimir las etiquetas y pasarle al transportista el nº de envío para que pida la cita en el almacén.' : `Se acepta el cargo de ${dinero(e.costeTransporte, e.moneda)} que Amazon cobra en la cuenta del cliente. Se puede anular sin coste durante unas 24 h en paquetería.`}
         onConfirmar={async () => {
           const ok = await enviar({ accion: 'confirmar_transporte', palabra: 'TRANSPORTE' }, '', 'transporte')
           if (!ok) throw new Error('no')

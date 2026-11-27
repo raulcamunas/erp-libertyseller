@@ -751,7 +751,7 @@ async function trasExito(ctx: Ctx, paso: PasoEnvio): Promise<void> {
       const prop = proponerTransporte(opciones, envios, new Date(), !!d.palets)
       await guardar(ctx, {
         // Transporte propio: Amazon no cobra nada, no hay coste que el cliente tenga que aceptar
-        envio_paso: prop.ok ? (sinCobroDeAmazon(prop.selecciones) ? 'transporte_listo' : 'transporte_cliente') : 'transporte_elegir',
+        envio_paso: prop.ok ? 'transporte_listo' : 'transporte_elegir',
         envio_datos: { ...d, opcionesTransporte: opciones, sinAsociado: prop.sinAsociado },
         transporte_seleccion: prop.selecciones,
         coste_transporte: prop.selecciones.length ? prop.total : null,
@@ -1099,7 +1099,7 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
       const sin = envios.filter((sid) => !nuevas.some((s) => s.shipmentId === sid))
       const res = resumirSelecciones(nuevas, sin)
       if (!(await moverPaso(ctx, ['transporte_elegir', 'transporte_cliente', 'transporte_listo'], {
-        envio_paso: res.ok ? (sinCobroDeAmazon(nuevas) ? 'transporte_listo' : 'transporte_cliente') : 'transporte_elegir',
+        envio_paso: res.ok ? 'transporte_listo' : 'transporte_elegir',
         transporte_seleccion: nuevas,
         coste_transporte: res.total,
         moneda_envio: res.moneda,
@@ -1115,18 +1115,12 @@ async function hacer(ctx: Ctx, accion: AccionEnvio, p: ParametrosDeAccion, paso:
     }
     case 'confirmar_transporte': {
       const coste = num(f.coste_transporte)
-      const aceptado = num(f.transporte_aceptado_coste)
       const sel = f.transporte_seleccion ?? []
       const sinCobro = sinCobroDeAmazon(sel)
-      if (!sinCobro) {
-        if (!f.transporte_aceptado_por_cliente_at) throw new FalloDelEnvio('El cliente todavía no ha aceptado el coste del transporte en su enlace')
-        if (coste === null || aceptado === null || Math.abs(coste - aceptado) > 0.005) throw new FalloDelEnvio('El coste ha cambiado desde que el cliente lo aceptó: tiene que volver a aceptarlo')
-        if (!cotizacionVigente(f.transporte_caduca_at)) throw new FalloDelEnvio('La cotización de Amazon ha caducado: vuelve a pedirla (y el cliente tendrá que aceptarla otra vez)')
-      }
+      // El transporte lo confirma siempre la agencia (Raúl, 27 nov 2026): el cliente ya no tiene que aceptar el coste en su enlace
+      if (!sinCobro && !cotizacionVigente(f.transporte_caduca_at)) throw new FalloDelEnvio('La cotización de Amazon ha caducado: vuelve a pedirla')
       const conVentana = sel.filter((s) => s.necesitaVentana).map((s) => s.shipmentId)
-      // Solo si sigue siendo la MISMA aceptación que se ha comprobado arriba: si entretanto otra pantalla pidió otra
-      // cotización y el cliente la aceptó de nuevo, la selección leída aquí ya no es la que aceptó
-      if (!(await moverPaso(ctx, 'transporte_listo', { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }, sinCobro ? {} : { transporte_aceptado_por_cliente_at: f.transporte_aceptado_por_cliente_at as string }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
+      if (!(await moverPaso(ctx, ['transporte_cliente', 'transporte_listo'], { envio_paso: conVentana.length ? 'ventana_generar' : 'transporte_confirmar', transporte_confirmado_por: userId, envio_datos: { ...(f.envio_datos ?? {}), ventanasPendientes: conVentana, ventanaElegida: null } }))) throw new FalloDelEnvio('Alguien acaba de cambiar el envío. Recarga.')
       await apuntar('transporte_confirmando', { coste, moneda: f.moneda_envio })
       return conVentana.length ? lanzarVentana(ctx) : lanzarConfirmarTransporte(ctx)
     }
@@ -1330,7 +1324,8 @@ export async function transporteParaElCliente(remesaId: string, service: Cliente
     envios: (f.envio_datos?.envios ?? []).map((e) => ({ confirmacion: e.confirmacion, destino: e.destino, ciudad: e.ciudad })),
     recogida: f.envio_datos?.recogida?.dia ?? null,
     aceptacion: f.transporte_aceptado_por_cliente_at ? { at: f.transporte_aceptado_por_cliente_at, nombre: f.transporte_aceptado_nombre, coste: num(f.transporte_aceptado_coste) } : null,
-    puedeAceptar: paso === 'transporte_cliente' && vigente && num(f.coste_transporte) !== null,
+    // El cliente ya no acepta el transporte: lo confirma la agencia (27 nov 2026). En su enlace solo ve el coste
+    puedeAceptar: false,
     confirmadoAt: f.transporte_confirmado_at,
     anulableHasta: f.anulable_hasta,
     etiquetasDisponibles: paso === 'etiquetas',
