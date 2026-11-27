@@ -1,4 +1,5 @@
 import { ajustarPeriodo, periodosDe, rangoAComparar, rangoDePreajuste, totalizar, type FilaPanel } from './panel'
+import { costePickPack } from './ajustes'
 import { firmaSinFecha, leerDinero, parsearPedidosVentas, resumirDias } from './lectura'
 
 let fallos = 0
@@ -53,6 +54,27 @@ console.log('=== el informe de pedidos ===')
   ok('libras a euros con envío y la promoción aparte', uk != null && casi(uk.ventas as number, 90 / 0.85) && casi(uk.promo, 10 / 0.85), JSON.stringify(uk))
   ok('el día es el de Londres para el Reino Unido', uk?.dia === '2026-11-25')
   ok('un pendiente sin precio llega sin precio (se estima al resumir)', r.lineas.find((l) => l.sku === 'ES1')?.ventas === null)
+}
+
+console.log('=== ajustes de la cuenta (Configuración) ===')
+{
+  const fila = (dia: string, extra: Partial<FilaPanel> = {}): FilaPanel => ({ dia, mkt: 'A1RKKUPIHCS9HS', sku: 'X', asin: null, unidades: 1, pedidos: 1, ventas: 121, promo: 0, referral: -12.1, fba: -6.05, otras: 0, estimadas: 0, reembolsos: 0, reembolsado: 0, comisionReembolso: 0, ajustes: 0, publicidad: 10, ventasPpc: 0, unidadesPpc: 0, ...extra })
+  const base = totalizar([fila('2026-11-10')], { pct: 21, porPais: false }, {})
+  ok('sin ajustes, como siempre: IVA 21 y tarifas sin IVA', casi(base.iva, 21) && casi(base.tarifas, -15) && casi(base.publicidad, 10), JSON.stringify(base))
+  const sinIva = totalizar([fila('2026-11-10')], { pct: 21, porPais: false, ivaVentas: false }, {})
+  ok('«Considerar para IVA» apagado: sin IVA en las ventas', sinIva.iva === 0)
+  const desde = totalizar([fila('2026-10-10'), fila('2026-11-10')], { pct: 21, porPais: false, ivaVentasDesde: '2026-11-01' }, {})
+  ok('IVA desde el 1 de noviembre: solo la segunda', casi(desde.iva, 21))
+  const tarifas = totalizar([fila('2026-11-10')], { pct: 21, porPais: false, tarifasConIva: false }, {})
+  ok('tarifas sin IVA recuperable: se cuentan enteras', casi(tarifas.tarifas, -18.15))
+  const pub = totalizar([fila('2026-11-10')], { pct: 21, porPais: false, ivaPublicidad: true }, {})
+  ok('IVA local en publicidad: 10 → 12,10', casi(pub.publicidad, 12.1) && casi(pub.neto, base.neto - 2.1))
+  const pp = totalizar([fila('2026-11-10', { pickpack: 3 })], { pct: 21, porPais: false }, {})
+  ok('pick & pack se resta', casi(pp.pickpack, 3) && casi(pp.neto, base.neto - 3))
+  const neto = totalizar([fila('2026-11-10')], { pct: 21, porPais: false, margenSobreNeto: true }, {})
+  ok('margen sobre ventas netas (100 en vez de 121)', neto.margen != null && casi(neto.margen * 100, (base.neto / 100) * 100))
+  ok('pick & pack: 2 pedidos de 3 uds., 1 € paquete, 0,50 € artículo', costePickPack({ pickPaquete: 1, pickArticulo: 0.5, pickPrimeros: null, pickPrecioPrimeros: null }, 2, 6) === 5)
+  ok('pick & pack: el primer artículo a 0,80 y el resto a 0,50', costePickPack({ pickPaquete: 1, pickArticulo: 0.5, pickPrimeros: 1, pickPrecioPrimeros: 0.8 }, 2, 6) === 5.6)
 }
 
 console.log('=== baldosas a medida ===')

@@ -7,6 +7,7 @@
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { marketplaceById } from '@/lib/types/amazon'
+import { costePickPack, normalizarAjustes, type AjustesCuenta } from './ajustes'
 import { aKg, costeDeFila, REGLAS_CON_TABLA, type ReglaEnvio, type TablaEnvio } from './envio'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
 import type { FilaPanel } from './panel'
@@ -70,7 +71,7 @@ async function leerResumenDeCuentas(desde: string, hasta: string, compDesde: str
   const inicio = serieDesde && serieDesde < desde ? serieDesde : desde
   return Promise.all(
     cuentas.map(async (cu) => {
-      const iva = { pct: cu.iva, porPais: cu.ivaPorPais }
+      const iva = { ...cu.ajustes, pct: cu.iva, porPais: cu.ivaPorPais }
       const [todas, comp, costes] = await Promise.all([filasDelPanel(cu.id, inicio, hasta), compDesde && compHasta ? filasDelPanel(cu.id, compDesde, compHasta) : Promise.resolve(null), costesDelPanel(cu.id)])
       const filas = todas.filter((f) => f.dia >= desde && f.dia <= hasta)
       const dias = new Map<string, number>()
@@ -90,6 +91,8 @@ export interface CuentaDelPanel {
   iva: number
   /** «IVA de cada país» (OSS, migración 346): a cada venta, el IVA de su mercado */
   ivaPorPais: boolean
+  /** Los ajustes de la página «Configuración» (migración 353; sin ella, los de siempre) */
+  ajustes: AjustesCuenta
   mercados: string[]
   estado: {
     pedidosHasta: string | null
@@ -142,6 +145,7 @@ async function leerCuentasDelPanel(): Promise<CuentaDelPanel[]> {
         emoji: emojis.get((c ? nombreCliente.get(c.client_id) : null) ?? c?.name ?? '') ?? null,
         iva: n(f.iva_pct),
         ivaPorPais: f.iva_por_pais === true,
+        ajustes: normalizarAjustes(f.ajustes),
         mercados: c?.marketplace_ids ?? [],
         estado: {
           pedidosHasta: (f.pedidos_leido_hasta as string) ?? null,
@@ -212,6 +216,13 @@ export async function filasDelPanel(connectionId: string, desde: string, hasta: 
     if ((data ?? []).length < 1000) break
   }
   if (!envio || !fbm.some((x) => x.pedidos > 0)) return filas
+  // FBM Pick & Pack (Configuración): lo que cuesta preparar los pedidos FBM de cada fila
+  const ajustes = normalizarAjustes(((await s.from('ventas_cuentas').select('*').eq('connection_id', connectionId).maybeSingle()).data as { ajustes?: unknown } | null)?.ajustes)
+  if (ajustes.pickPaquete > 0 || ajustes.pickArticulo > 0 || (ajustes.pickPrimeros && ajustes.pickPrecioPrimeros)) {
+    filas.forEach((f, i) => {
+      if (fbm[i].pedidos) f.pickpack = costePickPack(ajustes, fbm[i].pedidos, fbm[i].unidades)
+    })
+  }
   // El coste de envío de los pedidos FBM de cada fila: lo importado por pedido manda; el resto, según el perfil que le toque
   const [perfiles, importados] = await Promise.all([perfilesDeEnvio(connectionId), envioImportado(connectionId, desde, hasta)])
   // El peso de cada producto (solo si algún perfil va por peso) y el cambio del dólar (solo si alguno está en dólares)
@@ -588,6 +599,19 @@ export async function anadirCuenta(connectionId: string): Promise<void> {
   const sinIva = (con as { region?: string } | null)?.region === 'na'
   const { error } = await createServiceClient().from('ventas_cuentas').upsert({ connection_id: connectionId, activa: true, ...(sinIva ? { iva_pct: 0 } : {}) }, { onConflict: 'connection_id' })
   if (error) throw error
+}
+
+/** Los ajustes de la página «Configuración» (migración 353) */
+export async function guardarAjustes(connectionId: string, ajustes: unknown): Promise<AjustesCuenta> {
+  olvidar('cuentas')
+  olvidar('resumen:')
+  const limpio = normalizarAjustes(ajustes)
+  const { error } = await createServiceClient().from('ventas_cuentas').update({ ajustes: limpio }).eq('connection_id', connectionId)
+  if (error) {
+    if (error.code === '42703' || /ajustes/.test(error.message ?? '')) throw new Error('Falta lanzar la migración 353 (ajustes de la cuenta).')
+    throw error
+  }
+  return limpio
 }
 
 export async function cambiarIvaPorPais(connectionId: string, porPais: boolean): Promise<void> {

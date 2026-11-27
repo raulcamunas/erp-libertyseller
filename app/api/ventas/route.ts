@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { canalesDeVentas, borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
+import { canalesDeVentas, borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, guardarAjustes, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
@@ -13,6 +13,7 @@ import { canalesDeVentas, borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, i
  *   POST { accion: 'anadir', cuenta }                 da de alta una cuenta en el panel (la lectura empieza sola en la próxima pasada)
  *   POST { accion: 'iva', cuenta, iva }               el IVA que se descuenta en esa cuenta
  *   POST { accion: 'iva-pais', cuenta, porPais }      «IVA de cada país» (OSS): a cada venta el IVA de su mercado (migración 346)
+ *   POST { accion: 'ajustes', cuenta, ajustes }       los ajustes de la cuenta de la página «Configuración» (migración 353)
  * Solo lee de la base, nunca de Amazon (eso lo hace el cron).
  */
 export const dynamic = 'force-dynamic'
@@ -127,6 +128,15 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(iva) || iva < 0 || iva > 30) return fail(400, 'El IVA no es válido.')
       await cambiarIva(b.cuenta, iva)
       return NextResponse.json({ ok: true })
+    }
+    // Los ajustes de la cuenta (página «Configuración», migración 353)
+    if (b.accion === 'ajustes') {
+      try {
+        return NextResponse.json({ ok: true, ajustes: await guardarAjustes(b.cuenta, (b as { ajustes?: unknown }).ajustes) })
+      } catch (e) {
+        if (/353/.test(String((e as { message?: string })?.message ?? ''))) return fail(409, 'Falta lanzar la migración 353 (ajustes de la cuenta) en Supabase.')
+        throw e
+      }
     }
     if (b.accion === 'iva-pais') {
       try {

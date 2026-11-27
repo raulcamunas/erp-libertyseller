@@ -14,6 +14,7 @@
  * reembolsos CON el IVA dentro (3,73 € de comisión de un juego de 19,99 € = 15 % + IVA), y ese IVA el vendedor lo recupera. Se guardan como vienen y aquí
  * se quitan: tarifa / (1 + IVA). Con IVA 0 (una cuenta de fuera de la UE) no cambia nada.
  */
+import type { AjustesCuenta } from './ajustes'
 
 export const DIA_MS = 86_400_000
 
@@ -35,8 +36,8 @@ export const IVA_DE_PAIS: Readonly<Record<string, number>> = {
   A1AM78C64UM0Y8: 0,
 }
 
-/** El IVA de una cuenta: un número (el mismo para todo, como hasta ahora) o, con «IVA de cada país», el de cada mercado para las ventas */
-export type Iva = number | { pct: number; porPais: boolean }
+/** El IVA de la cuenta y, si los hay, sus ajustes (página «Configuración»): sin ajustes calcula como siempre */
+export type Iva = number | ({ pct: number; porPais: boolean } & Partial<AjustesCuenta>)
 export const ivaDeLaCuenta = (iva: Iva): number => (typeof iva === 'number' ? iva : iva.pct)
 /** El IVA que se quita a las ventas de un mercado */
 export const ivaDeVentas = (iva: Iva, mkt: string): number => (typeof iva !== 'number' && iva.porPais ? (IVA_DE_PAIS[mkt] ?? iva.pct) : ivaDeLaCuenta(iva))
@@ -64,6 +65,8 @@ export interface FilaPanel {
   unidadesPpc: number
   /** Coste de enviar los pedidos FBM de esa fila (euros, en positivo), según los perfiles de «Costo de envío» (lib/ventas/panel-servidor.ts) */
   envio?: number
+  /** Lo que cuesta preparar esos pedidos FBM (FBM Pick & Pack de la Configuración) */
+  pickpack?: number
 }
 
 export interface Totales {
@@ -87,6 +90,8 @@ export interface Totales {
   cogs: number
   /** Coste de envío de los pedidos FBM (en positivo) */
   envio: number
+  /** FBM Pick & Pack (en positivo) */
+  pickpack: number
   /** Unidades vendidas de SKU sin coste puesto: el beneficio está inflado por ellas */
   unidadesSinCoste: number
   bruto: number
@@ -103,16 +108,21 @@ export interface Totales {
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 export function vacios(): Totales {
-  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, envio: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
+  return { ventas: 0, unidades: 0, pedidos: 0, reembolsos: 0, promo: 0, publicidad: 0, ventasPpc: 0, unidadesPpc: 0, tarifas: 0, referral: 0, fba: 0, otras: 0, estimadas: 0, costeReembolso: 0, reembolsado: 0, ajustes: 0, iva: 0, cogs: 0, envio: 0, pickpack: 0, unidadesSinCoste: 0, bruto: 0, neto: 0, pago: 0, margen: null, roi: null, tacos: null, tasaReembolso: null, precioMedio: null }
 }
 
 /** Suma unas filas y saca el beneficio. `costes` = coste por unidad de cada SKU (euros) */
 export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Readonly<Record<string, number>>, escala = 1): Totales {
   const t = vacios()
-  const sinIva = 1 / (1 + Math.max(0, ivaDeLaCuenta(ivaPct)) / 100)
+  const aj: Partial<AjustesCuenta> = typeof ivaPct === 'number' ? {} : ivaPct
+  const pct = Math.max(0, ivaDeLaCuenta(ivaPct))
+  const quitarIva = 1 / (1 + pct / 100)
+  // Las tarifas llevan IVA que se recupera (se cuentan sin él) salvo que la Configuración diga que no, o antes de su fecha
+  const factorTarifas = (dia: string) => (aj.tarifasConIva === false || (aj.tarifasIvaDesde && dia < aj.tarifasIvaDesde) ? 1 : quitarIva)
   // El IVA de las ventas, fila a fila (con «IVA de cada país» cada mercado lleva el suyo)
   let iva = 0
   for (const f of filas) {
+    const sinIva = factorTarifas(f.dia)
     t.ventas += f.ventas
     t.unidades += f.unidades
     t.pedidos += f.pedidos
@@ -129,8 +139,9 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
     t.costeReembolso += f.comisionReembolso * sinIva - f.reembolsado
     t.ajustes += f.ajustes
     t.envio += f.envio ?? 0
+    t.pickpack += f.pickpack ?? 0
     t.pago += f.ventas - f.promo + f.referral + f.fba + f.otras + f.comisionReembolso - f.reembolsado + f.ajustes
-    const r = ivaDeVentas(ivaPct, f.mkt)
+    const r = aj.ivaVentas === false || (aj.ivaVentasDesde && f.dia < aj.ivaVentasDesde) ? 0 : ivaDeVentas(ivaPct, f.mkt)
     iva += Math.max(0, f.ventas - f.promo - f.reembolsado) * (r / (100 + r))
     if (f.sku && f.unidades) {
       const c = costes[f.sku]
@@ -140,18 +151,22 @@ export function totalizar(filas: readonly FilaPanel[], ivaPct: Iva, costes: Read
   }
   t.tarifas = t.referral + t.fba + t.otras
   t.iva = Math.max(0, iva)
-  t.bruto = t.ventas - t.promo + t.tarifas + t.costeReembolso - t.publicidad - t.iva - t.cogs - t.envio + t.ajustes
+  // «Agregar IVA local a los costes de publicidad»: Amazon Ads factura sin IVA y hay quien no lo recupera
+  if (aj.ivaPublicidad) t.publicidad *= 1 + pct / 100
+  t.bruto = t.ventas - t.promo + t.tarifas + t.costeReembolso - t.publicidad - t.iva - t.cogs - t.envio - t.pickpack + t.ajustes
   t.neto = t.bruto
   if (escala !== 1) {
-    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
+    for (const k of ['ventas', 'unidades', 'pedidos', 'reembolsos', 'promo', 'publicidad', 'ventasPpc', 'unidadesPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'unidadesSinCoste', 'bruto', 'neto', 'pago'] as const) {
       t[k] = t[k] * escala
     }
     t.unidades = Math.round(t.unidades)
     t.pedidos = Math.round(t.pedidos)
     t.reembolsos = Math.round(t.reembolsos)
   }
-  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
-  t.margen = t.ventas > 0 ? t.neto / t.ventas : null
+  for (const k of ['ventas', 'promo', 'publicidad', 'ventasPpc', 'tarifas', 'referral', 'fba', 'otras', 'estimadas', 'costeReembolso', 'reembolsado', 'ajustes', 'iva', 'cogs', 'envio', 'pickpack', 'bruto', 'neto', 'pago'] as const) t[k] = r2(t[k])
+  // «Utilizar las ventas netas para calcular el margen»: sobre las ventas sin IVA
+  const base = aj.margenSobreNeto ? t.ventas - t.iva : t.ventas
+  t.margen = base > 0 ? t.neto / base : null
   // El ROI solo con TODOS los costes puestos: con la mitad sale disparado (beneficio de todo entre el coste de unos pocos)
   t.roi = t.cogs > 0 && t.unidadesSinCoste === 0 ? t.neto / t.cogs : null
   t.tacos = t.ventas > 0 ? t.publicidad / t.ventas : null

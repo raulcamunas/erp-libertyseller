@@ -158,7 +158,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
   const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
   const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones }), [datos])
-  const iva = useMemo(() => ({ pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais])
+  const iva = useMemo(() => ({ ...cuenta.ajustes, pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais, cuenta.ajustes])
   const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
 
   const porCubeta = useMemo(() => {

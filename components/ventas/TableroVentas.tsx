@@ -230,7 +230,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
     [cuentaId]
   )
   const extras = useMemo(() => ({ stock: datos?.productos?.stock, bsr: datos?.productos?.bsr, sesiones: datos?.sesiones, inventario: datos?.productos?.inventario, onCoste }), [datos, onCoste])
-  const iva = useMemo(() => ({ pct: cuenta?.iva ?? 21, porPais: cuenta?.ivaPorPais ?? false }), [cuenta?.iva, cuenta?.ivaPorPais])
+  const iva = useMemo(() => ({ ...cuenta?.ajustes, pct: cuenta?.iva ?? 21, porPais: cuenta?.ivaPorPais ?? false }), [cuenta?.iva, cuenta?.ivaPorPais, cuenta?.ajustes])
 
   const totales: Totales[] = useMemo(() => periodos.map((p) => totalizar(filas.filter((f) => enRango(f.dia, p)), iva, costes, p.escala ?? 1)), [periodos, filas, iva, costes])
   const totalesComp: Array<Totales | null> = useMemo(

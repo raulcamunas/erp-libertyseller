@@ -80,6 +80,7 @@ const FILAS: FilaPyG[] = [
   { id: 'cogs', texto: 'Coste de los productos', valor: (t) => -t.cogs, formato: 'euros' },
   { id: 'iva', texto: 'IVA', valor: (t) => -t.iva, formato: 'euros' },
   { id: 'envio', texto: 'Costo de envío (FBM)', valor: (t) => -t.envio, formato: 'euros' },
+  { id: 'pickpack', texto: 'FBM Pick & Pack', valor: (t) => -t.pickpack, formato: 'euros' },
   { id: 'ajustes', texto: 'Ajustes y reembolsos de Amazon', valor: (t) => t.ajustes, formato: 'euros' },
   { id: 'bruto', texto: 'Ganancia bruta', valor: (t) => t.bruto, formato: 'euros' },
   { id: 'neto', texto: 'Ganancia neta', valor: (t) => t.neto, formato: 'euros', fuerte: true },
@@ -163,7 +164,7 @@ export function VistaPyG({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; hoy: s
   const filasAnio = useMemo(() => filtrar(anio), [anio, mercados, skus]) // eslint-disable-line react-hooks/exhaustive-deps
   const costes = useMemo(() => datos?.productos?.costes ?? {}, [datos])
   const titulos = useMemo(() => datos?.productos?.titulos ?? {}, [datos])
-  const iva = useMemo(() => ({ pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais])
+  const iva = useMemo(() => ({ ...cuenta.ajustes, pct: cuenta.iva, porPais: cuenta.ivaPorPais }), [cuenta.iva, cuenta.ivaPorPais, cuenta.ajustes])
   const mercadosConDatos = useMemo(() => [...new Set((datos?.filas ?? []).map((f) => f.mkt))].sort((a, b) => pais(a).localeCompare(pais(b), 'es')), [datos])
 
   const tDe = (c: Cubeta, fs: readonly FilaPanel[] = filas) => totalizar(fs.filter((f) => f.dia >= c.desde && f.dia <= c.hasta), iva, costes)

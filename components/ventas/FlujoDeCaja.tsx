@@ -139,7 +139,9 @@ export function FlujoDeCaja() {
     void leerAhora()
   }, [cuentaId, d, leyendo, leerAhora])
 
-  const todos = useMemo(() => (d ? construirFlujo(d.pagos, d.apuntes, hoyIso(), sinPronostico ? 0 : 2) : []), [d, sinPronostico])
+  // «Flujo de caja: considerar pagos de Amazon a partir de» (Configuración): los anteriores no cuentan
+  const flujoDesde = cuentas?.find((c) => c.id === cuentaId)?.ajustes?.flujoDesde ?? null
+  const todos = useMemo(() => (d ? construirFlujo(flujoDesde ? d.pagos.filter((p) => (p.fin ?? p.inicio ?? '9999') >= flujoDesde) : d.pagos, d.apuntes, hoyIso(), sinPronostico ? 0 : 2) : []), [d, sinPronostico, flujoDesde])
   const periodos = useMemo(() => {
     const dias = RANGOS.find((r) => r[0] === rango)?.[2]
     if (!dias) return todos

@@ -71,7 +71,7 @@ export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir, className
   )
 }
 
-function Inicial({ texto, emoji }: { texto: string; emoji?: string | null }) {
+export function Inicial({ texto, emoji }: { texto: string; emoji?: string | null }) {
   if (emoji) {
     return (
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-[18px] leading-none" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, #F26212 22%, var(--ls-sup2)), var(--ls-sup2))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, #F26212 28%, transparent)' }} aria-hidden>
