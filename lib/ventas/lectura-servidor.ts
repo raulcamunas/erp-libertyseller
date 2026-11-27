@@ -24,6 +24,7 @@ import { tiposDeCambio } from '@/lib/divisas/servidor'
 import { diaEnZona, zonaDeMercado } from '@/lib/fba/pedidos'
 import { consultarInforme, descargarInforme } from '@/lib/plataforma/amazon/informes'
 import { createServiceClient } from '@/lib/supabase/service'
+import { leerPagosDeAmazon } from './flujo-servidor'
 import {
   INFORME_DEVOLUCIONES,
   INFORME_PEDIDOS_VENTAS,
@@ -207,6 +208,19 @@ export async function pasadaVentas(presupuestoMs: number): Promise<ResultadoPasa
         } catch (e) {
           errores.push(`devoluciones: ${mensajeDe(e)}`)
           await guardar(service, c.connection_id, { devoluciones_informe_id: null }).catch(() => undefined)
+        }
+      }
+
+      // 3c · Los pagos de Amazon (las liquidaciones) para el flujo de caja, cada 6 horas. Sin la migración 352 no hay columna y no se hace nada
+      if (quedan() > 20_000 && 'pagos_leido_at' in c) {
+        const leido = (c as unknown as { pagos_leido_at: string | null }).pagos_leido_at
+        if (!leido || Date.now() - Date.parse(leido) > 6 * 3_600_000) {
+          try {
+            const n = await leerPagosDeAmazon(c.connection_id, creds)
+            salida.hechos.push(`${connection.name}: ${n} liquidaciones`)
+          } catch (e) {
+            errores.push(`pagos: ${mensajeDe(e)}`)
+          }
         }
       }
 

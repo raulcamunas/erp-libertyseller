@@ -65,6 +65,7 @@ export type AmazonOperation =
   | 'getOrderItems'
   // ---------- La del dinero, con el IVA separado del precio ----------
   | 'listFinancialEvents'
+  | 'listFinancialEventGroups'
   // ---------- Las del seguimiento de envíos a FBA ----------
   | 'getInboundShipments'
   | 'getInboundShipmentItems'
@@ -217,6 +218,8 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
    * es cuando se sabrá cuántas páginas son de verdad.
    */
   listFinancialEvents: { rate: 0.5, burst: 1 },
+  /** Las liquidaciones (pagos al banco) para el flujo de caja: 0,5 por segundo con ráfaga de 30 (publicado). Pocas páginas */
+  listFinancialEventGroups: { rate: 0.5, burst: 5 },
 
   /** Solicitations API: 1 por segundo con ráfaga de 5 (publicado). De momento solo la usa la sonda de reseñas */
   getSolicitationActionsForOrder: { rate: 1, burst: 5 },

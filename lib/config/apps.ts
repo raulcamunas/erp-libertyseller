@@ -41,6 +41,7 @@ import {
   PackageSearch,
   Star,
   Truck,
+  Wallet,
 } from 'lucide-react'
 import { LucideIcon } from 'lucide-react'
 import type { GrupoParaElMenu } from '@/lib/layout/menu'
@@ -487,6 +488,16 @@ export const apps: AppConfig[] = [
     category: 'analytics'
   },
   {
+    id: 'ventas-flujo',
+    name: 'Flujo de caja',
+    nombreCorto: 'Flujo de caja',
+    description: 'Los pagos de Amazon de cada liquidación y lo que entra y sale a mano: el efectivo del cliente (como «Flujo de caja» de Sellerboard)',
+    icon: Wallet,
+    route: '/dashboard/ventas/flujo',
+    status: 'new',
+    category: 'analytics'
+  },
+  {
     id: 'ventas-resenas',
     name: 'Reseñas',
     nombreCorto: 'Reseñas',
@@ -715,6 +726,7 @@ export const APPS_SOLO_ADMIN: ReadonlySet<string> = new Set([
   'ventas',
   'ventas-productos',
   'ventas-resenas',
+  'ventas-flujo',
   'ventas-envio',
   // 'marketing-test', 'seo-test' y 'cumplimiento' ESTUVIERON AQUÍ hasta el 14 nov 2026: desde ese día las cuentas
   // de los clientes las llevan los administrativos, persona a persona con la casilla (lib/cuentas/acceso.ts).
@@ -1059,7 +1071,7 @@ export const GRUPOS_DEL_MENU: readonly GrupoDelMenu[] = [
     name: 'Sellerboard',
     description: 'Tablero de ventas y beneficio, productos con su COGS y reseñas',
     icon: Coins,
-    apps: ['ventas', 'ventas-productos', 'ventas-envio', 'ventas-resenas'],
+    apps: ['ventas', 'ventas-productos', 'ventas-envio', 'ventas-flujo', 'ventas-resenas'],
     despuesDe: 'correo',
   },
   {
