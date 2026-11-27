@@ -177,16 +177,22 @@ export async function leerPreparacion(creds: AmazonCredentials, marketplaceId: s
     const tanda = mskus.slice(i, i + 100)
     const leer = (path: string, query?: Record<string, string | string[]>) =>
       spApiRequest<{ mskuPrepDetails?: Array<Record<string, unknown>> }>(creds, 'listPrepDetails', { method: 'GET', path, query, maxAttempts: 2, repeatable: true })
-    let r
+    // La lista de SKU separada por comas; si Amazon devuelve menos de los pedidos, repitiendo el parámetro (collectionFormat multi). Se queda la que traiga más
+    let lista: PrepDeSku[] = []
     try {
-      // La lista de SKU repitiendo el parámetro (collectionFormat multi)…
-      r = await leer(`${RUTA}/items/prepDetails?marketplaceId=${enc(marketplaceId)}&${tanda.map((m) => `mskus=${enc(m)}`).join('&')}`)
+      lista = ((await leer(`${RUTA}/items/prepDetails`, { marketplaceId, mskus: tanda })).data?.mskuPrepDetails ?? []).map(aPrep)
     } catch (e) {
       if (!(e instanceof AmazonApiError) || e.httpStatus !== 400) throw e
-      // …o separada por comas
-      r = await leer(`${RUTA}/items/prepDetails`, { marketplaceId, mskus: tanda })
     }
-    out.push(...(r.data?.mskuPrepDetails ?? []).map(aPrep))
+    if (lista.length < tanda.length) {
+      try {
+        const otra = ((await leer(`${RUTA}/items/prepDetails?marketplaceId=${enc(marketplaceId)}&${tanda.map((m) => `mskus=${enc(m)}`).join('&')}`)).data?.mskuPrepDetails ?? []).map(aPrep)
+        if (otra.length > lista.length) lista = otra
+      } catch (e) {
+        if (!lista.length) throw e
+      }
+    }
+    out.push(...lista)
   }
   return out
 }
