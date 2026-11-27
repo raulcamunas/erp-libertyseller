@@ -10,7 +10,7 @@ import { bandera } from './piezas'
  * VENTAS · EL CLIENTE QUE SE MIRA: un desplegable propio (no el del navegador) con los clientes vinculados al panel, sus países y cómo va su lectura
  * (al día, cargando o con avisos). Abajo, «Añadir cuenta».
  */
-export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir }: { cuentas: CuentaDelPanel[]; valor: string | null; onCambio: (id: string) => void; onAnadir?: () => void }) {
+export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir, className = '' }: { cuentas: CuentaDelPanel[]; valor: string | null; onCambio: (id: string) => void; onAnadir?: () => void; className?: string }) {
   const [abierto, setAbierto] = useState(false)
   const [q, setQ] = useState('')
   const caja = useRef<HTMLDivElement>(null)
@@ -25,8 +25,8 @@ export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir }: { cuent
   const nombre = (c: CuentaDelPanel) => c.cliente ?? c.nombre
 
   return (
-    <div ref={caja} className="relative">
-      <button type="button" onClick={() => setAbierto((x) => !x)} className="flex h-11 min-w-[260px] items-center gap-3 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] pl-[6px] pr-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition-colors hover:border-[color-mix(in_srgb,var(--ls-t1)_18%,var(--ls-linea))]" aria-expanded={abierto}>
+    <div ref={caja} className={`relative ${className}`}>
+      <button type="button" onClick={() => setAbierto((x) => !x)} className="flex h-11 w-full min-w-0 items-center sm:min-w-[260px] gap-3 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] pl-[6px] pr-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition-colors hover:border-[color-mix(in_srgb,var(--ls-t1)_18%,var(--ls-linea))]" aria-expanded={abierto}>
         {actual && <Inicial texto={nombre(actual)} emoji={actual.emoji} />}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13.5px] font-semibold text-[var(--ls-t1)]">{actual ? nombre(actual) : 'Elegir cliente'}</span>
@@ -36,7 +36,7 @@ export function SelectorDeCuenta({ cuentas, valor, onCambio, onAnadir }: { cuent
         <ChevronDown className={`h-[15px] w-[15px] text-[var(--ls-t4)] transition-transform ${abierto ? 'rotate-180' : ''}`} />
       </button>
       {abierto && (
-        <motion.div initial={{ opacity: 0, y: -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.15 }} className="absolute right-0 top-[50px] z-40 w-[340px] overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-3)]">
+        <motion.div initial={{ opacity: 0, y: -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.15 }} className="absolute right-0 top-[50px] z-40 w-[min(340px,calc(100vw-32px))] overflow-hidden rounded-[16px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-3)]">
           {cuentas.length > 6 && (
             <label className="flex items-center gap-2 border-b border-[var(--ls-linea)] px-3 py-2">
               <Search className="h-[14px] w-[14px] text-[var(--ls-t4)]" />

@@ -283,13 +283,13 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   return (
     <Marco
       acciones={
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href="/dashboard/ventas" className="inline-flex h-11 items-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)]">
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-wrap">
+          <Link href="/dashboard/ventas" title="Todas las cuentas" aria-label="Todas las cuentas" className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[12.5px] font-medium text-[var(--ls-t2)] transition-colors hover:text-[var(--ls-t1)] sm:w-auto sm:px-3">
             <ArrowLeft className="h-[14px] w-[14px]" />
-            Todas las cuentas
+            <span className="hidden sm:inline">Todas las cuentas</span>
           </Link>
-          {cuentas && <SelectorDeCuenta cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
-          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+          {cuentas && <SelectorDeCuenta className="min-w-0 flex-1 sm:flex-none" cuentas={cuentas} valor={cuentaId} onCambio={(id) => { setCuentaId(id); setSeleccion(null); router.replace(`/dashboard/ventas?cuenta=${id}`, { scroll: false }) }} onAnadir={() => setAnadir(true)} />}
+          <button type="button" onClick={() => { cache.current = { productosDe: null, productos: null, compDe: null }; setReloj((x) => x + 1) }} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           </button>
         </div>
@@ -299,14 +299,14 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
 
       {cuenta?.estado.primeraLectura && <ProgresoDeLectura estado={cuenta.estado} />}
       {cuenta?.estado.error && !cuenta.estado.primeraLectura && (
-        <div className="mb-4 flex items-start gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 text-[12px] text-[var(--ls-t3)]">
-          <AlertTriangle className="mt-[1px] h-[14px] w-[14px] shrink-0" style={{ color: 'var(--ls-e-ambar)' }} /> Última lectura con avisos: {cuenta.estado.error}
+        <div className="mb-3 flex items-start gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-2 text-[11.5px] text-[var(--ls-t3)] sm:mb-4 sm:p-3 sm:text-[12px]" title={cuenta.estado.error}>
+          <AlertTriangle className="mt-[1px] h-[14px] w-[14px] shrink-0" style={{ color: 'var(--ls-e-ambar)' }} /> <span className="line-clamp-2 sm:line-clamp-none">Última lectura con avisos: {cuenta.estado.error}</span>
         </div>
       )}
       {error && <p className="mb-4 rounded-[12px] border border-[var(--ls-linea)] p-3 text-[12.5px]" style={{ color: ROJO }}>{error}</p>}
 
       {/* Todo en una línea: la vista, los productos y (en Baldosas) el periodo y los países */}
-      <div className="mb-5 flex flex-wrap items-center gap-2 xl:flex-nowrap">
+      <div className="mb-3 flex flex-wrap items-center gap-2 sm:mb-5 xl:flex-nowrap">
         <Segmentado
           etiqueta="Vista"
           valor={vista}
@@ -317,7 +317,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
             { id: 'pyg', texto: 'P&L', icono: Rows3 },
           ]}
         />
-        {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} className="min-w-[260px] flex-1" />}
+        {cuenta && <SelectorDeProductos productos={elegibles} seleccion={seleccion} onCambio={setSeleccion} className="w-full sm:w-auto sm:min-w-[260px] sm:flex-1" />}
         {vista === 'baldosas' && filtrosBaldosas}
       </div>
       <AltoEstable clave={vista}>
@@ -326,7 +326,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       {vista === 'baldosas' && (
         <>
       {cuenta && !cuenta.estado.primeraLectura && (
-        <div className="-mt-3 mb-4 flex justify-end">
+        <div className="-mt-3 mb-4 hidden justify-end sm:flex">
           <EstadoHistorial estado={cuenta.estado} hoy={hoy} />
         </div>
       )}
@@ -472,12 +472,17 @@ export function Marco({ children, acciones, debajo, titulo = 'Sellerboard', subt
   return (
     <div className="relative isolate w-full min-w-0 pb-12 lg:px-1">
       {/* La luz de fondo: dos manchas muy difusas (naranja y violeta) que dan profundidad sin distraer */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-10 -z-10 h-[620px] overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -top-10 -z-10 h-[620px] overflow-hidden"
+        // El resplandor se apaga ANTES de los bordes de su caja: sin esto se ve el corte recto a los lados y abajo
+        style={{ maskImage: 'radial-gradient(ellipse 50% 100% at 50% 0%, #000 30%, transparent 100%)', WebkitMaskImage: 'radial-gradient(ellipse 50% 100% at 50% 0%, #000 30%, transparent 100%)' }}
+      >
         <div className="absolute -left-20 top-0 h-[420px] w-[620px] rounded-full opacity-[0.10] blur-[120px]" style={{ background: '#F26212' }} />
         <div className="absolute right-[-120px] top-24 h-[380px] w-[560px] rounded-full opacity-[0.07] blur-[130px]" style={{ background: '#8B5CF6' }} />
         <div className="absolute left-[38%] top-[280px] h-[260px] w-[420px] rounded-full opacity-[0.05] blur-[110px]" style={{ background: '#38BDF8' }} />
       </div>
-      <CabeceraDeModulo icono={icono} acento="marca" titulo={titulo} subtitulo={subtitulo} acciones={acciones} debajo={debajo} />
+      <CabeceraDeModulo icono={icono} acento="marca" titulo={titulo} subtitulo={<span className="hidden sm:inline">{subtitulo}</span>} acciones={acciones} debajo={debajo} />
       <div className="mt-4">{children}</div>
     </div>
   )
@@ -660,7 +665,7 @@ export function MiniArea({ valores, color, id, viva }: { valores: number[]; colo
 }
 
 /** El neto en la baldosa (que es estrecha): «964 €», y de 1.000 en adelante «8,7k €» */
-const corto = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €` : euros(v, 0))
+const corto = (v: number) => euros(v)
 
 /** Una de las tres cifras de abajo de la baldosa */
 function Dato({ texto, valor, color, delta, onClick }: { texto: string; valor: string; color?: string; delta?: React.ReactNode; onClick?: () => void }) {
@@ -770,7 +775,9 @@ function ElegirRango({ inicial, hoy, activo, onAplicar }: { inicial: { desde: st
 
 function EstadoHistorial({ estado, hoy }: { estado: CuentaDelPanel['estado']; hoy: string }) {
   const desde = estado.historicoHasta ?? sumarDias(hoy, -62)
-  const objetivo = estado.historicoObjetivo ?? sumarDias(hoy, -730)
+  // Amazon guarda 730 días: el objetivo nunca es más viejo que eso (lib/ventas/lectura-servidor.ts)
+  const limite = sumarDias(hoy, -728)
+  const objetivo = [estado.historicoObjetivo ?? limite, limite].sort().reverse()[0]
   const completo = desde <= objetivo
   return (
     <span className="ml-auto inline-flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)]" title={completo ? 'Historial completo: 2 años' : 'El historial se carga solo hacia atrás, mes a mes, hasta 2 años'}>

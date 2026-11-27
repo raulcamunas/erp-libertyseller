@@ -26,7 +26,10 @@ export const NARANJA2 = '#FF8A3D'
 export const VERDE = COLOR_ESTADO.verde
 export const ROJO = COLOR_ESTADO.rojo
 
-export const euros = (n: number | null | undefined, dec = 2) => (n == null || !Number.isFinite(n) ? '—' : (Math.abs(n) < 0.005 ? 0 : n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: dec, maximumFractionDigits: dec }))
+// SIEMPRE con dos decimales y punto de miles también en las de 4 cifras (en es-ES, 1322 € saldría sin punto). `_dec` se ignora: Raúl quiere los céntimos en todas partes
+const FORMATO_EUROS = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' } as Intl.NumberFormatOptions)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const euros = (n: number | null | undefined, _dec = 2) => (n == null || !Number.isFinite(n) ? '—' : FORMATO_EUROS.format(Math.abs(n) < 0.005 ? 0 : n))
 export const entero = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : Math.round(n).toLocaleString('es-ES'))
 export const pct = (n: number | null | undefined, dec = 1) => (n == null || !Number.isFinite(n) ? '—' : `${(n * 100).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })} %`)
 export const fechaCorta = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' })

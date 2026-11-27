@@ -549,7 +549,9 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
   // Sin la migración 345 las columnas no existen (select * no las trae): no se hace nada
   if (!('historico_hasta' in c)) return null
   const hoy = hoyEn()
-  const objetivo = c.historico_objetivo ?? desplazar(hoy, -DIAS_HISTORIAL)
+  // Amazon guarda el dinero 730 días exactos: con dos de margen, y aunque el objetivo se fijara hace días (cada día que pasa, el límite avanza)
+  const limite = desplazar(hoy, -(DIAS_HISTORIAL - 2))
+  const objetivo = [c.historico_objetivo ?? limite, limite].sort().reverse()[0]
   const tope = c.historico_hasta ?? desplazar(hoy, -DIAS_VENTANA)
   if (tope <= objetivo) return null
   const ahora = new Date()
@@ -594,7 +596,7 @@ async function pasoHistorial(service: Servicio, c: Cuenta, creds: Parameters<typ
     const { data } = await spApiRequest<{ payload?: { FinancialEvents?: Record<string, unknown>; NextToken?: string } }>(creds, 'listFinancialEvents', {
       method: 'GET',
       path: '/finances/v0/financialEvents',
-      query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', PostedAfter: `${desplazar(desde, -1)}T00:00:00Z`, PostedBefore: `${finDinero}T00:00:00Z` },
+      query: siguiente ? { NextToken: siguiente } : { MaxResultsPerPage: '100', PostedAfter: `${[desplazar(desde, -1), limite].sort().reverse()[0]}T00:00:00Z`, PostedBefore: `${finDinero}T00:00:00Z` },
       maxAttempts: 4,
     })
     const leido = leerDinero(data?.payload?.FinancialEvents ?? {}, mercado, porEuro, { publicidadFacturada: true })
