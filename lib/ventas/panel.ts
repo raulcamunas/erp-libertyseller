@@ -175,6 +175,8 @@ export interface Periodo extends Rango {
   /** Pronóstico: lo de `desde`–`hasta` (hasta hoy) multiplicado por esto; `hastaPronostico` es el final del mes */
   escala?: number
   hastaPronostico?: string
+  /** La ha cambiado el usuario (otro periodo que el de la tanda) */
+  ajustado?: boolean
 }
 
 export type Tanda = 'clasica' | 'dias' | 'semanas' | 'meses' | 'trimestres' | 'rango'
@@ -248,6 +250,84 @@ export function periodosDe(tanda: Tanda, hoy: string, fraccionDeHoy: number): Pe
     { id: 'pronostico', titulo: 'Este mes (pronóstico)', desde: im, hasta: hoy, escala: diasMes / transcurridos, hastaPronostico: finMes(hoy) },
     { id: 'pasado', titulo: 'El mes pasado', desde: inicioMes(hoy, 1), hasta: finMes(hoy, 1) },
   ]
+}
+
+/* ------------------------------------------------------------------ */
+/* Baldosas a medida: cada una con el periodo (y la comparación) que se quiera */
+/* ------------------------------------------------------------------ */
+
+export type Preajuste = 'hoy' | 'ayer' | '7' | '30' | 'mes_pasado' | 'hace2m' | 'hace3m' | 'este_mes' | 'este_trimestre' | 'ultimo_trimestre' | 'hace2t' | 'hace3t' | 'este_anio'
+export const PREAJUSTES: Array<[Preajuste, string]> = [
+  ['hoy', 'Hoy'],
+  ['ayer', 'Ayer'],
+  ['7', 'Últimos 7 días'],
+  ['30', 'Últimos 30 días'],
+  ['este_mes', 'Este mes'],
+  ['mes_pasado', 'El mes pasado'],
+  ['hace2m', 'Hace 2 meses'],
+  ['hace3m', 'Hace 3 meses'],
+  ['este_trimestre', 'Este trimestre'],
+  ['ultimo_trimestre', 'Último trimestre'],
+  ['hace2t', 'Hace 2 trimestres'],
+  ['hace3t', 'Hace 3 trimestres'],
+  ['este_anio', 'Este año'],
+]
+
+/** Las fechas de un preajuste visto desde `hoy`: «Este mes» sigue siendo este mes mañana (por eso se guarda el preajuste y no las fechas) */
+export function rangoDePreajuste(p: Preajuste, hoy: string): Rango {
+  const d = new Date(`${hoy}T00:00:00Z`)
+  const trimestre = (n: number): Rango => {
+    const q = Math.floor(d.getUTCMonth() / 3) - n
+    const desde = new Date(Date.UTC(d.getUTCFullYear(), q * 3, 1)).toISOString().slice(0, 10)
+    return { desde, hasta: n === 0 ? hoy : new Date(Date.UTC(d.getUTCFullYear(), q * 3 + 3, 0)).toISOString().slice(0, 10) }
+  }
+  switch (p) {
+    case 'hoy':
+      return { desde: hoy, hasta: hoy }
+    case 'ayer':
+      return { desde: sumarDias(hoy, -1), hasta: sumarDias(hoy, -1) }
+    case '7':
+      return { desde: sumarDias(hoy, -6), hasta: hoy }
+    case '30':
+      return { desde: sumarDias(hoy, -29), hasta: hoy }
+    case 'este_mes':
+      return { desde: inicioMes(hoy), hasta: hoy }
+    case 'mes_pasado':
+      return { desde: inicioMes(hoy, 1), hasta: finMes(hoy, 1) }
+    case 'hace2m':
+      return { desde: inicioMes(hoy, 2), hasta: finMes(hoy, 2) }
+    case 'hace3m':
+      return { desde: inicioMes(hoy, 3), hasta: finMes(hoy, 3) }
+    case 'este_trimestre':
+      return trimestre(0)
+    case 'ultimo_trimestre':
+      return trimestre(1)
+    case 'hace2t':
+      return trimestre(2)
+    case 'hace3t':
+      return trimestre(3)
+    case 'este_anio':
+      return { desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy }
+  }
+}
+
+/** Lo que se ha cambiado de una baldosa: su periodo (un preajuste o fechas fijas) y, si se quiere, con qué se compara */
+export interface AjusteBaldosa {
+  preajuste?: Preajuste
+  desde?: string
+  hasta?: string
+  /** Fechas fijas con las que comparar. Sin esto, el año anterior como siempre */
+  comp?: Rango
+}
+
+export function ajustarPeriodo(p: Periodo, a: AjusteBaldosa | undefined, hoy: string): Periodo {
+  if (!a) return p
+  if (a.preajuste) {
+    const r = rangoDePreajuste(a.preajuste, hoy)
+    return { id: p.id, titulo: PREAJUSTES.find((x) => x[0] === a.preajuste)?.[1] ?? p.titulo, ...r, ajustado: true }
+  }
+  if (a.desde && a.hasta && a.desde <= a.hasta) return { id: p.id, titulo: 'Rango propio', desde: a.desde, hasta: a.hasta, ajustado: true }
+  return p
 }
 
 /** El rango con el que se compara un periodo: el mismo del año anterior o el inmediatamente anterior de la misma duración */

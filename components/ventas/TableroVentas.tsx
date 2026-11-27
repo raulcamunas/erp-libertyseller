@@ -1,13 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, Check, ChevronDown, Coins, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, ChartColumnBig, LayoutGrid, Rows3, Calendar, CalendarDays, Check, ChevronDown, Coins, Globe, Loader2, Megaphone, Plus, Receipt, RefreshCw, ShoppingBag } from 'lucide-react'
 import { CabeceraDeModulo, CifraAnimada, PanelLateral, Segmentado } from '@/components/ui-ls'
-import { hoyEnMadrid, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type Comparar, type FilaPanel, type Periodo, type Tanda, type Totales } from '@/lib/ventas/panel'
+import { ajustarPeriodo, hoyEnMadrid, PREAJUSTES, rangoDePreajuste, type Preajuste, periodosDe, rangoAComparar, sumarDias, TANDAS, totalizar, enRango, type AjusteBaldosa, type Comparar, type FilaPanel, type Periodo, type Rango, type Tanda, type Totales } from '@/lib/ventas/panel'
 import type { InventarioDelProducto, BsrDelProducto, CuentaDelPanel, LineaDelPanel } from '@/lib/ventas/panel-servidor'
 import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
@@ -66,11 +67,37 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   const cache = useRef<{ productosDe: string | null; productos: Datos['productos']; compDe: string | null }>({ productosDe: null, productos: null, compDe: null })
 
   const { hoy, fraccion } = useMemo(() => hoyEnMadrid(), [reloj]) // eslint-disable-line react-hooks/exhaustive-deps
+  // BALDOSAS A MEDIDA: cada baldosa puede llevar otro periodo y otra comparación (se guarda en este navegador, por tanda y baldosa)
+  const [ajustes, setAjustes] = useState<Record<string, AjusteBaldosa>>({})
+  useEffect(() => {
+    try {
+      const x = JSON.parse(localStorage.getItem(AJUSTES_BALDOSAS) ?? 'null')
+      if (x && typeof x === 'object') setAjustes(x as Record<string, AjusteBaldosa>)
+    } catch {
+      /* sin ajustes guardados */
+    }
+  }, [])
+  const ajustar = useCallback((clave: string, a: AjusteBaldosa | null) => {
+    setAjustes((prev) => {
+      const n = { ...prev }
+      if (a) n[clave] = a
+      else delete n[clave]
+      try {
+        localStorage.setItem(AJUSTES_BALDOSAS, JSON.stringify(n))
+      } catch {
+        /* da igual */
+      }
+      return n
+    })
+  }, [])
   const periodos: Periodo[] = useMemo(
-    () => (tanda === 'rango' && rango ? [{ id: 'rango', titulo: 'Rango elegido', desde: rango.desde, hasta: rango.hasta }] : periodosDe(tanda === 'rango' ? 'clasica' : tanda, hoy, fraccion)),
-    [tanda, rango, hoy, fraccion],
+    () =>
+      tanda === 'rango' && rango
+        ? [{ id: 'rango', titulo: 'Rango elegido', desde: rango.desde, hasta: rango.hasta }]
+        : periodosDe(tanda === 'rango' ? 'clasica' : tanda, hoy, fraccion).map((p) => ajustarPeriodo(p, ajustes[`${tanda}:${p.id}`], hoy)),
+    [tanda, rango, hoy, fraccion, ajustes],
   )
-  const comparados = useMemo(() => periodos.map((p) => rangoAComparar(p, comparar)), [periodos, comparar])
+  const comparados = useMemo(() => periodos.map((p) => ajustes[`${tanda}:${p.id}`]?.comp ?? rangoAComparar(p, comparar)), [periodos, comparar, ajustes, tanda])
   const cuenta = cuentas?.find((c) => c.id === cuentaId) ?? null
   const periodoElegido = periodos.find((p) => p.id === elegido) ?? periodos[0]
 
@@ -361,7 +388,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       <div ref={carrusel} className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:pb-0 xl:grid-cols-5 [&::-webkit-scrollbar]:hidden">
         {periodos.map((p, i) => (
           <div key={`${tanda}-${p.id}`} data-periodo={p.id} className="w-[86%] max-w-[380px] shrink-0 snap-center sm:w-auto sm:max-w-none">
-          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} onReembolsos={() => setMotivos(p)} />
+          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} comp={comparados[i]} ajuste={tanda === 'rango' ? null : (ajustes[`${tanda}:${p.id}`] ?? null)} onAjustar={tanda === 'rango' ? undefined : (a) => ajustar(`${tanda}:${p.id}`, a)} hoy={hoy} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} onReembolsos={() => setMotivos(p)} />
           </div>
         ))}
       </div>
@@ -541,7 +568,10 @@ export const ACENTOS = [
 ] as const
 const ROTULO = 'text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]'
 
-function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onMas, onReembolsos }: { contexto: string; p: Periodo; i: number; t: Totales; c: Totales | null; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void; onReembolsos: () => void }) {
+const AJUSTES_BALDOSAS = 'ventas-baldosas'
+
+function Baldosa({ contexto, p, i, t, c, comp, ajuste, onAjustar, hoy, serie, cargando, elegida, onElegir, onMas, onReembolsos }: { contexto: string; p: Periodo; i: number; t: Totales; c: Totales | null; comp: Rango | null; ajuste: AjusteBaldosa | null; onAjustar?: (a: AjusteBaldosa | null) => void; hoy: string; serie: number[]; cargando: boolean; elegida: boolean; onElegir: () => void; onMas: () => void; onReembolsos: () => void }) {
+  const [editar, setEditar] = useState<DOMRect | null>(null)
   // EL DINERO QUE SUBE: cuando entra una venta nueva (el refresco de cada minuto trae más que antes), la cifra sube contando y sale «+119,99 €» flotando
   // hacia arriba, con un brillo suave en la baldosa. Sin avisos ni sonidos: solo se ve.
   const anterior = useRef<{ contexto: string; ventas: number } | null>(null)
@@ -600,12 +630,27 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
             {elegida && <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-50" style={{ background: a }} />}
             <span className="relative h-[8px] w-[8px] rounded-full" style={{ background: a, boxShadow: `0 0 10px ${a}` }} />
           </span>
-          <span className={`truncate text-[13px] font-semibold ${elegida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{p.escala ? 'Pronóstico' : p.id === 'pasado' ? 'Mes pasado' : p.titulo}</span>
+          <span className={`truncate text-[13px] font-semibold ${elegida ? 'text-[var(--ls-t1)]' : 'text-[var(--ls-t2)]'}`}>{p.ajustado ? p.titulo : p.escala ? 'Pronóstico' : p.id === 'pasado' ? 'Mes pasado' : p.titulo}</span>
         </span>
-        <span className="shrink-0 whitespace-nowrap rounded-full px-[7px] py-[2px] text-[10px] font-medium tabular-nums" style={{ background: `color-mix(in srgb, ${a} 10%, var(--ls-sup2))`, color: 'var(--ls-t3)' }}>
-          {fechas}
-        </span>
+        {onAjustar ? (
+          <button
+            type="button"
+            title={`Cambiar el periodo de esta baldosa${comp ? ` · se compara con ${fechaCorta(comp.desde)} – ${fechaCorta(comp.hasta)}` : ''}`}
+            onClick={(e) => (e.stopPropagation(), setEditar(e.currentTarget.getBoundingClientRect()))}
+            onKeyDown={(e) => e.stopPropagation()}
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-[7px] py-[2px] text-[10px] font-medium tabular-nums transition-colors hover:text-[var(--ls-t1)]"
+            style={{ background: `color-mix(in srgb, ${a} ${ajuste ? 22 : 10}%, var(--ls-sup2))`, color: 'var(--ls-t3)' }}
+          >
+            {fechas}
+            <CalendarDays className="h-[11px] w-[11px] opacity-70" />
+          </button>
+        ) : (
+          <span className="shrink-0 whitespace-nowrap rounded-full px-[7px] py-[2px] text-[10px] font-medium tabular-nums" style={{ background: `color-mix(in srgb, ${a} 10%, var(--ls-sup2))`, color: 'var(--ls-t3)' }}>
+            {fechas}
+          </span>
+        )}
       </div>
+      {editar && onAjustar && <EditorDeBaldosa ancla={editar} p={p} comp={comp} ajuste={ajuste} hoy={hoy} onCerrar={() => setEditar(null)} onAplicar={(x) => (onAjustar(x), setEditar(null))} />}
 
       {cargando ? (
         <div className="mt-5 flex flex-col gap-3">
@@ -641,6 +686,103 @@ function Baldosa({ contexto, p, i, t, c, serie, cargando, elegida, onElegir, onM
         Desglose <ArrowRight className="h-[12px] w-[12px] transition-transform group-hover:translate-x-[2px]" />
       </button>
     </motion.div>
+  )
+}
+
+/**
+ * CAMBIAR UNA BALDOSA (como Sellerboard): el periodo con un preajuste («Este mes», «Último trimestre»…, que se mueve con los días) o con fechas
+ * propias, y con qué se compara (por defecto el mismo periodo del año anterior). Va en un portal: la baldosa se mueve (transform) y lo descolocaría.
+ */
+function EditorDeBaldosa({ ancla, p, comp, ajuste, hoy, onCerrar, onAplicar }: { ancla: DOMRect; p: Periodo; comp: Rango | null; ajuste: AjusteBaldosa | null; hoy: string; onCerrar: () => void; onAplicar: (a: AjusteBaldosa | null) => void }) {
+  const [preajuste, setPreajuste] = useState<Preajuste | null>(ajuste?.preajuste ?? null)
+  const [desde, setDesde] = useState(p.desde)
+  const [hasta, setHasta] = useState(p.hastaPronostico ?? p.hasta)
+  const [compPropia, setCompPropia] = useState(Boolean(ajuste?.comp))
+  const [cDesde, setCDesde] = useState(comp?.desde ?? '')
+  const [cHasta, setCHasta] = useState(comp?.hasta ?? '')
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && onCerrar()
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [onCerrar])
+  const elegir = (x: Preajuste) => {
+    const r = rangoDePreajuste(x, hoy)
+    setPreajuste(x)
+    setDesde(r.desde)
+    setHasta(r.hasta)
+  }
+  const valido = /^\d{4}-\d{2}-\d{2}$/.test(desde) && /^\d{4}-\d{2}-\d{2}$/.test(hasta) && desde <= hasta && (!compPropia || (/^\d{4}-\d{2}-\d{2}$/.test(cDesde) && /^\d{4}-\d{2}-\d{2}$/.test(cHasta) && cDesde <= cHasta))
+  const aplicar = () => {
+    if (!valido) return
+    const a: AjusteBaldosa = preajuste ? { preajuste } : { desde, hasta }
+    if (compPropia) a.comp = { desde: cDesde, hasta: cHasta }
+    onAplicar(a)
+  }
+  const ANCHO = 560
+  const vw = typeof window === 'undefined' ? 1200 : window.innerWidth
+  const vh = typeof window === 'undefined' ? 800 : window.innerHeight
+  const movil = vw < 640
+  const left = movil ? 8 : Math.min(Math.max(8, ancla.right - ANCHO), vw - ANCHO - 8)
+  const abajo = ancla.bottom + 8
+  const top = movil ? Math.max(8, vh - 560) : abajo + 470 > vh ? Math.max(8, ancla.top - 478) : abajo
+  const campo = 'h-10 w-full rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] px-3 text-[13px] text-[var(--ls-t1)] outline-none focus:border-[#F26212] disabled:opacity-50'
+  return createPortal(
+    <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <button type="button" aria-label="Cerrar" className="fixed inset-0 z-[60] cursor-default bg-black/20" onClick={onCerrar} />
+      <div role="dialog" aria-label="Periodo de la baldosa" className="fixed z-[61] flex max-h-[88dvh] flex-col overflow-hidden rounded-[18px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] shadow-[var(--ls-sombra-3)] sm:flex-row" style={{ left, top, width: movil ? vw - 16 : ANCHO }}>
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--ls-linea)] p-2 sm:w-[190px] sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r">
+          {PREAJUSTES.map(([k, t]) => (
+            <button key={k} type="button" onClick={() => elegir(k)} className={`flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-[9px] px-3 py-[7px] text-left text-[12.5px] ${preajuste === k ? 'bg-[color-mix(in_srgb,#F26212_14%,transparent)] text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)]'}`}>
+              {t}
+              {preajuste === k && <Check className="h-[13px] w-[13px] text-[#FF8A3D]" />}
+            </button>
+          ))}
+          <button type="button" onClick={() => setPreajuste(null)} className={`flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-[9px] px-3 py-[7px] text-left text-[12.5px] ${!preajuste ? 'bg-[color-mix(in_srgb,#F26212_14%,transparent)] text-[var(--ls-t1)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)]'}`}>
+            Rango propio
+            {!preajuste && <Check className="h-[13px] w-[13px] text-[#FF8A3D]" />}
+          </button>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+          <div>
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ls-t4)]">Periodo</div>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={desde} max={hasta || undefined} onChange={(e) => (setDesde(e.target.value), setPreajuste(null))} className={campo} />
+              <input type="date" value={hasta} min={desde || undefined} onChange={(e) => (setHasta(e.target.value), setPreajuste(null))} className={campo} />
+            </div>
+            {preajuste && <div className="mt-[6px] text-[11.5px] text-[var(--ls-t4)]">Se mueve solo con los días (mañana «{PREAJUSTES.find((x) => x[0] === preajuste)?.[1]}» seguirá siendo eso).</div>}
+          </div>
+          <div>
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ls-t4)]">Comparar con</div>
+            <label className="flex cursor-pointer items-center gap-2 py-1 text-[12.5px] text-[var(--ls-t2)]">
+              <input type="radio" checked={!compPropia} onChange={() => setCompPropia(false)} className="accent-[#F26212]" />
+              El mismo periodo del año anterior
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 py-1 text-[12.5px] text-[var(--ls-t2)]">
+              <input type="radio" checked={compPropia} onChange={() => setCompPropia(true)} className="accent-[#F26212]" />
+              Otras fechas
+            </label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <input type="date" disabled={!compPropia} value={cDesde} max={cHasta || undefined} onChange={(e) => setCDesde(e.target.value)} className={campo} />
+              <input type="date" disabled={!compPropia} value={cHasta} min={cDesde || undefined} onChange={(e) => setCHasta(e.target.value)} className={campo} />
+            </div>
+          </div>
+          <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+            {ajuste && (
+              <button type="button" onClick={() => onAplicar(null)} className="mr-auto text-[12px] text-[var(--ls-t4)] hover:text-[var(--ls-t1)]">
+                Volver a la de siempre
+              </button>
+            )}
+            <button type="button" onClick={onCerrar} className="ml-auto h-10 rounded-[10px] border border-[var(--ls-linea)] px-4 text-[12.5px] text-[var(--ls-t2)]">
+              Cancelar
+            </button>
+            <button type="button" disabled={!valido} onClick={aplicar} className="h-10 rounded-[10px] px-5 text-[12.5px] font-semibold text-[#141414] disabled:opacity-50" style={{ background: 'linear-gradient(135deg,#F26212,#FF8A3D)' }}>
+              Aplicar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

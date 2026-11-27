@@ -1,4 +1,4 @@
-import { periodosDe, rangoAComparar, totalizar, type FilaPanel } from './panel'
+import { ajustarPeriodo, periodosDe, rangoAComparar, rangoDePreajuste, totalizar, type FilaPanel } from './panel'
 import { firmaSinFecha, leerDinero, parsearPedidosVentas, resumirDias } from './lectura'
 
 let fallos = 0
@@ -53,6 +53,20 @@ console.log('=== el informe de pedidos ===')
   ok('libras a euros con envío y la promoción aparte', uk != null && casi(uk.ventas as number, 90 / 0.85) && casi(uk.promo, 10 / 0.85), JSON.stringify(uk))
   ok('el día es el de Londres para el Reino Unido', uk?.dia === '2026-11-25')
   ok('un pendiente sin precio llega sin precio (se estima al resumir)', r.lineas.find((l) => l.sku === 'ES1')?.ventas === null)
+}
+
+console.log('=== baldosas a medida ===')
+{
+  const hoy = '2026-11-27'
+  ok('último trimestre = jul–sep', JSON.stringify(rangoDePreajuste('ultimo_trimestre', hoy)) === '{"desde":"2026-07-01","hasta":"2026-09-30"}')
+  ok('hace 2 meses = septiembre', rangoDePreajuste('hace2m', hoy).desde === '2026-09-01' && rangoDePreajuste('hace2m', hoy).hasta === '2026-09-30')
+  ok('este año', rangoDePreajuste('este_anio', hoy).desde === '2026-01-01')
+  const base = periodosDe('clasica', hoy, 0.5)[3]
+  const a = ajustarPeriodo(base, { preajuste: 'este_trimestre' }, hoy)
+  ok('el pronóstico cambiado a trimestre pierde la escala', a.desde === '2026-10-01' && a.hasta === hoy && !a.escala && a.ajustado === true && a.titulo === 'Este trimestre')
+  const f = ajustarPeriodo(base, { desde: '2026-11-03', hasta: '2026-11-09' }, hoy)
+  ok('rango propio', f.titulo === 'Rango propio' && f.desde === '2026-11-03')
+  ok('sin ajuste, igual', ajustarPeriodo(base, undefined, hoy) === base)
 }
 
 console.log('=== las tarifas de servicio SIN fecha (almacenamiento, suscripción, retiradas) ===')
