@@ -13,7 +13,7 @@ import { SelectorDeCuenta } from './SelectorDeCuenta'
 import { SelectorDeProductos, type ProductoElegible } from './SelectorDeProductos'
 import { VistaGrafico } from './VistaGrafico'
 import { VistaPyG } from './VistaPyG'
-import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, MotivosDeReembolso, entero, euros, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
+import { AltoEstable, SERIES_GRAFICA, type SerieGrafica, Buscador, Chip, CuentaDeResultados, Desglose, MotivosDeReembolso, entero, euros, fechaCorta, GraficaVentas, pais, bandera, pct, RepartoDelDinero, RepartoPorCanal, ROJO, TablaPedidos, TablaProductos, VERDE } from './piezas'
 
 /**
  * VENTAS · EL TABLERO (el «Sellerboard» propio, 26 nov 2026). Una cuenta arriba; cinco baldosas con su periodo (Hoy, Ayer, Este mes, Pronóstico, Mes
@@ -42,6 +42,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   const [tanda, setTanda] = useState<Tanda>('clasica')
   const [rango, setRango] = useState<{ desde: string; hasta: string } | null>(null)
   const [vista, setVista] = useState<'baldosas' | 'grafico' | 'pyg'>('baldosas')
+  const [reparto, setReparto] = useState<'euro' | 'canal'>('euro')
   const [seleccion, setSeleccion] = useState<Set<string> | null>(null)
   // De qué cuenta son los datos que se están enseñando: al cambiar de cliente (o de filtros) las cifras cambian, pero eso NO es una venta nueva
   const [datosDe, setDatosDe] = useState<string | null>(null)
@@ -402,16 +403,32 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
           <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
         </section>
         <section className={TARJETA + ' flex flex-col gap-5 p-5'}>
-          <div>
-            <div className={ROTULO}>{periodoElegido.titulo}</div>
-            <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">A dónde va cada euro</div>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className={ROTULO}>{reparto === 'euro' ? periodoElegido.titulo : 'Ventas por canal'}</div>
+              <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">{reparto === 'euro' ? 'A dónde va cada euro' : 'FBA / FBM'}</div>
+            </div>
+            <div className="inline-flex rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]" role="group" aria-label="Qué se reparte">
+              {(
+                [
+                  ['euro', 'Dinero'],
+                  ['canal', 'FBA / FBM'],
+                ] as const
+              ).map(([id, texto]) => (
+                <button key={id} type="button" onClick={() => setReparto(id)} className={`h-[26px] rounded-[7px] px-[10px] text-[12px] font-medium transition-colors ${reparto === id ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-sm' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'}`}>
+                  {texto}
+                </button>
+              ))}
+            </div>
           </div>
-          {tElegido && <RepartoDelDinero t={tElegido} />}
+          {reparto === 'canal' && cuentaId ? <RepartoPorCanal cuenta={cuentaId} hoy={hoy} mercados={mercados} skus={seleccion} /> : tElegido && <RepartoDelDinero t={tElegido} />}
+          {reparto === 'euro' && (
           <div className="mt-auto grid grid-cols-3 gap-3 border-t border-[var(--ls-linea)] pt-4">
             <Mini texto="Ventas" valor={euros(tElegido?.ventas ?? 0, 0)} />
             <Mini texto="TACOS" valor={pct(tElegido?.tacos ?? null)} />
             <Mini texto="ROI" valor={tElegido?.roi == null ? '—' : pct(tElegido.roi, 0)} nota={tElegido?.unidadesSinCoste ? 'faltan costes' : undefined} />
           </div>
+          )}
         </section>
       </div>
 

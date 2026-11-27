@@ -590,3 +590,35 @@ export async function motivosDeReembolso(connectionId: string, desde: string, ha
   }
   return { total: lista.reduce((t, r) => t + r.unidades, 0), grupos: [...grupos.values()].sort((a, b) => b.unidades - a.unidades), conDevoluciones }
 }
+
+/** Las ventas de un periodo separadas por canal (FBA / FBM), de las líneas de pedido (62 días). Sin cancelados */
+export interface CanalesDeVentas {
+  fba: { ventas: number; unidades: number; pedidos: number }
+  fbm: { ventas: number; unidades: number; pedidos: number }
+}
+
+export async function canalesDeVentas(connectionId: string, desde: string, hasta: string, filtros: { skus?: string[]; mercados?: string[] } = {}): Promise<CanalesDeVentas> {
+  const s = createServiceClient()
+  const out: CanalesDeVentas = { fba: { ventas: 0, unidades: 0, pedidos: 0 }, fbm: { ventas: 0, unidades: 0, pedidos: 0 } }
+  const pedidos = { fba: new Set<string>(), fbm: new Set<string>() }
+  for (let d = 0; ; d += 1000) {
+    let q = s.from('ventas_lineas').select('pedido, sku, marketplace_id, canal, estado, unidades, ventas').eq('connection_id', connectionId).gte('dia', desde).lte('dia', hasta)
+    if (filtros.skus?.length) q = q.in('sku', filtros.skus)
+    if (filtros.mercados?.length) q = q.in('marketplace_id', filtros.mercados)
+    const { data, error } = await q.order('pedido').range(d, d + 999)
+    if (error) throw error
+    for (const l of (data ?? []) as Array<{ pedido: string; canal: string | null; estado: string | null; unidades: number | null; ventas: number | null }>) {
+      if (String(l.estado ?? '').toLowerCase() === 'cancelled') continue
+      const c = String(l.canal ?? '').toLowerCase() === 'fbm' ? 'fbm' : 'fba'
+      out[c].ventas += Number(l.ventas ?? 0)
+      out[c].unidades += Number(l.unidades ?? 0)
+      pedidos[c].add(l.pedido)
+    }
+    if ((data ?? []).length < 1000) break
+  }
+  out.fba.pedidos = pedidos.fba.size
+  out.fbm.pedidos = pedidos.fbm.size
+  out.fba.ventas = Math.round(out.fba.ventas * 100) / 100
+  out.fbm.ventas = Math.round(out.fbm.ventas * 100) / 100
+  return out
+}

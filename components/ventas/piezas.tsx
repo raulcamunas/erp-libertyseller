@@ -923,3 +923,92 @@ function EditarCoste({ coste, onGuardar }: { coste: number | null; onGuardar: (v
     </span>
   )
 }
+
+/** Colores de los canales: FBA (Amazon envía) y FBM (envía el vendedor) */
+const COLOR_FBA = '#F26212'
+const COLOR_FBM = '#60A5FA'
+
+/**
+ * LAS VENTAS POR CANAL (FBA / FBM) en un donut, de los últimos 1, 7, 14 o 30 días (de las líneas de pedido: sin cancelados). Respeta los países y
+ * los productos elegidos arriba.
+ */
+export function RepartoPorCanal({ cuenta, hoy, mercados, skus }: { cuenta: string; hoy: string; mercados: ReadonlySet<string> | null; skus: ReadonlySet<string> | null }) {
+  const [dias, setDias] = useState<1 | 7 | 14 | 30>(7)
+  const [datos, setDatos] = useState<{ fba: { ventas: number; unidades: number; pedidos: number }; fbm: { ventas: number; unidades: number; pedidos: number } } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let vivo = true
+    setError(null)
+    const desde = new Date(Date.parse(`${hoy}T00:00:00Z`) - (dias - 1) * 86_400_000).toISOString().slice(0, 10)
+    const q = new URLSearchParams({ que: 'canal', cuenta, desde, hasta: hoy })
+    if (mercados) q.set('mercados', [...mercados].join(','))
+    if (skus) q.set('skus', [...skus].join(','))
+    fetch(`/api/ventas?${q}`, { cache: 'no-store' })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null)
+        if (!r.ok) throw new Error(j?.error ?? 'No se han podido leer las ventas por canal')
+        if (vivo) setDatos(j)
+      })
+      .catch((e) => vivo && setError(e instanceof Error ? e.message : String(e)))
+    return () => {
+      vivo = false
+    }
+  }, [cuenta, hoy, dias, mercados, skus])
+  const total = datos ? datos.fba.ventas + datos.fbm.ventas : 0
+  const partes = datos
+    ? [
+        { texto: 'FBA', sub: 'Lo envía Amazon', color: COLOR_FBA, ...datos.fba },
+        { texto: 'FBM', sub: 'Lo envía el vendedor', color: COLOR_FBM, ...datos.fbm },
+      ]
+    : []
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="inline-flex self-start rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px]" role="group" aria-label="Días">
+        {([1, 7, 14, 30] as const).map((d) => (
+          <button key={d} type="button" onClick={() => setDias(d)} className={`h-[26px] rounded-[7px] px-[10px] text-[12px] font-medium transition-colors ${dias === d ? 'bg-[var(--ls-sup)] text-[var(--ls-t1)] shadow-sm' : 'text-[var(--ls-t3)] hover:text-[var(--ls-t1)]'}`}>
+            {d === 1 ? 'Hoy' : `${d} días`}
+          </button>
+        ))}
+      </div>
+      {error ? (
+        <p className="text-[12px]" style={{ color: ROJO }}>{error}</p>
+      ) : (
+        <div className="flex items-center gap-4">
+          <div className="relative h-[140px] w-[140px] shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie style={{ filter: 'drop-shadow(0 6px 14px rgba(0,0,0,0.35))' }} data={total ? partes.filter((p) => p.ventas > 0) : [{ texto: '', ventas: 1, color: 'var(--ls-sup2)' }]} dataKey="ventas" innerRadius={50} outerRadius={68} paddingAngle={total && partes.every((p) => p.ventas > 0) ? 2.5 : 0} cornerRadius={5} stroke="none" startAngle={90} endAngle={-270} animationDuration={900}>
+                  {(total ? partes.filter((p) => p.ventas > 0) : [{ color: 'var(--ls-sup2)' }]).map((p, i) => (
+                    <Cell key={i} fill={p.color} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-[22px] font-semibold tracking-[-0.02em] tabular-nums text-[var(--ls-t1)]">{datos ? (total ? pct(datos.fba.ventas / total, 0) : '—') : '…'}</span>
+              <span className="text-[10.5px] uppercase tracking-[0.1em] text-[var(--ls-t4)]">FBA</span>
+            </div>
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            {!datos && <span className="text-[12px] text-[var(--ls-t4)]">Leyendo…</span>}
+            {partes.map((p) => (
+              <div key={p.texto} className="min-w-0">
+                <div className="flex items-center gap-2 text-[12.5px]">
+                  <span className="h-[8px] w-[8px] shrink-0 rounded-full" style={{ background: p.color }} />
+                  <span className="font-medium text-[var(--ls-t1)]">{p.texto}</span>
+                  <span className="truncate text-[11px] text-[var(--ls-t4)]">{p.sub}</span>
+                  <span className="ml-auto whitespace-nowrap tabular-nums text-[var(--ls-t1)]">{euros(p.ventas)}</span>
+                  <span className="w-[36px] shrink-0 whitespace-nowrap text-right tabular-nums text-[var(--ls-t4)]">{pct(total ? p.ventas / total : 0, 0)}</span>
+                </div>
+                <div className="pl-4 text-[11px] tabular-nums text-[var(--ls-t4)]">
+                  {entero(p.unidades)} uds. · {entero(p.pedidos)} pedido{p.pedidos === 1 ? '' : 's'}
+                </div>
+              </div>
+            ))}
+            {datos && total === 0 && <span className="text-[12px] text-[var(--ls-t4)]">Sin ventas en estos días</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

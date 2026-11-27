@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { errorResponse, fail, requireAmazonAdmin, UUID } from '@/lib/amazon/api'
-import { borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
+import { canalesDeVentas, borrarPerfilEnvio, costoDeEnvio, guardarPerfilEnvio, importarEnvioPedidos, anadirCuenta, cambiarIva, cambiarIvaPorPais, cuentasDelPanel, cuentasParaAnadir, filasDelPanel, guardarCoste, guardarCostes, lineasDelPanel, motivosDeReembolso, productosDelPanel, resumenDeCuentas, sesionesDelPanel } from '@/lib/ventas/panel-servidor'
 
 /**
  * VENTAS (EL «SELLERBOARD» PROPIO) · LO QUE USA EL PANEL. Solo administradores (como Amazon API: son las cifras de negocio de los clientes).
@@ -53,6 +53,11 @@ export async function GET(request: NextRequest) {
     if (q.get('que') === 'motivos') {
       const lista = (k: string) => (q.get(k) ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 2000)
       return NextResponse.json(await motivosDeReembolso(cuenta, desde, hasta, { skus: lista('skus'), mercados: lista('mercados') }))
+    }
+    // Las ventas por canal (FBA / FBM) del periodo: la pestaña «FBA / FBM» del reparto
+    if (q.get('que') === 'canal') {
+      const lista = (k: string) => (q.get(k) ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 2000)
+      return NextResponse.json(await canalesDeVentas(cuenta, desde, hasta, { skus: lista('skus'), mercados: lista('mercados') }))
     }
     const lDesde = q.get('lineasDesde')
     const lHasta = q.get('lineasHasta')
