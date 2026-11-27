@@ -97,6 +97,8 @@ interface SpApiRequestInit {
   repeatable?: boolean
   /** Cuántos intentos como mucho, contando el primero */
   maxAttempts?: number
+  /** Idioma pedido (cabecera Accept-Language), p. ej. 'es-ES' para las etiquetas de caja: sin él, Amazon las da en inglés */
+  idioma?: string
 }
 
 export interface SpApiResult<T> {
@@ -166,6 +168,7 @@ export async function spApiRequest<T>(
           'x-amz-access-token': accessToken,
           'content-type': 'application/json',
           accept: 'application/json',
+          ...(init.idioma ? { 'accept-language': init.idioma } : {}),
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
         cache: 'no-store',

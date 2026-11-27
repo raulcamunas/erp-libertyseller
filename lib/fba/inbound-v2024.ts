@@ -702,6 +702,8 @@ export async function etiquetasDeCaja(creds: AmazonCredentials, confirmacion: st
     method: 'GET',
     path: `/fba/inbound/v0/shipments/${enc(confirmacion)}/labels`,
     query: consultaEtiquetas(boxIds, hoja),
+    // En español, como las de Seller Central (sin esto vienen en inglés: «SHIP FROM», «PLEASE LEAVE THIS LABEL UNCOVERED»)
+    idioma: 'es-ES,es;q=0.9',
   })
   const url = data.payload?.DownloadURL
   if (!url) throw new AmazonApiError({ kind: 'servidor', message: 'getLabels sin DownloadURL', humanMessage: 'Amazon no ha devuelto las etiquetas. Vuelve a probar en un minuto.' })
@@ -729,6 +731,7 @@ export async function etiquetasDePalet(creds: AmazonCredentials, confirmacion: s
     method: 'GET',
     path: `/fba/inbound/v0/shipments/${enc(confirmacion)}/labels`,
     query: consultaEtiquetasPalet(palets, hoja),
+    idioma: 'es-ES,es;q=0.9',
   })
   const url = data.payload?.DownloadURL
   if (!url) throw new AmazonApiError({ kind: 'servidor', message: 'getLabels (palé) sin DownloadURL', humanMessage: 'Amazon no ha devuelto las etiquetas de palé. Vuelve a probar en un minuto o descárgalas en Seller Central.' })
