@@ -477,15 +477,37 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
   const errores = [...problemas, ...pc].filter((p) => p.nivel === 'error')
   if (errores.length) throw new FalloDelEnvio(errores.map((p) => p.texto).join('. '))
 
+  // LA PREPARACIÓN, antes del plan: lo que en Seller Central es elegir «No necesita preparación» y guardar en cada SKU que le falta, y de paso
+  // quién puede preparar y etiquetar cada uno. Si Amazon no contesta, se sigue como siempre (y el plan aprende de su error)
+  const desdeAmazon: api.Duenos = {}
+  let prepFijada: string[] = []
+  try {
+    const mskus = [...new Set(lineas.filter((l) => l.unidades > 0).map((l) => l.sku))]
+    const prep = await api.leerPreparacion(ctx.creds, f.marketplace_id as string, mskus)
+    const faltan = prep.filter(api.sinPreparacion).map((p) => p.msku)
+    if (faltan.length) {
+      const op = await api.fijarSinPreparacion(ctx.creds, f.marketplace_id as string, faltan)
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 2000))
+        const st = await api.estadoDeOperacion(ctx.creds, op.operationId)
+        if (st.estado === 'ok') { prepFijada = faltan; break }
+        if (st.estado === 'fallo') break
+      }
+    }
+    Object.assign(desdeAmazon, api.duenosDePreparacion(prep.map((p) => (prepFijada.includes(p.msku) ? { ...p, prepCategory: 'NONE', prepTypes: ['ITEM_NO_PREP'] } : p))))
+  } catch {
+    // Sin la lectura de la preparación, el plan sale con SELLER y corrige lo que Amazon diga
+  }
+
   const cuerpo = api.cuerpoCrearPlan({
     nombre: f.nombre ?? `Remesa ${f.fecha_envio}`,
     marketplaceId: f.marketplace_id as string,
     origen: direccion as DireccionOrigen,
     lineas,
     sinEtiqueta: sinEtiquetaDe(lineas),
-    duenos: datosDe(ctx).duenos,
+    duenos: { ...desdeAmazon, ...(datosDe(ctx).duenos ?? {}) },
   })
-  const duenos: api.Duenos = { ...(datosDe(ctx).duenos ?? {}) }
+  const duenos: api.Duenos = { ...desdeAmazon, ...(datosDe(ctx).duenos ?? {}) }
   const conDuenos = (c: typeof cuerpo) => ({ ...c, items: api.cuerpoCrearPlan({ nombre: c.name, marketplaceId: f.marketplace_id as string, origen: direccion as DireccionOrigen, lineas, sinEtiqueta: sinEtiquetaDe(lineas), duenos }).items })
   const anteriores = [...(datosDe(ctx).planesCancelados ?? [])]
   if (f.inbound_plan_id) anteriores.push(f.inbound_plan_id)
@@ -527,7 +549,7 @@ async function lanzarPlan(ctx: Ctx): Promise<void> {
       }
       throw ultimo
     },
-    { referencias: cuerpo.items.length, unidades: cuerpo.items.reduce((s, i) => s + i.quantity, 0), origen: cuerpo.sourceAddress.postalCode },
+    { referencias: cuerpo.items.length, unidades: cuerpo.items.reduce((s, i) => s + i.quantity, 0), origen: cuerpo.sourceAddress.postalCode, ...(prepFijada.length ? { sinPreparacionFijada: prepFijada } : {}) },
     {
       inbound_plan_id: null,
       packing_option_id: null,

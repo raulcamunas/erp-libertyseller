@@ -3,7 +3,7 @@
  *   npx tsx lib/fba/envio-amazon.prueba.ts
  */
 import { AmazonApiError } from '@/lib/amazon/errors'
-import { duenosDelError } from './inbound-v2024'
+import { duenosDelError, duenosDePreparacion, sinPreparacion } from './inbound-v2024'
 import {
   accionesPermitidas,
   cajasBloqueadas,
@@ -294,6 +294,10 @@ const errVarios = new AmazonApiError({ kind: 'bad_request' as never, message: 'x
 ok('varios a la vez, prefiere SELLER', duenosDelError(errVarios), { A1: { prep: 'SELLER' }, B2: { label: 'NONE' } })
 ok('otro error no es de dueños', duenosDelError(new Error('nada')), null)
 ok('plan con dueños', cuerpoCrearPlan({ nombre: 'r', marketplaceId: 'A1RKKUPIHCS9HS', origen: dir, lineas: [{ sku: 'A', unidades: 1 }], duenos: { A: { prep: 'NONE' } } }).items[0], { msku: 'A', quantity: 1, prepOwner: 'NONE', labelOwner: 'SELLER' })
+
+const pp = (msku: string, prepCategory: string | null, po: string | null = null, lo: string | null = null) => ({ msku, prepCategory, prepTypes: prepCategory === 'NONE' ? ['ITEM_NO_PREP'] : [], prepOwnerConstraint: po, labelOwnerConstraint: lo })
+ok('sin categoría = falta preparación', [sinPreparacion(pp('a', null)), sinPreparacion(pp('b', 'UNKNOWN')), sinPreparacion(pp('c', 'NONE'))], [true, true, false])
+ok('dueños desde la preparación', duenosDePreparacion([pp('a', 'NONE'), pp('b', 'FRAGILE'), pp('c', 'FRAGILE', 'SELLER_ONLY', 'NONE_ONLY'), pp('d', 'UNKNOWN')]), { a: { prep: 'NONE' }, c: { prep: 'SELLER', label: 'NONE' }, d: { prep: 'NONE' } })
 
 console.log(fallos === 0 ? '\n  TODO CORRECTO' : `\n  ${fallos} FALLOS`)
 if (fallos) process.exit(1)

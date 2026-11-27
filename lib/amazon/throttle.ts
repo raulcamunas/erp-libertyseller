@@ -99,6 +99,8 @@ export type AmazonOperation =
   | 'listDeliveryWindowOptions'
   | 'confirmDeliveryWindowOptions'
   | 'getLabels'
+  | 'listPrepDetails'
+  | 'setPrepDetails'
 
 export interface RateLimitSpec {
   /** Fichas por segundo */
@@ -267,6 +269,8 @@ export const AMAZON_RATE_LIMITS: Record<AmazonOperation, RateLimitSpec> = {
   getItemOffersBatch: { rate: 0.1, burst: 1 },
   // Las del envío desde el ERP. Igual que arriba: leer ráfaga 6, escribir ráfaga 2.
   listInboundPlans: { rate: 2, burst: 6 },
+  listPrepDetails: { rate: 2, burst: 6 },
+  setPrepDetails: { rate: 2, burst: 6 },
   getInboundPlan: { rate: 2, burst: 6 },
   listInboundPlanBoxes: { rate: 2, burst: 6 },
   generateDeliveryWindowOptions: { rate: 2, burst: 2 },

@@ -149,6 +149,69 @@ export function cuerpoCrearPlan(p: { nombre: string; marketplaceId: string; orig
  */
 export type Duenos = Record<string, { prep?: string; label?: string }>
 
+/**
+ * LA PREPARACIÓN DE CADA SKU EN AMAZON (listPrepDetails / setPrepDetails). Es lo que en Seller Central sale como «Faltan detalles de preparación y
+ * etiquetado» y se arregla eligiendo «No necesita preparación» y guardando. Antes de crear el plan se lee; a los que no tienen categoría se les pone
+ * «No necesita preparación» (calzado, textil plegado, cajas… lo que mandan nuestros clientes), y de lo que Amazon permite se saca quién prepara y
+ * quién etiqueta cada uno, para no mandarle un SELLER que va a rechazar.
+ */
+export interface PrepDeSku {
+  msku: string
+  prepCategory: string | null
+  prepTypes: string[]
+  prepOwnerConstraint: string | null
+  labelOwnerConstraint: string | null
+}
+
+const aPrep = (x: Record<string, unknown>): PrepDeSku => ({
+  msku: String(x.msku ?? ''),
+  prepCategory: typeof x.prepCategory === 'string' ? x.prepCategory : null,
+  prepTypes: Array.isArray(x.prepTypes) ? x.prepTypes.map(String) : [],
+  prepOwnerConstraint: typeof x.prepOwnerConstraint === 'string' ? x.prepOwnerConstraint : null,
+  labelOwnerConstraint: typeof x.labelOwnerConstraint === 'string' ? x.labelOwnerConstraint : null,
+})
+
+export async function leerPreparacion(creds: AmazonCredentials, marketplaceId: string, mskus: string[]): Promise<PrepDeSku[]> {
+  const out: PrepDeSku[] = []
+  for (let i = 0; i < mskus.length; i += 100) {
+    const tanda = mskus.slice(i, i + 100)
+    const leer = (path: string, query?: Record<string, string | string[]>) =>
+      spApiRequest<{ mskuPrepDetails?: Array<Record<string, unknown>> }>(creds, 'listPrepDetails', { method: 'GET', path, query, maxAttempts: 2, repeatable: true })
+    let r
+    try {
+      // La lista de SKU repitiendo el parámetro (collectionFormat multi)…
+      r = await leer(`${RUTA}/items/prepDetails?marketplaceId=${enc(marketplaceId)}&${tanda.map((m) => `mskus=${enc(m)}`).join('&')}`)
+    } catch (e) {
+      if (!(e instanceof AmazonApiError) || e.httpStatus !== 400) throw e
+      // …o separada por comas
+      r = await leer(`${RUTA}/items/prepDetails`, { marketplaceId, mskus: tanda })
+    }
+    out.push(...(r.data?.mskuPrepDetails ?? []).map(aPrep))
+  }
+  return out
+}
+
+/** PURA. Sin categoría de preparación (lo que Seller Central marca con «Faltan detalles de preparación y etiquetado») */
+export const sinPreparacion = (p: PrepDeSku) => !p.prepCategory || p.prepCategory === 'UNKNOWN'
+
+export const fijarSinPreparacion = (creds: AmazonCredentials, marketplaceId: string, mskus: string[]) =>
+  escribir<{ operationId?: string }>(creds, 'setPrepDetails', 'POST', `${RUTA}/items/prepDetails`, {
+    marketplaceId,
+    mskuPrepDetails: mskus.map((msku) => ({ msku, prepCategory: 'NONE', prepTypes: ['ITEM_NO_PREP'] })),
+  })
+
+/** PURA. Quién prepara y etiqueta según lo que Amazon permite a cada SKU (NONE_ONLY, SELLER_ONLY, AMAZON_ONLY). Sin restricción, no se apunta nada */
+export function duenosDePreparacion(lista: readonly PrepDeSku[]): Duenos {
+  const de = (c: string | null) => (c === 'NONE_ONLY' ? 'NONE' : c === 'SELLER_ONLY' ? 'SELLER' : c === 'AMAZON_ONLY' ? 'AMAZON' : undefined)
+  const out: Duenos = {}
+  for (const p of lista) {
+    const prep = de(p.prepOwnerConstraint) ?? (sinPreparacion(p) || p.prepCategory === 'NONE' || p.prepTypes.includes('ITEM_NO_PREP') ? 'NONE' : undefined)
+    const label = de(p.labelOwnerConstraint)
+    if (prep || label) out[p.msku] = { ...(prep ? { prep } : {}), ...(label ? { label } : {}) }
+  }
+  return out
+}
+
 /** PURA. Los dueños que pide Amazon en el error de createInboundPlan (todos los que nombre), o null si el error no es ese */
 export function duenosDelError(e: unknown): Duenos | null {
   if (!(e instanceof AmazonApiError)) return null
