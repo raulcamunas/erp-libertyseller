@@ -92,7 +92,7 @@ export interface DatosDelEnvio {
   ventanaElegida?: { shipmentId: string; deliveryWindowOptionId: string; desde: string | null; hasta: string | null } | null
   /** boxId de Amazon por envío y su número de caja en el ERP */
   cajasAmazon?: Record<string, Array<{ boxId: string; numero: number | null }>>
-  seguimiento?: { at: string; estadoPlan: string; envios: Array<{ shipmentId: string; confirmacion: string | null; estado: string | null; destino: string | null; seguimientos: number; invalidos: number }> }
+  seguimiento?: { at: string; estadoPlan: string; envios: Array<{ shipmentId: string; confirmacion: string | null; estado: string | null; destino: string | null; seguimientos: number; invalidos: number; /** Los números de UPS (1Z…), para la recogida */ numeros?: string[] }> }
   planesCancelados?: string[]
   avisos?: string[]
 }
@@ -1228,7 +1228,7 @@ export async function refrescarSeguimiento(remesaId: string, service: ClienteDeB
   const envios = []
   for (const e of (f.envio_datos?.envios ?? []).slice(0, 20)) {
     const v = await api.verEnvio(creds, f.inbound_plan_id, e.shipmentId)
-    envios.push({ shipmentId: e.shipmentId, confirmacion: v.confirmacion, estado: v.estado, destino: v.destino, seguimientos: v.seguimientos.length, invalidos: v.seguimientos.filter((s) => (s.valido ?? '').toUpperCase() === 'INVALID').length })
+    envios.push({ shipmentId: e.shipmentId, confirmacion: v.confirmacion, estado: v.estado, destino: v.destino, seguimientos: v.seguimientos.length, invalidos: v.seguimientos.filter((s) => (s.valido ?? '').toUpperCase() === 'INVALID').length, numeros: [...new Set(v.seguimientos.map((x) => x.numero).filter((x): x is string => !!x))] })
   }
   const seguimiento = { at: new Date().toISOString(), estadoPlan: p.estado, envios }
   await service.from('fba_remesas').update({ envio_datos: { ...(f.envio_datos ?? {}), seguimiento } }).eq('id', remesaId)

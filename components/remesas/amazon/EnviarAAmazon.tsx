@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -19,6 +19,7 @@ import {
   Plug,
   Printer,
   RefreshCw,
+  Copy,
   Rocket,
   RotateCcw,
   Route,
@@ -937,6 +938,30 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
     }
   }
 
+  // LOS NÚMEROS DE UPS (1Z…) de cada caja, para pegarlos tal cual en el formulario de recogida de UPS (separados por comas)
+  const deSeguimiento = (x: EstadoDelEnvio['seguimiento']) => Object.fromEntries((x?.envios ?? []).map((v) => [v.shipmentId, v.numeros ?? []]))
+  const [numerosUps, setNumerosUps] = useState<Record<string, string[]>>(() => deSeguimiento(e.seguimiento))
+  const [leyendoUps, setLeyendoUps] = useState(false)
+  const leerUps = useCallback(async (aviso: boolean) => {
+    setLeyendoUps(true)
+    try {
+      const res = await fetch(`/api/fba/remesas/${remesaId}/amazon/seguimiento`, { method: 'POST' })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error ?? 'No se han podido leer los números de UPS')
+      const n = deSeguimiento(j?.seguimiento ?? null)
+      setNumerosUps(n)
+      if (aviso && !Object.values(n).some((l) => l.length)) toast.message('Amazon aún no ha dado los números de UPS. Prueba en unos minutos')
+    } catch (err) {
+      if (aviso) toast.error(err instanceof Error ? err.message : 'No se han podido leer los números de UPS')
+    } finally {
+      setLeyendoUps(false)
+    }
+  }, [remesaId])
+  const hayUps = Object.values(numerosUps).some((l) => l.length > 0)
+  useEffect(() => {
+    if (!hayUps && e.paso === 'etiquetas' && Object.keys(e.cajasAmazon ?? {}).length > 0) void leerUps(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   if (e.paso !== 'etiquetas') {
     return <EstadoVacio icono={Tags} titulo="Las etiquetas salen al confirmar el transporte" descripcion="Etiqueta de caja de Amazon con la de UPS, una por caja." acento="remesas" />
   }
@@ -991,6 +1016,15 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
   }
 
   const cajasAmazon = Object.entries(e.cajasAmazon ?? {})
+
+  const copiar = async (texto: string, cuantos: number) => {
+    try {
+      await navigator.clipboard.writeText(texto)
+      toast.success(`${cuantos} número${cuantos === 1 ? '' : 's'} de UPS copiado${cuantos === 1 ? '' : 's'}: pégalos en UPS`)
+    } catch {
+      toast.error('No se ha podido copiar: selecciónalos y cópialos a mano')
+    }
+  }
   return (
     <div className="space-y-3">
       <Tarjeta indice={0} variante="destacada" acento="remesas" icono={Printer} titulo="Etiquetas de caja y de UPS" subtitulo="Una por caja. Los enlaces de Amazon caducan: se piden al pulsar">
@@ -1102,6 +1136,25 @@ function FaseEtiquetas({ e, remesaId, onEnviada }: { e: EstadoDelEnvio; remesaId
             {cajasAmazon.map(([sid, cajas]) => (
               <div key={sid}>
                 <p className="mb-1 font-mono text-[12px] text-[var(--ls-t3)]">{e.envios.find((x) => x.shipmentId === sid)?.confirmacion ?? sid}</p>
+                {(numerosUps[sid]?.length ?? 0) > 0 ? (
+                  <div className="mb-2 rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-2">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="text-[12px] font-semibold text-[var(--ls-t1)]">Números de seguimiento de UPS ({numerosUps[sid].length})</span>
+                      <Boton variante="primario" tamano="sm" icono={Copy} onClick={() => void copiar(numerosUps[sid].join(','), numerosUps[sid].length)} className="ml-auto">
+                        Copiar para UPS
+                      </Boton>
+                    </div>
+                    <textarea readOnly value={numerosUps[sid].join(',')} onFocus={(ev) => ev.currentTarget.select()} rows={2} className="w-full resize-none rounded-[8px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-2 py-1 font-mono text-[11.5px] text-[var(--ls-t1)]" aria-label="Números de UPS separados por comas" />
+                    {numerosUps[sid].length > 30 && <p className="text-[11px]" style={{ color: COLOR_ESTADO.ambar }}>UPS admite 30 por recogida: pégalos en dos veces.</p>}
+                  </div>
+                ) : (
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--ls-t3)]">
+                    <span>{leyendoUps ? 'Leyendo los números de UPS en Amazon…' : 'Los números de UPS (1Z…) aún no están: Amazon los da al confirmar el transporte.'}</span>
+                    <Boton variante="secundario" tamano="sm" icono={RefreshCw} cargando={leyendoUps} onClick={() => void leerUps(true)}>
+                      Leer números de UPS
+                    </Boton>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
                   {cajas.slice(0, 200).map((c) => (
                     <span key={c.boxId} className="truncate rounded-[8px] border border-[var(--ls-linea)] px-2 py-1 text-[11.5px] text-[var(--ls-t2)]">
