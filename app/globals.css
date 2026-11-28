@@ -4483,6 +4483,13 @@ body.tc-agarrando .tc-presente > i { animation-play-state: paused !important; }
 .chat-barra { position: relative; display: flex; min-height: 0; flex-direction: column; border-right: 1px solid var(--ls-linea); background: linear-gradient(180deg, color-mix(in srgb, var(--c-acc, var(--ls-acc)) 8%, var(--ls-sup2)) 0%, var(--ls-sup2) 240px); }
 .chat-barra-cabecera { display: flex; align-items: center; gap: 8px; padding: 16px 14px 8px 16px; }
 .chat-barra-cabecera h2 { font-size: 18px; font-weight: 750; letter-spacing: -.01em; color: var(--ls-t1); }
+/* Volver al inicio desde la lista del chat: solo con el chat a pantalla completa en el móvil (ahí no hay barra de abajo) */
+.chat-volver { display: none; }
+@media (max-width: 1023.98px) {
+  html.chat-abierto .chat-volver { display: grid; flex: none; width: 36px; height: 36px; margin-left: -8px; place-items: center; border-radius: 10px; color: var(--ls-t2); }
+  html.chat-abierto .chat-volver svg { width: 24px; height: 24px; }
+  html.chat-abierto .chat-volver:active { background: var(--ls-sup3); }
+}
 .chat-cabecera-iconos { display: flex; align-items: center; margin-left: auto; margin-right: -6px; }
 .chat-cabecera-iconos .chat-icono { position: relative; height: 26px; min-width: 26px; padding: 0 4px; }
 .chat-cabecera-iconos .chat-icono[data-activa='true'] { background: color-mix(in srgb, var(--c-acc, var(--ls-acc)) 18%, transparent); color: var(--c-acc, var(--ls-acc)); }

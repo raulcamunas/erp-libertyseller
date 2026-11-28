@@ -1,8 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { toast } from 'sonner'
-import { AtSign, Maximize2, Bell, BellOff, Bookmark, CalendarClock, ChevronDown, Clock, Copy, Hash, Headphones, LogIn, LogOut, Lock, MessageSquare, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Settings2, Volume2 } from 'lucide-react'
+import { AtSign, ChevronLeft, Maximize2, Bell, BellOff, Bookmark, CalendarClock, ChevronDown, Clock, Copy, Hash, Headphones, LogIn, LogOut, Lock, MessageSquare, MessageSquarePlus, MessageSquareReply, Mic, MicOff, Palette, PhoneOff, Plus, Search, Settings2, Volume2 } from 'lucide-react'
 import { Avatar } from '@/components/tareas-clientes/AvatarTC'
 import { nombreVisible, repartirCanales } from '@/lib/chat/canales'
 import type { CanalChat } from '@/lib/chat/tipos'
@@ -41,6 +42,10 @@ export function BarraDeChat({ alBuscar }: { alBuscar: () => void }) {
   return (
     <nav className="chat-barra" aria-label="Canales y conversaciones">
       <header className="chat-barra-cabecera">
+        {/* En el móvil el chat ocupa toda la pantalla y tapa la barra de abajo: sin esto no había forma de volver al resto del ERP */}
+        <Link href="/dashboard" className="chat-volver" aria-label="Volver al inicio" title="Volver al inicio">
+          <ChevronLeft aria-hidden />
+        </Link>
         <h2>Chat</h2>
         <span className="chat-en-vivo" data-vivo={enVivo ? 'true' : undefined} title={enVivo ? 'Los mensajes llegan en directo' : 'Sin conexión en directo: se actualiza solo cada pocos segundos'} />
         <div className="chat-cabecera-iconos">
