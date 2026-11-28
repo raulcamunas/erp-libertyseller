@@ -277,6 +277,8 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
   )
   const iElegido = Math.max(0, periodos.findIndex((p) => p.id === periodoElegido.id))
   const tElegido = totales[iElegido]
+  // Mientras llegan los datos de la cuenta (al entrar o al cambiar de cliente): la animación de «contando», no un 0,00 € que parece real
+  const sinDatos = !datos || datosDe !== cuentaId
   const filasElegidas = useMemo(() => filas.filter((f) => enRango(f.dia, periodoElegido)), [filas, periodoElegido])
   const diasGrafica = useMemo(() => {
     // Un periodo antiguo (o un rango elegido) se dibuja él solo; lo reciente, con los últimos 30 días alrededor
@@ -407,7 +409,10 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
         </div>
       }
     >
-      <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }`}</style>
+      <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+@keyframes ventas-moneda { 0%, 100% { transform: translateY(0) scale(1); opacity: .55 } 40% { transform: translateY(-9px) scale(1.06); opacity: 1 } 70% { transform: translateY(0) scale(.98); opacity: .8 } }
+@keyframes ventas-brillo { from { background-position: 180% 0 } to { background-position: -80% 0 } }
+.ventas-brillo { background: linear-gradient(90deg, var(--ls-sup2) 25%, color-mix(in srgb, var(--ls-t1) 9%, var(--ls-sup2)) 45%, var(--ls-sup2) 65%); background-size: 260% 100%; animation: ventas-brillo 1.4s ease-in-out infinite; }`}</style>
 
       {cuenta?.estado.primeraLectura && <ProgresoDeLectura estado={cuenta.estado} />}
       {cuenta?.estado.error && !cuenta.estado.primeraLectura && (
@@ -466,20 +471,20 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       <div ref={carrusel} className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible sm:pb-0 xl:grid-cols-5 [&::-webkit-scrollbar]:hidden">
         {periodos.map((p, i) => (
           <div key={`${tanda}-${p.id}`} data-periodo={p.id} className="w-[86%] max-w-[380px] shrink-0 snap-center sm:w-auto sm:max-w-none">
-          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} comp={comparados[i]} ajuste={tanda === 'rango' ? null : (ajustes[`${tanda}:${p.id}`] ?? null)} onAjustar={tanda === 'rango' ? undefined : (a) => ajustar(`${tanda}:${p.id}`, a)} hoy={hoy} serie={serieDe(p)} cargando={Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} onReembolsos={() => setMotivos(p)} />
+          <Baldosa key={`${tanda}-${p.id}`} contexto={`${datosDe}|${[...(mercados ?? [])].join()}|${[...(seleccion ?? [])].join()}`} p={p} i={i} t={totales[i]} c={totalesComp[i]} comp={comparados[i]} ajuste={tanda === 'rango' ? null : (ajustes[`${tanda}:${p.id}`] ?? null)} onAjustar={tanda === 'rango' ? undefined : (a) => ajustar(`${tanda}:${p.id}`, a)} hoy={hoy} serie={serieDe(p)} cargando={sinDatos || (Boolean(cuenta?.estado.primeraLectura) && !datos?.filas.length)} elegida={p.id === periodoElegido.id} onElegir={() => setElegido(p.id)} onMas={() => setDesglose(p)} onReembolsos={() => setMotivos(p)} />
           </div>
         ))}
       </div>
 
       {/* La gráfica y el reparto del dinero */}
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)]">
+      <div className="mt-4 grid min-w-0 grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)] [&>section]:min-w-0">
         <section className={TARJETA + ' p-4 sm:p-5'}>
           <div className="mb-3 flex flex-wrap items-end gap-3">
             <div>
               <div className={ROTULO}>Evolución diaria</div>
               <div className="mt-1 text-[15px] font-semibold text-[var(--ls-t1)]">Ventas y ganancia</div>
             </div>
-            <div className="ls-sin-barra -mx-1 flex w-[calc(100%+0.5rem)] items-center overflow-x-auto rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)] sm:mx-0 sm:ml-auto sm:inline-flex sm:w-auto sm:flex-wrap" role="group" aria-label="Qué se dibuja">
+            <div className="ls-sin-barra flex w-full min-w-0 items-center overflow-x-auto rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup2)] p-[3px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)] sm:mx-0 sm:ml-auto sm:inline-flex sm:w-auto sm:flex-wrap" role="group" aria-label="Qué se dibuja">
               {SERIES_GRAFICA.map((x) => {
                 const on = series.has(x.id)
                 return (
@@ -505,7 +510,13 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
               })}
             </div>
           </div>
-          <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
+          {sinDatos ? (
+            <div className="flex h-[260px] items-center justify-center">
+              <ContandoDinero color="#FF8A3D" texto="Dibujando la gráfica…" />
+            </div>
+          ) : (
+            <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
+          )}
         </section>
         <section className={TARJETA + ' flex flex-col gap-4 p-4 sm:gap-5 sm:p-5'}>
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -526,7 +537,15 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
               ))}
             </div>
           </div>
-          {reparto === 'canal' && cuentaId ? <RepartoPorCanal cuenta={cuentaId} hoy={hoy} mercados={mercados} skus={seleccion} /> : tElegido && <RepartoDelDinero t={tElegido} />}
+          {reparto === 'canal' && cuentaId ? (
+            <RepartoPorCanal cuenta={cuentaId} hoy={hoy} mercados={mercados} skus={seleccion} />
+          ) : sinDatos ? (
+            <div className="flex h-[180px] items-center justify-center">
+              <ContandoDinero color="#34D399" texto="Repartiendo cada euro…" />
+            </div>
+          ) : (
+            tElegido && <RepartoDelDinero t={tElegido} />
+          )}
           {reparto === 'euro' && (
           <div className="mt-auto grid grid-cols-3 gap-3 border-t border-[var(--ls-linea)] pt-4">
             <Mini texto="Ventas" valor={euros(tElegido?.ventas ?? 0, 0)} />
@@ -740,10 +759,12 @@ function Baldosa({ contexto, p, i, t, c, comp, ajuste, onAjustar, hoy, serie, ca
       {editar && onAjustar && <EditorDeBaldosa ancla={editar} p={p} comp={comp} ajuste={ajuste} hoy={hoy} onCerrar={() => setEditar(null)} onAplicar={(x) => (onAjustar(x), setEditar(null))} />}
 
       {cargando ? (
-        <div className="mt-5 flex flex-col gap-3">
-          <div className="h-[30px] w-2/3 animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
-          <div className="h-[44px] w-full animate-pulse rounded-[8px] bg-[var(--ls-sup2)]" />
-          <div className="h-[52px] w-full animate-pulse rounded-[12px] bg-[var(--ls-sup2)]" />
+        // La MISMA altura que con cifras (así no salta al llegar): «contando el dinero» con monedas que saltan y barras con brillo
+        <div className="mt-4 flex flex-col">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
+          <ContandoDinero color={a} />
+          <div className="ventas-brillo mt-[10px] h-[44px] w-full rounded-[10px] opacity-60" />
+          <div className="ventas-brillo mt-2 h-[52px] w-full rounded-[13px]" />
         </div>
       ) : (
         <>
@@ -1101,3 +1122,22 @@ function Opcion({ activa, onClick, children }: { activa: boolean; onClick: () =>
   )
 }
 
+/** «Contando el dinero»: tres monedas que saltan una detrás de otra y un número que parpadea. Para cuando aún no han llegado las cifras */
+function ContandoDinero({ color, texto = 'Contando el dinero…' }: { color: string; texto?: string }) {
+  return (
+    <div className="flex h-[38px] items-center gap-3" role="status" aria-live="polite">
+      <div className="flex items-end gap-[5px]" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[11px] font-bold"
+            style={{ background: `radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 55%, #fff), ${color})`, color: 'rgba(0,0,0,.55)', boxShadow: `0 4px 12px -4px ${color}`, animation: `ventas-moneda 1.1s ${i * 0.16}s ease-in-out infinite` }}
+          >
+            €
+          </span>
+        ))}
+      </div>
+      <span className="text-[12.5px] text-[var(--ls-t3)]">{texto}</span>
+    </div>
+  )
+}
