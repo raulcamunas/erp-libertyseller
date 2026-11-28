@@ -47,8 +47,8 @@ export default async function SeoTestPage({ searchParams }: { searchParams: Reco
 
   // Sin cliente en la dirección: el panel de todos los clientes (vista de pájaro). Al entrar en uno, SeoTest siempre deja ?c= en la dirección
   if (!uno(searchParams.c)) {
-    const panel = await panelSeo(todos.map((c) => ({ slug: c.slug, nombre: c.nombre, cuentas: cuentas.get(c.amazonClientId as string) ?? [] })).filter((c) => c.cuentas.length > 0))
-    return <PanelDeClientes titulo="SEO de fichas" subtitulo="Todos los clientes de un vistazo: cambios aplicados, propuestas por decidir y lectura de Brand Analytics" icono="seo" clientes={panel.clientes} resumen={panel.resumen} />
+    const panel = await panelSeo(todos.map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: c.amazonClientId as string, cuentas: cuentas.get(c.amazonClientId as string) ?? [] })).filter((c) => c.cuentas.length > 0))
+    return <PanelDeClientes titulo="SEO de fichas" subtitulo="Todos los clientes de un vistazo: cambios aplicados, propuestas por decidir y lectura de Brand Analytics" icono="seo" yoId={user.id} clientes={panel.clientes} resumen={panel.resumen} />
   }
 
   const cliente = clientes.find((c) => c.slug === uno(searchParams.c)) ?? clientes[0]

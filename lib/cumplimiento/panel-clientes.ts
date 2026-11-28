@@ -2,6 +2,8 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/service'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { repartirAvisos } from '@/lib/plataforma/avisos-del-panel'
+import { responsablesDeClientes } from '@/lib/cuentas/datos'
 import { conexionesDeCliente } from './conexiones'
 
 /**
@@ -16,7 +18,7 @@ const DIA = 86_400_000
 
 export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; paises: string[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
   const s = createServiceClient()
-  const [cifras, emojis] = await Promise.all([
+  const [cifras, emojis, responsables] = await Promise.all([
     Promise.all(
       clientes.map(async (c) => {
         // Un fallo se dice como fallo (antes salía «sin datos todavía» y escondía, por ejemplo, la RPC caída)
@@ -33,13 +35,14 @@ export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: 
       }),
     ),
     emojisDeClientes(clientes.map((c) => c.nombre)).catch(() => new Map<string, string | null>()),
+    responsablesDeClientes(),
   ])
 
   const total = { revisados: 0, limpios: 0, atencion: 0, conStock: 0, ocultos: 0 }
   let conAviso = 0
   const salida: ClienteDelPanel[] = clientes.map((c, i) => {
     const filas = cifras[i]
-    const base = { id: c.slug, nombre: c.nombre, sub: `${c.paises.length} ${c.paises.length === 1 ? 'país' : 'países'} · ${c.paises.join(', ')}`, emoji: emojis.get(c.nombre) ?? null, href: `/dashboard/cumplimiento?c=${encodeURIComponent(c.slug)}` }
+    const base = { id: c.slug, nombre: c.nombre, sub: `${c.paises.length} ${c.paises.length === 1 ? 'país' : 'países'} · ${c.paises.join(', ')}`, emoji: emojis.get(c.nombre) ?? null, href: `/dashboard/cumplimiento?c=${encodeURIComponent(c.slug)}`, responsable: responsables.get(c.amazonClientId) ?? null }
     if (!filas) return { ...base, cifras: [], sinDatos: 'Sin cuentas de Amazon conectadas' }
     if (!Array.isArray(filas)) {
       conAviso++
@@ -65,15 +68,17 @@ export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: 
     total.ocultos += x.ocultos
     const sano = x.revisados > 0 ? x.limpios / x.revisados : null
     const dias = x.ultima ? (Date.now() - Date.parse(x.ultima)) / DIA : null
-    let aviso: ClienteDelPanel['aviso'] = null
-    if (x.conStock > 0) aviso = { texto: `${x.conStock} ${x.conStock === 1 ? 'listing con stock necesita' : 'listings con stock necesitan'} atención: ventas en juego`, tono: 'rojo' }
-    else if (x.ocultos > 0) aviso = { texto: `${x.ocultos} ${x.ocultos === 1 ? 'listing oculto' : 'listings ocultos'} en Amazon`, tono: 'ambar' }
-    else if (dias != null && dias > 3) aviso = { texto: `Sin revisar desde hace ${Math.floor(dias)} días`, tono: 'ambar' }
+    const { aviso, masAvisos } = repartirAvisos([
+      x.conStock > 0 && { texto: `${x.conStock} ${x.conStock === 1 ? 'listing con stock necesita' : 'listings con stock necesitan'} atención: ventas en juego`, tono: 'rojo' },
+      x.ocultos > 0 && { texto: `${x.ocultos} ${x.ocultos === 1 ? 'listing oculto' : 'listings ocultos'} en Amazon`, tono: 'ambar' },
+      dias != null && dias > 3 && { texto: `Sin revisar desde hace ${Math.floor(dias)} días`, tono: 'ambar' },
+    ])
     if (aviso) conAviso++
     if (x.revisados === 0) return { ...base, cifras: [], sinDatos: 'Ningún listing revisado todavía' }
     return {
       ...base,
       aviso,
+      masAvisos,
       principal: { texto: 'Listings sin problemas', valor: pct(sano), orden: sano ?? -1, tono: sano == null ? undefined : sano >= 0.9 ? 'verde' : sano >= 0.75 ? 'ambar' : 'rojo', ayuda: `${x.limpios.toLocaleString('es-ES')} de ${x.revisados.toLocaleString('es-ES')} revisados` },
       cifras: [
         { texto: 'Atención', valor: x.atencion.toLocaleString('es-ES'), orden: x.atencion, tono: x.atencion ? 'ambar' : undefined, ayuda: 'Listings con algo que corregir' },

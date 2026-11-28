@@ -3,6 +3,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { repartirAvisos } from '@/lib/plataforma/avisos-del-panel'
+import { responsablesDeClientes } from '@/lib/cuentas/datos'
 import type { CuentaDeAnunciante } from './cuenta'
 
 /**
@@ -36,7 +38,7 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
   const desde = dia(hoy - 14 * DIA)
   const corte = dia(hoy - 7 * DIA)
   type Fila = { perfil_id: string; fecha: string; clics: number; gasto: number; ventas: number; pedidos: number }
-  const [filas, propuestas, sincro, { porEuro }, emojis, agentes, sinBuyBox] = await Promise.all([
+  const [filas, propuestas, sincro, { porEuro }, emojis, agentes, sinBuyBox, responsables] = await Promise.all([
     perfiles.length ? todas<Fila>((d) => s.from('ads_rendimiento_diario').select('perfil_id, fecha, clics, gasto, ventas, pedidos').in('perfil_id', perfiles).gte('fecha', desde).lt('fecha', dia(hoy)).order('perfil_id').order('fecha').order('campaign_id').range(d, d + 999)) : Promise.resolve([]),
     // Las pendientes con su marca de retenida: en modo agente solo esperan a una persona las RETENIDAS (raras, ubicación); el resto las aplica el agente solo
     perfiles.length ? todas<{ perfil_id: string; retenida_at: string | null }>((d) => s.from('ads_propuestas').select('perfil_id, retenida_at').in('perfil_id', perfiles).eq('estado', 'pendiente').order('id').range(d, d + 999)).catch(() => []) : Promise.resolve([]),
@@ -50,6 +52,7 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
     perfiles.length
       ? s.from('ads_agente_buybox').select('perfil_id, asin').in('perfil_id', perfiles).not('sin_desde', 'is', null).then((r) => (r.data ?? []) as Array<{ perfil_id: string; asin: string }>)
       : Promise.resolve([]),
+    responsablesDeClientes(),
   ])
   const agenteDe = new Map(agentes.map((a) => [a.perfil_id, a]))
   const sinBuyBoxDe = new Map<string, number>()
@@ -118,14 +121,15 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
     const roas = a.gasto > 0 ? a.ventas / a.gasto : null
     const cpc = a.clics > 0 ? a.gasto / a.clics : null
     const dias = masViejo ? (hoy - masViejo) / DIA : null
-    let aviso: ClienteDelPanel['aviso'] = null
-    if (frenado) aviso = { texto: `Agente frenado (${frenado}): no aplica nada hasta que alguien lo revise`, tono: 'rojo' }
-    else if (a.gasto > 20 && a.ventas === 0) aviso = { texto: `${eur(a.gasto)} gastados en 7 días sin ninguna venta`, tono: 'rojo' }
-    else if (dias == null || dias > 3) aviso = { texto: dias == null ? 'Sin datos leídos de Amazon Ads todavía' : `Sin leer de Amazon Ads desde hace ${Math.floor(dias)} días`, tono: 'ambar' }
-    else if (acos != null && acosAntes != null && acos > acosAntes * 1.3 && acos > 0.25) aviso = { texto: `ACOS ${pct(acos)}: sube desde ${pct(acosAntes)} la semana anterior`, tono: 'ambar' }
-    else if (buyBox > 0) aviso = { texto: `${buyBox} ${buyBox === 1 ? 'producto anunciado sin' : 'productos anunciados sin'} la Buy Box: revisa el precio`, tono: 'ambar' }
-    else if (fallosVigilar >= 3) aviso = { texto: `El agente lleva ${fallosVigilar} pasadas fallando en esta cuenta`, tono: 'ambar' }
-    else if (props > 0) aviso = { texto: `${props} ${props === 1 ? 'cambio esperando' : 'cambios esperando'} que decida una persona`, tono: 'ambar' }
+    const { aviso, masAvisos } = repartirAvisos([
+      frenado && { texto: `Agente frenado (${frenado}): no aplica nada hasta que alguien lo revise`, tono: 'rojo' },
+      a.gasto > 20 && a.ventas === 0 && { texto: `${eur(a.gasto)} gastados en 7 días sin ninguna venta`, tono: 'rojo' },
+      (dias == null || dias > 3) && { texto: dias == null ? 'Sin datos leídos de Amazon Ads todavía' : `Sin leer de Amazon Ads desde hace ${Math.floor(dias)} días`, tono: 'ambar' },
+      acos != null && acosAntes != null && acos > acosAntes * 1.3 && acos > 0.25 && { texto: `ACOS ${pct(acos)}: sube desde ${pct(acosAntes)} la semana anterior`, tono: 'ambar' },
+      buyBox > 0 && { texto: `${buyBox} ${buyBox === 1 ? 'producto anunciado sin' : 'productos anunciados sin'} la Buy Box: revisa el precio`, tono: 'ambar' },
+      fallosVigilar >= 3 && { texto: `El agente lleva ${fallosVigilar} pasadas fallando en esta cuenta`, tono: 'ambar' },
+      props > 0 && { texto: `${props} ${props === 1 ? 'cambio esperando' : 'cambios esperando'} que decida una persona`, tono: 'ambar' },
+    ])
     if (aviso) conAviso++
     const cambio = b.gasto > 0 ? (a.gasto - b.gasto) / b.gasto : null
     return {
@@ -142,6 +146,8 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
         { texto: 'CPC', valor: cpc == null ? '—' : eur(cpc), orden: cpc ?? -1, ayuda: `${a.clics.toLocaleString('es-ES')} clics` },
       ],
       aviso,
+      masAvisos,
+      responsable: responsables.get(c.amazonClientId) ?? null,
       sinDatos: c.cuentas.length === 0 ? 'Sin cuentas de Amazon Ads encendidas' : null,
     }
   })

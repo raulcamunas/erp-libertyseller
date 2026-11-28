@@ -47,8 +47,12 @@ export interface ClienteDelPanel {
   principal?: CifraDeCliente
   /** 2 a 4 cifras pequeñas debajo */
   cifras: CifraDeCliente[]
-  /** Aviso (lo que hay que mirar ya): sale en rojo/ámbar arriba de la tarjeta y lo cuenta el resumen */
+  /** Aviso (lo que hay que mirar ya): sale en rojo/ámbar arriba de la tarjeta y lo cuenta el resumen. El más grave */
   aviso?: { texto: string; tono: 'rojo' | 'ambar' } | null
+  /** Los demás avisos del cliente (además del principal): salen debajo, más pequeños */
+  masAvisos?: Array<{ texto: string; tono: 'rojo' | 'ambar' }>
+  /** Quien lleva la cuenta (Cuentas de clientes): sale en la tarjeta y sirve para «Mis cuentas» */
+  responsable?: { id: string; nombre: string } | null
   /** Sin datos todavía (sin cuenta conectada, sin lecturas…): la tarjeta sale apagada con este texto */
   sinDatos?: string | null
 }
@@ -76,6 +80,7 @@ export function PanelDeClientes({
   acciones,
   vacio = 'Ningún cliente tiene datos en este módulo todavía.',
   incrustado = false,
+  yoId = null,
 }: {
   titulo: string
   subtitulo?: string
@@ -87,7 +92,12 @@ export function PanelDeClientes({
   vacio?: string
   /** Dentro de un módulo que ya pinta su cabecera (Remesas): sin la suya */
   incrustado?: boolean
+  /** Quien mira: con él sale «Mis cuentas» (las que lleva según Cuentas de clientes) */
+  yoId?: string | null
 }) {
+  const mias = yoId ? clientes.filter((c) => c.responsable?.id === yoId).length : 0
+  // «Mis cuentas» por defecto si quien mira lleva alguna
+  const [soloMias, setSoloMias] = useState(mias > 0)
   const [q, setQ] = useState('')
   const [orden, setOrden] = useState<string>('aviso')
   const [vista, setVista] = useState<'tarjetas' | 'tabla'>('tarjetas')
@@ -96,19 +106,27 @@ export function PanelDeClientes({
     for (const c of clientes) for (const x of [c.principal, ...c.cifras]) if (x && x.orden != null && !vistos.has(x.texto)) vistos.set(x.texto, x.texto)
     return [...vistos.keys()]
   }, [clientes])
-  const conAviso = clientes.filter((c) => c.aviso).length
+  const base = soloMias && mias > 0 ? clientes.filter((c) => c.responsable?.id === yoId) : clientes
+  const conAviso = base.filter((c) => c.aviso).length
 
   const lista = useMemo(() => {
     const t = q.trim().toLowerCase()
     const valor = (c: ClienteDelPanel) => [c.principal, ...c.cifras].find((x) => x?.texto === orden)?.orden ?? -Infinity
-    return clientes
-      .filter((c) => !t || c.nombre.toLowerCase().includes(t) || (c.sub ?? '').toLowerCase().includes(t))
+    return base
+      .filter((c) => !t || c.nombre.toLowerCase().includes(t) || (c.sub ?? '').toLowerCase().includes(t) || (c.responsable?.nombre ?? '').toLowerCase().includes(t))
       .sort((a, b) => {
         if (orden === 'nombre') return a.nombre.localeCompare(b.nombre, 'es')
-        if (orden === 'aviso') return Number(Boolean(b.aviso)) - Number(Boolean(a.aviso)) || (b.aviso?.tono === 'rojo' ? 1 : 0) - (a.aviso?.tono === 'rojo' ? 1 : 0) || Number(Boolean(a.sinDatos)) - Number(Boolean(b.sinDatos)) || a.nombre.localeCompare(b.nombre, 'es')
+        if (orden === 'aviso')
+          return (
+            Number(Boolean(b.aviso)) - Number(Boolean(a.aviso)) ||
+            (b.aviso?.tono === 'rojo' ? 1 : 0) - (a.aviso?.tono === 'rojo' ? 1 : 0) ||
+            (b.masAvisos?.length ?? 0) - (a.masAvisos?.length ?? 0) ||
+            Number(Boolean(a.sinDatos)) - Number(Boolean(b.sinDatos)) ||
+            a.nombre.localeCompare(b.nombre, 'es')
+          )
         return valor(b) - valor(a) || a.nombre.localeCompare(b.nombre, 'es')
       })
-  }, [clientes, q, orden])
+  }, [base, q, orden])
 
   return (
     <div className="w-full min-w-0 pb-8 lg:px-1">
@@ -131,8 +149,21 @@ export function PanelDeClientes({
         </div>
       )}
 
-      {/* Buscar, ordenar y vista: una fila */}
-      <div className="mt-3 flex items-center gap-2 sm:mt-4">
+      {/* Buscar, ordenar y vista: una fila (con «Mis cuentas» si quien mira lleva alguna) */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-4">
+        {mias > 0 && (
+          <Segmentado
+            etiqueta="Qué cuentas"
+            tamano="sm"
+            className="shrink-0"
+            valor={soloMias ? 'mias' : 'todas'}
+            onCambio={(v) => setSoloMias(v === 'mias')}
+            opciones={[
+              { id: 'mias', texto: `Mis cuentas · ${mias}` },
+              { id: 'todas', texto: `Todas · ${clientes.length}` },
+            ]}
+          />
+        )}
         <label className="relative flex h-10 min-w-0 flex-1 items-center rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] sm:max-w-[320px]">
           <Search className="pointer-events-none absolute left-3 h-4 w-4 text-[var(--ls-t4)]" aria-hidden />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Buscar entre ${clientes.length} clientes`} aria-label="Buscar cliente" className="h-full w-full bg-transparent pl-9 pr-3 text-[16px] text-[var(--ls-t1)] outline-none placeholder:text-[var(--ls-t4)] sm:text-[13px]" />
@@ -204,7 +235,11 @@ function TarjetaDeCliente({ c, i }: { c: ClienteDelPanel; i: number }) {
           <Insignia c={c} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-semibold text-[var(--ls-t1)]">{c.nombre}</div>
-            {c.sub && <div className="truncate text-[11.5px] text-[var(--ls-t4)]">{c.sub}</div>}
+            {(c.sub || c.responsable) && (
+              <div className="truncate text-[11.5px] text-[var(--ls-t4)]">
+                {[c.sub, c.responsable ? `Lleva: ${c.responsable.nombre}` : null].filter(Boolean).join(' · ')}
+              </div>
+            )}
           </div>
           <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ls-t4)] transition-transform group-hover:translate-x-0.5" aria-hidden />
         </div>
@@ -213,6 +248,17 @@ function TarjetaDeCliente({ c, i }: { c: ClienteDelPanel; i: number }) {
             <AlertTriangle className="mt-[1px] h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="line-clamp-2">{c.aviso.texto}</span>
           </div>
+        )}
+        {(c.masAvisos?.length ?? 0) > 0 && (
+          <ul className="mt-1.5 space-y-0.5">
+            {c.masAvisos!.slice(0, 3).map((a) => (
+              <li key={a.texto} className="flex items-start gap-1.5 px-1 text-[11.5px] leading-snug" style={{ color: COLOR[a.tono] }}>
+                <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: COLOR[a.tono] }} aria-hidden />
+                <span className="line-clamp-1">{a.texto}</span>
+              </li>
+            ))}
+            {c.masAvisos!.length > 3 && <li className="px-1 text-[11px] text-[var(--ls-t4)]">y {c.masAvisos!.length - 3} más</li>}
+          </ul>
         )}
         {c.sinDatos ? (
           <p className="mt-3 text-[12px] text-[var(--ls-t4)]">{c.sinDatos}</p>
@@ -284,7 +330,7 @@ function TablaDeClientes({ lista }: { lista: ClienteDelPanel[] }) {
                   )
                 })}
                 <td className="max-w-[260px] truncate px-3 text-[12px]" style={{ color: c.aviso ? COLOR[c.aviso.tono] : 'var(--ls-t4)' }}>
-                  {c.aviso?.texto ?? (c.sinDatos ? c.sinDatos : '')}
+                  {c.aviso ? `${c.aviso.texto}${c.masAvisos?.length ? ` (+${c.masAvisos.length})` : ''}` : c.sinDatos ? c.sinDatos : ''}
                 </td>
               </tr>
             )

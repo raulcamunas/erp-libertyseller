@@ -73,6 +73,37 @@ export async function anotarEvento(
   } catch (e) {
     console.error(`Agente PPC: no se ha podido apuntar el evento «${tipo}» de la cuenta ${perfilId}:`, e instanceof Error ? e.message : e)
   }
+  // Lo CRÍTICO va además a la campana de quien lleva la cuenta (Cuentas de clientes), nunca al canal del chat (apagado el 20 nov 2026):
+  // el agente se ha frenado, o un producto anunciado ha perdido la Buy Box
+  const buybox = tipo === 'producto' && datos != null && typeof datos === 'object' && 'buybox' in (datos as Record<string, unknown>)
+  if (tipo === 'freno' || buybox) await avisarAlResponsable(perfilId, tipo, titulo, detalle ?? null, buybox ? String((datos as Record<string, unknown>).asin ?? '') : '')
+}
+
+/** Una notificación en la campana del responsable de la cuenta de Ads (por su cliente). Una por cuenta, hecho y día (clave única). Nunca lanza */
+async function avisarAlResponsable(perfilId: string, tipo: string, titulo: string, detalle: string | null, extra: string): Promise<void> {
+  try {
+    const s = createServiceClient()
+    const { data: perfil } = await s.from('ads_profiles').select('pais, nombre, ads_connections(client_id)').eq('id', perfilId).maybeSingle()
+    const p = perfil as { pais: string | null; nombre: string | null; ads_connections: { client_id: string | null } | Array<{ client_id: string | null }> | null } | null
+    const con = Array.isArray(p?.ads_connections) ? p?.ads_connections[0] : p?.ads_connections
+    if (!con?.client_id) return
+    const { data: g } = await s.from('cuentas_gestion').select('responsable_id').eq('amazon_client_id', con.client_id).maybeSingle()
+    const responsable = (g as { responsable_id: string | null } | null)?.responsable_id
+    if (!responsable) return
+    const dia = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
+    const cuenta = [p?.nombre, p?.pais].filter(Boolean).join(' ')
+    const { error } = await s.from('notifications').insert({
+      user_id: responsable,
+      type: 'cuenta_aviso',
+      title: recortar(`PPC${cuenta ? ` · ${cuenta}` : ''}: ${titulo}`, 200),
+      message: detalle ? recortar(detalle, 600) : null,
+      clave: `ppc:${perfilId}:${tipo}:${extra}:${dia}`,
+      datos: { app: 'marketing-test', perfilId },
+    })
+    if (error && (error as { code?: string }).code !== '23505') console.error(`Agente PPC: aviso al responsable de ${perfilId}:`, error.message)
+  } catch (e) {
+    console.error(`Agente PPC: aviso al responsable de ${perfilId}:`, e instanceof Error ? e.message : e)
+  }
 }
 
 /** Los tipos de las guardas técnicas que añade la migración 330 al CHECK de `ads_agente_eventos` */

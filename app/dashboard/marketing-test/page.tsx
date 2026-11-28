@@ -56,7 +56,7 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
   // SIN CLIENTE EN LA URL: el panel de todos (la pantalla de inicio del módulo, vista de pájaro con lo de cada uno)
   if (!uno(searchParams.c)) {
     const { clientes: tarjetas, resumen } = await panelPpc(clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: c.amazonClientId as string, cuentas: cuentas.get(c.amazonClientId as string) ?? [] })))
-    return <PanelDeClientes titulo="PPC · Amazon Ads" subtitulo="Todos los clientes con publicidad: lo de los últimos 7 días frente a los 7 anteriores. Pulsa uno para entrar." icono="ppc" clientes={tarjetas} resumen={resumen} />
+    return <PanelDeClientes titulo="PPC · Amazon Ads" subtitulo="Todos los clientes con publicidad: lo de los últimos 7 días frente a los 7 anteriores. Pulsa uno para entrar." icono="ppc" yoId={user.id} clientes={tarjetas} resumen={resumen} />
   }
 
   // El cliente de la URL. Un enlace viejo o un slug que ya no existe cae en uno de la lista, no en pantalla en blanco

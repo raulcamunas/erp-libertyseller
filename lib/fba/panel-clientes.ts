@@ -1,6 +1,7 @@
 import 'server-only'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { responsablesDeClientes } from '@/lib/cuentas/datos'
 import { resumenGlobal } from './resumen-servidor'
 
 /**
@@ -16,10 +17,10 @@ const diasHasta = (d: string, hoy: string) => Math.round((Date.parse(`${d}T12:00
 
 export async function panelRemesas(permitidos: string[] | null, hoy: string): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
   const r = await resumenGlobal(permitidos, hoy)
-  const emojis = await emojisDeClientes(r.clientes.map((c) => c.nombre)).catch(() => new Map<string, string | null>())
+  const [emojis, responsables] = await Promise.all([emojisDeClientes(r.clientes.map((c) => c.nombre)).catch(() => new Map<string, string | null>()), responsablesDeClientes()])
   let conAviso = 0
   const clientes: ClienteDelPanel[] = r.clientes.map((c) => {
-    const base = { id: c.clienteId, nombre: c.nombre, emoji: emojis.get(c.nombre) ?? null, href: `/dashboard/remesas?vista=cliente&cliente=${encodeURIComponent(c.clienteId)}&seccion=resumen` }
+    const base = { id: c.clienteId, nombre: c.nombre, emoji: emojis.get(c.nombre) ?? null, href: `/dashboard/remesas?vista=cliente&cliente=${encodeURIComponent(c.clienteId)}&seccion=resumen`, responsable: responsables.get(c.clienteId) ?? null }
     const aviso: ClienteDelPanel['aviso'] = c.salud.tono === 'rojo' || c.salud.tono === 'ambar' ? { texto: c.salud.motivo, tono: c.salud.tono } : null
     if (aviso) conAviso++
     const x = c.resumen

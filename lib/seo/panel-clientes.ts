@@ -2,6 +2,8 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/service'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { repartirAvisos } from '@/lib/plataforma/avisos-del-panel'
+import { responsablesDeClientes } from '@/lib/cuentas/datos'
 
 /**
  * SEO · EL PANEL DE TODOS LOS CLIENTES (la pantalla de inicio del módulo). De cada cliente, sumando sus países: productos que seguimos, propuestas de
@@ -26,13 +28,13 @@ async function todas<T>(pagina: (d: number) => PromiseLike<{ data: unknown; erro
   return filas
 }
 
-export async function panelSeo(clientes: Array<{ slug: string; nombre: string; cuentas: Cuenta[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+export async function panelSeo(clientes: Array<{ slug: string; nombre: string; amazonClientId?: string; cuentas: Cuenta[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
   const s = createServiceClient()
   const conexiones = [...new Set(clientes.flatMap((c) => c.cuentas.map((x) => x.connectionId)))]
   const hace30 = new Date(Date.now() - 30 * DIA).toISOString()
   type Fila = { connection_id: string; marketplace_id: string }
   const vacio = <T,>() => Promise.resolve([] as T[])
-  const [productos, propuestas, ediciones, lecturas, emojis] = await Promise.all([
+  const [productos, propuestas, ediciones, lecturas, emojis, responsables] = await Promise.all([
     conexiones.length ? todas<Fila>((d) => s.from('seo_productos').select('connection_id, marketplace_id').in('connection_id', conexiones).order('id').range(d, d + 999)).catch(() => []) : vacio<Fila>(),
     conexiones.length ? todas<Fila>((d) => s.from('seo_propuestas').select('connection_id, marketplace_id').in('connection_id', conexiones).eq('estado', 'pendiente').order('id').range(d, d + 999)).catch(() => []) : vacio<Fila>(),
     conexiones.length
@@ -46,6 +48,7 @@ export async function panelSeo(clientes: Array<{ slug: string; nombre: string; c
           .then((r) => (r.data ?? []) as Array<Fila & { estado: string | null; semana_ok: string | null; ficha_leida_at: string | null; acceso: string | null; error: string | null }>)
       : vacio<Fila & { estado: string | null; semana_ok: string | null; ficha_leida_at: string | null; acceso: string | null; error: string | null }>(),
     emojisDeClientes(clientes.map((c) => c.nombre)).catch(() => new Map<string, string | null>()),
+    responsablesDeClientes(),
   ])
   const clave = (f: Fila) => `${f.connection_id}|${f.marketplace_id}`
   const contar = (filas: Fila[]) => {
@@ -85,12 +88,13 @@ export async function panelSeo(clientes: Array<{ slug: string; nombre: string; c
     total.aplicadas += aplicadasC
     total.fallidas += fallidasC
     const diasSemana = semana ? Math.floor((Date.now() - Date.parse(semana)) / DIA) : null
-    let aviso: ClienteDelPanel['aviso'] = null
-    if (fallidasC > 0) aviso = { texto: `${fallidasC} ${fallidasC === 1 ? 'cambio que Amazon no aplicó' : 'cambios que Amazon no aplicó'} en 30 días`, tono: 'rojo' }
-    else if (sinAcceso > 0) aviso = { texto: 'Sin acceso a Brand Analytics (hace falta marca registrada)', tono: 'ambar' }
-    else if (errores > 0) aviso = { texto: 'La última lectura de Brand Analytics falló', tono: 'ambar' }
-    else if (productosC > 0 && (diasSemana == null || diasSemana > 14)) aviso = { texto: diasSemana == null ? 'Brand Analytics sin leer todavía' : `Brand Analytics sin leer desde hace ${diasSemana} días`, tono: 'ambar' }
-    else if (propuestasC > 0) aviso = { texto: `${propuestasC} ${propuestasC === 1 ? 'propuesta de ficha esperando' : 'propuestas de ficha esperando'} que decidas`, tono: 'ambar' }
+    const { aviso, masAvisos } = repartirAvisos([
+      fallidasC > 0 && { texto: `${fallidasC} ${fallidasC === 1 ? 'cambio que Amazon no aplicó' : 'cambios que Amazon no aplicó'} en 30 días`, tono: 'rojo' },
+      sinAcceso > 0 && { texto: 'Sin acceso a Brand Analytics (hace falta marca registrada)', tono: 'ambar' },
+      errores > 0 && { texto: 'La última lectura de Brand Analytics falló', tono: 'ambar' },
+      productosC > 0 && (diasSemana == null || diasSemana > 14) && { texto: diasSemana == null ? 'Brand Analytics sin leer todavía' : `Brand Analytics sin leer desde hace ${diasSemana} días`, tono: 'ambar' },
+      propuestasC > 0 && { texto: `${propuestasC} ${propuestasC === 1 ? 'propuesta de ficha esperando' : 'propuestas de ficha esperando'} que decidas`, tono: 'ambar' },
+    ])
     if (aviso) conAviso++
     return {
       id: c.slug,
@@ -106,6 +110,8 @@ export async function panelSeo(clientes: Array<{ slug: string; nombre: string; c
         { texto: 'Brand Analytics', valor: diasSemana == null ? '—' : diasSemana <= 1 ? 'Al día' : `${diasSemana} d`, orden: diasSemana == null ? 9999 : diasSemana, tono: diasSemana == null ? undefined : diasSemana > 14 ? 'ambar' : 'verde', ayuda: semana ? `Última semana leída: ${semana}` : undefined },
       ],
       aviso,
+      masAvisos,
+      responsable: c.amazonClientId ? (responsables.get(c.amazonClientId) ?? null) : null,
       sinDatos: productosC === 0 && aplicadasC === 0 ? 'Sin productos en SEO todavía' : null,
     }
   })

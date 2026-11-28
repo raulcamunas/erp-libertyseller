@@ -96,3 +96,22 @@ export async function personasQueLlevanCuentas(): Promise<Persona[]> {
     .map((p) => ({ id: p.id, nombre: (p.full_name ?? '').trim() || 'Sin nombre' }))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
 }
+
+/**
+ * Quién lleva cada cliente (amazon_client_id → persona), para los paneles de «Todos los clientes» (PPC, SEO, Cumplimiento, Remesas) y su «Mis cuentas».
+ * Sin la 307 o si falla, vacío: los paneles salen como antes, sin responsable.
+ */
+export async function responsablesDeClientes(): Promise<Map<string, { id: string; nombre: string }>> {
+  const salida = new Map<string, { id: string; nombre: string }>()
+  try {
+    const { porCliente } = await leerGestion()
+    const ids = [...new Set([...porCliente.values()].map((g) => g.responsableId).filter((x): x is string => Boolean(x)))]
+    if (ids.length === 0) return salida
+    const { data } = await createServiceClient().from('profiles').select('id, full_name, email').in('id', ids)
+    const nombre = new Map(((data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map((p) => [p.id, (p.full_name ?? '').trim().split(/\s+/)[0] || (p.email ?? '').split('@')[0] || 'Sin nombre']))
+    for (const [cliente, g] of porCliente) if (g.responsableId) salida.set(cliente, { id: g.responsableId, nombre: nombre.get(g.responsableId) ?? 'Sin nombre' })
+  } catch (e) {
+    console.error('[cuentas] responsables:', e instanceof Error ? e.message : e)
+  }
+  return salida
+}

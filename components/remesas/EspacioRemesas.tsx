@@ -360,7 +360,7 @@ export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel
               ))}
 
             {vista === 'cliente' && verTodos && todos && (
-              <PanelDeClientes titulo="Clientes" icono="remesas" incrustado clientes={todos.clientes} resumen={todos.resumen} />
+              <PanelDeClientes titulo="Clientes" icono="remesas" incrustado yoId={sesion.usuarioId} clientes={todos.clientes} resumen={todos.resumen} />
             )}
 
             {vista === 'cliente' && verTodos && !todos && (

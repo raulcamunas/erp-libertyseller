@@ -54,7 +54,7 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
   if (!uno(searchParams.c)) {
     const porSlug = new Map(conCuenta.map((c) => [c.slug, c.amazonClientId as string]))
     const { clientes: tarjetas, resumen } = await panelCumplimiento(clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: porSlug.get(c.slug) as string, paises: c.cuentas.filter((x) => x.pais !== '*').map((x) => x.pais) })))
-    return <PanelDeClientes titulo="Cumplimiento" subtitulo="Todos los clientes: cuántos listings están bien, cuáles necesitan atención y cuáles tienen ventas en juego. Pulsa uno para entrar." icono="cumplimiento" clientes={tarjetas} resumen={resumen} />
+    return <PanelDeClientes titulo="Cumplimiento" subtitulo="Todos los clientes: cuántos listings están bien, cuáles necesitan atención y cuáles tienen ventas en juego. Pulsa uno para entrar." icono="cumplimiento" yoId={user.id} clientes={tarjetas} resumen={resumen} />
   }
 
   const cliente = clientes.find((c) => c.slug === uno(searchParams.c)) ?? clientes[0]
