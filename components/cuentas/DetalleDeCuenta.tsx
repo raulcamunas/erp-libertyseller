@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarRange, Check, FileText, LayoutDashboard, ListChecks, NotebookPen, PartyPopper, RefreshCw, UserRound } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, BriefcaseBusiness, History, CalendarRange, Check, FileText, LayoutDashboard, ListChecks, NotebookPen, PartyPopper, RefreshCw, UserRound } from 'lucide-react'
 import type { TipoDeInforme } from '@/lib/cuentas/informe'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
 import { inicioParaHoy, NOMBRE_SEMANA, VENTANA_DIAS, type PasoDelCiclo } from '@/lib/cuentas/ciclo'
@@ -27,9 +27,10 @@ import { enlaceDe, entradaDeSalud, sumaPpc, type CuentaEnLista, type RespuestaCu
 import { Nota } from './piezas'
 import { AREA_UI, SemaforosGrandes } from './salud-ui'
 import { PestanaCumplimiento, PestanaMarketing, PestanaRemesas, PestanaSeo } from './PestanasDeArea'
+import { PestanaActividad } from './PestanaActividad'
 
-export type PestanaDeCuenta = 'resumen' | 'marketing' | 'seo' | 'cumplimiento' | 'remesas'
-const PESTANAS: readonly PestanaDeCuenta[] = ['resumen', 'marketing', 'seo', 'cumplimiento', 'remesas']
+export type PestanaDeCuenta = 'resumen' | 'marketing' | 'seo' | 'cumplimiento' | 'remesas' | 'actividad'
+const PESTANAS: readonly PestanaDeCuenta[] = ['resumen', 'marketing', 'seo', 'cumplimiento', 'remesas', 'actividad']
 
 const AREA_DEL_PASO: Record<PasoDelCiclo['area'], { texto: string; tono: 'rojo' | 'naranja' | 'azul' | 'violeta' | 'gris' }> = {
   cumplimiento: { texto: 'Cumplimiento', tono: 'rojo' },
@@ -200,6 +201,7 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales, pes
               { id: 'seo', texto: 'SEO', icono: AREA_UI.seo.icono, cuenta: cuentas?.seo || undefined },
               { id: 'cumplimiento', texto: 'Cumplimiento', icono: AREA_UI.cumplimiento.icono, cuenta: cuentas?.cumplimiento || undefined },
               { id: 'remesas', texto: 'Remesas', icono: AREA_UI.remesas.icono, cuenta: cuentas?.remesas || undefined },
+              { id: 'actividad', texto: 'Actividad', icono: History },
             ]}
           />
         }
@@ -236,6 +238,7 @@ export function DetalleDeCuenta({ slug, volver, personas: personasIniciales, pes
           {pestana === 'seo' && <PestanaSeo c={c} />}
           {pestana === 'cumplimiento' && <PestanaCumplimiento c={c} />}
           {pestana === 'remesas' && <PestanaRemesas c={c} />}
+          {pestana === 'actividad' && <PestanaActividad amazonClientId={c.amazonClientId} />}
         </PanelDePestana>
       )}
     </div>

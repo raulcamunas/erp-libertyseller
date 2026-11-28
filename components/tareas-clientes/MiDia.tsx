@@ -1,5 +1,6 @@
 'use client'
 
+import { TusCuentasHoy } from './TusCuentasHoy'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { AlertCircle, AtSign, CheckCircle2, ChevronLeft, ChevronRight, Eye, ListChecks, Loader2, Lock, MessageSquare, NotebookPen, Plus, Sun, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -295,6 +296,9 @@ export function MiDia({ miId, esAdmin, personas, tareas, mapa, abierta, onAbrir 
           ))}
         </div>
       )}
+
+      {/* Lo que espera en cada cuenta que lleva (o la persona que se está mirando): ciclo y avisos de PPC, SEO y Cumplimiento */}
+      {esHoy && <TusCuentasHoy usuario={soloLectura ? de : null} />}
 
       <div className="tc-dia-rejilla">
         <div className="tc-dia-col-calendario">
