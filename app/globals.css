@@ -2459,6 +2459,27 @@ html.light .lat-logo img { filter: invert(1) hue-rotate(180deg) saturate(1.15); 
   .lat-etiqueta { display: block; }
 }
 
+/* ---------- LOS COLORES DE CADA GRUPO: el mismo que su sección en el Inicio (lib/inicio/colores.ts). AppSidebar pone `--sec` en las sueltas («Tus apps», naranja),
+   en cada desplegable y en la marca que se desliza. Solo el menú: el pie (Tareas, Chat, tu cuenta) se queda como estaba ---------- */
+.lat-lista .lat-icono { color: color-mix(in srgb, var(--sec, var(--ls-acc)) 78%, var(--ls-t2)); background: color-mix(in srgb, var(--sec, var(--ls-acc)) 11%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sec, var(--ls-acc)) 20%, transparent); }
+.lat-lista .lat-item:hover .lat-icono { color: var(--sec, var(--ls-acc)); background: color-mix(in srgb, var(--sec, var(--ls-acc)) 20%, transparent); }
+.lat-lista .lat-item[data-activa='true'] .lat-icono {
+  color: #14161a;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--sec, var(--ls-acc)) 70%, #fff), var(--sec, var(--ls-acc)));
+  box-shadow: 0 5px 14px -4px color-mix(in srgb, var(--sec, var(--ls-acc)) 60%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.lat-indicador { background: linear-gradient(90deg, color-mix(in srgb, var(--sec, var(--ls-acc)) 17%, transparent), color-mix(in srgb, var(--sec, var(--ls-acc)) 4%, transparent) 90%); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sec, var(--ls-acc)) 24%, transparent); }
+.lat-indicador::before { background: var(--sec, var(--ls-acc)); box-shadow: 0 0 12px 1px color-mix(in srgb, var(--sec, var(--ls-acc)) 70%, transparent); }
+/* El desplegable abierto se ve como un bloque de su color: un fondo muy suave y el hilo de los de dentro teñido */
+.lat-grupo { border-radius: 0.875rem; transition: background-color 0.2s ease; }
+.lat-grupo[data-abierto='true'] { background: color-mix(in srgb, var(--sec) 5%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sec) 10%, transparent); padding-bottom: 0.25rem; }
+.lat-grupo-cab .lat-texto { font-weight: 600; }
+.lat-grupo[data-abierto='true'] > .lat-grupo-cab { color: var(--ls-t1); }
+.lat-grupo[data-abierto='true'] > .lat-grupo-cab .lat-chevron { color: var(--sec); }
+.lat-lista .lat-grupo-hijos { border-left-color: color-mix(in srgb, var(--sec) 35%, transparent); }
+.lat-item-hijo .lat-icono { width: 1.5rem; height: 1.5rem; border-radius: 0.45rem; }
+.lat-item-hijo .lat-icono-svg { width: 0.95rem; height: 0.95rem; }
+
 /* ---------- El pie: tu cuenta, los avisos y el tema ---------- */
 .lat-pie {
   flex: 0 0 auto;
@@ -5943,6 +5964,14 @@ html.light {
   .lat-app,
   .lat-espera { height: 3rem; }
   .lat-nav { overscroll-behavior: contain; }
+  /* El pie, compacto: Tareas y Chat lado a lado, debajo avisos y tema, y tu cuenta abajo del todo. Antes, uno debajo de otro, se comía media hoja y aplastaba el menú */
+  .lat-pie { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: 'tareas chat' 'acciones acciones' 'usuario usuario'; gap: 0.4rem; padding: 0.5rem 0.75rem 0.625rem; }
+  .lat-pie > .lat-usuario { grid-area: usuario; padding-block: 0.3rem; }
+  .lat-pie > .lat-app[href$='/tareas-clientes'] { grid-area: tareas; }
+  .lat-pie > .lat-app[href$='/chat'] { grid-area: chat; }
+  .lat-pie > .lat-app:only-of-type { grid-column: 1 / -1; }
+  .lat-pie > .lat-acciones { grid-area: acciones; }
+  .lat-pie > .lat-app { height: 2.75rem; padding: 0 0.5rem; border-radius: 0.75rem; border: 1px solid var(--ls-linea); background: var(--lat-tarjeta); }
 
   /* ---------- Lo que va fijo abajo sube por encima de la barra ---------- */
   .pila-de-avisos { --avisos-min: calc(var(--barra-hueco, 0px) + 16px); }

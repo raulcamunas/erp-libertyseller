@@ -12,6 +12,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { esCeo } from '@/lib/usuarios/ceo'
 import { apps, getAppById, nombreCortoDe, APPS_EN_EL_PIE, APPS_FUERA_DEL_MENU, APPS_OCULTAS_A_ADMIN, APPS_SOLO_ADMIN, APP_CHAT, APP_CRM, APP_GROWTH, APP_TAREAS_CLIENTES, gruposDelMenuPara, puedeVerCrm, puedeVerGrowth, type AppConfig } from '@/lib/config/apps'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
+import { colorDeSeccion } from '@/lib/inicio/colores'
 import { esRutaInmersiva, EVENTO_ABRIR_MENU } from '@/lib/layout/inmersivo'
 import { etiquetaDeInsignia, inicialesDe, rutaActivaDelMenu } from '@/lib/layout/barra'
 import { aplanarMenu, armarMenu, grupoDeLaRuta, rutaParaElMenu } from '@/lib/layout/menu'
@@ -290,6 +291,11 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   // Estando en una pantalla que cuelga de otra (Actividad, desde Mi rendimiento), se enciende la de la que cuelga
   const rutaActiva = rutaActivaDelMenu(rutasDelMenu, rutaParaElMenu(pendiente ?? pathname ?? ''))
   const grupoActivo = grupoDeLaRuta(menu, rutaActiva)
+  // El color de cada grupo, el MISMO que su sección en el Inicio (lib/inicio/colores.ts): las sueltas son «Tus apps» (el primero) y cada desplegable, el suyo en orden
+  const hayaSueltas = menu.some((e) => e.tipo === 'app')
+  const colorDeGrupo = new Map<string, string>()
+  menu.filter((e) => e.tipo === 'grupo').forEach((e, k) => e.tipo === 'grupo' && colorDeGrupo.set(e.grupo.id, colorDeSeccion(k + (hayaSueltas ? 1 : 0))))
+  const colorSueltas = colorDeSeccion(0)
 
   /* ---------------- EL MÓVIL: cabecera, barra de abajo y hoja «Más» (todo `lg:hidden` o con CSS de pantallas estrechas) ---------------- */
   useTeclado()
@@ -447,7 +453,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   // La primera colocación no se anima (que no venga desde arriba al cargar la página)
   const listaRef = useRef<HTMLDivElement>(null)
   // Dónde está la marca (se recuerda aunque desaparezca: si vuelve, vuelve desde donde estaba y no desde arriba) y si se ve
-  const [posicion, setPosicion] = useState<{ y: number; h: number } | null>(null)
+  const [posicion, setPosicion] = useState<{ y: number; h: number; c?: string } | null>(null)
   const [hayMarca, setHayMarca] = useState(false)
   const [animar, setAnimar] = useState(false)
   const idsVisibles = filteredApps.map((a) => a.id).join('|')
@@ -457,8 +463,8 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
       setHayMarca(false)
       return
     }
-    const nueva = { y: activo.offsetTop, h: activo.offsetHeight }
-    setPosicion((antes) => (antes && antes.y === nueva.y && antes.h === nueva.h ? antes : nueva))
+    const nueva = { y: activo.offsetTop, h: activo.offsetHeight, c: activo.style.getPropertyValue('--sec') || activo.closest<HTMLElement>('.lat-grupo')?.style.getPropertyValue('--sec') || undefined }
+    setPosicion((antes) => (antes && antes.y === nueva.y && antes.h === nueva.h && antes.c === nueva.c ? antes : nueva))
     setHayMarca(true)
   }, [rutaActiva, idsVisibles, isCollapsed, cargandoPermisos, abiertosClave])
   useEffect(() => {
@@ -696,7 +702,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
               className="lat-indicador"
               data-visible={hayMarca ? 'true' : 'false'}
               data-animar={animar ? 'true' : 'false'}
-              style={{ '--y': `${posicion?.y ?? 0}px`, '--h': `${posicion?.h ?? 40}px` } as CSSProperties}
+              style={{ '--y': `${posicion?.y ?? 0}px`, '--h': `${posicion?.h ?? 40}px`, ...(posicion?.c ? { '--sec': posicion.c } : {}) } as CSSProperties}
               aria-hidden
             />
             {(() => {
@@ -723,7 +729,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
                     className={dentro ? 'lat-item lat-item-hijo' : 'lat-item'}
                     data-activa={activa ? 'true' : undefined}
                     aria-current={activa ? 'page' : undefined}
-                    style={{ '--i': i } as CSSProperties}
+                    style={(dentro ? { '--i': i } : { '--i': i, '--sec': colorSueltas }) as unknown as CSSProperties}
                     onClick={(e) => {
                       setIsMobileOpen(false)
                       // Un clic normal: con Ctrl, Cmd o Mays se abre en otra pestaña y esta página no cambia
@@ -759,7 +765,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
                 // Cerrado, la cabecera es la que se enciende si la página en la que se está es de dentro: así la marca no desaparece
                 const encendida = !abierto && grupoActivo === grupo.id
                 return (
-                  <div key={grupo.id} className="lat-grupo" data-abierto={abierto ? 'true' : undefined}>
+                  <div key={grupo.id} className="lat-grupo" data-abierto={abierto ? 'true' : undefined} style={{ '--sec': colorDeGrupo.get(grupo.id) ?? colorSueltas } as CSSProperties}>
                     <button
                       type="button"
                       className="lat-item lat-grupo-cab"
