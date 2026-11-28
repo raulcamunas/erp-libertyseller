@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { todasLasFilas } from '@/lib/ads/paginar'
 import { cruzarClientes, FUENTES, propuestaDeCumplimiento, propuestasDeAlertasFba, type AlertaFba, type FuenteAutomatica, type ListingSuprimido, type PropuestaDeTarea } from './automaticas'
 import { crearTarea, ErrorDeTareas, esUuid, personasConAcceso } from './servidor'
 import { estadosDe, type ClienteTC } from './tipos'
@@ -100,7 +101,8 @@ async function propuestasPorCliente(fuente: FuenteAutomatica, hoy: string): Prom
     const { data: conexiones } = await service.from('amazon_connections').select('id, client_id').eq('is_active', true).not('client_id', 'is', null)
     const clienteDe = new Map(((conexiones ?? []) as Array<{ id: string; client_id: string }>).map((c) => [c.id, c.client_id]))
     if (clienteDe.size === 0) return sal
-    const { data } = await service.from('listing_cumplimiento').select('connection_id, sku, titulo, tema, errores').in('connection_id', [...clienteDe.keys()]).eq('suprimido', true).eq('con_stock', true).eq('en_amazon', true).limit(5000)
+    // Paginado: con .limit(5000) PostgREST devolvía 1000 filas de todos los clientes juntos, sin orden: a algunos clientes no les salía su tarea
+    const { data } = await todasLasFilas((a, b) => service.from('listing_cumplimiento').select('connection_id, sku, titulo, tema, errores').in('connection_id', [...clienteDe.keys()]).eq('suprimido', true).eq('con_stock', true).eq('en_amazon', true).order('id').range(a, b), 50_000)
     const porCliente = new Map<string, ListingSuprimido[]>()
     for (const l of (data ?? []) as Array<ListingSuprimido & { connection_id: string }>) {
       const c = clienteDe.get(l.connection_id)

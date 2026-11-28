@@ -6,6 +6,7 @@
  * Todo se pide por CLIENTE (el slug ya traducido en la ruta): no se puede leer lo de otro.
  */
 
+import { todasLasFilas } from '@/lib/ads/paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { nombresDe } from '@/lib/seo/edicion-servidor'
@@ -123,12 +124,17 @@ async function correcciones(clientId: string, o: { mercado?: string | null; sku?
 /** Cuántos comentarios tiene cada listing (clave `mercado|sku`) de los que se están viendo */
 export async function comentariosPorListing(clientId: string, listings: ReadonlyArray<{ marketplace_id: string; sku: string }>): Promise<Record<string, number>> {
   if (listings.length === 0) return {}
-  const { data, error } = await createServiceClient()
-    .from('cumplimiento_registro')
-    .select('marketplace_id, sku')
-    .eq('client_id', clientId)
-    .eq('tipo', 'comentario')
-    .in('sku', [...new Set(listings.map((l) => l.sku))].slice(0, 300))
+  // Paginado: sin él PostgREST corta en 1000 comentarios y los listings con muchos salían con la cuenta corta
+  const { data, error } = await todasLasFilas<{ marketplace_id: string; sku: string }>((a, b) =>
+    createServiceClient()
+      .from('cumplimiento_registro')
+      .select('marketplace_id, sku')
+      .eq('client_id', clientId)
+      .eq('tipo', 'comentario')
+      .in('sku', [...new Set(listings.map((l) => l.sku))].slice(0, 300))
+      .order('id')
+      .range(a, b),
+  )
   if (error) return {}
   const n: Record<string, number> = {}
   for (const r of (data ?? []) as Array<{ marketplace_id: string; sku: string }>) n[`${r.marketplace_id}|${r.sku}`] = (n[`${r.marketplace_id}|${r.sku}`] ?? 0) + 1

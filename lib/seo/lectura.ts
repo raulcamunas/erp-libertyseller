@@ -23,6 +23,7 @@
  * intentos se abandona diciendo qué ASIN. Un FATAL de varios ASIN se parte en mitades, y el ASIN que da FATAL solo tres veces se apunta en `asins_sin_ba` (migración 332) y deja de pedirse.
  */
 
+import { leerTodo } from './paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { connectionCredentials } from '@/lib/amazon/data'
@@ -384,9 +385,8 @@ export async function avanzarSeo(c: CuentaSeo, opciones: { forzar?: boolean; pes
 /** Las cuentas y países con productos seguidos que tienen algo que hacer ahora mismo. Barato: dos consultas pequeñas, sin Amazon */
 export async function cuentasSeoConTrabajo(): Promise<CuentaSeo[]> {
   const service = createServiceClient()
-  const { data: prods, error } = await service.from('seo_productos').select('connection_id, marketplace_id, asin')
-  if (error) throw error
-  const filasProd = (prods ?? []) as Array<{ connection_id: string; marketplace_id: string; asin: string }>
+  // Paginado: sin él, con más de 1000 productos seguidos en total, las cuentas que quedaban fuera de la primera página no se leían nunca
+  const filasProd = await leerTodo<{ connection_id: string; marketplace_id: string; asin: string }>((a, b) => service.from('seo_productos').select('connection_id, marketplace_id, asin').order('id').range(a, b), { etiqueta: 'productos seguidos' })
   const cuentas = [...new Map(filasProd.map((p) => [`${p.connection_id}|${p.marketplace_id}`, { connectionId: p.connection_id, marketplaceId: p.marketplace_id }])).values()]
   const asinsDe = new Map<string, string[]>()
   for (const p of filasProd) {

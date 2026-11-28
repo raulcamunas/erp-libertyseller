@@ -19,10 +19,16 @@ export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: 
   const [cifras, emojis] = await Promise.all([
     Promise.all(
       clientes.map(async (c) => {
-        const conexiones = await conexionesDeCliente(c.amazonClientId).catch(() => [])
+        // Un fallo se dice como fallo (antes salía «sin datos todavía» y escondía, por ejemplo, la RPC caída)
+        let conexiones: Awaited<ReturnType<typeof conexionesDeCliente>>
+        try {
+          conexiones = await conexionesDeCliente(c.amazonClientId)
+        } catch (e) {
+          return { error: `No se han podido leer sus cuentas de Amazon: ${e instanceof Error ? e.message : String(e)}` }
+        }
         if (!conexiones.length) return null
         const { data, error } = await s.rpc('cumplimiento_cifras', { p_conexiones: conexiones.map((x) => x.id) })
-        if (error) return null
+        if (error) return { error: `No se han podido calcular sus cifras: ${error.message}` }
         return (data ?? []) as Array<Record<string, unknown>>
       }),
     ),
@@ -34,7 +40,11 @@ export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: 
   const salida: ClienteDelPanel[] = clientes.map((c, i) => {
     const filas = cifras[i]
     const base = { id: c.slug, nombre: c.nombre, sub: `${c.paises.length} ${c.paises.length === 1 ? 'país' : 'países'} · ${c.paises.join(', ')}`, emoji: emojis.get(c.nombre) ?? null, href: `/dashboard/cumplimiento?c=${encodeURIComponent(c.slug)}` }
-    if (!filas) return { ...base, cifras: [], sinDatos: 'Sin datos de cumplimiento todavía' }
+    if (!filas) return { ...base, cifras: [], sinDatos: 'Sin cuentas de Amazon conectadas' }
+    if (!Array.isArray(filas)) {
+      conAviso++
+      return { ...base, cifras: [], aviso: { texto: filas.error.slice(0, 160), tono: 'rojo' }, sinDatos: 'Error al leer' }
+    }
     type Suma = { revisados: number; limpios: number; atencion: number; conStock: number; ocultos: number; normativa: number; ultima: string }
     const x = filas.reduce<Suma>(
       (a, f) => ({

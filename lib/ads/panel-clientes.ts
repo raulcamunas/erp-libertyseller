@@ -32,16 +32,29 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
   const s = createServiceClient()
   const perfiles = clientes.flatMap((c) => c.cuentas.map((x) => x.id))
   const hoy = Date.now()
+  // Dos semanas CERRADAS (hasta ayer): «ahora» = los 7 días hasta ayer, «antes» = los 7 anteriores. Hoy, a medias, no cuenta
   const desde = dia(hoy - 14 * DIA)
   const corte = dia(hoy - 7 * DIA)
   type Fila = { perfil_id: string; fecha: string; clics: number; gasto: number; ventas: number; pedidos: number }
-  const [filas, propuestas, sincro, { porEuro }, emojis] = await Promise.all([
-    perfiles.length ? todas<Fila>((d) => s.from('ads_rendimiento_diario').select('perfil_id, fecha, clics, gasto, ventas, pedidos').in('perfil_id', perfiles).gte('fecha', desde).order('perfil_id').order('fecha').order('campaign_id').range(d, d + 999)) : Promise.resolve([]),
-    perfiles.length ? todas<{ perfil_id: string }>((d) => s.from('ads_propuestas').select('perfil_id').in('perfil_id', perfiles).eq('estado', 'pendiente').order('perfil_id').range(d, d + 999)).catch(() => []) : Promise.resolve([]),
+  const [filas, propuestas, sincro, { porEuro }, emojis, agentes, sinBuyBox] = await Promise.all([
+    perfiles.length ? todas<Fila>((d) => s.from('ads_rendimiento_diario').select('perfil_id, fecha, clics, gasto, ventas, pedidos').in('perfil_id', perfiles).gte('fecha', desde).lt('fecha', dia(hoy)).order('perfil_id').order('fecha').order('campaign_id').range(d, d + 999)) : Promise.resolve([]),
+    // Las pendientes con su marca de retenida: en modo agente solo esperan a una persona las RETENIDAS (raras, ubicación); el resto las aplica el agente solo
+    perfiles.length ? todas<{ perfil_id: string; retenida_at: string | null }>((d) => s.from('ads_propuestas').select('perfil_id, retenida_at').in('perfil_id', perfiles).eq('estado', 'pendiente').order('id').range(d, d + 999)).catch(() => []) : Promise.resolve([]),
     perfiles.length ? s.from('ads_sincronizacion').select('perfil_id, ultimo_ok_at').in('perfil_id', perfiles).then((r) => (r.data ?? []) as Array<{ perfil_id: string; ultimo_ok_at: string | null }>) : Promise.resolve([]),
     tiposDeCambio(),
     emojisDeClientes(clientes.map((c) => c.nombre)).catch(() => new Map<string, string | null>()),
+    perfiles.length
+      ? s.from('ads_agente').select('perfil_id, estado, freno_motivo, vigilar_fallos').in('perfil_id', perfiles).then((r) => (r.data ?? []) as Array<{ perfil_id: string; estado: string; freno_motivo: string | null; vigilar_fallos: number | null }>)
+      : Promise.resolve([]),
+    // Productos sin la Buy Box ahora mismo (migración 355; sin ella, ninguno)
+    perfiles.length
+      ? s.from('ads_agente_buybox').select('perfil_id, asin').in('perfil_id', perfiles).not('sin_desde', 'is', null).then((r) => (r.data ?? []) as Array<{ perfil_id: string; asin: string }>)
+      : Promise.resolve([]),
   ])
+  const agenteDe = new Map(agentes.map((a) => [a.perfil_id, a]))
+  const sinBuyBoxDe = new Map<string, number>()
+  for (const b of sinBuyBox) sinBuyBoxDe.set(b.perfil_id, (sinBuyBoxDe.get(b.perfil_id) ?? 0) + 1)
+  const MOTIVO_FRENO: Record<string, string> = { gasto_disparado: 'el gasto se ha disparado', acos_cuenta: 'el ACOS de la cuenta se ha disparado', errores_amazon: 'errores de Amazon', datos_viejos: 'datos sin leer', ventas_caidas: 'las ventas han caído', manual: 'frenado a mano' }
   const monedaDe = new Map(clientes.flatMap((c) => c.cuentas.map((x) => [x.id, x.moneda ?? 'EUR'] as const)))
   const aEur = (n: number, perfil: string) => {
     const m = monedaDe.get(perfil) ?? 'EUR'
@@ -62,7 +75,11 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
     m.set(f.perfil_id, x)
   }
   const pendientes = new Map<string, number>()
-  for (const p of propuestas) pendientes.set(p.perfil_id, (pendientes.get(p.perfil_id) ?? 0) + 1)
+  const retenidas = new Map<string, number>()
+  for (const p of propuestas) {
+    pendientes.set(p.perfil_id, (pendientes.get(p.perfil_id) ?? 0) + 1)
+    if (p.retenida_at) retenidas.set(p.perfil_id, (retenidas.get(p.perfil_id) ?? 0) + 1)
+  }
   const ultimo = new Map(sincro.map((x) => [x.perfil_id, x.ultimo_ok_at]))
 
   const total = nueva()
@@ -72,13 +89,22 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
     const a = nueva()
     const b = nueva()
     let props = 0
+    let frenado: string | null = null
+    let fallosVigilar = 0
+    let buyBox = 0
     let masViejo: number | null = null
     for (const x of c.cuentas) {
       const s1 = ahora.get(x.id)
       const s2 = antes.get(x.id)
       if (s1) for (const k of ['gasto', 'ventas', 'clics', 'pedidos'] as const) a[k] += s1[k]
       if (s2) for (const k of ['gasto', 'ventas', 'clics', 'pedidos'] as const) b[k] += s2[k]
-      props += pendientes.get(x.id) ?? 0
+      // Con el agente encendido, lo que espera a una persona es solo lo retenido; sin agente, todo lo pendiente
+      const ag = agenteDe.get(x.id)
+      const conAgente = ag != null && ag.estado !== 'apagado'
+      props += conAgente ? (retenidas.get(x.id) ?? 0) : (pendientes.get(x.id) ?? 0)
+      if (ag?.estado === 'frenado') frenado = `${x.pais ?? ''} ${MOTIVO_FRENO[ag.freno_motivo ?? ''] ?? ag.freno_motivo ?? ''}`.trim()
+      fallosVigilar = Math.max(fallosVigilar, Number(ag?.vigilar_fallos ?? 0))
+      buyBox += sinBuyBoxDe.get(x.id) ?? 0
       const u = ultimo.get(x.id)
       const t = u ? Date.parse(u) : 0
       masViejo = masViejo == null ? t : Math.min(masViejo, t)
@@ -93,10 +119,13 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
     const cpc = a.clics > 0 ? a.gasto / a.clics : null
     const dias = masViejo ? (hoy - masViejo) / DIA : null
     let aviso: ClienteDelPanel['aviso'] = null
-    if (a.gasto > 20 && a.ventas === 0) aviso = { texto: `${eur(a.gasto)} gastados en 7 días sin ninguna venta`, tono: 'rojo' }
+    if (frenado) aviso = { texto: `Agente frenado (${frenado}): no aplica nada hasta que alguien lo revise`, tono: 'rojo' }
+    else if (a.gasto > 20 && a.ventas === 0) aviso = { texto: `${eur(a.gasto)} gastados en 7 días sin ninguna venta`, tono: 'rojo' }
     else if (dias == null || dias > 3) aviso = { texto: dias == null ? 'Sin datos leídos de Amazon Ads todavía' : `Sin leer de Amazon Ads desde hace ${Math.floor(dias)} días`, tono: 'ambar' }
     else if (acos != null && acosAntes != null && acos > acosAntes * 1.3 && acos > 0.25) aviso = { texto: `ACOS ${pct(acos)}: sube desde ${pct(acosAntes)} la semana anterior`, tono: 'ambar' }
-    else if (props > 0) aviso = { texto: `${props} ${props === 1 ? 'propuesta' : 'propuestas'} del motor esperando que decidas`, tono: 'ambar' }
+    else if (buyBox > 0) aviso = { texto: `${buyBox} ${buyBox === 1 ? 'producto anunciado sin' : 'productos anunciados sin'} la Buy Box: revisa el precio`, tono: 'ambar' }
+    else if (fallosVigilar >= 3) aviso = { texto: `El agente lleva ${fallosVigilar} pasadas fallando en esta cuenta`, tono: 'ambar' }
+    else if (props > 0) aviso = { texto: `${props} ${props === 1 ? 'cambio esperando' : 'cambios esperando'} que decida una persona`, tono: 'ambar' }
     if (aviso) conAviso++
     const cambio = b.gasto > 0 ? (a.gasto - b.gasto) / b.gasto : null
     return {

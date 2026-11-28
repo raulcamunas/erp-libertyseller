@@ -12,6 +12,7 @@
  *
  * Cada parte falla por su lado: si una no se puede leer, se dice en esa tarjeta y el resto sale igual.
  */
+import { todasLasFilas } from '@/lib/ads/paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { cuentasDeCliente } from '@/lib/ads/cuenta'
 import { leerModo, listarPropuestas, type ModoDelMotor } from '@/lib/ads/motor'
@@ -70,7 +71,8 @@ async function ppcDeCuenta(c: { id: string; pais: string; moneda: string | null;
   const desde = fecha(hoy - 14 * DIA)
   const s = createServiceClient()
   const [diario, modo, propuestas, totales] = await Promise.all([
-    s.from('ads_rendimiento_diario').select('fecha, gasto, ventas, pedidos, clics').eq('perfil_id', c.id).gte('fecha', desde).lte('fecha', ayer).limit(20000),
+    // Paginado y con orden total: con .limit() PostgREST devuelve 1000 filas sin avisar (con más de ~70 campañas el gasto y el TACoS salían cortos)
+    todasLasFilas((a, b) => s.from('ads_rendimiento_diario').select('fecha, gasto, ventas, pedidos, clics').eq('perfil_id', c.id).gte('fecha', desde).lte('fecha', ayer).order('fecha').order('campaign_id').range(a, b), 50_000),
     leerModo(c.id).catch(() => 'apagado' as ModoDelMotor),
     listarPropuestas(c.id).catch(() => []),
     ventasTotales(c.id, 7).catch(() => null),

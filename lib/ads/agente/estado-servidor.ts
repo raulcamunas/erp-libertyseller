@@ -16,6 +16,7 @@
  * tabla no hay agente que parar), y `apagarAgente`, que apaga el modo del motor de todas formas.
  */
 
+import { todasLasFilas } from '../paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { anotarCambio, firmarFicha, leerFicha } from '../cuenta'
@@ -908,13 +909,17 @@ export async function hechosDeHoy(perfilId: string, inicioDelDiaLocalIso: string
   const service = createServiceClient()
   const [agente, propuestas] = await Promise.all([
     service.from('ads_agente').select('estado').eq('perfil_id', perfilId).maybeSingle(),
-    service
-      .from('ads_propuestas')
-      .select('tipo, estado, valor_actual, valor_nuevo, metricas')
-      .eq('perfil_id', perfilId)
-      .gte('agente_at', inicioDelDiaLocalIso)
-      .in('estado', ['ensayada', 'aplicada', 'aplicando', 'deshecha'])
-      .limit(5000),
+    // Paginado: con .limit(5000) PostgREST devolvía 1000 y los topes del día se quedaban cortos
+    todasLasFilas((a, b) =>
+      service
+        .from('ads_propuestas')
+        .select('tipo, estado, valor_actual, valor_nuevo, metricas')
+        .eq('perfil_id', perfilId)
+        .gte('agente_at', inicioDelDiaLocalIso)
+        .in('estado', ['ensayada', 'aplicada', 'aplicando', 'deshecha'])
+        .order('id')
+        .range(a, b),
+    ),
   ])
   if (agente.error) lanzar(agente.error, 'No se ha podido leer el agente')
   if (propuestas.error) lanzar(propuestas.error, 'No se han podido contar los cambios de hoy')

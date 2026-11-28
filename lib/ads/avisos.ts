@@ -3,6 +3,7 @@
  * productos anunciados (amazon_listings de la cuenta de vendedor del mismo cliente y país). Las reglas, en avisos-calculo.ts.
  */
 
+import { todasLasFilas } from './paginar'
 import { createServiceClient } from '@/lib/supabase/service'
 import { campanasDe } from './campanas'
 import { marketplaceDePais, productosDeCuenta } from './cuenta'
@@ -20,7 +21,7 @@ export async function avisosDeCuenta(cuenta: { id: string; conexionId: string; p
   const [{ campanas }, productos, diario] = await Promise.all([
     campanasDe(cuenta.conexionId, cuenta.profileId),
     productosDeCuenta(cuenta.id).catch(() => []),
-    service.from('ads_rendimiento_diario').select('campaign_id, gasto, ventas').eq('perfil_id', cuenta.id).gte('fecha', desplazar(hasta, -6)).lte('fecha', hasta).limit(10000),
+    todasLasFilas((a, b) => service.from('ads_rendimiento_diario').select('campaign_id, gasto, ventas').eq('perfil_id', cuenta.id).gte('fecha', desplazar(hasta, -6)).lte('fecha', hasta).order('fecha').order('campaign_id').range(a, b), 50_000),
   ])
   const suma = new Map<string, { gasto: number; ventas: number }>()
   for (const r of (diario.data ?? []) as Array<{ campaign_id: string; gasto: number; ventas: number }>) {

@@ -4,6 +4,7 @@ import { connectionCredentials } from '@/lib/amazon/data'
 import { leerOfertas, MAX_SKUS_OFERTAS } from '@/lib/plataforma/buybox/api'
 import { leerLoteOfertas } from '@/lib/plataforma/buybox/lectura'
 import { marketplaceDePais } from '../cuenta'
+import { todasLasFilas } from '../paginar'
 import { congelado, siguienteFila, tocaAvisar, type EstadoDeBuyBox, type FilaDeBuyBox } from './buybox-calculo'
 
 /**
@@ -24,7 +25,7 @@ const aBd = (perfilId: string, f: FilaDeBuyBox) => ({ perfil_id: perfilId, asin:
 /** Los ASIN congelados ahora (sin leer nada de Amazon). Sin la tabla, ninguno */
 export async function congeladosPorBuyBox(perfilId: string, ahora = Date.now()): Promise<Map<string, string>> {
   const salida = new Map<string, string>()
-  const { data, error } = await createServiceClient().from('ads_agente_buybox').select('asin, estado, sin_desde, recuperada_at, perdida_horas, avisada_at, leida_at').eq('perfil_id', perfilId).limit(5000)
+  const { data, error } = await todasLasFilas<FilaBd>((x, y) => createServiceClient().from('ads_agente_buybox').select('asin, estado, sin_desde, recuperada_at, perdida_horas, avisada_at, leida_at').eq('perfil_id', perfilId).order('asin').range(x, y))
   if (error) {
     if (isMissingSchema(error)) return salida
     throw error
@@ -50,7 +51,7 @@ export async function vigilarBuyBox(perfilId: string, anunciados: readonly strin
   const r: ResultadoDeBuyBox = { leidos: 0, perdidas: [], recuperadas: [], error: null }
   try {
     const service = createServiceClient()
-    const { data: previas, error: ePrevias } = await service.from('ads_agente_buybox').select('asin, estado, sin_desde, recuperada_at, perdida_horas, avisada_at, leida_at').eq('perfil_id', perfilId).limit(5000)
+    const { data: previas, error: ePrevias } = await todasLasFilas<FilaBd>((x, y) => service.from('ads_agente_buybox').select('asin, estado, sin_desde, recuperada_at, perdida_horas, avisada_at, leida_at').eq('perfil_id', perfilId).order('asin').range(x, y))
     if (ePrevias) {
       if (isMissingSchema(ePrevias)) return r
       throw ePrevias
