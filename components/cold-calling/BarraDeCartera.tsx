@@ -52,27 +52,33 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
   const trabajadosPct = resumen.total > 0 ? resumen.trabajados / resumen.total : 0
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <h1 className={TITULO.pantalla}>Cold Calling</h1>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+      {/* En el móvil sin el título: la barra de arriba de la app ya dice «Cold Calling» */}
+      <h1 className={`${TITULO.pantalla} max-sm:hidden`}>Cold Calling</h1>
 
-      <div className={`${CIFRAS.tira} max-w-full overflow-x-auto ${enListas ? 'hidden' : ''}`} role="group" aria-label="Resumen de la cartera">
+      {/* Las cifras: en el móvil, cuatro casillas iguales que caben en el ancho (antes se salían por la derecha) */}
+      <div className={`${CIFRAS.tira} max-w-full overflow-x-auto max-sm:grid max-sm:h-auto max-sm:w-full max-sm:grid-cols-4 max-sm:overflow-hidden max-sm:rounded-[12px] max-sm:[&>*]:min-w-0 max-sm:[&>*]:flex-col max-sm:[&>*]:items-start max-sm:[&>*]:!gap-0 max-sm:[&>*]:!px-2 max-sm:[&>*]:!py-1.5 ${enListas ? 'hidden' : ''}`} role="group" aria-label="Resumen de la cartera">
         <div className={CIFRAS.celda}>
           <span className={CIFRAS.valor}>
             <Numero valor={resumen.total} />
           </span>
-          <span className={CIFRAS.rotulo}>en cartera</span>
+          <span className={`${CIFRAS.rotulo} max-sm:truncate max-sm:text-[10.5px]`}>en cartera</span>
         </div>
         <div className={CIFRAS.celda} title="Leads que ya se han tocado: cualquier estado menos «Sin contactar»">
           <span className={CIFRAS.valor}>
             <Numero valor={resumen.trabajados} />
           </span>
-          <span className={CIFRAS.rotulo}>trabajados · {porcentaje(trabajadosPct)}</span>
+          <span className={`${CIFRAS.rotulo} max-sm:truncate max-sm:text-[10.5px]`}>
+            trabajados<span className="max-sm:hidden"> · {porcentaje(trabajadosPct)}</span>
+          </span>
         </div>
         <div className={CIFRAS.celda} title="Citas agendadas, y qué parte de los trabajados son">
           <span className={CIFRAS.valor}>
             <Numero valor={resumen.cualificados} />
           </span>
-          <span className={CIFRAS.rotulo}>citas · {porcentaje(resumen.conversion)}</span>
+          <span className={`${CIFRAS.rotulo} max-sm:truncate max-sm:text-[10.5px]`}>
+            citas<span className="max-sm:hidden"> · {porcentaje(resumen.conversion)}</span>
+          </span>
         </div>
         <button
           type="button"
@@ -83,11 +89,11 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
           <span className={`${CIFRAS.valor} ${resumen.paraLlamar > 0 ? CIFRAS.urgente : ''}`}>
             <Numero valor={resumen.paraLlamar} />
           </span>
-          <span className={CIFRAS.rotulo}>para llamar</span>
+          <span className={`${CIFRAS.rotulo} max-sm:truncate max-sm:text-[10.5px]`}>para llamar</span>
         </button>
       </div>
 
-      <div className="ml-auto flex flex-wrap items-center gap-2">
+      <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 max-sm:w-full">
         {cargando && !enListas && (
           <span className="flex items-center gap-1.5 text-[11.5px] text-[var(--ls-t4)]" role="status">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Cargando leads…
@@ -95,7 +101,7 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
         )}
 
         {puedeVerTodos && team.length > 0 && !enListas && (
-          <select value={propietario} onChange={(e) => onPropietario(e.target.value)} aria-label="Cartera de" className={`${BOTON.chip} !h-7 cursor-pointer !pr-1.5 outline-none`}>
+          <select value={propietario} onChange={(e) => onPropietario(e.target.value)} aria-label="Cartera de" className={`${BOTON.chip} !h-7 cursor-pointer !pr-1.5 outline-none max-sm:!h-9 max-sm:min-w-0 max-sm:flex-1`}>
             <option value="all" className="bg-[var(--ls-sup)]">
               Todos los comerciales
             </option>
@@ -108,12 +114,13 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
         )}
 
         {puedeVerTodos && (
-          <button type="button" onClick={onTelefonos} className={`${BOTON.chip} !h-7`} title="Comprobar que las llamadas de Rinkel se enlazan con los teléfonos de los leads">
-            <Link2 className="h-3.5 w-3.5" aria-hidden /> Teléfonos
+          <button type="button" onClick={onTelefonos} className={`${BOTON.chip} !h-7 max-sm:!h-9`} title="Comprobar que las llamadas de Rinkel se enlazan con los teléfonos de los leads" aria-label="Teléfonos">
+            <Link2 className="h-3.5 w-3.5" aria-hidden /> <span className="max-sm:hidden">Teléfonos</span>
           </button>
         )}
 
-        <div role="group" aria-label="Vista" className="flex items-center gap-0.5 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-0.5">
+        {/* Las vistas: en el móvil, una casilla igual para cada una con el icono encima (cinco caben en el ancho; antes «Informes» se salía y descuadraba todo) */}
+        <div role="group" aria-label="Vista" className="flex items-center gap-0.5 rounded-[6px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-0.5 max-sm:grid max-sm:w-full max-sm:auto-cols-fr max-sm:grid-flow-col max-sm:rounded-[12px] max-sm:p-1">
           {VISTAS.filter((v) => (v.id !== 'listas' || puedeGestionarListas) && (v.id !== 'informes' || esAdmin)).map((v) => {
             const activa = vista === v.id
             const Icono = v.icono
@@ -124,13 +131,13 @@ export function BarraDeCartera({ resumen, vista, onVista, puedeVerTodos, team, p
                 onClick={() => onVista(v.id)}
                 aria-pressed={activa}
                 title={v.ayuda}
-                className={`inline-flex h-6 items-center gap-1.5 rounded-[4px] px-2.5 text-[11.5px] font-medium transition-colors ${
+                className={`relative inline-flex h-6 items-center gap-1.5 rounded-[4px] px-2.5 text-[11.5px] font-medium transition-colors max-sm:h-12 max-sm:min-w-0 max-sm:flex-col max-sm:justify-center max-sm:gap-0.5 max-sm:rounded-[9px] max-sm:px-0 max-sm:text-[10.5px] ${
                   activa ? 'bg-[var(--ls-sup3)] text-[var(--ls-t1)] shadow-[inset_0_0_0_1px_var(--ls-acc-graf)]' : 'text-[var(--ls-t3)] hover:bg-[var(--ls-sup2)] hover:text-[var(--ls-t1)]'
                 }`}
               >
-                <Icono className="h-3.5 w-3.5" aria-hidden />
-                {v.etiqueta}
-                {v.id === 'rellamadas' && resumen.paraLlamar > 0 && <span className={INSIGNIA.contador}>{resumen.paraLlamar.toLocaleString('es-ES')}</span>}
+                <Icono className="h-3.5 w-3.5 max-sm:h-[18px] max-sm:w-[18px]" aria-hidden />
+                <span className="max-sm:max-w-full max-sm:truncate">{v.etiqueta}</span>
+                {v.id === 'rellamadas' && resumen.paraLlamar > 0 && <span className={`${INSIGNIA.contador} max-sm:absolute max-sm:right-1 max-sm:top-0.5`}>{resumen.paraLlamar.toLocaleString('es-ES')}</span>}
               </button>
             )
           })}

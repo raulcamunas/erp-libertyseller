@@ -114,7 +114,8 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = fals
   const rangoPuesto = filtros.minRev !== '' || filtros.maxRev !== ''
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+    // En el móvil, UNA fila que se desliza con el dedo (antes eran cuatro filas de pastillas antes de llegar a los leads)
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 max-sm:-mx-1 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:px-1 max-sm:pb-0.5 max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden max-sm:[&>*]:shrink-0">
       {/* La lista de origen */}
       {listas.length > 0 && (
         <Popover open={listaAbierta} onOpenChange={setListaAbierta}>
@@ -153,7 +154,7 @@ export function FiltrosDeLista({ filtros, onCambiar, porEstado, modoCiclo = fals
       <span aria-hidden className="hidden h-4 w-px bg-[var(--ls-linea2)] sm:block" />
 
       {/* El estado: glifo y número; el pulsado se abre y escribe su nombre */}
-      <div role="group" aria-label="Estado" className="flex flex-wrap items-center gap-1 md:flex-nowrap">
+      <div role="group" aria-label="Estado" className="flex flex-wrap items-center gap-1 max-sm:flex-nowrap md:flex-nowrap">
         <button type="button" onClick={() => onCambiar({ estado: 'all' })} aria-pressed={filtros.estado === 'all'} className={`${CHIP} ${ANCHO_DE_TODOS} shrink-0 ${filtros.estado === 'all' ? BOTON.chipEncendido : ''}`}>
           Todos <span className="tabular-nums text-[var(--ls-t4)]">{numero(total)}</span>
         </button>
