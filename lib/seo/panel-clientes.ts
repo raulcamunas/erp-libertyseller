@@ -2,6 +2,7 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/service'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { conMemoria } from '@/lib/plataforma/memoria'
 import { repartirAvisos } from '@/lib/plataforma/avisos-del-panel'
 import { responsablesDeClientes } from '@/lib/cuentas/datos'
 
@@ -28,7 +29,7 @@ async function todas<T>(pagina: (d: number) => PromiseLike<{ data: unknown; erro
   return filas
 }
 
-export async function panelSeo(clientes: Array<{ slug: string; nombre: string; amazonClientId?: string; cuentas: Cuenta[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+async function panelSeoCalculo(clientes: Array<{ slug: string; nombre: string; amazonClientId?: string; cuentas: Cuenta[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
   const s = createServiceClient()
   const conexiones = [...new Set(clientes.flatMap((c) => c.cuentas.map((x) => x.connectionId)))]
   const hace30 = new Date(Date.now() - 30 * DIA).toISOString()
@@ -125,4 +126,9 @@ export async function panelSeo(clientes: Array<{ slug: string; nombre: string; a
       { texto: 'Clientes con aviso', valor: String(conAviso), tono: conAviso ? 'ambar' : 'verde' },
     ],
   }
+}
+
+/** Con memoria de 2 minutos (lib/plataforma/memoria.ts): el panel lo abre todo el equipo a primera hora y cada carga lee miles de filas */
+export async function panelSeo(clientes: Array<{ slug: string; nombre: string; amazonClientId?: string; cuentas: Cuenta[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+  return conMemoria(`panelSeo:${JSON.stringify(clientes)}`, 120_000, () => panelSeoCalculo(clientes))
 }

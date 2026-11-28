@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { tiposDeCambio } from '@/lib/divisas/servidor'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { conMemoria } from '@/lib/plataforma/memoria'
 import { repartirAvisos } from '@/lib/plataforma/avisos-del-panel'
 import { responsablesDeClientes } from '@/lib/cuentas/datos'
 import type { CuentaDeAnunciante } from './cuenta'
@@ -30,7 +31,7 @@ async function todas<T>(pagina: (d: number) => PromiseLike<{ data: unknown; erro
   return filas
 }
 
-export async function panelPpc(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; cuentas: CuentaDeAnunciante[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+async function panelPpcCalculo(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; cuentas: CuentaDeAnunciante[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
   const s = createServiceClient()
   const perfiles = clientes.flatMap((c) => c.cuentas.map((x) => x.id))
   const hoy = Date.now()
@@ -163,4 +164,9 @@ export async function panelPpc(clientes: Array<{ slug: string; nombre: string; a
       { texto: 'Clientes con aviso', valor: String(conAviso), tono: conAviso ? 'ambar' : 'verde' },
     ],
   }
+}
+
+/** Con memoria de 2 minutos (lib/plataforma/memoria.ts): el panel lo abre todo el equipo a primera hora y cada carga lee miles de filas */
+export async function panelPpc(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; cuentas: CuentaDeAnunciante[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+  return conMemoria(`panelPpc:${JSON.stringify(clientes)}`, 120_000, () => panelPpcCalculo(clientes))
 }

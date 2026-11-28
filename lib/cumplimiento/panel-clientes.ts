@@ -2,6 +2,7 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/service'
 import { emojisDeClientes } from '@/lib/ventas/emoji-servidor'
 import type { ClienteDelPanel, ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
+import { conMemoria } from '@/lib/plataforma/memoria'
 import { repartirAvisos } from '@/lib/plataforma/avisos-del-panel'
 import { responsablesDeClientes } from '@/lib/cuentas/datos'
 import { conexionesDeCliente } from './conexiones'
@@ -16,7 +17,7 @@ const n = (v: unknown) => Number(v ?? 0) || 0
 const pct = (x: number | null) => (x == null ? '—' : `${Math.round(x * 100)} %`)
 const DIA = 86_400_000
 
-export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; paises: string[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+async function panelCumplimientoCalculo(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; paises: string[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
   const s = createServiceClient()
   const [cifras, emojis, responsables] = await Promise.all([
     Promise.all(
@@ -98,4 +99,9 @@ export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: 
       { texto: 'Clientes con aviso', valor: String(conAviso), tono: conAviso ? 'ambar' : 'verde' },
     ],
   }
+}
+
+/** Con memoria de 2 minutos (lib/plataforma/memoria.ts): el panel lo abre todo el equipo a primera hora y cada carga lee miles de filas */
+export async function panelCumplimiento(clientes: Array<{ slug: string; nombre: string; amazonClientId: string; paises: string[] }>): Promise<{ clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] }> {
+  return conMemoria(`panelCumplimiento:${JSON.stringify(clientes)}`, 120_000, () => panelCumplimientoCalculo(clientes))
 }

@@ -456,6 +456,9 @@ export async function revisarCliente(
  * si siempre fuese la misma y gastase el presupuesto, las últimas no se revisarían
  * nunca.
  */
+/** Cuántas cuentas se revisan a la vez en la pasada del cron */
+const CUENTAS_A_LA_VEZ = 3
+
 export async function revisarTodos(): Promise<ResultadoRevision & { cuentas: number; errores: number }> {
   const inicio = Date.now()
   const { data, error } = await createServiceClient()
@@ -472,17 +475,23 @@ export async function revisarTodos(): Promise<ResultadoRevision & { cuentas: num
   if (conexiones.length > 0) {
     const desde = Math.floor(Date.now() / 3_600_000) % conexiones.length
     const orden = [...conexiones.slice(desde), ...conexiones.slice(0, desde)]
-    for (const c of orden) {
-      if (Date.now() - inicio > PRESUPUESTO_MS) break
-      try {
-        const r = await revisarConexion(c, { presupuestoMs: PRESUPUESTO_MS, maxSkus: MAX_SKUS_POR_PASADA, inicio })
-        if (r.estado === 'error') errores += 1
-        total = sumar(total, r)
-      } catch (e) {
-        errores += 1
-        console.error('[cumplimiento] una cuenta ha fallado:', mensajeDe(e))
+    // Varias cuentas A LA VEZ (cada conexión tiene su propio cupo en la API de Amazon): con una detrás de otra, al crecer el número de clientes las últimas
+    // de la rotación se quedaban sin revisar en cada pasada. Mismo presupuesto total; cada una mira el reloj común (`inicio`)
+    let siguiente = 0
+    const trabajador = async () => {
+      while (siguiente < orden.length && Date.now() - inicio <= PRESUPUESTO_MS) {
+        const c = orden[siguiente++]
+        try {
+          const r = await revisarConexion(c, { presupuestoMs: PRESUPUESTO_MS, maxSkus: MAX_SKUS_POR_PASADA, inicio })
+          if (r.estado === 'error') errores += 1
+          total = sumar(total, r)
+        } catch (e) {
+          errores += 1
+          console.error('[cumplimiento] una cuenta ha fallado:', mensajeDe(e))
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(CUENTAS_A_LA_VEZ, orden.length) }, trabajador))
   }
   return { ...total, duracionMs: Date.now() - inicio, cuentas: conexiones.length, errores }
 }
