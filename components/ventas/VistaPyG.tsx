@@ -269,7 +269,7 @@ export function VistaPyG({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; hoy: s
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-3 sm:gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <Menu icono={Calendar} texto={modo === 'rango' ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (MODOS.find((m) => m.id === modo)?.texto ?? '')}>
           {(cerrar) => (

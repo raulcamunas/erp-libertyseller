@@ -222,7 +222,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
   const formato = (m: Metrica, v: number | null) => (v == null ? '—' : m.unidad === 'euros' ? euros(v) : m.unidad === 'porcentaje' ? pct(v) : entero(v))
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-3 sm:gap-4">
       {/* Los filtros */}
       <div className="flex flex-wrap items-center gap-2">
         <Menu icono={Calendar} texto={modo === 'rango' ? `${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)}` : (MODOS.find((m) => m.id === modo)?.texto ?? '')}>
@@ -310,8 +310,9 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
       {error && <p className="text-[12.5px] text-[var(--ls-e-rojo)]">{error}</p>}
 
       {/* La gráfica y el desglose */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="rounded-[20px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      {/* grid-cols-1 = minmax(0, 1fr): sin esto la gráfica y la fila de meses ensanchaban la página en el móvil */}
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-[minmax(0,1fr)_380px] [&>*]:min-w-0">
+        <section className="rounded-[20px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] sm:p-5">
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
             {activas.map((m) => (
               <span key={m.id} className="inline-flex items-center gap-[6px] text-[12px] text-[var(--ls-t2)]">
@@ -325,9 +326,10 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
                 Año anterior
               </span>
             )}
-            <span className="ml-auto text-[11.5px] text-[var(--ls-t4)]">Pulsa una barra para ver su desglose</span>
+            <span className="ml-auto hidden text-[11.5px] text-[var(--ls-t4)] sm:inline">Pulsa una barra para ver su desglose</span>
           </div>
-          <ResponsiveContainer width="100%" height={380}>
+          <div className="h-[270px] sm:h-[380px]">
+          <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={datosGrafica} margin={{ top: 8, right: 4, bottom: 4, left: 0 }} barGap={1} barCategoryGap="12%" onClick={(e: { activeLabel?: string; activePayload?: Array<{ payload: { clave: string } }> } | null) => { const clave = e?.activePayload?.[0]?.payload?.clave; if (clave) setElegida((x) => (x === clave ? null : clave)) }}>
               <defs>
                 {activas.map((m) => (
@@ -357,6 +359,7 @@ export function VistaGrafico({ cuenta, hoy, skus }: { cuenta: CuentaDelPanel; ho
                 ])}
             </ComposedChart>
           </ResponsiveContainer>
+          </div>
           {/* Las cubetas, para elegir también sin apuntar a la barra */}
           <div className="mt-2 flex gap-1 overflow-x-auto pb-1 [scrollbar-width:thin]">
             {porCubeta.map(({ c, t }) => (

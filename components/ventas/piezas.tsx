@@ -750,7 +750,7 @@ export function AltoEstable({ clave, children }: { clave: string; children: Reac
     return () => ro.disconnect()
   }, [])
   return (
-    <div ref={caja} style={{ minHeight: minimo }}>
+    <div ref={caja} className="min-w-0" style={{ minHeight: minimo }}>
       {children}
     </div>
   )
