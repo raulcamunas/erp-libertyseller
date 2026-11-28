@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { hasTokenKey } from '@/lib/amazon/crypto'
 import { isAmazonConfigured } from '@/lib/amazon/lwa'
 import { pasadaResenas } from '@/lib/ventas/resenas-servidor'
+import { fotoDeValoracionesSiFalta } from '@/lib/resenas/valoraciones'
 import { conRegistro, lanzadoPorDe, tocaAhora } from '@/lib/sistema/cron'
 
 /**
@@ -24,6 +25,9 @@ export async function POST(request: NextRequest) {
   if (!isAmazonConfigured() || !hasTokenKey()) return NextResponse.json({ ok: true, saltado: 'Amazon no configurado' })
   const salida = await conRegistro('resenas', lanzadoPorDe(request.headers), async () => {
     const r = await pasadaResenas(PRESUPUESTO_MS)
+    // La foto diaria de valoraciones (Keepa): una vez al día, desde las 8. Si falla, las solicitudes de reseña ya están hechas
+    const v = await fotoDeValoracionesSiFalta().catch((e) => ({ hecho: false, motivo: e instanceof Error ? e.message : String(e), leidos: 0, avisos: 0, tokens: 0 }))
+    if (v.hecho) r.hechos.push(`valoraciones: ${v.leidos} productos, ${v.avisos} avisos, ${v.tokens} tokens`)
     if (r.sinTabla) return { ...r, resumen: 'falta la migración 347' }
     return { ...r, resumen: `${r.encolados} a la cola, ${r.enviadas} reseñas pedidas${r.hechos.length ? ` · ${r.hechos.join(' | ').slice(0, 300)}` : ''}${r.avisos.length ? ` · avisos: ${r.avisos.join(' | ').slice(0, 200)}` : ''}` }
   })

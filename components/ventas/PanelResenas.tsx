@@ -1,5 +1,6 @@
 'use client'
 
+import { ValoracionesDeProductos } from './ValoracionesDeProductos'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -83,6 +84,8 @@ function TodasLasCuentas({ cuentas, error: errorCuentas }: { cuentas: CuentaDelP
     >
       {(error || errorCuentas) && <p className="mb-4 rounded-[12px] border border-[color-mix(in_srgb,#F87171_40%,transparent)] px-4 py-3 text-[12.5px] text-[#F87171]">{error ?? errorCuentas}</p>}
       {sinTabla && <p className="mb-4 rounded-[12px] border border-[color-mix(in_srgb,#F5B942_40%,transparent)] px-4 py-3 text-[12.5px] text-[#F5B942]">Falta lanzar la migración 347 (las tablas de reseñas).</p>}
+      {/* Las valoraciones de los productos (Keepa, una foto al día): lo que empeora va primero */}
+      <ValoracionesDeProductos />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi icono={Send} texto="Pedidas hoy" valor={total.hoy} color={VERDE} />
