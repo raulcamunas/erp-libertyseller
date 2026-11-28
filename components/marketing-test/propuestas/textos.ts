@@ -19,6 +19,8 @@ export function queHace(p: Propuesta): string {
       return p.objetivoTipo === 'anuncio' ? `Pausar el anuncio de ${p.asin ?? p.termino} en ${p.campaignNombre} (sin stock)` : `Pausar «${p.termino}» en ${p.campaignNombre}`
     case 'pausar-campana':
       return `Pausar la campaña ${p.campaignNombre} (sin stock)`
+    case 'ubicacion':
+      return `Cambiar el ajuste de puja en «${p.termino}» de ${Math.round(p.valorActual ?? 0)} % a ${Math.round(p.valorNuevo ?? 0)} % en ${p.campaignNombre}`
     default:
       return p.esAsin ? `Atacar la ficha ${p.termino.toUpperCase()} en ${p.haciaCampaignNombre ?? 'ATAQUE ASIN'} y excluirla de ${p.campaignNombre}` : `Añadir «${p.termino}» (exacta) a ${p.haciaCampaignNombre ?? '—'} y excluirlo de ${p.campaignNombre}`
   }
@@ -32,6 +34,7 @@ export function nombreDePropuesta(p: Propuesta): string {
   if (p.tipo === 'pausar') return p.objetivoTipo === 'anuncio' ? 'Pausar anuncio' : 'Pausar'
   if (p.tipo === 'pausar-campana') return 'Pausar campaña'
   if (p.tipo === 'presupuesto') return sube(p) ? 'Subir presupuesto' : 'Bajar presupuesto'
+  if (p.tipo === 'ubicacion') return sube(p) ? 'Subir ubicación' : 'Bajar ubicación'
   return sube(p) ? 'Subir puja' : 'Bajar puja'
 }
 

@@ -58,6 +58,7 @@ import { diaDeRampa } from './pasos-calculo'
 import { presionDelDia, recortePorRitmo, reglasDePresupuesto, ritmoDelMes } from './ritmo-calculo'
 import { coberturaDias, decisionDeStock, decisionDeStockConAnuncios, ESTADOS_DE_PAUSA_HECHA, faseDeStock, pausasYaHechas, posturasPorStock, puedeReactivar, stockPermiteReactivar, type FilaDePausa } from './stock-calculo'
 import { eventoEn } from './temporada-calculo'
+import { vigilarBuyBox } from './buybox-servidor'
 import {
   AGENTE,
   TOPES_DE_PARTIDA,
@@ -1089,6 +1090,24 @@ export async function vigilarCuenta(cuenta: CuentaParaSincronizar, config: Confi
         porAsin.set(asin, x)
       }
       for (const [asin, x] of Array.from(porAsin.entries())) vuelveStock.push({ asin, nombre: nombreDe(asin), ...x })
+    }
+  }
+
+  // ---------- (e') Buy Box de lo anunciado (28 nov 2026) ----------
+  // Sin la Buy Box Amazon no enseña los anuncios: las ventas por publicidad caen sin culpa de las keywords. Se lee cada hora por ASIN; con ≥ 2 h sin ella el
+  // producto queda CONGELADO (motor-pujas y aplicar no tocan sus pujas, pausas, presupuestos ni ubicaciones) y se avisa una vez por episodio. Nunca lanza
+  {
+    const bb = await vigilarBuyBox(cuenta.id, Array.from(anunciados), ahora)
+    for (const x of bb.perdidas) {
+      eventos.push({
+        tipo: 'producto',
+        titulo: `Sin la Buy Box: ${nombreDe(x.asin)} (${x.asin})`,
+        detalle: `${x.porque}. Sin ella Amazon no enseña sus anuncios. Congelo sus pujas, pausas y presupuestos hasta que vuelva (y 7 días más si la pérdida pasa de un día). Revisa el precio y la competencia.`,
+        datos: { asin: x.asin, buybox: x.estado },
+      })
+    }
+    for (const x of bb.recuperadas) {
+      eventos.push({ tipo: 'producto', titulo: `Vuelve la Buy Box: ${nombreDe(x.asin)} (${x.asin})`, detalle: `Ha estado ${Math.round(x.horas)} h sin ella.${x.horas >= 24 ? ' Sigue congelado 7 días para que sus días flojos no muevan las pujas.' : ''}`, datos: { asin: x.asin, horas: x.horas } })
     }
   }
 

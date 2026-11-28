@@ -483,3 +483,46 @@ export async function leerEstadoDeAnuncio(cuenta: { conexionId: string; profileI
   const res = await llamarAds<{ productAds?: Array<{ state?: string }> }>(cuenta.conexionId, '/sp/productAds/list', { perfilId: cuenta.profileId, metodo: 'POST', cabeceras: cabeceras(T_ANUNCIO), cuerpo: { adIdFilter: { include: [adId] }, maxResults: 10 } })
   return res.productAds?.[0]?.state ?? null
 }
+
+/* ------------------------------------------------------------------ */
+/* Ajuste de puja por ubicación (arriba de la búsqueda, resto, páginas de producto)  */
+/* ------------------------------------------------------------------ */
+
+/** Los ajustes por ubicación de una campaña tal como vienen de Amazon (`dynamicBidding.placementBidding`): ubicación → % */
+export function ajustesDeUbicacionDe(crudo: unknown): Record<string, number> {
+  const lista = (crudo as { dynamicBidding?: { placementBidding?: Array<{ placement?: string; percentage?: number }> } } | null)?.dynamicBidding?.placementBidding ?? []
+  const salida: Record<string, number> = {}
+  for (const p of lista) if (p?.placement && typeof p.percentage === 'number') salida[p.placement] = p.percentage
+  return salida
+}
+
+/** Los ajustes por ubicación que tiene AHORA una campaña. null = no la encuentra. Solo LEE */
+export async function leerAjustesDeUbicacion(cuenta: { conexionId: string; profileId: number }, campaignId: string): Promise<{ ajustes: Record<string, number>; estrategia: string | null } | null> {
+  const res = await llamarAds<{ campaigns?: Array<{ dynamicBidding?: { strategy?: string; placementBidding?: Array<{ placement?: string; percentage?: number }> } }> }>(cuenta.conexionId, '/sp/campaigns/list', {
+    perfilId: cuenta.profileId,
+    metodo: 'POST',
+    cabeceras: cabeceras(T_CAMPANA),
+    cuerpo: { campaignIdFilter: { include: [campaignId] }, maxResults: 10 },
+  })
+  const c = res.campaigns?.[0]
+  if (!c) return null
+  return { ajustes: ajustesDeUbicacionDe(c), estrategia: c.dynamicBidding?.strategy ?? null }
+}
+
+/**
+ * Pone el % de UNA ubicación sin tocar las otras: se leen los ajustes de ahora y se manda la lista ENTERA con esa cambiada (mandar solo una podría dejar las
+ * demás a cero). Lleva la estrategia de puja de la campaña, que Amazon pide junto a la lista. El 207 se comprueba con `aislar`.
+ */
+export async function ponerAjusteDeUbicacion(cuenta: { conexionId: string; profileId: number }, campaignId: string, ubicacion: string, porcentaje: number): Promise<void> {
+  const ahora = await leerAjustesDeUbicacion(cuenta, campaignId)
+  if (!ahora) throw new Error('Amazon no encuentra la campaña')
+  const ajustes = { ...ahora.ajustes, [ubicacion]: Math.max(0, Math.min(900, Math.round(porcentaje))) }
+  const placementBidding = Object.entries(ajustes).map(([placement, percentage]) => ({ placement, percentage }))
+  const res = await llamarAds<unknown>(cuenta.conexionId, '/sp/campaigns', {
+    perfilId: cuenta.profileId,
+    metodo: 'PUT',
+    cabeceras: cabeceras(T_CAMPANA),
+    cuerpo: { campaigns: [{ campaignId, dynamicBidding: { ...(ahora.estrategia ? { strategy: ahora.estrategia } : {}), placementBidding } }] },
+  })
+  aislar(res, 'campaigns')
+}

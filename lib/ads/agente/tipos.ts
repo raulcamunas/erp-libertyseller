@@ -465,6 +465,8 @@ export interface AjustesDelAgenteParaPujas {
   /** Muestra mínima de clics para subir (ficha) */
   muestraMinimaClics: number
   cuentaPequena: boolean
+  /** ASIN sin la Buy Box (o que la recuperaron hace menos de 7 días): no se tocan sus pujas, pausas ni ubicaciones (lo que cae no es culpa de las keywords) */
+  congeladosPorBuyBox?: string[]
 }
 
 /** Una propuesta que crea el propio agente (vigilar): la inserta motor-nucleo con insertarPropuestasDelAgente */

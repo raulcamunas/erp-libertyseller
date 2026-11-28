@@ -24,6 +24,7 @@
  * Las funciones PURAS de decisión están arriba y exportadas (se prueban en aplicar-servidor.prueba.ts).
  */
 
+import { congeladosPorBuyBox } from './buybox-servidor'
 import { createServiceClient } from '@/lib/supabase/service'
 import { todasLasFilas } from '../paginar'
 import { gruposActivosDe, leerPujaActual } from '../escritura'
@@ -154,6 +155,8 @@ export interface ProductoParaDecidir {
   precio: number | null
   /** El stock es de hace ≥ LISTING_FRESCO_HORAS (o sin fecha): para SUBIR cuenta como desconocido. Sin el dato, fresco */
   stockViejo?: boolean
+  /** Congelado por la Buy Box (buybox-calculo.ts): el porqué. Sin el dato, no */
+  sinBuyBox?: string | null
 }
 
 export interface CuentaParaDecidir {
@@ -278,6 +281,14 @@ export function decidirPropuesta(
   let concordanciaExacta = false
   let raraAplicada = false
   let cambiaValor = false
+
+  // ---- 3a'. Producto sin la Buy Box: lo que mueve pujas, pausas (que no sean de stock), presupuestos o ubicaciones se caduca (se vuelve a proponer cuando vuelva) ----
+  if (producto?.sinBuyBox && (p.tipo === 'puja' || p.tipo === 'presupuesto' || p.tipo === 'ubicacion' || (p.tipo === 'pausar' && !esPausaDeStock(p)))) {
+    return { accion: 'caducar', motivo: `Producto congelado por la Buy Box: ${producto.sinBuyBox}` }
+  }
+
+  // ---- 3a. Ajuste por UBICACIÓN (lib/ads/ubicaciones.ts, 28 nov 2026): de momento lo aprueba una persona (no tiene medición de efecto ni topes propios) ----
+  if (p.tipo === 'ubicacion') return { accion: 'retener', motivo: 'Ajuste por ubicación: de momento lo revisa y aplica una persona desde «Propuestas».' }
 
   // ---- 3b. Subidas que no pasaron los frenos del agente o son de otro día: se caducan (nunca se aplican) ----
   const sube = finito(p.valorActual) && finito(p.valorNuevo) && (p.valorNuevo as number) > (p.valorActual as number)
@@ -1129,6 +1140,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
     const a = asinDeCampana(f.nombre)
     if (a) gastoPorAsin.set(a, (gastoPorAsin.get(a) ?? 0) + f.gasto)
   }
+  const congeladosBuyBox = await congeladosPorBuyBox(perfilId, ahora).catch(() => new Map<string, string>())
   const productoDe = new Map<string, ProductoParaDecidir & { nombre: string }>()
   for (const prod of l.productos) {
     const st = stock.get(prod.asin)?.stock ?? null
@@ -1145,6 +1157,7 @@ export async function aplicarComoAgente(cuenta: CuentaParaSincronizar, config: C
       acosObjetivoPct: prod.acosObjetivoPct,
       precio: prod.precio,
       stockViejo: st != null && stockEsViejo(stockAt, ahora),
+      sinBuyBox: congeladosBuyBox.get(prod.asin.toUpperCase()) ?? null,
     })
   }
   const productoDeP = (p: Propuesta) => (p.asin ? productoDe.get(p.asin.toUpperCase()) ?? null : null)

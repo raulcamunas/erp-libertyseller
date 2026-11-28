@@ -173,6 +173,20 @@ export async function estadoInforme(
  * `fetch` va pelado y no pasa por llamarAds().
  */
 export async function descargarInforme(url: string): Promise<FilaInforme[]> {
+  const crudo = await descargarInformeCrudo(url)
+  return crudo.map((f) => ({
+    campaignId: String(f.campaignId ?? ''),
+    campaignName: String(f.campaignName ?? ''),
+    impressions: Number(f.impressions ?? 0),
+    clicks: Number(f.clicks ?? 0),
+    cost: Number(f.cost ?? 0),
+    purchases: Number(f.purchases7d ?? 0),
+    sales: Number(f.sales7d ?? 0),
+  }))
+}
+
+/** Descarga un informe y devuelve sus filas TAL CUAL (cada informe trae sus columnas: el de ubicaciones, `placementClassification`) */
+export async function descargarInformeCrudo(url: string): Promise<Array<Record<string, unknown>>> {
   // Con tope (lib/tiempos-espera.ts): sin él, una descarga de S3 que se queda colgada no la cortaba nadie
   const res = await fetch(url, { signal: AbortSignal.timeout(ESPERA_DESCARGA_MS) })
   if (!res.ok) {
@@ -195,14 +209,39 @@ export async function descargarInforme(url: string): Promise<FilaInforme[]> {
   }
 
   const crudo = JSON.parse(texto) as Array<Record<string, unknown>>
+  return Array.isArray(crudo) ? crudo : []
+}
 
-  return (Array.isArray(crudo) ? crudo : []).map((f) => ({
-    campaignId: String(f.campaignId ?? ''),
-    campaignName: String(f.campaignName ?? ''),
-    impressions: Number(f.impressions ?? 0),
-    clicks: Number(f.clicks ?? 0),
-    cost: Number(f.cost ?? 0),
-    purchases: Number(f.purchases7d ?? 0),
-    sales: Number(f.sales7d ?? 0),
-  }))
+/**
+ * Pide el informe por CAMPAÑA Y UBICACIÓN (arriba de la búsqueda, resto, páginas de producto) del periodo, en un total (SUMMARY). Lo usa el motor para el ajuste
+ * de puja por ubicación (lib/ads/ubicaciones.ts). El 425 (ya pedido) devuelve el id del que existe, como el de campañas.
+ */
+export async function pedirInformeUbicaciones(conexionId: string, profileId: number, desde: string, hasta: string): Promise<string> {
+  try {
+    const res = await llamarAds<{ reportId?: string }>(conexionId, '/reporting/reports', {
+      perfilId: profileId,
+      metodo: 'POST',
+      cabeceras: { Accept: TIPO_PETICION, 'Content-Type': TIPO_PETICION },
+      cuerpo: {
+        name: `ubicaciones ${desde} ${hasta}`,
+        startDate: desde,
+        endDate: hasta,
+        configuration: {
+          adProduct: 'SPONSORED_PRODUCTS',
+          groupBy: ['campaign', 'campaignPlacement'],
+          columns: ['campaignId', 'campaignName', 'placementClassification', 'impressions', 'clicks', 'cost', 'purchases7d', 'sales7d'],
+          reportTypeId: 'spCampaigns',
+          timeUnit: 'SUMMARY',
+          format: 'GZIP_JSON',
+        },
+      },
+    })
+    if (!res.reportId) throw new AdsError('Amazon ha aceptado el informe de ubicaciones pero no ha dado identificador.')
+    return res.reportId
+  } catch (error) {
+    const es425 = error instanceof AdsError && (error.estado === 425 || /"425"/.test(error.cuerpo ?? ''))
+    const ya = es425 ? (error as AdsError).cuerpo?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) : null
+    if (ya) return ya[0]
+    throw error
+  }
 }

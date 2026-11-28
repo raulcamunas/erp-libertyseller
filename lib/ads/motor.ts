@@ -51,6 +51,8 @@ import {
   ponerEstadoDeCampana,
   ponerPresupuesto,
   ponerPuja,
+  leerAjustesDeUbicacion,
+  ponerAjusteDeUbicacion,
 } from './escritura'
 import { anotarEnLote } from './log'
 import { conRastro } from './rastro'
@@ -1007,6 +1009,45 @@ async function recorrerAplicar(
     return
   }
 
+  // Ajuste por UBICACIÓN (lib/ads/ubicaciones.ts): se relee el % de ahora en esa ubicación; si no es el de la propuesta, obsoleta. Se escribe la lista entera de
+  // ubicaciones con esa cambiada (ponerAjusteDeUbicacion) y deshacer es volver a poner el % de antes
+  if (p.tipo === 'ubicacion') {
+    const ubicacion = p.objetivoTipo ?? ''
+    const campo = `ajuste de ubicación «${p.termino}»`
+    if (p.valorNuevo == null || !ubicacion) {
+      if (!q.ensayo) await liberar(cuenta.id, id, q.estadoAntes, errorAlLiberar(p.error, 'A la propuesta le faltan datos.'))
+      throw new ObsoletaOLiberada('A la propuesta le faltan datos.')
+    }
+    let valorAhora: number | null = null
+    try {
+      const a = await leerAjustesDeUbicacion(cuenta, p.campaignId)
+      if (!a) throw new Error('Amazon no encuentra la campaña')
+      valorAhora = a.ajustes[ubicacion] ?? 0
+    } catch (e) {
+      const detalle = `No se ha podido leer el ajuste actual en Amazon: ${e instanceof Error ? e.message : String(e)}`
+      if (!q.ensayo) await liberar(cuenta.id, id, q.estadoAntes, errorAlLiberar(p.error, detalle))
+      await anotarCambio({ ...comun, entidad: 'campaña', accion: 'cambiar', campo, ok: false, error: detalle, motivo: p.motivo, entidadId: p.campaignId })
+      throw new ObsoletaOLiberada(detalle)
+    }
+    if (p.valorActual != null && Math.round(valorAhora) !== Math.round(p.valorActual)) {
+      const motivo = `El ajuste de «${p.termino}» ya no es ${Math.round(p.valorActual)} % sino ${Math.round(valorAhora)} % (alguien lo ha cambiado): la propuesta ya no vale.`
+      await anotarCambio({ ...comun, entidad: 'propuesta', accion: 'descartar', campo: 'propuesta obsoleta', valorAnterior: `${Math.round(p.valorActual)} %`, valorNuevo: `${Math.round(valorAhora)} %`, motivo, entidadId: p.campaignId })
+      await resolver(estadoObsoleta, { error: motivo }, 'Marcarla obsoleta')
+      throw new ObsoletaOLiberada(motivo)
+    }
+    try {
+      await ponerAjusteDeUbicacion(cuenta, p.campaignId, ubicacion, p.valorNuevo)
+    } catch (e) {
+      const detalle = e instanceof Error ? e.message : String(e)
+      await anotarCambio({ ...comun, entidad: 'campaña', accion: 'cambiar', campo, valorAnterior: `${Math.round(valorAhora)} %`, valorNuevo: `${Math.round(p.valorNuevo)} %`, ok: false, error: detalle, motivo: p.motivo, entidadId: p.campaignId })
+      await marcarError(detalle)
+      throw new Error(detalle)
+    }
+    await anotarCambio({ ...comun, entidad: 'campaña', accion: 'cambiar', campo, valorAnterior: `${Math.round(valorAhora)} %`, valorNuevo: `${Math.round(p.valorNuevo)} %`, motivo: motivoLog, entidadId: p.campaignId })
+    await resolver('aplicada', { aplicada: { valorAnterior: valorAhora, ubicacion }, error: null }, 'El ajuste de ubicación')
+    return
+  }
+
   // Puja y presupuesto: se RELEE el valor de ahora; si no es el de la propuesta, obsoleta. Un solo PUT, y deshacer es volver a poner el valor de antes
   if (p.tipo === 'puja' || p.tipo === 'presupuesto') {
     const entidad = p.tipo === 'puja' ? (p.objetivoTipo === 'keyword' ? 'keyword' : 'target') : 'campaña'
@@ -1401,6 +1442,26 @@ export async function deshacerPropuesta(
         await volverAAplicada(detalle)
         throw new Error(detalle)
       }
+      await resolver()
+      return
+    }
+    if (p.tipo === 'ubicacion') {
+      const ubicacion = p.objetivoTipo ?? ''
+      const campo = `ajuste de ubicación «${p.termino}»`
+      const antes = typeof p.aplicada?.valorAnterior === 'number' ? (p.aplicada.valorAnterior as number) : p.valorActual
+      try {
+        if (!ubicacion || antes == null || p.valorNuevo == null) throw new Error('A la propuesta le faltan datos: cámbialo a mano desde Campañas.')
+        const a = await leerAjustesDeUbicacion(cuenta, p.campaignId)
+        const ahora = a ? (a.ajustes[ubicacion] ?? 0) : null
+        if (ahora == null || Math.round(ahora) !== Math.round(p.valorNuevo)) throw new Error(`En Amazon el ajuste ya no es ${Math.round(p.valorNuevo)} % (${ahora == null ? 'no se encuentra la campaña' : `${Math.round(ahora)} %`}): alguien lo ha cambiado después y no se pisa.`)
+        await ponerAjusteDeUbicacion(cuenta, p.campaignId, ubicacion, antes)
+      } catch (e) {
+        const detalle = e instanceof Error ? e.message : String(e)
+        await anotarCambio({ ...comun, entidad: 'campaña', accion: 'deshacer', campo, ok: false, error: detalle, motivo: seDeshace, entidadId: p.campaignId })
+        await volverAAplicada(detalle)
+        throw new Error(detalle)
+      }
+      await anotarCambio({ ...comun, entidad: 'campaña', accion: 'deshacer', campo, valorAnterior: `${Math.round(p.valorNuevo)} %`, valorNuevo: `${Math.round(antes)} %`, motivo: seDeshace, entidadId: p.campaignId })
       await resolver()
       return
     }

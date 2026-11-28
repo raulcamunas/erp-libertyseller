@@ -89,9 +89,10 @@ export const TarjetaDePropuesta = memo(function TarjetaDePropuesta({ p, moneda, 
           <h4 className="mt-[7px] truncate text-[15px] font-semibold leading-[1.25] tracking-[-0.01em] text-[var(--ls-t1)]" title={p.termino}>
             {titulo}
           </h4>
-          {(p.tipo === 'puja' || p.tipo === 'presupuesto') && p.valorActual != null && p.valorNuevo != null && (
+          {(p.tipo === 'puja' || p.tipo === 'presupuesto' || p.tipo === 'ubicacion') && p.valorActual != null && p.valorNuevo != null && (
             <div className="mt-[3px] inline-flex items-center gap-[6px] text-[13.5px] tabular-nums text-[var(--ls-t2)]">
-              {dinero(p.valorActual, moneda)} <ArrowRight className="h-[13px] w-[13px] text-[var(--ls-t4)]" aria-hidden /> <strong style={{ color }}>{dinero(p.valorNuevo, moneda)}</strong>
+              {p.tipo === 'ubicacion' ? `+${Math.round(p.valorActual)} %` : dinero(p.valorActual, moneda)} <ArrowRight className="h-[13px] w-[13px] text-[var(--ls-t4)]" aria-hidden />{' '}
+              <strong style={{ color }}>{p.tipo === 'ubicacion' ? `+${Math.round(p.valorNuevo)} %` : dinero(p.valorNuevo, moneda)}</strong>
             </div>
           )}
           <div className="mt-[3px] flex min-w-0 flex-wrap items-center gap-[5px] text-[12px] text-[var(--ls-t4)]">

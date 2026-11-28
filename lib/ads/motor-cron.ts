@@ -19,6 +19,7 @@
  *   · el piloto automático solo corre en «autopiloto». Lo que aplica el agente lo aplica su propio proceso (`ads-agente`, lib/ads/agente/agente-cron.ts), no este.
  */
 
+import { avanzarUbicaciones, generarPropuestasDeUbicacion } from './ubicaciones'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isMissingSchema } from '@/lib/plataforma/eventos'
 import { cuentasASincronizar, debeEmpezar, type CuentaParaSincronizar } from './sincronizar'
@@ -127,9 +128,19 @@ export interface DependenciasDeGenerar {
   marcarGenerado: typeof marcarGenerado
   /** La cosecha desde SEO y Helium 10 (lib/ads/cosecha-seo-servidor.ts). Opcional para las pruebas */
   cosecharDesdeSeo?: typeof cosecharDesdeSeo
+  /** El ajuste por ubicación (lib/ads/ubicaciones.ts): recoger el informe de ayer, proponer, pedir el de mañana. Opcional para las pruebas */
+  ubicaciones?: { avanzar: typeof avanzarUbicaciones; generar: typeof generarPropuestasDeUbicacion }
 }
 
-const DEPENDENCIAS: DependenciasDeGenerar = { generarPropuestas, ajustesParaPujas, generarPropuestasDePujaYPresupuesto, caducarPujasViejasDelMotor, marcarGenerado, cosecharDesdeSeo }
+const DEPENDENCIAS: DependenciasDeGenerar = {
+  generarPropuestas,
+  ajustesParaPujas,
+  generarPropuestasDePujaYPresupuesto,
+  caducarPujasViejasDelMotor,
+  marcarGenerado,
+  cosecharDesdeSeo,
+  ubicaciones: { avanzar: avanzarUbicaciones, generar: generarPropuestasDeUbicacion },
+}
 
 export interface ResultadoDeGenerar {
   resumen: ResumenDeGeneracion
@@ -197,6 +208,19 @@ export async function generarDelMotor(cuenta: CuentaParaSincronizar, modo: ModoD
       const texto = e instanceof Error ? e.message : String(e)
       console.error(`[ads] propuestas de puja y presupuesto de ${cuenta.id}:`, texto)
       errores.push(`pujas y presupuesto: ${texto.slice(0, 120)}`)
+    }
+  }
+  // Ajuste por ubicación (arriba de la búsqueda, resto, páginas de producto): recoge el informe pedido ayer, propone con él y pide el de mañana. Si falla, lo demás ya está
+  if (deps.ubicaciones && !sinPujasHoy) {
+    try {
+      await deps.ubicaciones.avanzar(cuenta, { pedir: false })
+      const u = await deps.ubicaciones.generar(cuenta, ajustes)
+      nuevas += u.nuevas
+      await deps.ubicaciones.avanzar(cuenta, { pedir: true })
+    } catch (e) {
+      const texto = e instanceof Error ? e.message : String(e)
+      console.error(`[ads] ubicaciones de ${cuenta.id}:`, texto)
+      errores.push(`ubicaciones: ${texto.slice(0, 140)}`)
     }
   }
   await deps.marcarGenerado(cuenta.id)

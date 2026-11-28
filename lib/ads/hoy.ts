@@ -51,7 +51,8 @@ const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno
 /** El filtro al que pertenece una propuesta (el mismo que usan los botones de la lista) */
 export function filtroDe(p: Pick<PropuestaParaHoy, 'tipo' | 'estado' | 'valorActual' | 'valorNuevo'>): Exclude<FiltroDePropuestas, 'todas'> {
   if (p.estado === 'error') return 'error'
-  if (p.tipo === 'puja') return (p.valorNuevo ?? 0) >= (p.valorActual ?? 0) ? 'subir-puja' : 'bajar-puja'
+  // El ajuste por ubicación multiplica la puja en esa ubicación: va con las subidas o bajadas de puja
+  if (p.tipo === 'puja' || p.tipo === 'ubicacion') return (p.valorNuevo ?? 0) >= (p.valorActual ?? 0) ? 'subir-puja' : 'bajar-puja'
   // La pausa de una campaña entera (el agente, por falta de stock) va con las pausas
   if (p.tipo === 'pausar-campana') return 'pausar'
   return p.tipo

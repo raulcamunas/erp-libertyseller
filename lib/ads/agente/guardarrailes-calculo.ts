@@ -76,6 +76,9 @@ export function claseDeCambio(p: { tipo: string; valorActual: number | null; val
     case 'puja':
       if (sube) return 'puja_subir'
       return (p.metricas?.pedidos ?? 0) > 0 ? 'puja_bajar' : 'puja_bajar_sin_pedidos'
+    // El ajuste por ubicación multiplica la puja en esa ubicación: cuenta como una puja
+    case 'ubicacion':
+      return sube ? 'puja_subir' : 'puja_bajar'
     default:
       return 'puja_subir'
   }

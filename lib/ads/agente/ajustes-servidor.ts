@@ -18,6 +18,7 @@ import { asinDeCampana } from '../productos-agrupar'
 import { cvrsDeCuenta, leerUmbrales } from '../umbrales-cuenta'
 import { campanaEsDeMarca, cuentaDePerfil, desplazar, lanzar, leerConfigPropia, leerCuenta, leerStockPorAsin } from './contexto-servidor'
 import { faseDeStock, stockEsViejo } from './stock-calculo'
+import { congeladosPorBuyBox } from './buybox-servidor'
 import { topesDelDia } from './guardarrailes-calculo'
 import { subidasVetadasPorEfectos } from './efectos-calculo'
 import { combinarAjustes, pujaMaxima } from './objetivos-calculo'
@@ -200,8 +201,15 @@ export async function ajustesParaPujas(perfilId: string, ahora: number): Promise
     }
   }
 
+  // Los productos sin la Buy Box (o recién recuperada tras una pérdida larga): no se tocan. Si falla la lectura, ninguno (como antes de existir)
+  const congeladosBuyBox = await congeladosPorBuyBox(perfilId, ahora).catch((err) => {
+    console.error(`[agente] Buy Box congelada de ${perfilId}:`, err instanceof Error ? err.message : err)
+    return new Map<string, string>()
+  })
+
   return {
     porAsin,
+    congeladosPorBuyBox: Array.from(congeladosBuyBox.keys()),
     restaurarPorStock,
     cambiadasPorStockHoy,
     presion: presionVigente(config?.presion ?? {}, config?.presionFecha ?? null, local.fecha),

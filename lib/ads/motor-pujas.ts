@@ -31,6 +31,8 @@ import { CLAUSULA_AUTO, pujaValida, textoDeExpresion } from './segmentaciones-ca
 import type { CuentaParaSincronizar } from './sincronizar'
 import type { UmbralesEstimados } from './umbrales'
 import { combinarAjustes, esTextoDeMarca, subidaPermitida } from './agente/objetivos-calculo'
+import { cuotasOrganicasDeCuenta } from './organico'
+import { normalizarConsulta, proponerDefensaOrganica, type CuotaOrganica } from './organico-calculo'
 import { AGENTE, type AjustesDelAgenteParaPujas, type Presion } from './agente/tipos'
 
 const DIA_MS = 86_400_000
@@ -192,9 +194,17 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
   let pujas = 0
   let pausas = 0
   let sinMigracionPausas = false
+  // Lo orgánico de cada búsqueda (Brand Analytics menos publicidad): para no pagar ventas que llegan igual (organico-calculo.ts). Si falla, hoy no hay defensa del orgánico
+  const organico = await cuotasOrganicasDeCuenta(cuenta.id, new Map(vivas.map((c) => [c.campaignId, asinDeCampana(c.nombre) as string]))).catch((err) => {
+    console.error(`[ads] orgánico de ${cuenta.id}:`, err instanceof Error ? err.message : err)
+    return new Map<string, Map<string, CuotaOrganica>>()
+  })
+  const deMarcaCampana = new Set(ajustes?.campanasDeMarca ?? [])
+  // Sin la Buy Box (lib/ads/agente/buybox-calculo.ts): sus cifras caen sin culpa de las keywords, no se toca nada del producto
+  const congelados = new Set((ajustes?.congeladosPorBuyBox ?? []).map((a) => a.toUpperCase()))
   for (const [asin, todas] of porAsin) {
     const o = objetivoDe.get(asin)
-    if (!o) continue
+    if (!o || congelados.has(asin.toUpperCase())) continue
     for (const g of gruposDelAgente(todas, asin, ajustes)) {
       const segs = g.segs
       // Sin ajustes, un solo grupo con lo de siempre. Con ellos, el objetivo para BAJAR del grupo (marca = la mitad) y el CPA a la misma escala
@@ -250,6 +260,38 @@ export async function generarPropuestasDePujaYPresupuesto(cuenta: CuentaParaSinc
         })
         if (!error) pujas += 1
         else if (error.code !== '23505') throw error
+      }
+
+      // ---- Defensa del orgánico: keywords (no de marca) de búsquedas donde el producto ya se lleva muchos clics y compras sin pagar ----
+      const cuotas = organico.get(asin.toUpperCase())
+      if (cuotas && cuotas.size > 0) {
+        for (const s of sinPausar) {
+          if (s.tipo !== 'keyword' || conPropuesta.has(s.id) || deMarcaCampana.has(s.campaignId) || esTextoDeMarca(s.texto, g.marca)) continue
+          const d = proponerDefensaOrganica(s, cuotas.get(normalizarConsulta(s.texto)), { acosObjetivoPct: pg.acosObjetivoPct, muestraMinimaClics: ficha.muestraMinimaClics })
+          if (!d) continue
+          const nueva = pujaValida(d.pujaNueva)
+          if (nueva == null || s.puja - nueva < 0.02) continue
+          conPropuesta.add(s.id)
+          const m = s.metricas
+          const { error } = await service.from('ads_propuestas').insert({
+            perfil_id: cuenta.id,
+            tipo: 'puja',
+            asin,
+            termino: s.texto.slice(0, 300),
+            campaign_id: s.campaignId,
+            campaign_nombre: s.campaignName,
+            ad_group_id: s.adGroupId || null,
+            desde_rol: partesDeNombre(s.campaignName)?.rol ?? null,
+            motivo: d.motivo,
+            metricas: { clics: m.clics, gasto: Math.round(m.gasto * 100) / 100, pedidos: m.pedidos, ventas: Math.round(m.ventas * 100) / 100, ...d.metricas, origen: 'organico' },
+            objetivo_id: s.id,
+            objetivo_tipo: s.tipo,
+            valor_actual: Math.round(s.puja * 100) / 100,
+            valor_nuevo: nueva,
+          })
+          if (!error) pujas += 1
+          else if (error.code !== '23505') throw error
+        }
       }
 
       // ---- El stock se acaba / se ha repuesto (solo en modo agente) ----
