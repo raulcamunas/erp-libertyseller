@@ -7,6 +7,8 @@ import { clientesConAds, cuentasDeClientes } from '@/lib/ads/cuenta'
 import { entraEnApp } from '@/lib/cuentas/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { MarketingTest } from '@/components/marketing-test/MarketingTest'
+import { PanelDeClientes, VolverATodos } from '@/components/plataforma/PanelDeClientes'
+import { panelPpc } from '@/lib/ads/panel-clientes'
 
 /**
  * /dashboard/marketing-test — MARKETING TEST. Administradores y quien lleve cuentas.
@@ -51,7 +53,13 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
   const cuentas = await cuentasDeClientes(clientes.map((c) => c.amazonClientId as string))
   const paraLaBarra = clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, cuentas: (cuentas.get(c.amazonClientId as string) ?? []).map((x) => ({ id: x.id, pais: x.pais, moneda: x.moneda, nombre: x.nombre })) }))
 
-  // El cliente de la URL, o el primero. Un enlace viejo o un slug que ya no existe cae en uno de la lista, no en pantalla en blanco
+  // SIN CLIENTE EN LA URL: el panel de todos (la pantalla de inicio del módulo, vista de pájaro con lo de cada uno)
+  if (!uno(searchParams.c)) {
+    const { clientes: tarjetas, resumen } = await panelPpc(clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: c.amazonClientId as string, cuentas: cuentas.get(c.amazonClientId as string) ?? [] })))
+    return <PanelDeClientes titulo="PPC · Amazon Ads" subtitulo="Todos los clientes con publicidad: lo de los últimos 7 días frente a los 7 anteriores. Pulsa uno para entrar." icono="ppc" clientes={tarjetas} resumen={resumen} />
+  }
+
+  // El cliente de la URL. Un enlace viejo o un slug que ya no existe cae en uno de la lista, no en pantalla en blanco
   const cliente = paraLaBarra.find((c) => c.slug === uno(searchParams.c)) ?? paraLaBarra[0]
   const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
@@ -60,6 +68,7 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
   // 740, con una franja vacía debajo, el dedo no pasaba de la caja a la página y, al esconderse la barra de direcciones, el `dvh` cambiaba y la caja se volvía a maquetar
   return (
     <div className="flex flex-col min-w-0 lg:h-[calc(100vh-4rem)]">
+      <VolverATodos href="/dashboard/marketing-test" />
       <MarketingTest clientes={paraLaBarra} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'resumen'} />
     </div>
   )

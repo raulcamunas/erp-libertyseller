@@ -7,6 +7,8 @@ import { cuentasSeoDeClientes } from '@/lib/seo/datos'
 import { entraEnApp } from '@/lib/cuentas/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { SeoTest } from '@/components/seo-test/SeoTest'
+import { PanelDeClientes, VolverATodos } from '@/components/plataforma/PanelDeClientes'
+import { panelSeo } from '@/lib/seo/panel-clientes'
 
 /**
  * /dashboard/seo-test — SEO TEST. Administradores y quien tenga la casilla de la app (lib/cuentas/acceso.ts). Pueden validar y aplicar cambios de ficha
@@ -43,11 +45,18 @@ export default async function SeoTestPage({ searchParams }: { searchParams: Reco
     )
   }
 
+  // Sin cliente en la dirección: el panel de todos los clientes (vista de pájaro). Al entrar en uno, SeoTest siempre deja ?c= en la dirección
+  if (!uno(searchParams.c)) {
+    const panel = await panelSeo(todos.map((c) => ({ slug: c.slug, nombre: c.nombre, cuentas: cuentas.get(c.amazonClientId as string) ?? [] })).filter((c) => c.cuentas.length > 0))
+    return <PanelDeClientes titulo="SEO de fichas" subtitulo="Todos los clientes de un vistazo: cambios aplicados, propuestas por decidir y lectura de Brand Analytics" icono="seo" clientes={panel.clientes} resumen={panel.resumen} />
+  }
+
   const cliente = clientes.find((c) => c.slug === uno(searchParams.c)) ?? clientes[0]
   const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
   return (
     <div className="flex min-w-0 flex-col lg:h-[calc(100vh-4rem)]">
+      <VolverATodos href="/dashboard/seo-test" />
       <SeoTest clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'hoy'} />
     </div>
   )

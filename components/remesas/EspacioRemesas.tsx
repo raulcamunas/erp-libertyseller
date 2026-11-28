@@ -23,6 +23,7 @@ import { NuevaPropuestaDialog } from './propuestas/NuevaPropuestaDialog'
 import { PropuestaIaDialog } from './propuestas/PropuestaIaDialog'
 import { TableroClientes, type ModoTablero } from './tablero/TableroClientes'
 import { MercadoDeImagenes } from '@/components/productos/ImagenDeProducto'
+import { PanelDeClientes, VolverATodos, type ClienteDelPanel, type ResumenDelPanel } from '@/components/plataforma/PanelDeClientes'
 
 /**
  * REMESAS A FBA · LA CARCASA (spec remesas-pro §1.2-§1.4 y §11 D25, D37, D38, D39, D41).
@@ -71,6 +72,8 @@ export interface EspacioRemesasProps {
   hoy: string
   /** La conexión de Amazon de cada cliente: solo llega a un admin («Leer de Amazon») */
   conexiones: Record<string, string>
+  /** «Cliente» sin cliente en la URL (agencia con varios): el panel de todos. null = no toca */
+  todos?: { clientes: ClienteDelPanel[]; resumen: ResumenDelPanel[] } | null
 }
 
 interface Pantalla {
@@ -89,7 +92,7 @@ function vistasDe(sesion: Pick<SesionRemesas, 'actor'>, nClientes: number): Vist
   return nClientes > 1 ? ['cliente', 'tablero'] : ['cliente']
 }
 
-export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel, panelAlertas, alertas, hoy, conexiones }: EspacioRemesasProps) {
+export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel, panelAlertas, alertas, hoy, conexiones, todos = null }: EspacioRemesasProps) {
   const router = useRouter()
   const ruta = usePathname() ?? RUTA
   const sp = useSearchParams()
@@ -130,6 +133,9 @@ export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel
   }, [params, panel, remesa, enRutaAlertas, sesion, vistas, clienteDe, clienteInicial, clientes])
 
   const { vista, seccion, cliente } = pantalla
+  /** La agencia con varios clientes tiene el panel de todos en «Cliente» sin cliente en la URL */
+  const conPanelDeTodos = sesion.actor === 'agencia' && clientes.length > 1
+  const verTodos = conPanelDeTodos && vista === 'cliente' && !params.cliente && !params.remesa
   const panelDeEste = panel && panel.clienteId === cliente.id ? panel : null
 
   /* ================= NAVEGAR ================= */
@@ -300,7 +306,13 @@ export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel
           sesion={sesion}
           vista={vista}
           vistas={vistas}
-          onVista={(v) => irA(v, v === 'cliente' ? seccion : undefined, v === 'cliente' ? { cliente: cliente.id } : {})}
+          onVista={(v) => {
+            // La pestaña «Cliente» de la agencia abre primero el panel de todos (vista de pájaro); desde él se entra en cada uno
+            if (v === 'cliente' && conPanelDeTodos && !verTodos) {
+              setDestino(null)
+              empezar(() => router.push(`${RUTA}?vista=cliente`, { scroll: false }))
+            } else irA(v, v === 'cliente' ? seccion : undefined, v === 'cliente' ? { cliente: cliente.id } : {})
+          }}
           alertas={alertas}
           actualizando={actualizando}
           onActualizar={vista === 'hoy' ? undefined : actualizar}
@@ -347,7 +359,20 @@ export function EspacioRemesas({ sesion, clientes, clienteInicial, remesa, panel
                 <EstadoVacio icono={BellRing} acento="remesas" titulo="No se han podido leer las alertas" descripcion="Pulsa «Actualizar» para volver a probar." />
               ))}
 
-            {vista === 'cliente' && (
+            {vista === 'cliente' && verTodos && todos && (
+              <PanelDeClientes titulo="Clientes" icono="remesas" incrustado clientes={todos.clientes} resumen={todos.resumen} />
+            )}
+
+            {vista === 'cliente' && verTodos && !todos && (
+              <p className="flex items-center gap-2 py-6 text-[12.5px] text-[var(--ls-t3)]" role="status">
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                Leyendo los clientes…
+              </p>
+            )}
+
+            {vista === 'cliente' && !verTodos && conPanelDeTodos && <VolverATodos href={`${RUTA}?vista=cliente`} />}
+
+            {vista === 'cliente' && !verTodos && (
               <EspacioCliente
                 sesion={sesion}
                 cliente={cliente}

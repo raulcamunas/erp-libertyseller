@@ -9,6 +9,7 @@ import { diaEnEspana } from '@/lib/fba/fechas'
 import { vistaDesdeUrl, type VistaPedida } from '@/lib/fba/vista-url'
 import { EstadoVacio } from '@/components/ui-ls'
 import { EspacioRemesas } from '@/components/remesas/EspacioRemesas'
+import { panelRemesas } from '@/lib/fba/panel-clientes'
 
 /**
  * REMESAS A FBA · LA PÁGINA (spec remesas-pro §1.2-§1.4 y §11 D25, D27, D37, D39).
@@ -108,6 +109,12 @@ export default async function RemesasPage({ searchParams }: { searchParams: Para
     panelAlertas = tablero
   }
 
+  /* ---------- «Cliente» sin cliente (agencia con varios): el panel de todos, vista de pájaro ---------- */
+  let todos: Awaited<ReturnType<typeof panelRemesas>> | null = null
+  if (pedida.vista === 'cliente' && !uno(searchParams.cliente) && !remesa && sesion.actor === 'agencia' && clientes.length > 1) {
+    todos = await panelRemesas(sesion.clientesPermitidos, hoy).catch(() => null)
+  }
+
   /* ---------- la conexión de Amazon de cada cliente: solo un admin la necesita («Leer de Amazon» gasta cupo de informes) ---------- */
   const conexiones: Record<string, string> = {}
   if (sesion.esAdmin) {
@@ -130,6 +137,7 @@ export default async function RemesasPage({ searchParams }: { searchParams: Para
       alertas={alertas}
       hoy={hoy}
       conexiones={conexiones}
+      todos={todos}
     />
   )
 }

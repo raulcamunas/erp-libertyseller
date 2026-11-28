@@ -7,6 +7,8 @@ import { paisesDeCliente } from '@/lib/cumplimiento/panel'
 import { entraEnApp } from '@/lib/cuentas/acceso'
 import { Vacio } from '@/components/plataforma/comun'
 import { CumplimientoApp, TODOS } from '@/components/cumplimiento/CumplimientoApp'
+import { PanelDeClientes, VolverATodos } from '@/components/plataforma/PanelDeClientes'
+import { panelCumplimiento } from '@/lib/cumplimiento/panel-clientes'
 
 /**
  * /dashboard/cumplimiento — CUMPLIMIENTO (antes, un submódulo de Growth Partner). SOLO ADMIN (un CEO, solo con la casilla).
@@ -48,6 +50,13 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
     )
   }
 
+  // SIN CLIENTE EN LA URL: el panel de todos (la pantalla de inicio del módulo, vista de pájaro con lo de cada uno)
+  if (!uno(searchParams.c)) {
+    const porSlug = new Map(conCuenta.map((c) => [c.slug, c.amazonClientId as string]))
+    const { clientes: tarjetas, resumen } = await panelCumplimiento(clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: porSlug.get(c.slug) as string, paises: c.cuentas.filter((x) => x.pais !== '*').map((x) => x.pais) })))
+    return <PanelDeClientes titulo="Cumplimiento" subtitulo="Todos los clientes: cuántos listings están bien, cuáles necesitan atención y cuáles tienen ventas en juego. Pulsa uno para entrar." icono="cumplimiento" clientes={tarjetas} resumen={resumen} />
+  }
+
   const cliente = clientes.find((c) => c.slug === uno(searchParams.c)) ?? clientes[0]
   const cuenta = cliente.cuentas.find((c) => c.id === uno(searchParams.p)) ?? cliente.cuentas[0] ?? null
 
@@ -55,6 +64,7 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
   // la cabecera y las pestañas se quedaban quietas (~330 px de 740) y el contenido bajaba en una caja de 375 px; deslizar sobre la cabecera no movía nada
   return (
     <div className="flex flex-col md:h-[var(--alto-util)] lg:h-[calc(100vh-4rem)] min-w-0">
+      <VolverATodos href="/dashboard/cumplimiento" />
       <CumplimientoApp clientes={clientes} clienteInicial={cliente.slug} cuentaInicial={cuenta?.id ?? null} pestana={uno(searchParams.t) ?? 'bloqueos'} />
     </div>
   )
