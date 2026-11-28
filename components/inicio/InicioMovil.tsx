@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
-import { Check, ChevronDown, LayoutGrid, Pin, Search, X } from 'lucide-react'
+import { Check, ChevronDown, Globe, LayoutGrid, Mail, MessagesSquare, PenLine, Pin, Search, X } from 'lucide-react'
 import { getAppById, gruposDelMenuPara, nombreCortoDe, type AppConfig } from '@/lib/config/apps'
 import { armarMenu } from '@/lib/layout/menu'
 import { cuantasApps, fechaEnPalabras, saludoDe } from '@/lib/inicio/saludo'
@@ -28,6 +28,8 @@ import { cn } from '@/lib/utils'
  */
 
 const CLAVE_PLEGADAS = 'erp:movil:secciones-plegadas'
+/** El color de cada sección (en orden): así no es un muro de iconos naranjas iguales y se encuentra antes cada grupo */
+const COLORES = ['#FF8A3D', '#38BDF8', '#A78BFA', '#34D399', '#F5B942', '#FF5C8A', '#2DD4BF', '#818CF8']
 
 interface Seccion {
   id: string
@@ -48,7 +50,7 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
   const [fijadasIds, setFijadas] = useState<string[]>([])
   useEffect(() => {
     const leer = () => {
-      setRecientes(ordenarRecientes(leerUso(), 4, ids))
+      setRecientes(ordenarRecientes(leerUso(), 8, ids))
       setFijadas(leerFijadas())
     }
     leer()
@@ -108,6 +110,13 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
     return { secciones, grupoDe }
   }, [apps, puesto])
 
+  // El color de cada app: el de su sección
+  const colorDe = useMemo(() => {
+    const m = new Map<string, string>()
+    secciones.forEach((sec, n) => sec.apps.forEach((a) => m.set(a.id, COLORES[n % COLORES.length])))
+    return m
+  }, [secciones])
+
   const resultados = useMemo(() => {
     if (consulta.trim() === '') return null
     return buscarApps(
@@ -117,6 +126,16 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
   }, [apps, consulta, grupoDe])
 
   const recientes = recientesIds.map((id) => apps.find((a) => a.id === id)).filter((a): a is AppConfig => Boolean(a))
+
+  const pendientes = (
+    [
+      { id: 'correo', n: correo, texto: 'Correos', icono: Mail, urgente: false },
+      { id: 'chat', n: chat.mensajes + chat.menciones, texto: chat.menciones > 0 ? 'Te mencionan' : 'Chat', icono: MessagesSquare, urgente: chat.menciones > 0 },
+      { id: 'web-leads', n: webLeads, texto: 'Leads web', icono: Globe, urgente: false },
+    ] as const
+  )
+    .map((p) => ({ ...p, app: apps.find((a) => a.id === p.id) }))
+    .filter((p): p is typeof p & { app: AppConfig } => Boolean(p.app) && p.n > 0)
 
   const alPulsar = (app: AppConfig) => {
     if (editando) {
@@ -166,7 +185,7 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
         <span className="im-nombre">{nombreCortoDe(app)}</span>
       </>
     )
-    const estilo = { '--i': Math.min(i, 16) } as CSSProperties
+    const estilo = { '--i': Math.min(i, 16), '--im-acento': colorDe.get(app.id) ?? 'var(--ls-acc)' } as CSSProperties
     const etiqueta = `${app.name}${insignia ? `, ${insignia.texto} sin leer` : ''}`
     if (editando) {
       return (
@@ -185,22 +204,40 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
   return (
     <div className={cn('inicio-movil', className)}>
       <header className="im-cabecera">
-        <h1 className="im-saludo">
-          {ahora ? (
-            <>
-              {saludoDe(ahora.getHours())}
-              {nombre ? ', ' : ''}
-              {nombre && <span className="im-acento">{nombre}</span>}
-            </>
-          ) : (
-            <span className="invisible" aria-hidden>
-              Buenas tardes{nombre ? `, ${nombre}` : ''}
-            </span>
-          )}
-        </h1>
-        <p className="im-meta">
-          {ahora ? fechaEnPalabras(ahora) : ' '} · {cuantasApps(apps.length)}
-        </p>
+        <div className="min-w-0">
+          <h1 className="im-saludo">
+            {ahora ? (
+              <>
+                {saludoDe(ahora.getHours())}
+                {nombre ? ', ' : ''}
+                {nombre && <span className="im-acento">{nombre}</span>}
+              </>
+            ) : (
+              <span className="invisible" aria-hidden>
+                Buenas tardes{nombre ? `, ${nombre}` : ''}
+              </span>
+            )}
+          </h1>
+          <p className="im-meta">
+            {ahora ? fechaEnPalabras(ahora) : ' '} · {cuantasApps(apps.length)}
+          </p>
+        </div>
+        {apps.length > 0 && !consulta && (
+          <button
+            type="button"
+            className="im-editar"
+            data-activo={editando ? 'true' : undefined}
+            aria-pressed={editando}
+            aria-label={editando ? 'Terminar de editar la barra de abajo' : 'Editar la barra de abajo'}
+            onClick={() => {
+              setEditando(!editando)
+              setNota('')
+            }}
+          >
+            {editando ? <Check aria-hidden /> : <PenLine aria-hidden />}
+            {editando ? 'Hecho' : 'Barra'}
+          </button>
+        )}
       </header>
 
       <form className="im-buscador" role="search" onSubmit={alBuscar}>
@@ -239,43 +276,52 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
         </section>
       ) : (
         <>
-          <div className="im-barra-edicion">
-            {editando ? (
-              <p className="im-edicion-ayuda" role="status" aria-live="polite">
-                {nota || `Toca hasta ${MAX_FIJADAS} aplicaciones para tenerlas en la barra de abajo.`}
-              </p>
-            ) : (
-              <span />
-            )}
-            <button
-              type="button"
-              className="im-editar"
-              data-activo={editando ? 'true' : undefined}
-              aria-pressed={editando}
-              onClick={() => {
-                setEditando(!editando)
-                setNota('')
-              }}
-            >
-              {editando ? 'Hecho' : 'Editar barra'}
-            </button>
-          </div>
+          {editando && (
+            <p className="im-edicion-ayuda" role="status" aria-live="polite">
+              {nota || `Toca hasta ${MAX_FIJADAS} aplicaciones para tenerlas en la barra de abajo.`}
+            </p>
+          )}
 
+          {/* Lo que te espera: correo, chat y leads sin ver, a un toque */}
+          {!editando && pendientes.length > 0 && (
+            <div className="im-pendientes" aria-label="Pendiente">
+              {pendientes.map((p) => (
+                <Link key={p.app.id} href={p.app.route} className="im-pendiente" onClick={() => avisarNavegando(p.app.route)} style={{ '--im-acento': colorDe.get(p.app.id) ?? 'var(--ls-acc)' } as CSSProperties} data-urgente={p.urgente ? 'true' : undefined}>
+                  <p.icono aria-hidden />
+                  <span>{p.texto}</span>
+                  <b>{p.n > 99 ? '99+' : p.n}</b>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          {/* Recientes: una fila que se desliza, no otra rejilla de iconos grandes */}
           {recientes.length > 0 && !editando && (
-            <section className="im-seccion" aria-labelledby="im-recientes">
+            <section className="im-recientes" aria-labelledby="im-recientes">
               <h2 id="im-recientes" className="im-titulo-fijo">
                 Recientes
               </h2>
-              <div className="im-rejilla">{recientes.map((a, i) => celda(a, i))}</div>
+              <div className="im-recientes-fila">
+                {recientes.map((a) => {
+                  const Icono = a.icon
+                  return (
+                    <Link key={a.id} href={a.route} className="im-reciente" onClick={() => avisarNavegando(a.route)} style={{ '--im-acento': colorDe.get(a.id) ?? 'var(--ls-acc)' } as CSSProperties}>
+                      <Icono aria-hidden />
+                      <span>{nombreCortoDe(a)}</span>
+                    </Link>
+                  )
+                })}
+              </div>
             </section>
           )}
 
           {secciones.map((s, n) => {
             const plegada = plegadas.has(s.id)
             return (
-              <section key={s.id} className="im-seccion" style={{ '--n': n } as CSSProperties}>
+              <section key={s.id} className="im-seccion im-tarjeta" style={{ '--n': n, '--im-acento': COLORES[n % COLORES.length] } as CSSProperties}>
                 <h2>
                   <button type="button" className="im-titulo" aria-expanded={!plegada} aria-controls={`im-s-${s.id}`} onClick={() => alternar(s.id)}>
+                    <span className="im-punto" aria-hidden />
                     <span>{s.titulo}</span>
                     <span className="im-cuenta">{s.apps.length}</span>
                     <ChevronDown className="im-chevron" aria-hidden />
