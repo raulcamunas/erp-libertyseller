@@ -5976,3 +5976,23 @@ html.light {
 .im-pin svg { width: 12px; height: 12px; }
 .im-pin[data-fijada='true'] { background: var(--ls-acc); color: var(--ls-acc-tinta); }
 .im-sin-resultados { padding: 24px 4px; text-align: center; font-size: 14px; color: var(--ls-t3); }
+/* El editor de la barra de abajo */
+.im-editor { margin-bottom: 14px; padding: 12px; border: 1px solid color-mix(in srgb, var(--ls-acc) 35%, var(--ls-linea)); border-radius: 18px; background: color-mix(in srgb, var(--ls-acc) 6%, var(--ls-sup)); }
+.im-editor-titulo { margin: 0 2px 10px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ls-t3); }
+.im-editor-barra { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; padding: 8px 4px; border: 1px solid var(--ls-linea); border-radius: 14px; background: var(--ls-sup); }
+.im-editor-fijo, .im-editor-hueco { position: relative; display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0 4px; border-radius: 10px; font-size: 10px; font-weight: 600; color: var(--ls-t4); }
+.im-editor-fijo svg, .im-editor-hueco svg { width: 19px; height: 19px; }
+.im-editor-fijo span, .im-editor-hueco > span:not(.im-editor-mover) { max-width: 100%; overflow: hidden; padding: 0 2px; text-overflow: ellipsis; white-space: nowrap; }
+.im-editor-fijo { opacity: .55; }
+.im-editor-hueco { border: 1px dashed var(--ls-linea2); }
+.im-editor-hueco[data-lleno='true'] { border: 1px solid color-mix(in srgb, var(--im-acento) 40%, transparent); background: color-mix(in srgb, var(--im-acento) 12%, transparent); color: var(--ls-t1); }
+.im-editor-hueco[data-lleno='true'] > svg { color: var(--im-acento); }
+.im-editor-quitar { position: absolute; top: -7px; right: -5px; display: grid; width: 20px; height: 20px; place-items: center; border-radius: 999px; background: var(--ls-e-rojo); color: #fff; box-shadow: 0 0 0 2px var(--ls-sup); }
+.im-editor-quitar svg { width: 12px; height: 12px; }
+.im-editor-mover { display: flex; gap: 2px; margin-top: 2px; }
+.im-editor-mover button { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 7px; background: var(--ls-sup2); color: var(--ls-t2); }
+.im-editor-mover button:disabled { opacity: .25; }
+.im-editor-mover svg { width: 14px; height: 14px; }
+.im-editor-auto { display: flex; align-items: center; gap: 10px; margin: 12px 2px 8px; font-size: 13px; color: var(--ls-t2); }
+.im-editor-auto input { width: 18px; height: 18px; accent-color: var(--ls-acc); }
+.im-editor .im-edicion-ayuda { margin: 0 2px; }

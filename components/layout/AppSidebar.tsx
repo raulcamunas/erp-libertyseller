@@ -21,8 +21,8 @@ import { BarraInferior, type PestanaDeLaBarra } from '@/components/layout/movil/
 import { CabeceraMovil } from '@/components/layout/movil/CabeceraMovil'
 import { EVENTO_ABRIR_AVISOS, EVENTO_NAVEGANDO } from '@/lib/movil/eventos'
 import { apilarRuta, CLAVE_HISTORIAL, hayAtras } from '@/lib/movil/historial'
-import { elegirPestanas } from '@/lib/movil/pestanas'
-import { EVENTO_USO_CAMBIA, fijadas as leerFijadas, leerIdsDe, leerUso, registrarApertura, type Uso } from '@/lib/movil/uso'
+import { elegirPestanas, PESTANAS } from '@/lib/movil/pestanas'
+import { EVENTO_USO_CAMBIA, fijadas as leerFijadas, leerIdsDe, leerUso, registrarApertura, soloFijadas as leerSoloFijadas, type Uso } from '@/lib/movil/uso'
 import { useTeclado } from '@/lib/movil/useTeclado'
 
 /**
@@ -328,22 +328,25 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
   // Las tres pestañas del medio. Se leen el uso y las fijadas al montar; la elección se congela en la sesión para que no bailen bajo el dedo
   const [uso, setUso] = useState<Uso>({})
   const [fijadasMovil, setFijadasMovil] = useState<string[]>([])
+  const [soloFijadasMovil, setSoloFijadasMovil] = useState(false)
   const [congeladas, setCongeladas] = useState<string[] | null>(null)
   const [movilMontado, setMovilMontado] = useState(false)
   useEffect(() => {
     setUso(leerUso())
     setFijadasMovil(leerFijadas())
+    setSoloFijadasMovil(leerSoloFijadas())
     setCongeladas(leerIdsDe(leerDeLaSesion(CLAVE_PESTANAS)))
     setMovilMontado(true)
-    let antes = JSON.stringify(leerFijadas())
+    let antes = JSON.stringify([leerFijadas(), leerSoloFijadas()])
     const alCambiar = () => {
       setUso(leerUso())
       const ahora = leerFijadas()
-      const texto = JSON.stringify(ahora)
+      const texto = JSON.stringify([ahora, leerSoloFijadas()])
       if (texto === antes) return
-      // Fijar o quitar una a mano sí cambia la barra al momento
+      // Fijar, quitar, ordenar o «solo las mías» a mano sí cambia la barra al momento
       antes = texto
       setFijadasMovil(ahora)
+      setSoloFijadasMovil(leerSoloFijadas())
       setCongeladas(null)
       escribirEnLaSesion(CLAVE_PESTANAS, null)
     }
@@ -351,7 +354,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
     return () => window.removeEventListener(EVENTO_USO_CAMBIA, alCambiar)
   }, [])
   const pestanasListas = userRole !== null && !cargandoPermisos
-  const idsPestanas = elegirPestanas({ visibles: appsDelMovil.map((a) => a.id), uso, fijadas: fijadasMovil, rol: userRole, ahora: Date.now(), congeladas })
+  const idsPestanas = elegirPestanas({ visibles: appsDelMovil.map((a) => a.id), uso, fijadas: fijadasMovil, rol: userRole, ahora: Date.now(), congeladas, soloFijadas: soloFijadasMovil })
   const clavePestanas = idsPestanas.join('|')
   useEffect(() => {
     if (!movilMontado || !pestanasListas) return
@@ -857,7 +860,7 @@ export function AppSidebar({ perfil }: { perfil?: PerfilDeLaBarra }) {
         <BarraInferior
           // Hasta leer el uso y los permisos, tres huecos vacíos: así las pestañas no saltan de las de por defecto a las de esa persona al arrancar
           pestanas={movilMontado && pestanasListas ? pestanasMovil : []}
-          huecos={movilMontado && pestanasListas ? 0 : 3}
+          huecos={movilMontado && pestanasListas ? 0 : PESTANAS}
           rutaActiva={rutaDelMovil}
           enInicio={enInicio}
           masAbierto={isMobileOpen}

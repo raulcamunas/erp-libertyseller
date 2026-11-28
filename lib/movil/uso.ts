@@ -21,8 +21,10 @@ export type Uso = Readonly<Record<string, UsoDeUnaApp>>
 
 export const CLAVE_USO = 'erp:movil:uso'
 export const CLAVE_FIJADAS = 'erp:movil:fijadas'
+/** «Solo las mías»: los huecos de la barra que no se han elegido se quedan vacíos en vez de rellenarse con las más usadas */
+export const CLAVE_SOLO_FIJADAS = 'erp:movil:solo-fijadas'
 /** Cuántas aplicaciones caben entre «Inicio» y «Más» en la barra de abajo */
-export const MAX_FIJADAS = 3
+export const MAX_FIJADAS = 4
 /** Aviso (en `window`) de que han cambiado las fijadas o el uso: lo escuchan la barra de abajo y el Inicio */
 export const EVENTO_USO_CAMBIA = 'erp:movil:uso-cambia'
 
@@ -107,10 +109,20 @@ export function leerIdsDe(texto: string | null, max = Number.POSITIVE_INFINITY):
   }
 }
 
-/** Las fijadas después de fijar `id`: va al final y, si ya hay tres, sale la más antigua */
+/** Las fijadas después de fijar `id`: va al final y, si ya están todas, sale la más antigua */
 export function conFijada(fijadas: readonly string[], id: string): string[] {
   const sin = fijadas.filter((x) => x !== id)
   return [...sin, id].slice(-MAX_FIJADAS)
+}
+
+/** Las fijadas con `id` movida `paso` sitios (−1 = a la izquierda) */
+export function conFijadaMovida(fijadas: readonly string[], id: string, paso: number): string[] {
+  const i = fijadas.indexOf(id)
+  const j = i + paso
+  if (i < 0 || j < 0 || j >= fijadas.length) return [...fijadas]
+  const salida = [...fijadas]
+  ;[salida[i], salida[j]] = [salida[j], salida[i]]
+  return salida
 }
 
 /* ------------------------------ Almacenamiento del navegador ------------------------------ */
@@ -174,4 +186,20 @@ export function soltar(id: string): string[] {
   escribir(CLAVE_FIJADAS, JSON.stringify(nuevas))
   avisar()
   return nuevas
+}
+
+export function moverFijada(id: string, paso: number): string[] {
+  const nuevas = conFijadaMovida(fijadas(), id, paso)
+  escribir(CLAVE_FIJADAS, JSON.stringify(nuevas))
+  avisar()
+  return nuevas
+}
+
+export function soloFijadas(): boolean {
+  return leer(CLAVE_SOLO_FIJADAS) === '1'
+}
+
+export function ponerSoloFijadas(valor: boolean): void {
+  escribir(CLAVE_SOLO_FIJADAS, valor ? '1' : '0')
+  avisar()
 }

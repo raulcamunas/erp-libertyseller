@@ -56,7 +56,7 @@ console.log('\n=== fijar ===')
 {
   ok('se añade al final', JSON.stringify(conFijada(['a'], 'b')) === JSON.stringify(['a', 'b']))
   ok('fijar otra vez la mueve al final', JSON.stringify(conFijada(['a', 'b'], 'a')) === JSON.stringify(['b', 'a']))
-  ok(`como mucho ${MAX_FIJADAS}: sale la más antigua`, JSON.stringify(conFijada(['a', 'b', 'c'], 'd')) === JSON.stringify(['b', 'c', 'd']))
+  ok(`como mucho ${MAX_FIJADAS}: sale la más antigua`, JSON.stringify(conFijada(['a', 'b', 'c', 'd'], 'e')) === JSON.stringify(['b', 'c', 'd', 'e']))
 }
 
 console.log(fallos === 0 ? '\nTODO BIEN\n' : `\n${fallos} FALLOS\n`)

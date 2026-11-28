@@ -14,7 +14,7 @@
  */
 import { ordenarMasUsadas, type Uso } from './uso'
 
-export const PESTANAS = 3
+export const PESTANAS = 4
 
 /** Sin historial, este orden (cruzado con lo que la persona ve) */
 export const ORDEN_POR_DEFECTO: readonly string[] = ['cold-calling', 'correo', 'agenda', 'chat', 'tareas-clientes', 'rendimiento', 'crm', 'remesas']
@@ -27,16 +27,20 @@ export interface EntradaDePestanas {
   rol: string | null | undefined
   ahora: number
   congeladas?: readonly string[] | null
+  /** «Solo las mías»: sin rellenar los huecos con las más usadas */
+  soloFijadas?: boolean
 }
 
-export function elegirPestanas({ visibles, uso, fijadas, rol, ahora, congeladas }: EntradaDePestanas): string[] {
+export function elegirPestanas({ visibles, uso, fijadas, rol, ahora, congeladas, soloFijadas }: EntradaDePestanas): string[] {
   if (rol === 'cliente') return []
   const candidatas = visibles.filter((id, i) => id !== 'home' && visibles.indexOf(id) === i)
   const cuantas = Math.min(PESTANAS, candidatas.length)
   const vale = new Set(candidatas)
   const fijadasVisibles = fijadas.filter((id) => vale.has(id))
+  // «Solo las mías»: exactamente las elegidas, en su orden
+  if (soloFijadas && fijadasVisibles.length) return fijadasVisibles.slice(0, PESTANAS)
 
-  if (congeladas && congeladas.length === cuantas && new Set(congeladas).size === congeladas.length && congeladas.every((id) => vale.has(id)) && fijadasVisibles.every((id) => congeladas.includes(id))) {
+  if (congeladas && congeladas.length === cuantas && new Set(congeladas).size === congeladas.length && congeladas.every((id) => vale.has(id)) && fijadasVisibles.every((id, i) => congeladas[i] === id)) {
     return [...congeladas]
   }
 

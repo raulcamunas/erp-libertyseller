@@ -3,14 +3,14 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
-import { Check, ChevronDown, Globe, LayoutGrid, Mail, MessagesSquare, PenLine, Pin, Search, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Globe, Home, LayoutGrid, Mail, Menu, MessagesSquare, PenLine, Pin, Plus, Search, X } from 'lucide-react'
 import { getAppById, gruposDelMenuPara, nombreCortoDe, type AppConfig } from '@/lib/config/apps'
 import { armarMenu } from '@/lib/layout/menu'
 import { cuantasApps, fechaEnPalabras, saludoDe } from '@/lib/inicio/saludo'
 import { leerChatSinLeer, leerCorreoSinLeer, leerWebLeadsSinVer, suscribirContadores } from '@/lib/avisos/contadores'
 import { buscarApps } from '@/lib/movil/buscar'
 import { avisarNavegando } from '@/lib/movil/eventos'
-import { EVENTO_USO_CAMBIA, fijadas as leerFijadas, fijar, leerUso, MAX_FIJADAS, ordenarRecientes, soltar } from '@/lib/movil/uso'
+import { EVENTO_USO_CAMBIA, fijadas as leerFijadas, fijar, leerUso, MAX_FIJADAS, moverFijada, ordenarRecientes, ponerSoloFijadas, soloFijadas as leerSoloFijadas, soltar } from '@/lib/movil/uso'
 import { cn } from '@/lib/utils'
 
 /**
@@ -48,10 +48,12 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
   // Recientes y fijadas: del almacenamiento de este navegador, después de montar (en el servidor no hay)
   const [recientesIds, setRecientes] = useState<string[]>([])
   const [fijadasIds, setFijadas] = useState<string[]>([])
+  const [solo, setSolo] = useState(false)
   useEffect(() => {
     const leer = () => {
       setRecientes(ordenarRecientes(leerUso(), 8, ids))
       setFijadas(leerFijadas())
+      setSolo(leerSoloFijadas())
     }
     leer()
     window.addEventListener(EVENTO_USO_CAMBIA, leer)
@@ -142,13 +144,11 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
       if (fijadasIds.includes(app.id)) {
         setFijadas(soltar(app.id))
         setNota(`${nombreCortoDe(app)} ya no está en la barra`)
+      } else if (fijadasIds.length >= MAX_FIJADAS) {
+        setNota(`La barra está llena (caben ${MAX_FIJADAS}): quita una con la × antes de añadir ${nombreCortoDe(app)}`)
       } else {
-        const antes = fijadasIds
-        const nuevas = fijar(app.id)
-        setFijadas(nuevas)
-        const sale = antes.find((x) => !nuevas.includes(x))
-        const salida = sale ? apps.find((a) => a.id === sale) : undefined
-        setNota(salida ? `${nombreCortoDe(app)} en la barra; sale ${nombreCortoDe(salida)} (caben ${MAX_FIJADAS})` : `${nombreCortoDe(app)} fijada en la barra`)
+        setFijadas(fijar(app.id))
+        setNota(`${nombreCortoDe(app)} añadida a la barra`)
       }
       return
     }
@@ -277,9 +277,56 @@ export function InicioMovil({ ids, nombre, className, puesto }: { ids: readonly 
       ) : (
         <>
           {editando && (
-            <p className="im-edicion-ayuda" role="status" aria-live="polite">
-              {nota || `Toca hasta ${MAX_FIJADAS} aplicaciones para tenerlas en la barra de abajo.`}
-            </p>
+            <section className="im-editor" aria-label="Tu barra de abajo">
+              <div className="im-editor-titulo">Tu barra de abajo</div>
+              {/* Cómo queda: Inicio y Más no se mueven; en medio, hasta 4 a tu gusto, en el orden que quieras */}
+              <div className="im-editor-barra">
+                <span className="im-editor-fijo">
+                  <Home aria-hidden />
+                  <span>Inicio</span>
+                </span>
+                {Array.from({ length: MAX_FIJADAS }, (_, n) => {
+                  const app = apps.find((a) => a.id === fijadasIds[n])
+                  if (!app) {
+                    return (
+                      <span key={`hueco-${n}`} className="im-editor-hueco">
+                        <Plus aria-hidden />
+                        <span>{solo ? 'Vacío' : 'Auto'}</span>
+                      </span>
+                    )
+                  }
+                  const Icono = app.icon
+                  return (
+                    <span key={app.id} className="im-editor-hueco" data-lleno="true" style={{ '--im-acento': colorDe.get(app.id) ?? 'var(--ls-acc)' } as CSSProperties}>
+                      <button type="button" className="im-editor-quitar" onClick={() => (setFijadas(soltar(app.id)), setNota(`${nombreCortoDe(app)} ya no está en la barra`))} aria-label={`Quitar ${app.name} de la barra`}>
+                        <X aria-hidden />
+                      </button>
+                      <Icono aria-hidden />
+                      <span>{nombreCortoDe(app)}</span>
+                      <span className="im-editor-mover">
+                        <button type="button" disabled={n === 0} onClick={() => setFijadas(moverFijada(app.id, -1))} aria-label={`Mover ${app.name} a la izquierda`}>
+                          <ChevronLeft aria-hidden />
+                        </button>
+                        <button type="button" disabled={n === fijadasIds.length - 1} onClick={() => setFijadas(moverFijada(app.id, 1))} aria-label={`Mover ${app.name} a la derecha`}>
+                          <ChevronRight aria-hidden />
+                        </button>
+                      </span>
+                    </span>
+                  )
+                })}
+                <span className="im-editor-fijo">
+                  <Menu aria-hidden />
+                  <span>Más</span>
+                </span>
+              </div>
+              <label className="im-editor-auto">
+                <input type="checkbox" checked={!solo} onChange={() => (ponerSoloFijadas(!solo), setSolo(!solo))} />
+                <span>Rellenar los huecos con las que más uso</span>
+              </label>
+              <p className="im-edicion-ayuda" role="status" aria-live="polite">
+                {nota || 'Toca una aplicación de abajo para añadirla (o quitarla). Con las flechas cambias el orden.'}
+              </p>
+            </section>
           )}
 
           {/* Lo que te espera: correo, chat y leads sin ver, a un toque */}
