@@ -1,5 +1,6 @@
 'use client'
 
+import { BotonDeTarea, ProveedorDeTareas } from '@/components/plataforma/TareasDelModulo'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -35,7 +36,7 @@ async function pedir<T>(cuerpo: Record<string, unknown>): Promise<T> {
 
 const dinero = (n: number | null | undefined, moneda: string | null | undefined) => (n == null ? '—' : n.toLocaleString('es-ES', { style: 'currency', currency: moneda || 'EUR' }))
 
-export function PestanaBloqueos({ cliente, mercado, todos }: { cliente: string; mercado: string; todos: boolean }) {
+export function PestanaBloqueos({ cliente, amazonClientId = null, mercado, todos }: { cliente: string; amazonClientId?: string | null; mercado: string; todos: boolean }) {
   const [datos, setDatos] = useState<Respuesta | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(false)
@@ -75,6 +76,8 @@ export function PestanaBloqueos({ cliente, mercado, todos }: { cliente: string; 
   const color = parte >= 0.97 ? COLOR_ESTADO.verde : parte >= 0.9 ? COLOR_ESTADO.ambar : COLOR_ESTADO.rojo
 
   return (
+    // Cada listing bloqueado se puede convertir en una tarea (responsable, fecha, comentarios)
+    <ProveedorDeTareas cliente={amazonClientId} modulo="cumplimiento" refs={(datos.listings ?? []).map((l) => `${l.mercado}|${l.sku}`)}>
     <div className="flex flex-col gap-3 pb-8">
       {/* La cifra que importa: de lo que tiene stock, cuánto se puede comprar */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-[18px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] p-5">
@@ -150,6 +153,7 @@ export function PestanaBloqueos({ cliente, mercado, todos }: { cliente: string; 
         )
       })}
     </div>
+    </ProveedorDeTareas>
   )
 }
 
@@ -203,6 +207,7 @@ function ListaDeBloqueos({ listings, todos }: { listings: ListingBloqueado[]; to
               <button type="button" onClick={() => setVer(ver === clave ? null : clave)} className="text-[12px] text-[var(--ls-t3)] hover:text-[var(--ls-t1)]">
                 {ver === clave ? 'Ocultar' : 'Qué dice Amazon'}
               </button>
+              <BotonDeTarea refId={clave} titulo={`Cumplimiento · ${l.titulo ?? l.sku} (${l.sku}): ${l.queHacer}`} />
             </div>
             {ver === clave && (
               <div className="mt-2 rounded-[10px] bg-[var(--ls-sup2)] p-3 text-[12px] leading-[1.5] text-[var(--ls-t2)]">

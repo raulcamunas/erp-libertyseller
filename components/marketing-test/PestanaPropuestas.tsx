@@ -1,5 +1,6 @@
 'use client'
 
+import { ProveedorDeTareas } from '@/components/plataforma/TareasDelModulo'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -83,7 +84,7 @@ function serieDiaria(ps: readonly Propuesta[], fecha: (p: Propuesta) => string |
  * Ya NO se consulta cada 8 s mientras Amazon prepara el informe: lo recoge el proceso de fondo, y al volver a la pestaña del navegador se relee. Tras aplicar o descartar
  * UNA propuesta se actualiza solo esa (el servidor la devuelve), sin volver a pedir todo.
  */
-export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string; moneda: string | null; irA: (pestana: string) => void }) {
+export function PestanaPropuestas({ perfilId, amazonClientId = null, moneda, irA }: { perfilId: string; amazonClientId?: string | null; moneda: string | null; irA: (pestana: string) => void }) {
   const [datos, setDatos] = useState<Datos | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<string | null>(null)
@@ -345,7 +346,9 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
   let indice = 0
 
   return (
-    // Con la barra del lote abajo (fija), sitio de sobra para que no tape lo último de la lista
+    // Cada propuesta se puede convertir en una tarea (responsable, fecha, comentarios): se piden de una vez las ya enlazadas
+    <ProveedorDeTareas cliente={amazonClientId} modulo="ppc" refs={pendientes.map((p) => p.id)}>
+    {/* Con la barra del lote abajo (fija), sitio de sobra para que no tape lo último de la lista */}
     <div className={`flex flex-col gap-4 ${marcadasLista.length > 0 ? 'pb-40' : 'pb-28'}`}>
       <EstadoDelMotor
         modo={modo}
@@ -620,6 +623,7 @@ export function PestanaPropuestas({ perfilId, moneda, irA }: { perfilId: string;
         {ensayo && <ResultadoDelEnsayo r={ensayo.r} />}
       </PanelLateral>
     </div>
+    </ProveedorDeTareas>
   )
 }
 

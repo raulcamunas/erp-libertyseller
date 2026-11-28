@@ -95,6 +95,13 @@ export function propuestaDeCumplimiento(listings: readonly ListingSuprimido[], h
 /** Para cruzar los clientes del ERP con los de Amazon por el nombre cuando todavía no se han enlazado a mano */
 export const nombreParaCruzar = (n: string): string => sinAcentos(n).replace(/[^a-z0-9]+/g, ' ').trim()
 
+/** El nombre sin espacios ni forma jurídica (LLC, SL, SA, Ltd, Inc, GmbH…), para la segunda pasada de cruzarClientes */
+export const nombreCompacto = (n: string): string =>
+  nombreParaCruzar(n)
+    .split(' ')
+    .filter((p) => !['llc', 'sl', 'slu', 'sa', 'ltd', 'inc', 'gmbh', 'sas', 'srl', 'co'].includes(p))
+    .join('')
+
 export interface ClienteParaCruzar {
   id: string
   nombre: string
@@ -115,5 +122,18 @@ export function cruzarClientes(tareas: ReadonlyArray<ClienteParaCruzar & { amazo
     if (candidatos.length === 1) porAmazon.set(a.id, candidatos[0])
     else sinPareja.push(a)
   }
-  return { porAmazon, sinPareja }
+  // Segunda pasada, para los que se llaman algo distinto en cada sitio («Cobo Family» / «Cobofamily», «Portico LLC» / «Portico», «Tapas Party» /
+  // «Jamones Tapas Party»): sin espacios ni forma jurídica, uno contiene al otro y solo hay UN candidato libre que case
+  const usados = new Set(porAmazon.values())
+  const libres = tareas.filter((t) => !usados.has(t.id)).map((t) => ({ id: t.id, clave: nombreCompacto(t.nombre) }))
+  const quedan: ClienteParaCruzar[] = []
+  for (const a of sinPareja) {
+    const ca = nombreCompacto(a.nombre)
+    const casan = ca.length >= 4 ? libres.filter((t) => t.clave.length >= 4 && !usados.has(t.id) && (t.clave.includes(ca) || ca.includes(t.clave))) : []
+    if (casan.length === 1) {
+      porAmazon.set(a.id, casan[0].id)
+      usados.add(casan[0].id)
+    } else quedan.push(a)
+  }
+  return { porAmazon, sinPareja: quedan }
 }

@@ -199,7 +199,7 @@ function CuerpoDeCuenta({ cuentaId, cliente, cuenta, activa, irA, asin, setAsin 
           <>
             {(activa === 'hoy' || activa === 'productos') && productos.length > 0 && <KpisDeCuenta datos={datos} />}
             {activa === 'hoy' ? (
-              <PestanaSeoHoy cuentaId={cuentaId} datos={datos} irA={(t, a) => irA(t, a)} historial={historial} verBusqueda={verBusqueda} />
+              <PestanaSeoHoy cuentaId={cuentaId} amazonClientId={cliente.amazonClientId ?? null} datos={datos} irA={(t, a) => irA(t, a)} historial={historial} verBusqueda={verBusqueda} />
             ) : activa === 'productos' ? (
               <PestanaSeoProductos cuentaId={cuentaId} datos={datos} recargar={recargar} verBusquedas={(a) => irA('busquedas', a)} verFicha={(a) => irA('ficha', a)} historial={historial} verBusqueda={verBusqueda} verHoy={() => irA('hoy')} verCompetencia={(a) => irA('competencia', a)} />
             ) : activa === 'busquedas' ? (

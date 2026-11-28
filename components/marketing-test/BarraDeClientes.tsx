@@ -21,6 +21,8 @@ const esPais = (c: CuentaDeBarra) => c.pais !== '*'
 export interface ClienteDeBarra {
   slug: string
   nombre: string
+  /** Para enlazar el trabajo con Tareas de clientes */
+  amazonClientId?: string
   cuentas: CuentaDeBarra[]
 }
 

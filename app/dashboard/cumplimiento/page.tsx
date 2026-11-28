@@ -37,7 +37,7 @@ export default async function CumplimientoPage({ searchParams }: { searchParams:
       conCuenta.map(async (c) => {
         const paises = await paisesDeCliente(c.amazonClientId as string).catch(() => [])
         const cuentas = paises.map((p) => ({ id: p.id, pais: p.pais, moneda: null, nombre: p.nombre }))
-        return { slug: c.slug, nombre: c.nombre, cuentas: cuentas.length > 1 ? [{ id: TODOS, pais: '*', moneda: null, nombre: null, etiqueta: 'Todos los países' }, ...cuentas] : cuentas }
+        return { slug: c.slug, nombre: c.nombre, amazonClientId: c.amazonClientId as string, cuentas: cuentas.length > 1 ? [{ id: TODOS, pais: '*', moneda: null, nombre: null, etiqueta: 'Todos los países' }, ...cuentas] : cuentas }
       })
     )
   ).filter((c) => c.cuentas.length > 0)

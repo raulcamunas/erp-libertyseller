@@ -51,7 +51,7 @@ export default async function MarketingTestPage({ searchParams }: { searchParams
 
   // Todos los clientes con sus cuentas, de una vez: la pantalla cambia de cliente y de país sin volver al servidor
   const cuentas = await cuentasDeClientes(clientes.map((c) => c.amazonClientId as string))
-  const paraLaBarra = clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, cuentas: (cuentas.get(c.amazonClientId as string) ?? []).map((x) => ({ id: x.id, pais: x.pais, moneda: x.moneda, nombre: x.nombre })) }))
+  const paraLaBarra = clientes.map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: c.amazonClientId as string, cuentas: (cuentas.get(c.amazonClientId as string) ?? []).map((x) => ({ id: x.id, pais: x.pais, moneda: x.moneda, nombre: x.nombre })) }))
 
   // SIN CLIENTE EN LA URL: el panel de todos (la pantalla de inicio del módulo, vista de pájaro con lo de cada uno)
   if (!uno(searchParams.c)) {

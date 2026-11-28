@@ -1,5 +1,6 @@
 'use client'
 
+import { BotonDeTarea, ProveedorDeTareas } from '@/components/plataforma/TareasDelModulo'
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarClock, CheckCheck, CircleAlert, Info, ListChecks, RotateCcw, TriangleAlert } from 'lucide-react'
 import { COLOR_ESTADO } from '@/lib/estilo/denso'
@@ -46,12 +47,15 @@ export function leerRevisadas(cuentaId: string): Record<string, number> {
  */
 export function PestanaSeoHoy({
   cuentaId,
+  amazonClientId = null,
   datos,
   irA,
   historial,
   verBusqueda,
 }: {
   cuentaId: string
+  /** Para convertir una tarea en una de Tareas de clientes (responsable, fecha, comentarios) */
+  amazonClientId?: string | null
   datos: DatosSeo
   irA: (t: 'productos' | 'busquedas' | 'ficha', asin?: string) => void
   historial?: { filas: ConsultaHistorica[]; gastoSemanal: GastoSemanal[] | null; sinVentas?: Record<string, TramoSinVentas[]> | null; cargando: boolean }
@@ -118,6 +122,7 @@ export function PestanaSeoHoy({
     )
 
   return (
+    <ProveedorDeTareas cliente={amazonClientId} modulo="seo" refs={delProducto.map((t) => `${cuentaId}:${t.id}`)}>
     <div className="flex max-w-[1240px] flex-col gap-3 pb-8">
       <TiraDeCifrasSeo
         cifras={[
@@ -190,7 +195,7 @@ export function PestanaSeoHoy({
       ) : (
         <ul className="flex flex-col gap-2">
           {visibles.map((t) => (
-            <FilaDeTarea key={t.id} t={t} revisada={!!revisadas[t.id]} marcar={(si) => marcar(t.id, si)} irA={irA} />
+            <FilaDeTarea key={t.id} t={t} refId={`${cuentaId}:${t.id}`} revisada={!!revisadas[t.id]} marcar={(si) => marcar(t.id, si)} irA={irA} />
           ))}
         </ul>
       )}
@@ -200,10 +205,11 @@ export function PestanaSeoHoy({
         SOP: los cambios de ficha se aplican en la semana sin pujas (S3), con firma y fecha y guardando el texto anterior; nunca la misma semana que un ajuste de pujas. Como mucho un cambio de título cada 30 días por producto, y 21 días antes de juzgarlo.
       </p>
     </div>
+    </ProveedorDeTareas>
   )
 }
 
-function FilaDeTarea({ t, revisada, marcar, irA }: { t: Tarea; revisada: boolean; marcar: (si: boolean) => void; irA: (tab: 'productos' | 'busquedas' | 'ficha', asin?: string) => void }) {
+function FilaDeTarea({ t, refId, revisada, marcar, irA }: { t: Tarea; refId: string; revisada: boolean; marcar: (si: boolean) => void; irA: (tab: 'productos' | 'busquedas' | 'ficha', asin?: string) => void }) {
   const g = GRAVEDAD[t.gravedad]
   const bloqueada = t.bloqueadaHasta ? new Date(`${t.bloqueadaHasta}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', timeZone: 'UTC' }) : null
   return (
@@ -228,6 +234,7 @@ function FilaDeTarea({ t, revisada, marcar, irA }: { t: Tarea; revisada: boolean
           </div>
         )}
         <div className="mt-[2px] flex flex-wrap items-center gap-2">
+          <BotonDeTarea refId={refId} titulo={`SEO · ${t.titulo}`} />
           <span className="inline-flex h-[22px] items-center rounded-full px-[9px] text-[11px] font-semibold" style={t.quien === 'SEO' ? { color: 'var(--ls-acc)', background: 'color-mix(in srgb, var(--ls-acc) 12%, transparent)' } : { color: 'var(--ls-t2)', background: 'var(--ls-sup2)' }}>
             {t.quien === 'SEO' ? 'Trabajo de SEO' : `Le toca a: ${t.quien}`}
           </span>

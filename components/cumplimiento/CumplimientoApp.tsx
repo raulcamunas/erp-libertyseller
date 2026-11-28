@@ -209,7 +209,7 @@ function Cuerpo({
           ) : activa === 'bloqueos' ? (
             <div className="flex flex-col gap-3">
               <SaludDeLaCuenta key={`salud-${cliente.slug}|${mercado}`} cliente={cliente.slug} mercado={mercado} />
-              <PestanaBloqueos key={`${cliente.slug}|${mercado}`} cliente={cliente.slug} mercado={mercado} todos={mercado === TODOS} />
+              <PestanaBloqueos key={`${cliente.slug}|${mercado}`} cliente={cliente.slug} amazonClientId={cliente.amazonClientId ?? null} mercado={mercado} todos={mercado === TODOS} />
             </div>
           ) : activa === 'hoy' ? (
             <PestanaHoy

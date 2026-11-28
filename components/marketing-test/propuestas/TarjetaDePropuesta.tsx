@@ -1,5 +1,6 @@
 'use client'
 
+import { BotonDeTarea } from '@/components/plataforma/TareasDelModulo'
 import { memo } from 'react'
 import { ArrowRight, Ban, Check, FlaskConical, TriangleAlert, Undo2 } from 'lucide-react'
 import { Boton, Insignia, mezcla, TACTIL_CUADRADO } from '@/components/ui-ls'
@@ -99,6 +100,7 @@ export const TarjetaDePropuesta = memo(function TarjetaDePropuesta({ p, moneda, 
             <span className="max-w-full truncate" title={p.campaignNombre}>
               {p.desdeRol ?? p.campaignNombre}
             </span>
+            {!historial && <BotonDeTarea refId={p.id} titulo={`PPC · ${nombreDePropuesta(p)}: ${p.termino} (${p.campaignNombre})`} />}
             {p.tipo === 'promover' && (
               <>
                 <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />

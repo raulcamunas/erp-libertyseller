@@ -34,7 +34,7 @@ export default async function SeoTestPage({ searchParams }: { searchParams: Reco
   const todos = (await clientesGrowth()).filter((c) => c.amazonClientId)
   const cuentas = await cuentasSeoDeClientes(todos.map((c) => c.amazonClientId as string))
   const clientes = todos
-    .map((c) => ({ slug: c.slug, nombre: c.nombre, cuentas: (cuentas.get(c.amazonClientId as string) ?? []).map((x) => ({ id: x.id, pais: x.pais, moneda: x.moneda, nombre: x.nombre })) }))
+    .map((c) => ({ slug: c.slug, nombre: c.nombre, amazonClientId: c.amazonClientId as string, cuentas: (cuentas.get(c.amazonClientId as string) ?? []).map((x) => ({ id: x.id, pais: x.pais, moneda: x.moneda, nombre: x.nombre })) }))
     .filter((c) => c.cuentas.length > 0)
 
   if (clientes.length === 0) {
