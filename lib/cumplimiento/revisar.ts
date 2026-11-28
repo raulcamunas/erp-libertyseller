@@ -1,3 +1,4 @@
+import { eventosDeIncidencias } from './eventos-incidencias'
 import { createServiceClient } from '@/lib/supabase/service'
 import { fetchAll } from '@/lib/supabase/paginacion'
 import { connectionCredentials } from '@/lib/amazon/data'
@@ -261,6 +262,14 @@ async function procesarTramo(ctx: Contexto, mercado: string, skus: string[]): Pr
 
   await guardar(devueltos)
   await guardar(ausentes)
+
+  // Qué errores se han abierto y cerrado desde la revisión anterior (migración 356): de aquí salen el tiempo de resolución y las abiertas/cerradas por
+  // semana. Si falla (o falta la tabla), la revisión sigue: lo guardado arriba es lo que importa
+  const eventos = eventosDeIncidencias(devueltos as unknown as Array<{ sku: string; asin: string | null; con_stock: boolean; incidencias: Incidencia[] }>, previas, (sku) => ctx.meta.get(clave(mercado, sku))?.id != null, new Date())
+  if (eventos.length > 0) {
+    const { error } = await service.from('cumplimiento_incidencias_eventos').insert(eventos.map((e) => ({ ...e, connection_id: ctx.connectionId, marketplace_id: mercado })))
+    if (error && !/cumplimiento_incidencias_eventos/.test(error.message)) console.error('[cumplimiento] eventos de incidencias:', error.message)
+  }
 
   ctx.leidos += devueltos.length
   ctx.noVinieron += ausentes.length

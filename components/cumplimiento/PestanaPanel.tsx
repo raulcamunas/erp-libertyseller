@@ -77,6 +77,9 @@ export function PestanaPanel({ panel, todos, verPais, verIncidencias, verCodigo,
         </div>
       </div>
 
+      {/* ---- resolución: abiertas y cerradas por semana y cuánto se tarda en cerrar (migración 356) ---- */}
+      {panel.resolucion && panel.resolucion.length > 0 && <Resolucion filas={panel.resolucion} />}
+
       {/* ---- evolución + antigüedad ---- */}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <section className={CAJA.base}>
@@ -325,5 +328,47 @@ function Leyenda({ color, texto }: { color: string; texto: string }) {
       <span className="h-[8px] w-[8px] rounded-[3px]" style={{ background: color }} />
       {texto}
     </span>
+  )
+}
+
+/** Abiertas y cerradas por semana, cuántas de las cerradas tenían stock (ventas recuperadas) y las horas medianas hasta cerrarlas */
+function Resolucion({ filas }: { filas: NonNullable<PanelOk['resolucion']> }) {
+  const tot = filas.reduce((a, f) => ({ abiertas: a.abiertas + f.abiertas, cerradas: a.cerradas + f.cerradas, conStock: a.conStock + f.cerradasConStock }), { abiertas: 0, cerradas: 0, conStock: 0 })
+  const max = Math.max(1, ...filas.map((f) => Math.max(f.abiertas, f.cerradas)))
+  const ult = [...filas].reverse().find((f) => f.horasMediana != null)
+  const horas = (h: number) => (h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} días`)
+  return (
+    <section className={CAJA.base}>
+      <header className={CAJA.cabecera}>
+        <h3 className="text-[13px] font-semibold text-[var(--ls-t1)]">Resolución</h3>
+        <span className="text-[11.5px] text-[var(--ls-t4)]">errores que aparecen y que se arreglan, por semana</span>
+      </header>
+      <div className={`${CAJA.cuerpo} flex flex-col gap-3`}>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { t: 'Abiertas · 8 sem.', v: tot.abiertas.toLocaleString('es-ES'), c: '#F5B942' },
+            { t: 'Cerradas · 8 sem.', v: tot.cerradas.toLocaleString('es-ES'), c: '#34D399' },
+            { t: 'Cerradas con stock', v: tot.conStock.toLocaleString('es-ES'), c: '#34D399' },
+            { t: 'Tiempo hasta cerrar', v: ult?.horasMediana != null ? horas(ult.horasMediana) : '—', c: 'var(--ls-t1)' },
+          ].map((x) => (
+            <div key={x.t} className="rounded-[11px] bg-[var(--ls-sup2)] px-3 py-2">
+              <div className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ls-t4)]">{x.t}</div>
+              <div className="text-[17px] font-semibold tabular-nums" style={{ color: x.c }}>{x.v}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex h-[90px] items-end gap-1.5" aria-label="Abiertas y cerradas por semana">
+          {filas.map((f) => (
+            <div key={f.semana} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`Semana del ${f.semana}: ${f.abiertas} abiertas, ${f.cerradas} cerradas${f.horasMediana != null ? `, mediana ${horas(f.horasMediana)}` : ''}`}>
+              <div className="flex h-[70px] w-full items-end justify-center gap-[2px]">
+                <span className="w-1/2 max-w-[12px] rounded-t-[3px] bg-[#F5B942]" style={{ height: `${(f.abiertas / max) * 100}%` }} />
+                <span className="w-1/2 max-w-[12px] rounded-t-[3px] bg-[#34D399]" style={{ height: `${(f.cerradas / max) * 100}%` }} />
+              </div>
+              <span className="text-[9.5px] tabular-nums text-[var(--ls-t4)]">{new Date(`${f.semana}T00:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   )
 }

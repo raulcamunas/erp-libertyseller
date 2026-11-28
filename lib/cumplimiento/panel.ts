@@ -141,8 +141,15 @@ export async function panelDeCliente(amazonClientId: string, mercado: string | n
       }
     }
 
+    // La resolución por semana (356): si falla o falta, el panel sale igual sin ella
+    const res = await service.rpc('cumplimiento_resolucion', { p_conexiones: ids, p_semanas: 8 })
+    const resolucion = res.error
+      ? []
+      : ((res.data ?? []) as Array<Record<string, unknown>>).map((f) => ({ semana: String(f.semana), abiertas: Number(f.abiertas) || 0, cerradas: Number(f.cerradas) || 0, cerradasConStock: Number(f.cerradas_con_stock) || 0, horasMediana: f.horas_mediana == null ? null : Number(f.horas_mediana) }))
+
     return {
       ok: true,
+      resolucion,
       paises,
       cifras: sumarCifras(elegidos),
       temas,

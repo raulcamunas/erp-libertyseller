@@ -73,6 +73,8 @@ export type PanelDeCumplimiento =
        * veces) y los listings que solo tienen avisos menores no entran en los recuentos.
        */
       exacto: boolean
+      /** Abiertas y cerradas por semana y horas medianas hasta cerrar (migración 356). Vacío sin la migración o sin eventos todavía */
+      resolucion?: Array<{ semana: string; abiertas: number; cerradas: number; cerradasConStock: number; horasMediana: number | null }>
     }
   | { ok: false; faltaMigracion: true }
   | { ok: false; faltaMigracion?: false; error: string }
