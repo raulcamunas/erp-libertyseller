@@ -98,9 +98,10 @@ export default async function TreasuryPage() {
   const employeeCost = buildCostResponse(employeesData, costPeriods, profile.role === 'admin')
 
   return (
-    <div className="flex flex-col h-[var(--alto-util)] lg:h-[calc(100vh-4rem)] min-w-0">
+    // En el móvil, altura natural y la página entera hace scroll (con altura fija solo se movía una caja interior que se quedaba sin sitio: no había forma de bajar)
+    <div className="flex flex-col lg:h-[calc(100vh-4rem)] min-w-0">
       <BarraContabilidad rol={profile.role} />
-      <div className="mb-3 flex-shrink-0">
+      <div className="mb-3 flex-shrink-0 max-lg:hidden">
         <h1 className="heading-medium text-white mb-1">Tesorería</h1>
         <p className="text-white/50 text-sm">
           Lo que factura cada cliente, lo que se va en gastos y lo que queda,
@@ -108,7 +109,7 @@ export default async function TreasuryPage() {
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 min-w-0">
+      <div className="min-w-0 lg:flex-1 lg:min-h-0">
         <TreasuryBoard
           clients={(clients as TreasuryClient[]) || []}
           initialMonths={(monthsRows as TreasuryClientMonth[]) || []}

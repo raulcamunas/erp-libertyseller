@@ -237,7 +237,7 @@ export function PestanaCobros({
                   <thead>
                     <tr>
                       <th className={TABLA.cabecera}>Cliente</th>
-                      <th className={TABLA.cabecera}>Factura</th>
+                      <th className={`${TABLA.cabecera} max-sm:hidden`}>Factura</th>
                       <th className={TABLA.cabecera}>Vence</th>
                       <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Por cobrar</th>
                       <th className={TABLA.cabecera} />
@@ -252,12 +252,16 @@ export function PestanaCobros({
                           <td className={TABLA.celda}>
                             <span className="flex items-center gap-2">
                               <Avatar id={f.clienteId} nombre={f.cliente} tamano={20} />
-                              <span className={`fac-nombre ${TABLA.corta} max-w-[200px] ${TEXTO.t1}`} title={f.cliente}>
-                                {f.cliente}
+                              <span className="flex min-w-0 flex-col">
+                                <span className={`fac-nombre ${TABLA.corta} max-w-[200px] max-sm:max-w-[140px] ${TEXTO.t1}`} title={f.cliente}>
+                                  {f.cliente}
+                                </span>
+                                {/* En el móvil la factura va debajo del cliente (su columna no cabe) */}
+                                <span className={`${TABLA.corta} max-w-[140px] text-[11px] sm:hidden ${TEXTO.t4}`}>{f.numero}</span>
                               </span>
                             </span>
                           </td>
-                          <td className={TABLA.celda}>
+                          <td className={`${TABLA.celda} max-sm:hidden`}>
                             <span className={`${TABLA.corta} max-w-[200px]`} title={f.numero}>
                               {f.numero}
                             </span>
@@ -338,9 +342,9 @@ export function PestanaCobros({
                   <thead>
                     <tr>
                       <th className={TABLA.cabecera}>Concepto</th>
-                      <th className={TABLA.cabecera}>Fecha</th>
-                      <th className={TABLA.cabecera}>Referencia</th>
-                      <th className={TABLA.cabecera}>Cuenta</th>
+                      <th className={`${TABLA.cabecera} max-sm:hidden`}>Fecha</th>
+                      <th className={`${TABLA.cabecera} max-sm:hidden`}>Referencia</th>
+                      <th className={`${TABLA.cabecera} max-sm:hidden`}>Cuenta</th>
                       <th className={`${TABLA.cabecera} ${TABLA.derecha}`}>Importe</th>
                       <th className={TABLA.cabecera} />
                     </tr>
@@ -357,18 +361,24 @@ export function PestanaCobros({
                               <span className="fac-icono !h-5 !w-5">
                                 <Icono className="h-3 w-3" />
                               </span>
-                              <span className={`${TABLA.corta} max-w-[230px] ${TEXTO.t1}`} title={m.concepto}>
-                                {m.concepto || '—'}
+                              <span className="flex min-w-0 flex-col">
+                                <span className={`${TABLA.corta} max-w-[230px] max-sm:max-w-[150px] ${TEXTO.t1}`} title={m.concepto}>
+                                  {m.concepto || '—'}
+                                </span>
+                                {/* En el móvil la fecha y la cuenta van debajo del concepto (sus columnas no caben) */}
+                                <span className={`${TABLA.corta} max-w-[150px] text-[11px] sm:hidden ${TEXTO.t4}`}>
+                                  {fechaCorta(m.fecha)} · {m.cuentaNombre}
+                                </span>
                               </span>
                             </span>
                           </td>
-                          <td className={TABLA.celda}>{fechaCorta(m.fecha)}</td>
-                          <td className={TABLA.celda}>
+                          <td className={`${TABLA.celda} max-sm:hidden`}>{fechaCorta(m.fecha)}</td>
+                          <td className={`${TABLA.celda} max-sm:hidden`}>
                             <span className={`${TABLA.corta} max-w-[110px]`} title={m.referencia}>
                               {m.referencia || '—'}
                             </span>
                           </td>
-                          <td className={TABLA.celda}>
+                          <td className={`${TABLA.celda} max-sm:hidden`}>
                             <span className={`${TABLA.corta} max-w-[150px]`} title={m.cuentaNombre}>
                               {m.cuentaNombre} · {m.moneda}
                             </span>

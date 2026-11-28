@@ -597,7 +597,7 @@ export function TreasuryBoard({
   }
 
   return (
-    <div className="flex flex-col h-full gap-3 min-w-0">
+    <div className="flex flex-col gap-3 min-w-0 lg:h-full">
       {/* ---------------- Lo pactado con cada cliente ----------------
           Arriba del todo y plegado: es la referencia que se consulta antes de
           facturar, no lo que se viene a hacer aquí todos los días. */}
@@ -712,7 +712,7 @@ export function TreasuryBoard({
         ].map((k, i) => (
           <div
             key={k.label}
-            className={`rounded-2xl border px-4 py-3 ${
+            className={`rounded-2xl border px-3 py-2.5 sm:px-4 sm:py-3 ${
               i === 3
                 ? 'border-[#FF6600]/35 bg-gradient-to-br from-[#FF6600]/[0.10] to-white/[0.02]'
                 : 'border-white/10 bg-white/[0.025]'
@@ -733,7 +733,7 @@ export function TreasuryBoard({
                 en curso leído como definitivo se lleva por delante el reparto
                 entre socios. */}
             <p
-              className={`font-bold text-[28px] leading-tight mt-1.5 tabular-nums tracking-tight ${k.tone} ${
+              className={`font-bold text-[21px] sm:text-[28px] leading-tight mt-1 sm:mt-1.5 tabular-nums tracking-tight ${k.tone} ${
                 k.partial ? 'opacity-50' : ''
               }`}
               title={k.partial ? 'Falta por sumar el coste del equipo de este mes' : undefined}
@@ -755,10 +755,10 @@ export function TreasuryBoard({
         ))}
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-3 overflow-y-auto xl:overflow-hidden">
+      <div className="grid grid-cols-1 gap-3 lg:flex-1 lg:min-h-0 lg:overflow-y-auto xl:grid-cols-[1.35fr_1fr] xl:overflow-hidden">
         {/* Clientes */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] flex flex-col min-h-0 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center flex-shrink-0">
+          <div className="px-4 py-2.5 border-b border-white/[0.06] flex flex-wrap items-center gap-y-2 flex-shrink-0">
             <h3 className="text-[11px] font-semibold text-white/55 uppercase tracking-wider flex items-center gap-2">
               Clientes · {periodLabel(period)}
               <button
@@ -770,7 +770,7 @@ export function TreasuryBoard({
                 <Plus className="h-3 w-3" /> Nuevo
               </button>
             </h3>
-            <div className="flex items-center gap-1 mr-auto ml-3">
+            <div className="flex items-center gap-1 mr-auto ml-3 max-sm:order-3 max-sm:ml-0 max-sm:w-full max-sm:overflow-x-auto">
               {([
                 ['todos', 'Todos', visibleClients.length],
                 ['sin_enviar', 'Sin enviar', sinEnviar],

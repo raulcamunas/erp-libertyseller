@@ -94,7 +94,7 @@ export function PanelContabilidad({ esAdmin }: { esAdmin: boolean }) {
       </Tarjeta>
 
       {/* Las cuatro cifras */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <Kpi icono={Wallet} titulo="Por cobrar" valor={importes(r.porCobrar.total)} nota={`${r.porCobrar.facturas} facturas abiertas`} tono="azul" href="/dashboard/facturacion?pestana=cobros" />
         <Kpi icono={Clock3} titulo="Vencido" valor={importes(r.vencidas.total)} nota={`${r.vencidas.facturas} facturas pasadas de fecha`} tono={r.vencidas.facturas ? 'ambar' : 'gris'} href="/dashboard/facturacion?pestana=cobros" />
         <Kpi icono={Banknote} titulo="Cobrado este mes" valor={importes(r.cobradoMes.total)} nota={`${r.cobradoMes.cobros} cobros`} tono="verde" href="/dashboard/facturacion?pestana=cobros" />
@@ -211,7 +211,7 @@ function Esqueleto() {
   return (
     <div className="flex max-w-[1280px] flex-col gap-3">
       <div className="h-[62px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="h-[112px] animate-pulse rounded-2xl bg-[var(--ls-sup)]" />
         ))}

@@ -63,17 +63,17 @@ export function Kpi({
   children?: ReactNode
 }) {
   const cuerpo = (
-    <Tarjeta acento={t} className={`h-full px-4 py-3.5 transition-colors ${href ? 'hover:border-[var(--ls-linea2)]' : ''}`} style={destacado ? { borderColor: velo(t, 45) } : undefined}>
+    <Tarjeta acento={t} className={`h-full px-3 py-3 transition-colors sm:px-4 sm:py-3.5 ${href ? 'hover:border-[var(--ls-linea2)]' : ''}`} style={destacado ? { borderColor: velo(t, 45) } : undefined}>
       <div className="flex items-center gap-2">
-        <span className="grid h-7 w-7 place-items-center rounded-lg" style={{ background: velo(t, 15), color: tono(t) }}>
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg sm:h-7 sm:w-7" style={{ background: velo(t, 15), color: tono(t) }}>
           <Icono className="h-[15px] w-[15px]" />
         </span>
-        <span className="text-[12px] font-medium text-[var(--ls-t3)]">{titulo}</span>
+        <span className="min-w-0 truncate text-[11.5px] font-medium text-[var(--ls-t3)] sm:text-[12px]">{titulo}</span>
       </div>
-      <div className="mt-2.5 text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums" style={{ color: t === 'gris' ? 'var(--ls-t1)' : tono(t) }}>
+      <div className="mt-2 truncate text-[19px] font-semibold leading-none tracking-[-0.02em] tabular-nums sm:mt-2.5 sm:text-[26px]" style={{ color: t === 'gris' ? 'var(--ls-t1)' : tono(t) }}>
         {valor}
       </div>
-      {nota && <div className="mt-1.5 text-[11.5px] text-[var(--ls-t3)]">{nota}</div>}
+      {nota && <div className="mt-1.5 line-clamp-2 text-[10.5px] leading-snug text-[var(--ls-t3)] sm:text-[11.5px]">{nota}</div>}
       {children}
     </Tarjeta>
   )

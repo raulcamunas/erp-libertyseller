@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { BookOpenText, Calculator, FileSpreadsheet, HandCoins, Landmark, Receipt, Scale, type LucideIcon } from 'lucide-react'
@@ -45,6 +45,11 @@ export function BarraContabilidad({ rol }: { rol: string | null | undefined }) {
 function Barra({ rol }: { rol: string | null | undefined }) {
   const ruta = usePathname()
   const q = useSearchParams()
+  const caja = useRef<HTMLElement>(null)
+  // El apartado abierto, a la vista (en el móvil, «Facturas y cobros» o «Bancos» quedaban fuera por la derecha)
+  useEffect(() => {
+    caja.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [ruta, q])
   if (rol !== 'admin' && rol !== 'partner') return null
   const activo = (a: Apartado) => {
     if (a.ruta !== ruta && !(a.ruta !== '/dashboard/contabilidad' && ruta?.startsWith(`${a.ruta}/`))) return false
@@ -52,8 +57,9 @@ function Barra({ rol }: { rol: string | null | undefined }) {
     return true
   }
   return (
-    <nav aria-label="Apartados de contabilidad" className="mb-3 flex min-w-0 items-center gap-3 overflow-x-auto pb-1">
-      <span className="flex shrink-0 items-center gap-2 pr-1">
+    // En el móvil sin el rótulo «Contabilidad» (la barra de arriba ya dice dónde estás): solo los apartados, en una fila que se desliza y con el abierto a la vista
+    <nav ref={caja} aria-label="Apartados de contabilidad" className="mb-3 flex min-w-0 items-center gap-3 overflow-x-auto pb-1 [scrollbar-width:none] max-lg:-mx-4 max-lg:px-4 [&::-webkit-scrollbar]:hidden">
+      <span className="flex shrink-0 items-center gap-2 pr-1 max-lg:hidden">
         <span className="grid h-8 w-8 place-items-center rounded-xl bg-[var(--ls-acc-relleno)] text-[var(--ls-acc-tinta)]">
           <BookOpenText className="h-4 w-4" />
         </span>
