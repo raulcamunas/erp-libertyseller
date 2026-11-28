@@ -410,7 +410,8 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
       }
     >
       <style>{`@keyframes ventas-entra { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
-@keyframes ventas-moneda { 0%, 100% { transform: translateY(0) scale(1); opacity: .55 } 40% { transform: translateY(-9px) scale(1.06); opacity: 1 } 70% { transform: translateY(0) scale(.98); opacity: .8 } }
+@keyframes ventas-trazo { 0% { stroke-dashoffset: 1; opacity: 0 } 12% { opacity: 1 } 70% { stroke-dashoffset: 0; opacity: 1 } 100% { stroke-dashoffset: 0; opacity: 0 } }
+@keyframes ventas-relleno { 0%, 35% { opacity: 0 } 70% { opacity: 1 } 100% { opacity: 0 } }
 @keyframes ventas-brillo { from { background-position: 180% 0 } to { background-position: -80% 0 } }
 .ventas-brillo { background: linear-gradient(90deg, var(--ls-sup2) 25%, color-mix(in srgb, var(--ls-t1) 9%, var(--ls-sup2)) 45%, var(--ls-sup2) 65%); background-size: 260% 100%; animation: ventas-brillo 1.4s ease-in-out infinite; }`}</style>
 
@@ -512,7 +513,7 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
           </div>
           {sinDatos ? (
             <div className="flex h-[260px] items-center justify-center">
-              <ContandoDinero color="#FF8A3D" texto="Dibujando la gráfica…" />
+              <TrazoCargando color="#FF8A3D" alto={200} rejilla />
             </div>
           ) : (
             <GraficaVentas filas={filas} dias={diasGrafica} ivaPct={iva} costes={costes} resaltado={periodoElegido} series={series} />
@@ -540,8 +541,13 @@ export function TableroVentas({ cuentaInicial = null }: { cuentaInicial?: string
           {reparto === 'canal' && cuentaId ? (
             <RepartoPorCanal cuenta={cuentaId} hoy={hoy} mercados={mercados} skus={seleccion} />
           ) : sinDatos ? (
-            <div className="flex h-[180px] items-center justify-center">
-              <ContandoDinero color="#34D399" texto="Repartiendo cada euro…" />
+            <div className="flex h-[180px] flex-col justify-center gap-3" role="status" aria-label="Cargando el reparto">
+              {[82, 64, 46, 30].map((w, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="ventas-brillo h-[10px] w-[22%] rounded-full opacity-70" />
+                  <div className="ventas-brillo h-[14px] rounded-full" style={{ width: `${w * 0.7}%` }} />
+                </div>
+              ))}
             </div>
           ) : (
             tElegido && <RepartoDelDinero t={tElegido} />
@@ -762,9 +768,14 @@ function Baldosa({ contexto, p, i, t, c, comp, ajuste, onAjustar, hoy, serie, ca
         // La MISMA altura que con cifras (así no salta al llegar): «contando el dinero» con monedas que saltan y barras con brillo
         <div className="mt-4 flex flex-col">
           <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
-          <ContandoDinero color={a} />
-          <div className="ventas-brillo mt-[10px] h-[44px] w-full rounded-[10px] opacity-60" />
-          <div className="ventas-brillo mt-2 h-[52px] w-full rounded-[13px]" />
+          <div role="status" aria-label="Cargando las cifras" className="contents">
+            <div className="ventas-brillo mt-1 h-[30px] w-[58%] rounded-[8px]" />
+            <div className="ventas-brillo mt-[9px] h-[14px] w-[34%] rounded-full opacity-70" />
+            <div className="-mx-4 mt-2 sm:-mx-5">
+              <TrazoCargando color={a} alto={44} />
+            </div>
+            <div className="ventas-brillo -mt-1 h-[52px] w-full rounded-[13px] opacity-80" />
+          </div>
         </div>
       ) : (
         <>
@@ -1122,22 +1133,22 @@ function Opcion({ activa, onClick, children }: { activa: boolean; onClick: () =>
   )
 }
 
-/** «Contando el dinero»: tres monedas que saltan una detrás de otra y un número que parpadea. Para cuando aún no han llegado las cifras */
-function ContandoDinero({ color, texto = 'Contando el dinero…' }: { color: string; texto?: string }) {
+/** Mientras llegan las cifras: una línea de ventas que se dibuja sola, con su relleno suave (y la rejilla en la gráfica grande). Sin texto ni monedas */
+function TrazoCargando({ color, alto, rejilla = false }: { color: string; alto: number; rejilla?: boolean }) {
+  const d = 'M0,70 C40,64 70,40 110,46 S170,72 210,58 S280,22 330,30 S400,52 440,38 S500,18 520,22'
   return (
-    <div className="flex h-[38px] items-center gap-3" role="status" aria-live="polite">
-      <div className="flex items-end gap-[5px]" aria-hidden>
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[11px] font-bold"
-            style={{ background: `radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 55%, #fff), ${color})`, color: 'rgba(0,0,0,.55)', boxShadow: `0 4px 12px -4px ${color}`, animation: `ventas-moneda 1.1s ${i * 0.16}s ease-in-out infinite` }}
-          >
-            €
-          </span>
-        ))}
-      </div>
-      <span className="text-[12.5px] text-[var(--ls-t3)]">{texto}</span>
+    <div className="w-full" style={{ height: alto }} role="status" aria-label="Cargando">
+      <svg viewBox="0 0 520 90" preserveAspectRatio="none" className="h-full w-full overflow-visible" aria-hidden>
+        <defs>
+          <linearGradient id={`tc-${color.slice(1)}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor={color} stopOpacity=".22" />
+            <stop offset="1" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {rejilla && [18, 40, 62, 84].map((y) => <line key={y} x1="0" x2="520" y1={y} y2={y} stroke="var(--ls-linea)" strokeWidth="1" vectorEffect="non-scaling-stroke" strokeDasharray="3 5" />)}
+        <path d={`${d} L520,90 L0,90 Z`} fill={`url(#tc-${color.slice(1)})`} style={{ animation: 'ventas-relleno 2.2s ease-in-out infinite' }} />
+        <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke" pathLength={1} strokeDasharray="1" style={{ animation: 'ventas-trazo 2.2s cubic-bezier(.45,0,.25,1) infinite' }} />
+      </svg>
     </div>
   )
 }
