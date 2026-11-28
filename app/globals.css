@@ -5879,9 +5879,9 @@ html.light {
     display: flex; align-items: center; gap: 2px;
     height: calc(var(--cab-alto) + env(safe-area-inset-top, 0px));
     padding: env(safe-area-inset-top, 0px) max(6px, env(safe-area-inset-right, 0px)) 0 max(6px, env(safe-area-inset-left, 0px));
-    /* Casi opaca: con más transparencia, lo que pasaba por debajo al hacer scroll se veía borroso y parecía un fallo */
-    background: color-mix(in srgb, var(--ls-fondo) 96%, transparent);
-    -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px);
+    /* OPACA Y SIN backdrop-filter. En la app instalada del iPhone, el desenfoque del fondo (backdrop-filter) dejaba borroso el CONTENIDO de la propia
+       cabecera (logo, campana, título; 28 nov 2026): Safari rasteriza esa capa a menos resolución. Con un 96 % de opacidad no aportaba nada */
+    background: var(--ls-fondo);
     border-bottom: 1px solid var(--ls-linea);
   }
   /* LA ZONA DEL RELOJ, SÓLIDA. La app instalada en el iPhone usa la barra de estado transparente (black-translucent): sin esto, la página hacía scroll
@@ -5894,7 +5894,7 @@ html.light {
     pointer-events: none;
   }
   /* Tema claro con la app instalada en el iPhone: el reloj de la barra de estado es siempre blanco (black-translucent), así que la franja de la muesca va oscura */
-  html.light .cab-movil { background: linear-gradient(#0F1114 0 env(safe-area-inset-top, 0px), color-mix(in srgb, var(--ls-fondo) 96%, transparent) env(safe-area-inset-top, 0px)); }
+  html.light .cab-movil { background: linear-gradient(#0F1114 0 env(safe-area-inset-top, 0px), var(--ls-fondo) env(safe-area-inset-top, 0px)); }
   /* La barra compacta de CabeceraDeModulo (al hacer scroll) sobra: la cabecera móvil ya enseña el título y quedaría encima de «Atrás» */
   html:has(.cab-movil) .cabecera-compacta { display: none !important; }
   /* iPhone en horizontal: el contenido no se mete bajo la muesca */
