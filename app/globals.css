@@ -5858,12 +5858,22 @@ html.light {
     display: flex; align-items: center; gap: 2px;
     height: calc(var(--cab-alto) + env(safe-area-inset-top, 0px));
     padding: env(safe-area-inset-top, 0px) max(6px, env(safe-area-inset-right, 0px)) 0 max(6px, env(safe-area-inset-left, 0px));
-    background: color-mix(in srgb, var(--ls-fondo) 84%, transparent);
-    -webkit-backdrop-filter: saturate(1.6) blur(16px); backdrop-filter: saturate(1.6) blur(16px);
+    /* Casi opaca: con más transparencia, lo que pasaba por debajo al hacer scroll se veía borroso y parecía un fallo */
+    background: color-mix(in srgb, var(--ls-fondo) 96%, transparent);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px);
     border-bottom: 1px solid var(--ls-linea);
   }
+  /* LA ZONA DEL RELOJ, SÓLIDA. La app instalada en el iPhone usa la barra de estado transparente (black-translucent): sin esto, la página hacía scroll
+     por detrás del reloj y la batería y se veía borroso arriba en toda la app (sobre todo en Tareas y Chat, que no tienen cabecera). En el navegador
+     normal env(safe-area-inset-top) es 0 y no se ve nada */
+  html::before {
+    content: ''; position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    height: env(safe-area-inset-top, 0px);
+    background: #0F1114;
+    pointer-events: none;
+  }
   /* Tema claro con la app instalada en el iPhone: el reloj de la barra de estado es siempre blanco (black-translucent), así que la franja de la muesca va oscura */
-  html.light .cab-movil { background: linear-gradient(#0F1114 0 env(safe-area-inset-top, 0px), color-mix(in srgb, var(--ls-fondo) 84%, transparent) env(safe-area-inset-top, 0px)); }
+  html.light .cab-movil { background: linear-gradient(#0F1114 0 env(safe-area-inset-top, 0px), color-mix(in srgb, var(--ls-fondo) 96%, transparent) env(safe-area-inset-top, 0px)); }
   /* La barra compacta de CabeceraDeModulo (al hacer scroll) sobra: la cabecera móvil ya enseña el título y quedaría encima de «Atrás» */
   html:has(.cab-movil) .cabecera-compacta { display: none !important; }
   /* iPhone en horizontal: el contenido no se mete bajo la muesca */
