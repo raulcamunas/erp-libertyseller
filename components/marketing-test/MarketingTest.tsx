@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, ClipboardSignature, LayoutDashboard, ListTree, Megaphone, Package, Rocket, ScrollText, Sparkles, Workflow } from 'lucide-react'
+import { Bot, ClipboardSignature, LayoutDashboard, ListTree, Megaphone, Package, Rocket, ScrollText, Sparkles, TrendingUp, Workflow } from 'lucide-react'
 import { CAMPO } from '@/lib/estilo/denso'
 import { CabeceraDeModulo, EstadoVacio, Insignia, Pestanas } from '@/components/ui-ls'
 import { nombreDePais } from '@/lib/ads/paises'
@@ -11,6 +11,7 @@ import { PestanaResumen } from './PestanaResumen'
 import { PestanaAgente } from './PestanaAgente'
 import { PestanaCampanas } from './PestanaCampanas'
 import { PestanaPropuestas } from './PestanaPropuestas'
+import { PestanaResultados } from './PestanaResultados'
 import { PestanaFicha } from './PestanaFicha'
 import { PestanaProductos } from './PestanaProductos'
 import { PestanaCrear } from './PestanaCrear'
@@ -27,6 +28,7 @@ interface Props {
 const PESTANAS = [
   { id: 'resumen', nombre: 'Resumen', icono: LayoutDashboard },
   { id: 'agente', nombre: 'Agente', icono: Bot },
+  { id: 'resultados', nombre: 'Resultados', icono: TrendingUp },
   { id: 'campanas', nombre: 'Campañas', icono: ListTree },
   { id: 'flujo', nombre: 'Flujo', icono: Workflow },
   { id: 'propuestas', nombre: 'Propuestas', icono: Sparkles },
@@ -152,6 +154,8 @@ export function MarketingTest({ clientes, clienteInicial, cuentaInicial, pestana
             <PestanaResumen key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
           ) : activa === 'agente' ? (
             <PestanaAgente key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} />
+          ) : activa === 'resultados' ? (
+            <PestanaResultados key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} />
           ) : activa === 'campanas' ? (
             <PestanaCampanas key={cuenta.id} perfilId={cuenta.id} moneda={cuenta.moneda} irA={irAPestana} pais={cuenta.pais} />
           ) : activa === 'flujo' ? (
