@@ -1,7 +1,9 @@
 import type { CSSProperties } from 'react'
 import { ArrowUpRight, LayoutGrid, Sparkles } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import type { AppConfig } from '@/lib/config/apps'
+import { gruposDelMenuPara, type AppConfig } from '@/lib/config/apps'
+import { colorDeSeccion } from '@/lib/inicio/colores'
+import { armarMenu } from '@/lib/layout/menu'
 import { etiquetaDeRol } from '@/lib/inicio/saludo'
 import { InicioMovil } from './InicioMovil'
 import { Saludo } from './Saludo'
@@ -16,6 +18,14 @@ import { TarjetaDeApp } from './TarjetaDeApp'
 export function InicioApps({ nombre, rol, apps, puesto }: { nombre: string; rol: string; apps: AppConfig[]; puesto?: string | null }) {
   const paso = (n: number) => ({ '--d': n }) as CSSProperties
   const enOrbita = apps.slice(0, 5)
+  // Las secciones: las del menú lateral (y del móvil), en su orden
+  const secciones: Array<{ id: string; titulo: string; apps: AppConfig[] }> = []
+  const sueltas: AppConfig[] = []
+  for (const e of armarMenu(apps, gruposDelMenuPara(puesto))) {
+    if (e.tipo === 'app') sueltas.push(e.app)
+    else secciones.push({ id: e.grupo.id, titulo: e.grupo.name, apps: e.apps })
+  }
+  if (sueltas.length) secciones.unshift({ id: 'tus-apps', titulo: 'Tus apps', apps: sueltas })
 
   return (
     <>
@@ -59,22 +69,31 @@ export function InicioApps({ nombre, rol, apps, puesto }: { nombre: string; rol:
         </div>
       </section>
 
-      <div className="inicio-seccion inicio-aparece" style={paso(2)}>
-        <h2>Tus aplicaciones</h2>
-        <span>{apps.length}</span>
-      </div>
-
       {apps.length === 0 ? (
-        <div className="inicio-vacio inicio-aparece" style={paso(3)}>
-          <LayoutGrid className="h-6 w-6" aria-hidden />
-          <p>Todavía no tienes aplicaciones asignadas. Pídele a quien te dio la cuenta que te dé acceso.</p>
-        </div>
+        <>
+          <div className="inicio-seccion inicio-aparece" style={paso(2)}>
+            <h2>Tus aplicaciones</h2>
+            <span>0</span>
+          </div>
+          <div className="inicio-vacio inicio-aparece" style={paso(3)}>
+            <LayoutGrid className="h-6 w-6" aria-hidden />
+            <p>Todavía no tienes aplicaciones asignadas. Pídele a quien te dio la cuenta que te dé acceso.</p>
+          </div>
+        </>
       ) : (
+        // Por secciones, las mismas del menú y del móvil, cada una con su color (Tus apps, Comercial, Contabilidad…)
+        secciones.map((sec, n) => (
+          <section key={sec.id} style={{ '--acento': colorDeSeccion(n) } as CSSProperties}>
+            <div className="inicio-seccion inicio-aparece" style={paso(2 + n)}>
+              <i className="inicio-seccion-punto" aria-hidden />
+              <h2>{sec.titulo}</h2>
+              <span>{sec.apps.length}</span>
+            </div>
         <div className="inicio-rejilla">
-          {apps.map((app, i) => {
+          {sec.apps.map((app, i) => {
             const Icono = app.icon
             return (
-              <TarjetaDeApp key={app.id} href={app.route} indice={i + 3}>
+              <TarjetaDeApp key={app.id} href={app.route} indice={i + 3 + n}>
                 <div className="inicio-icono">
                   <Icono className="h-6 w-6" />
                 </div>
@@ -95,6 +114,8 @@ export function InicioApps({ nombre, rol, apps, puesto }: { nombre: string; rol:
             )
           })}
         </div>
+          </section>
+        ))
       )}
     </div>
     </>

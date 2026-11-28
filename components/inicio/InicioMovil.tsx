@@ -12,6 +12,7 @@ import { buscarApps } from '@/lib/movil/buscar'
 import { avisarNavegando } from '@/lib/movil/eventos'
 import { EVENTO_USO_CAMBIA, fijadas as leerFijadas, fijar, leerUso, MAX_FIJADAS, moverFijada, ordenarRecientes, ponerSoloFijadas, soloFijadas as leerSoloFijadas, soltar } from '@/lib/movil/uso'
 import { cn } from '@/lib/utils'
+import { COLORES_DE_SECCION } from '@/lib/inicio/colores'
 
 /**
  * EL INICIO EN EL MÓVIL: una pantalla de iconos, como la del teléfono, en vez de la columna de tarjetas grandes del escritorio (con 30 aplicaciones,
@@ -28,8 +29,8 @@ import { cn } from '@/lib/utils'
  */
 
 const CLAVE_PLEGADAS = 'erp:movil:secciones-plegadas'
-/** El color de cada sección (en orden): así no es un muro de iconos naranjas iguales y se encuentra antes cada grupo */
-const COLORES = ['#FF8A3D', '#38BDF8', '#A78BFA', '#34D399', '#F5B942', '#FF5C8A', '#2DD4BF', '#818CF8']
+/** El color de cada sección (en orden): así no es un muro de iconos naranjas iguales y se encuentra antes cada grupo (el mismo que en el ordenador) */
+const COLORES = COLORES_DE_SECCION
 
 interface Seccion {
   id: string
