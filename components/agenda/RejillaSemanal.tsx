@@ -275,9 +275,10 @@ export function RejillaSemanal({
 
   return (
     <div ref={contenedorRef} className="min-h-0 flex-1 overflow-auto rounded-[10px] border border-[var(--ls-linea)] bg-[var(--ls-sup)]">
-      <div className={movil ? '' : 'min-w-[880px]'}>
+      {/* En el móvil: sitio abajo para el botón flotante de «Nueva cita», y sin la cabecera del día (ya está en la tira de la semana de arriba) */}
+      <div className={movil ? 'pb-20' : 'min-w-[880px]'}>
         {/* Cabecera de días, pegada arriba al hacer scroll */}
-        <div className="sticky top-0 z-30 grid border-b border-[var(--ls-linea2)] bg-[var(--ls-sup2)]" style={{ gridTemplateColumns: columnas }}>
+        <div className={`sticky top-0 z-30 grid border-b border-[var(--ls-linea2)] bg-[var(--ls-sup2)] ${movil ? 'hidden' : ''}`} style={{ gridTemplateColumns: columnas }}>
           <div />
           {dias.map((d) => {
             const clave = format(d, 'yyyy-MM-dd')

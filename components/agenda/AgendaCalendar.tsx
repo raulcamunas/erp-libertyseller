@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as EventoDePuntero } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as EventoDePuntero, type TouchEvent } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import { addDays, addWeeks, format, getISOWeek, isSameDay } from 'date-fns'
@@ -271,6 +271,35 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
   }, [capas])
   const totalVisible = useMemo(() => [...conteo.values()].reduce((a, b) => a + b, 0), [conteo])
 
+  // MÓVIL: la tira de la semana (los 7 días con sus citas y los colores de quién las tiene)
+  const tiraSemana = useMemo(() => {
+    if (!isMobile) return null
+    const porDia = agruparPorDia(visibles)
+    return days.map((d) => {
+      const propias = (porDia.get(claveDeDia(d)) ?? []).filter((a) => !a.is_external)
+      return { clave: claveDeDia(d), fecha: d, citas: propias.length, colores: propias.map((a) => colorForAgent(a.comercial_id ?? '', team.find((p) => p.id === a.comercial_id)?.calendar_color)) }
+    })
+  }, [isMobile, days, visibles, team])
+  function elegirDia(i: number) {
+    if (i === mobileDayIndex) return
+    setDirection(i > mobileDayIndex ? 1 : -1)
+    setMobileDayIndex(i)
+  }
+  // MÓVIL: deslizar el dedo de lado sobre el calendario cambia de día (como en la agenda del teléfono)
+  const toque = useRef<{ x: number; y: number; t: number } | null>(null)
+  const alEmpezarToque = (e: TouchEvent<HTMLDivElement>) => {
+    if (!isMobile || e.touches.length !== 1) return
+    toque.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }
+  }
+  const alAcabarToque = (e: TouchEvent<HTMLDivElement>) => {
+    const t0 = toque.current
+    toque.current = null
+    if (!t0 || !isMobile || arrastrando) return
+    const dx = e.changedTouches[0].clientX - t0.x
+    const dy = e.changedTouches[0].clientY - t0.y
+    if (Math.abs(dx) > 70 && Math.abs(dy) < 45 && Date.now() - t0.t < 600) step(dx < 0 ? 1 : -1)
+  }
+
   // Citas del ERP por comercial en lo que se ve, aunque su persona esté apagada (es lo que dice la cifra de su pastilla)
   const gente = useMemo<PersonaDeLaLeyenda[]>(() => {
     const dias = new Set(visibleDays.map(claveDeDia))
@@ -537,8 +566,13 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
         onNueva={nuevaCita}
         onAlternarPersona={alternar}
         onAlternarGoogle={() => alternar(GOOGLE)}
+        tiraSemana={tiraSemana}
+        diaElegido={mobileDayIndex}
+        hoy={claveDeDia(now)}
+        onElegirDia={elegirDia}
       />
 
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col" onTouchStart={alEmpezarToque} onTouchEnd={alAcabarToque}>
       <RejillaSemanal
         dias={visibleDays}
         movil={isMobile}
@@ -559,6 +593,7 @@ export function AgendaCalendar({ initialAppointments, semanasIniciales, semanaIn
         onArrastrar={empezarArrastre}
         consumirArrastre={consumirArrastre}
       />
+      </div>
 
       {sheet && (
         <AppointmentSheet
