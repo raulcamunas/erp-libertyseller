@@ -174,7 +174,7 @@ export function PropuestasDeReunion({ cliente, personas, onCerrar, onCreadas, on
                       <div className="flex items-start gap-3">
                         <button type="button" role="checkbox" aria-checked={b.marcada} aria-label={b.marcada ? 'Quitar de las que se crean' : 'Incluir entre las que se crean'} onClick={() => cambiar(p.id, { marcada: !b.marcada })} className="tc-pr-marca" data-on={b.marcada ? 'true' : undefined}><Check className="h-3.5 w-3.5" strokeWidth={3} /></button>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start gap-2">
+                          <div className="tc-pr-fila1 flex items-start gap-2">
                             <input value={b.titulo} onChange={(e) => cambiar(p.id, { titulo: e.target.value })} maxLength={200} aria-label="Título de la tarea" className="tc-pr-titulo" />
                             <label className="tc-pr-pastilla tc-pr-columna" title="Columna donde se crea">
                               <span className="tc-pr-punto" />
