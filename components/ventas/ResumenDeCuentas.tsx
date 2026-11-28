@@ -148,7 +148,8 @@ export function ResumenDeCuentas() {
       icono={Coins}
       debajo={
         <div className="flex flex-wrap items-center gap-2">
-          <Segmentado etiqueta="Periodo" valor={periodo} onCambio={setPeriodo} opciones={PERIODOS} />
+          <Segmentado etiqueta="Periodo" tamano="sm" className="w-full sm:hidden" valor={periodo} onCambio={setPeriodo} opciones={PERIODOS} />
+          <Segmentado etiqueta="Periodo" className="hidden sm:inline-flex" valor={periodo} onCambio={setPeriodo} opciones={PERIODOS} />
           {periodo === 'rango' && (
             <div className="flex items-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 py-[6px] text-[12.5px] text-[var(--ls-t2)]">
               <Calendar className="h-[14px] w-[14px] text-[var(--ls-t4)]" />
@@ -160,10 +161,10 @@ export function ResumenDeCuentas() {
         </div>
       }
       acciones={
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex h-11 items-center gap-2 rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t2)]">
-            <ArrowUpDown className="h-[14px] w-[14px] text-[var(--ls-t4)]" />
-            <select value={orden} onChange={(e) => setOrden(e.target.value as Orden)} className="bg-transparent outline-none">
+        <div className="flex w-full flex-nowrap items-center gap-2 sm:w-auto sm:flex-wrap">
+          <label className="inline-flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] px-3 text-[12.5px] text-[var(--ls-t2)] sm:h-11 sm:flex-none sm:rounded-[13px]">
+            <ArrowUpDown className="h-[14px] w-[14px] shrink-0 text-[var(--ls-t4)]" />
+            <select value={orden} onChange={(e) => setOrden(e.target.value as Orden)} aria-label="Ordenar las cuentas" className="min-w-0 flex-1 bg-transparent outline-none">
               <option value="ventas">Más ventas</option>
               <option value="neto">Más ganancia</option>
               <option value="publicidad">Más publicidad</option>
@@ -171,22 +172,27 @@ export function ResumenDeCuentas() {
               <option value="nombre">Por nombre</option>
             </select>
           </label>
-          <Segmentado
-            etiqueta="Vista"
-            tamano="sm"
-            valor={vista}
-            onCambio={(v) => {
-              setVista(v)
-              try {
-                localStorage.setItem('ventas-resumen-vista', v)
-              } catch {}
-            }}
-            opciones={[
-              { id: 'tarjetas', texto: 'Tarjetas', icono: LayoutGrid },
-              { id: 'tabla', texto: 'Tabla', icono: Rows3 },
-            ]}
-          />
-          <button type="button" onClick={() => setReloj((x) => x + 1)} className="inline-flex h-11 w-11 items-center justify-center rounded-[13px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)]" title="Volver a leer" aria-label="Volver a leer">
+          {/* En el móvil, la vista solo con iconos: así todo cabe en una fila */}
+          {[true, false].map((movil) => (
+            <Segmentado
+              key={String(movil)}
+              etiqueta="Vista: tarjetas o tabla"
+              tamano="sm"
+              className={movil ? 'shrink-0 sm:hidden' : 'hidden sm:inline-flex'}
+              valor={vista}
+              onCambio={(v) => {
+                setVista(v)
+                try {
+                  localStorage.setItem('ventas-resumen-vista', v)
+                } catch {}
+              }}
+              opciones={[
+                { id: 'tarjetas', texto: movil ? '' : 'Tarjetas', icono: LayoutGrid },
+                { id: 'tabla', texto: movil ? '' : 'Tabla', icono: Rows3 },
+              ]}
+            />
+          ))}
+          <button type="button" onClick={() => setReloj((x) => x + 1)} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border border-[var(--ls-linea)] bg-[var(--ls-sup)] text-[var(--ls-t2)] hover:text-[var(--ls-t1)] sm:h-11 sm:w-11 sm:rounded-[13px]" title="Volver a leer" aria-label="Volver a leer">
             {cargando ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <RefreshCw className="h-[14px] w-[14px]" />}
           </button>
         </div>
@@ -195,18 +201,18 @@ export function ResumenDeCuentas() {
       {error && <p className="mb-4 rounded-[12px] border border-[color-mix(in_srgb,#F87171_40%,transparent)] px-4 py-3 text-[12.5px] text-[#F87171]">{error}</p>}
 
       {/* Lo de todas juntas */}
-      <div className={`${TARJETA} relative mb-5 overflow-hidden p-5`}>
+      <div className={`${TARJETA} relative mb-3 overflow-hidden p-4 sm:mb-5 sm:p-5`}>
         <div aria-hidden className="pointer-events-none absolute -right-16 -top-24 h-[240px] w-[420px] rounded-full opacity-[0.16] blur-[80px]" style={{ background: 'linear-gradient(90deg,#F26212,#A78BFA)' }} />
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3 sm:gap-4">
           <div>
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Todas las cuentas · {PERIODOS.find((p) => p.id === periodo)?.texto}</div>
-            <CifraAnimada valor={total?.ventas ?? 0} formato={(v) => euros(v)} className="mt-1 block text-[38px] font-semibold leading-none tracking-[-0.04em] tabular-nums text-[var(--ls-t1)]" />
-            <div className="mt-2 flex items-center gap-2 text-[12px] text-[var(--ls-t4)]">
+            <CifraAnimada valor={total?.ventas ?? 0} formato={(v) => euros(v)} className="mt-1 block text-[30px] font-semibold leading-none tracking-[-0.04em] tabular-nums text-[var(--ls-t1)] sm:text-[38px]" />
+            <div className="mt-[6px] flex items-center gap-2 text-[11.5px] text-[var(--ls-t4)] sm:mt-2 sm:text-[12px]">
               <Chip actual={total?.ventas ?? 0} anterior={totalComp?.ventas} />
               <span>{r.texto}</span>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="grid w-full grid-cols-3 gap-[6px] sm:w-auto sm:grid-cols-5 sm:gap-2">
             <Cifra texto="Unidades" valor={entero(total?.unidades ?? 0)} delta={<Chip actual={total?.unidades ?? 0} anterior={totalComp?.unidades} />} />
             <Cifra texto="Reembolsos" valor={entero(total?.reembolsos ?? 0)} color={total?.reembolsos ? ROJO : undefined} delta={<Chip actual={total?.reembolsos ?? 0} anterior={totalComp?.reembolsos} inverso />} />
             <Cifra texto="Publicidad" valor={euros(-(total?.publicidad ?? 0))} delta={<Chip actual={total?.publicidad ?? 0} anterior={totalComp?.publicidad} inverso />} />
@@ -223,7 +229,7 @@ export function ResumenDeCuentas() {
           ))}
         </div>
       ) : vista === 'tarjetas' ? (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1400px]:grid-cols-4">
+        <div className="grid grid-cols-1 gap-[10px] sm:gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1400px]:grid-cols-4">
           {filas.map(({ c, r: x }, i) => (
             <TarjetaCuenta key={c.id} c={c} r={x} i={i} />
           ))}
@@ -243,12 +249,12 @@ function sumar(ts: Array<Totales | null>): Totales | null {
 
 function Cifra({ texto, valor, color, delta }: { texto: string; valor: string; color?: string; delta?: React.ReactNode }) {
   return (
-    <div className="min-w-[110px] rounded-[14px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] px-3 py-[9px]">
-      <div className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--ls-t4)]">{texto}</div>
-      <div className="whitespace-nowrap text-[16px] font-semibold tabular-nums" style={{ color: color ?? 'var(--ls-t1)' }}>
+    <div className="min-w-0 rounded-[11px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] px-[9px] py-[6px] sm:min-w-[110px] sm:rounded-[14px] sm:px-3 sm:py-[9px]">
+      <div className="truncate text-[8.5px] font-semibold uppercase tracking-[0.1em] text-[var(--ls-t4)] sm:text-[9.5px] sm:tracking-[0.12em]">{texto}</div>
+      <div className="truncate whitespace-nowrap text-[13.5px] font-semibold tabular-nums sm:text-[16px]" style={{ color: color ?? 'var(--ls-t1)' }}>
         {valor}
       </div>
-      <div className="h-[15px] [&_*]:!text-[10.5px]">{delta}</div>
+      <div className="h-[14px] [&_*]:!text-[10px] sm:h-[15px] sm:[&_*]:!text-[10.5px]">{delta}</div>
     </div>
   )
 }
@@ -272,7 +278,7 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
   const t = r?.t
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: Math.min(i, 12) * 0.04, ease: [0.2, 0.8, 0.2, 1] }}>
-      <Link href={`/dashboard/ventas?cuenta=${c.id}`} className={`${TARJETA} group relative block overflow-hidden p-4 transition-transform duration-200 hover:-translate-y-[2px]`}>
+      <Link href={`/dashboard/ventas?cuenta=${c.id}`} className={`${TARJETA} group relative block overflow-hidden p-[14px] transition-transform duration-200 hover:-translate-y-[2px] sm:p-4`}>
         <div aria-hidden className="pointer-events-none absolute -right-10 -top-16 h-[160px] w-[240px] rounded-full opacity-[0.14] blur-[60px] transition-opacity group-hover:opacity-[0.24]" style={{ background: a }} />
         <div className="flex items-center gap-3">
           <Emoji c={c} />
@@ -282,12 +288,12 @@ function TarjetaCuenta({ c, r, i }: { c: CuentaDelPanel; r: ResumenDeCuenta | nu
           </div>
           {c.estado.error && <span className="h-2 w-2 shrink-0 rounded-full bg-[#F87171]" title={c.estado.error} />}
         </div>
-        <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)]">Ventas</div>
+        <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ls-t4)] sm:mt-3">Ventas</div>
         <div className="flex items-baseline gap-2">
-          <CifraAnimada valor={t?.ventas ?? 0} formato={(v) => euros(v)} className="text-[23px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)]" />
+          <CifraAnimada valor={t?.ventas ?? 0} formato={(v) => euros(v)} className="text-[21px] font-semibold leading-none tracking-[-0.035em] tabular-nums text-[var(--ls-t1)] sm:text-[23px]" />
           {t && <Chip actual={t.ventas} anterior={r?.c?.ventas} />}
         </div>
-        <div className="-mx-4 mt-1">
+        <div className="-mx-[14px] mt-1 sm:-mx-4">
           <MiniArea valores={r?.serie ?? []} color={a} id={`rc-${c.id.slice(0, 8)}`} viva alto={34} />
         </div>
         <div className="mt-1 grid grid-cols-4 divide-x divide-[color-mix(in_srgb,var(--ls-t1)_7%,transparent)] rounded-[11px] border border-[color-mix(in_srgb,var(--ls-t1)_6%,transparent)] bg-[color-mix(in_srgb,var(--ls-sup2)_72%,transparent)] py-[6px]">
